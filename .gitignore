@@ -1,0 +1,20 @@
+# 构建产物
+bin/
+*.exe
+
+# 截图（调试用临时文件）
+screenshot*.png
+
+# Go 工具链
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Windows
+Thumbs.db
+desktop.ini

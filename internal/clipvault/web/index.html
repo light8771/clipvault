@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClipVault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <div class="nav-brand">
+        <div class="brand-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+            <rect x="9" y="3" width="6" height="4" rx="1"/>
+            <path d="M9 12h6M9 16h4"/>
+          </svg>
+        </div>
+        <span class="brand-name">ClipVault</span>
+        <div class="status-pill">
+          <div class="dot" id="dot"></div>
+          <span class="st" id="st">-</span>
+        </div>
+      </div>
+      <div class="nav-center">
+        <button class="nav-tab active" id="tabHistory" onclick="switchView('history')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          历史
+        </button>
+        <button class="nav-tab" id="tabSettings" onclick="switchView('settings')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+          设置
+        </button>
+      </div>
+      <div class="nav-right">
+        <span class="count-badge" id="badge">0</span>
+        <button class="btn-toggle" id="tog">
+          <svg class="tog-icon" id="togIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/>
+          </svg>
+          <span id="togTx">暂停</span>
+        </button>
+        <button class="btn-clear" id="clearBtn" title="清除全部历史">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          <span id="clearTx">清除</span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── 历史视图 ── -->
+  <main id="viewHistory">
+    <div class="search-wrap">
+      <div class="search-box">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input id="q" type="search" placeholder="搜索剪切板历史..." autocomplete="off" autofocus>
+        <kbd class="search-kbd">Ctrl K</kbd>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="filter-group" id="kindFilters">
+        <button class="filter-chip active" data-kind="">全部</button>
+        <button class="filter-chip" data-kind="__starred__">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          收藏
+        </button>
+        <button class="filter-chip" data-kind="text">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+          文本
+        </button>
+        <button class="filter-chip" data-kind="image">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+          图片
+        </button>
+        <button class="filter-chip" data-kind="video">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          视频
+        </button>
+        <button class="filter-chip" data-kind="archive">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+          压缩包
+        </button>
+        <button class="filter-chip" data-kind="office">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Office
+        </button>
+        <button class="filter-chip" data-kind="files">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          其他文件
+        </button>
+      </div>
+      <div class="ctrl-right">
+        <select id="pagesize" class="limit-select">
+          <option value="50">50/页</option>
+          <option value="100">100/页</option>
+          <option value="200">200/页</option>
+        </select>
+        <label class="ar-toggle">
+          <input type="checkbox" id="ar">
+          <span>自动刷新</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="date-filter-bar" id="dateFilterBar">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted);flex-shrink:0"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span class="dfb-label">日期</span>
+      <input type="date" id="dateFrom" class="date-input">
+      <span class="dfb-sep">—</span>
+      <input type="date" id="dateTo" class="date-input">
+      <button id="clearDateBtn" class="btn-date-clear hidden">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        清除
+      </button>
+    </div>
+
+    <div class="list-meta">
+      <span id="rc" class="result-count">加载中...</span>
+    </div>
+
+    <section class="list" id="list">
+      <div class="loading">
+        <div class="spinner"></div>
+        <span>加载中...</span>
+      </div>
+    </section>
+
+    <div class="pagination hidden" id="pagination">
+      <button class="page-btn" id="prevBtn" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        上一页
+      </button>
+      <span class="page-info" id="pageInfo"></span>
+      <button class="page-btn" id="nextBtn">
+        下一页
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+  </main>
+
+  <!-- ── 设置视图 ── -->
+  <main id="viewSettings" class="hidden">
+    <div class="settings-layout">
+
+      <!-- 左侧导航 -->
+      <aside class="settings-sidebar">
+        <nav class="settings-nav">
+          <button class="snav-item active" id="snav-general" onclick="snavTo('s-general','snav-general')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            <span>基本</span>
+          </button>
+          <button class="snav-item" id="snav-hotkey" onclick="snavTo('s-hotkey','snav-hotkey')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h4M18 12h.01M6 16h12"/></svg>
+            <span>热键</span>
+          </button>
+          <button class="snav-item" id="snav-filter" onclick="snavTo('s-filter','snav-filter')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>过滤</span>
+          </button>
+          <button class="snav-item" id="snav-service" onclick="snavTo('s-service','snav-service')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            <span>服务</span>
+          </button>
+          <div class="snav-sep"></div>
+          <button class="snav-item" id="snav-export" onclick="snavTo('s-export','snav-export')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>导出</span>
+          </button>
+        </nav>
+      </aside>
+
+      <!-- 右侧内容 -->
+      <div class="settings-content">
+
+        <!-- 基本设置 -->
+        <section class="ssec" id="s-general">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">基本设置</h2>
+              <p class="ssec-desc">配置剪贴板记录行为与数据限制</p>
+            </div>
+          </div>
+          <div class="ssec-fields">
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-maxTextChars">最大文字长度</label>
+                <p class="field-hint">超过此长度的文本不会被记录；填 0 表示不限制</p>
+              </div>
+              <input type="number" id="cfg-maxTextChars" class="field-input field-input-sm" min="0" max="100000" step="100" placeholder="0">
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-maxFileDropPaths">最大文件路径数</label>
+                <p class="field-hint">文件拖放时最多记录的路径条数；填 0 表示不限制</p>
+              </div>
+              <input type="number" id="cfg-maxFileDropPaths" class="field-input field-input-sm" min="0" max="1000">
+            </div>
+          </div>
+        </section>
+
+        <div class="ssec-sep"></div>
+
+        <!-- 热键设置 -->
+        <section class="ssec" id="s-hotkey">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h4M18 12h.01M6 16h12"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">热键设置</h2>
+              <p class="ssec-desc">设置全局快捷键，变更后需重启应用生效</p>
+            </div>
+          </div>
+          <div class="ssec-fields">
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">启用全局热键</label>
+                <p class="field-hint">热键用于快速暂停/恢复录制</p>
+              </div>
+              <label class="toggle-label">
+                <input type="checkbox" id="cfg-hotkey-enabled" class="toggle-cb">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <div class="field-row" id="hotkeyDetail">
+              <div class="field-info">
+                <label class="field-label">修饰键</label>
+                <p class="field-hint">选择一个或多个修饰键组合</p>
+              </div>
+              <div class="mod-group">
+                <label class="mod-btn"><input type="checkbox" value="ctrl"> Ctrl</label>
+                <label class="mod-btn"><input type="checkbox" value="alt"> Alt</label>
+                <label class="mod-btn"><input type="checkbox" value="shift"> Shift</label>
+                <label class="mod-btn"><input type="checkbox" value="win"> Win</label>
+              </div>
+            </div>
+            <div class="field-row" id="hotkeyKey">
+              <div class="field-info">
+                <label class="field-label" for="cfg-hotkey-key">键</label>
+                <p class="field-hint">输入单个字母或功能键，如 P、F1</p>
+              </div>
+              <input type="text" id="cfg-hotkey-key" class="field-input field-input-sm" maxlength="10" placeholder="P">
+            </div>
+          </div>
+        </section>
+
+        <div class="ssec-sep"></div>
+
+        <!-- 敏感内容过滤 -->
+        <section class="ssec" id="s-filter">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">敏感内容过滤</h2>
+              <p class="ssec-desc">匹配以下正则表达式的内容将被跳过，不予记录</p>
+            </div>
+          </div>
+          <div class="ssec-body">
+            <div class="pattern-hint">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>每行填一条正则表达式，内容匹配则跳过记录。示例：<code>^\d{6}$</code> 过滤6位纯数字；<code>password|token</code> 过滤含敏感词的内容；<code>(?i)secret</code> 大小写不敏感匹配。</span>
+            </div>
+            <div id="patternList" class="pattern-list"></div>
+            <button class="btn-add-pattern" id="addPatternBtn">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              添加过滤规则
+            </button>
+          </div>
+        </section>
+
+        <div class="ssec-sep"></div>
+
+        <!-- 服务设置 -->
+        <section class="ssec" id="s-service">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">服务设置</h2>
+              <p class="ssec-desc">配置 Web 服务监听地址，修改后需重启应用生效</p>
+            </div>
+          </div>
+          <div class="ssec-fields">
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-listenAddr">Web 监听地址</label>
+                <p class="field-hint">修改后需重启应用生效</p>
+              </div>
+              <input type="text" id="cfg-listenAddr" class="field-input" style="width:180px" placeholder="127.0.0.1:18765">
+            </div>
+          </div>
+        </section>
+
+        <!-- 保存操作栏 -->
+        <div class="settings-save-bar">
+          <button class="btn-save" id="saveBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="saveTx">保存设置</span>
+          </button>
+          <p class="save-hint">热键、监听地址变更需重启后生效；过滤规则和文字限制即时生效</p>
+        </div>
+
+        <div class="ssec-sep"></div>
+
+        <!-- 导出 -->
+        <section class="ssec" id="s-export">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">导出</h2>
+              <p class="ssec-desc">将配置或剪贴板记录保存到本地文件</p>
+            </div>
+          </div>
+          <div class="ssec-body">
+            <div class="export-group">
+              <div class="export-item">
+                <div>
+                  <div class="export-title">导出配置</div>
+                  <div class="export-desc">将当前设置保存为 JSON 文件</div>
+                </div>
+                <button class="btn-export" onclick="doExport('config')">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  下载
+                </button>
+              </div>
+              <div class="export-item">
+                <div>
+                  <div class="export-title">导出剪切板记录（JSON）</div>
+                  <div class="export-desc">导出全部记录，包含元数据和内容</div>
+                </div>
+                <button class="btn-export" onclick="doExport('data-json')">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  JSON
+                </button>
+              </div>
+              <div class="export-item">
+                <div>
+                  <div class="export-title">导出剪切板记录（CSV）</div>
+                  <div class="export-desc">导出全部记录，可用 Excel 等工具打开</div>
+                </div>
+                <button class="btn-export" onclick="doExport('data-csv')">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- end settings-content -->
+    </div><!-- end settings-layout -->
+  </main>
+
+  <!-- ── 内容预览弹窗 ── -->
+  <div class="modal-overlay hidden" id="viewModal" onclick="closeModal()">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <span class="modal-title" id="modalTitle">内容预览</span>
+        <div class="modal-acts">
+          <button class="ab cp" id="modalCopyBtn" onclick="modalCopy()">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制
+          </button>
+          <button class="modal-close" onclick="closeModal()" title="关闭">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <pre class="modal-pre" id="modalPre"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="tc" id="tc"></div>
+  <script src="/script.js"></script>
+</body>
+</html>
