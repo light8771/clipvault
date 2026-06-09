@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,16 @@ func main() {
 	clipvault.IconPNG = iconPNG
 
 	if err := run(os.Args[1:]); err != nil {
+		// -H windowsgui 编译时没有控制台，Stderr 输出会丢失。
+		// 把启动错误写入 exe 同目录的 error.log，方便排查开机自启等问题。
+		if exe, exeErr := os.Executable(); exeErr == nil {
+			logPath := filepath.Join(filepath.Dir(exe), "error.log")
+			f, fErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+			if fErr == nil {
+				fmt.Fprintf(f, "[%s] clipvault: %v\n", time.Now().Format(time.RFC3339), err)
+				f.Close()
+			}
+		}
 		_, _ = fmt.Fprintf(os.Stderr, "clipvault: %v\n", err)
 		os.Exit(1)
 	}

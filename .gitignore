@@ -18,3 +18,6 @@ screenshot*.png
 # Windows
 Thumbs.db
 desktop.ini
+
+# 启动错误日志（兜底）
+error.log
