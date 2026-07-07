@@ -3,7 +3,11 @@
 package clipvault
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -129,6 +133,10 @@ func readFileDropClipboard(cfg Config) (*ClipboardSnapshot, error) {
 		"storedPaths": len(paths),
 		"truncated":   int(count) > len(paths),
 	}
+	fileHashes := computeFileHashes(paths)
+	if len(fileHashes) > 0 {
+		meta["fileHashes"] = fileHashes
+	}
 	return &ClipboardSnapshot{
 		Kind:    classifyFileDropKind(paths),
 		Format:  "CF_HDROP",
@@ -197,4 +205,30 @@ func utf16PtrToString(raw []uint16) string {
 		}
 	}
 	return string(utf16.Decode(raw))
+}
+
+// computeFileHashes computes MD5 hashes of file contents for the given paths.
+// Uses MD5 for speed. Files that cannot be read (missing, permission denied, etc.)
+// are skipped. Directory paths are also skipped.
+// Returns a map of path -> MD5 hex string.
+func computeFileHashes(paths []string) map[string]string {
+	hashes := make(map[string]string, len(paths))
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		h := md5.New()
+		if _, err := io.Copy(h, f); err != nil {
+			f.Close()
+			continue
+		}
+		f.Close()
+		hashes[p] = hex.EncodeToString(h.Sum(nil))
+	}
+	return hashes
 }

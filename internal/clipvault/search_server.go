@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +52,9 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /api/export/data", s.handleExportData)
 	mux.HandleFunc("GET /style.css", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
+	mux.HandleFunc("GET /api/file/check", s.handleFileCheck)
+	mux.HandleFunc("GET /api/file", s.handleFileServe)
+	mux.HandleFunc("POST /api/file/opendir", s.handleFileOpenDir)
 
 	host, portStr, _ := net.SplitHostPort(cfg.Search.ListenAddr)
 	if host == "" {
@@ -290,6 +295,56 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	s.logger.Info("data_exported", map[string]any{"format": format, "total": len(items)})
+}
+
+// handleFileCheck checks if a file exists and returns its metadata.
+func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if p == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(p)
+	resp := map[string]any{"exists": false}
+	if err == nil && !info.IsDir() {
+		resp["exists"] = true
+		resp["size"] = info.Size()
+		resp["name"] = filepath.Base(p)
+		resp["ext"] = strings.ToLower(filepath.Ext(p))
+	}
+	s.writeJSON(w, resp)
+}
+
+// handleFileServe serves a file for inline viewing or download.
+func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if p == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(p)
+	if err != nil || info.IsDir() {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
+	}
+	http.ServeFile(w, r, p)
+}
+
+// handleFileOpenDir opens the file's containing directory in the system file explorer.
+func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if p == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	if err := openFolderAndSelectItem(p); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {

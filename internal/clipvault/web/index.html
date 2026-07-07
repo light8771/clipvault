@@ -97,11 +97,6 @@
         </button>
       </div>
       <div class="ctrl-right">
-        <select id="pagesize" class="limit-select">
-          <option value="50">50/页</option>
-          <option value="100">100/页</option>
-          <option value="200">200/页</option>
-        </select>
         <label class="ar-toggle">
           <input type="checkbox" id="ar">
           <span>自动刷新</span>
@@ -138,6 +133,24 @@
         上一页
       </button>
       <span class="page-info" id="pageInfo"></span>
+      <div class="pagesize-combo" id="pagesizeCombo">
+        <input type="number" id="pagesize" class="pagesize-input" value="50" min="10" max="500" />
+        <button class="pagesize-dropdown-btn" id="pagesizeDropdownBtn" type="button">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="pagesize-dropdown" id="pagesizeDropdown">
+          <div class="pagesize-opt" data-val="20">20/页</div>
+          <div class="pagesize-opt" data-val="50">50/页</div>
+          <div class="pagesize-opt" data-val="100">100/页</div>
+          <div class="pagesize-opt" data-val="200">200/页</div>
+          <div class="pagesize-opt" data-val="500">500/页</div>
+        </div>
+        <span class="pagesize-suffix">/页</span>
+      </div>
+      <span class="page-jump">
+        <input type="number" id="pageJumpInput" class="page-jump-input" min="1" value="1" />
+        <button class="page-jump-btn" id="pageJumpBtn">跳转</button>
+      </span>
       <button class="page-btn" id="nextBtn">
         下一页
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>

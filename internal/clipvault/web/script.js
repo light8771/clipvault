@@ -15,6 +15,9 @@
   let currentPage = 0, totalCount = 0;
   let filterDateFrom = '', filterDateTo = '';
   const items = new Map();
+  const filePaths = new Map();
+  const NON_TEXT_KINDS = ['image','video','archive','office','files'];
+  const IMAGE_EXTS = ['jpg','jpeg','png','gif','bmp','webp','svg','ico','tiff','tif','heic','heif','avif'];
 
   // ── View switch ───────────────────────────────────────────
   window.switchView = function(view) {
@@ -43,10 +46,11 @@
     el.textContent = msg;
     TC.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
+    const duration = type === 'err' ? 5000 : 2200;
     setTimeout(() => {
       el.classList.remove('show');
       setTimeout(() => el.remove(), 260);
-    }, 2200);
+    }, duration);
   }
 
   // ── Utils ─────────────────────────────────────────────────
@@ -153,8 +157,37 @@
     const item = items.get(id);
     if (!item) return;
     currentModalId = id;
-    MODAL_PRE.textContent = item.text;
-    MODAL_TITLE.textContent = '内容预览 · #' + id;
+    const kindKey = item.kind || 'text';
+
+    if (isNonTextKind(kindKey)) {
+      const paths = item.text.split('\n').filter(Boolean);
+      MODAL_TITLE.textContent = '文件列表 · #' + id;
+      MODAL_PRE.style.display = 'none';
+      let preview = document.getElementById('modalFilePreview');
+      if (!preview) {
+        preview = document.createElement('div');
+        preview.id = 'modalFilePreview';
+        preview.className = 'modal-file-preview';
+        document.querySelector('.modal-body').appendChild(preview);
+      }
+      preview.style.display = 'flex';
+      preview.innerHTML = paths.map((p) => {
+        const name = getBaseName(p);
+        const ext = getExt(name);
+        const isImg = IMAGE_EXTS.includes(ext);
+        return '<div class="modal-file-item">' +
+          (isImg ? '<img src="/api/file?path=' + encodeURIComponent(p) + '" loading="lazy" alt="' + esc(name) + '" onerror="this.style.display=\'none\'">' : '') +
+          '<div class="modal-file-name">' + esc(name) + '</div>' +
+          '<div class="modal-file-path">' + esc(p) + '</div>' +
+        '</div>';
+      }).join('');
+    } else {
+      MODAL_TITLE.textContent = '内容预览 · #' + id;
+      MODAL_PRE.style.display = 'block';
+      MODAL_PRE.textContent = item.text;
+      const preview = document.getElementById('modalFilePreview');
+      if (preview) preview.style.display = 'none';
+    }
     VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   }
@@ -162,6 +195,9 @@
   window.closeModal = function() {
     VIEW_MODAL.classList.add('hidden');
     document.body.style.overflow = '';
+    MODAL_PRE.style.display = 'block';
+    const preview = document.getElementById('modalFilePreview');
+    if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
   };
 
   window.modalCopy = async function() {
@@ -190,12 +226,136 @@
     files:   '其他文件',
   };
 
+  // ── File helpers ──────────────────────────────────────────
+  function isNonTextKind(k) { return NON_TEXT_KINDS.includes(k); }
+  function getBaseName(p) { const m = p.match(/[\\/]?([^\\/]+)$/); return m ? m[1] : p; }
+  function getExt(name) { const m = name.match(/\.([^./\\]+)$/); return m ? m[1].toLowerCase() : ''; }
+  function formatSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1073741824).toFixed(2) + ' GB';
+  }
+  function fileIconHTML() {
+    return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+  }
+
+  const dlHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载';
+  const dirHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> 目录';
+
+  function renderFileList(it) {
+    const paths = it.text.split('\n').filter(Boolean);
+    filePaths.set(it.id, paths);
+    return '<div class="file-list">' + paths.map((p, idx) => {
+      const name = getBaseName(p);
+      const ext = getExt(name);
+      const isImg = IMAGE_EXTS.includes(ext);
+      return '<div class="file-row" id="frow-' + it.id + '-' + idx + '">' +
+        (isImg ? '<div class="file-thumb" id="fthumb-' + it.id + '-' + idx + '"></div>' : '<div class="file-icon">' + fileIconHTML() + '</div>') +
+        '<div class="file-info">' +
+          '<div class="file-name">' + esc(name) + '</div>' +
+          '<div class="file-path">' + esc(p) + '</div>' +
+          '<div class="file-status" id="fstat-' + it.id + '-' + idx + '"><span class="fcheck">检查中...</span></div>' +
+        '</div>' +
+        '<div class="file-actions">' +
+          '<button class="ab dl" onclick="doDownload(' + it.id + ',' + idx + ')" id="fdl-' + it.id + '-' + idx + '" disabled>' + dlHTML + '</button>' +
+          '<button class="ab dir" onclick="doOpenDir(' + it.id + ',' + idx + ')" id="fdir-' + it.id + '-' + idx + '" disabled>' + dirHTML + '</button>' +
+        '</div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  async function checkFiles(itemId) {
+    const paths = filePaths.get(itemId);
+    if (!paths) return;
+    for (let idx = 0; idx < paths.length; idx++) {
+      const p = paths[idx];
+      try {
+        const d = await fetch('/api/file/check?path=' + encodeURIComponent(p)).then(r => r.json());
+        const stat = document.getElementById('fstat-' + itemId + '-' + idx);
+        const dl = document.getElementById('fdl-' + itemId + '-' + idx);
+        const dir = document.getElementById('fdir-' + itemId + '-' + idx);
+        if (d.exists) {
+          if (stat) stat.innerHTML = '<span class="fok">\u2713 ' + formatSize(d.size) + '</span>';
+          if (dl) dl.disabled = false;
+          if (dir) dir.disabled = false;
+          const ext = getExt(d.name || p);
+          if (IMAGE_EXTS.includes(ext)) {
+            const thumb = document.getElementById('fthumb-' + itemId + '-' + idx);
+            if (thumb) thumb.innerHTML = '<img src="/api/file?path=' + encodeURIComponent(p) + '" loading="lazy" onclick="doFileView(' + itemId + ',' + idx + ')">';
+          }
+        } else {
+          if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 \u6587\u4ef6\u4e0d\u5b58\u5728</span>';
+        }
+      } catch (_) {
+        const stat = document.getElementById('fstat-' + itemId + '-' + idx);
+        if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 \u68c0\u67e5\u5931\u8d25</span>';
+      }
+    }
+  }
+
+  function doDownload(itemId, idx) {
+    const paths = filePaths.get(itemId);
+    if (!paths || !paths[idx]) return;
+    const p = paths[idx];
+    const a = document.createElement('a');
+    a.href = '/api/file?path=' + encodeURIComponent(p) + '&download=1';
+    a.download = getBaseName(p);
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast('开始下载');
+  }
+
+  async function doOpenDir(itemId, idx) {
+    const paths = filePaths.get(itemId);
+    if (!paths || !paths[idx]) return;
+    const p = paths[idx];
+    const btn = document.getElementById('fdir-' + itemId + '-' + idx);
+    if (btn) { btn.disabled = true; }
+    try {
+      const res = await fetch('/api/file/opendir?path=' + encodeURIComponent(p), { method: 'POST' });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '');
+        throw new Error(msg || ('HTTP ' + res.status));
+      }
+      toast('已打开所在目录并选中文件');
+    } catch (e) {
+      toast('打开目录失败: ' + (e.message || e), 'err');
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
+  function doFileView(itemId, idx) {
+    const paths = filePaths.get(itemId);
+    if (!paths || !paths[idx]) return;
+    const p = paths[idx];
+    const name = getBaseName(p);
+    currentModalId = itemId;
+    MODAL_TITLE.textContent = name;
+    MODAL_PRE.style.display = 'none';
+    let preview = document.getElementById('modalFilePreview');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.id = 'modalFilePreview';
+      preview.className = 'modal-file-preview';
+      document.querySelector('.modal-body').appendChild(preview);
+    }
+    preview.style.display = 'flex';
+    preview.innerHTML = '<img src="/api/file?path=' + encodeURIComponent(p) + '" alt="' + esc(name) + '">';
+    VIEW_MODAL.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
   // ── Render ────────────────────────────────────────────────
   const viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 查看';
   const delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
   function render(arr, q) {
     items.clear();
+    filePaths.clear();
     arr.forEach(i => items.set(i.id, i));
     // BADGE and RC updated by updatePagination()
 
@@ -213,21 +373,29 @@
     }
 
     LIST.innerHTML = arr.map(it => {
-      const long      = it.text.length > 500;
       const kindKey   = it.kind || 'text';
+      const isNonText = isNonTextKind(kindKey);
       const kindClass = 'mkind mkind-' + kindKey;
       const kindLabel = KIND_LABEL[kindKey] || kindKey;
       const fullTime  = esc(new Date(it.createdAt).toLocaleString());
-      const charText  = it.charLen >= 1000
-        ? (it.charLen / 1000).toFixed(1) + 'k 字'
-        : it.charLen + ' 字';
       const starHTML  = it.starred ? starOnHTML : starOffHTML;
       const starTitle = it.starred ? '取消收藏' : '收藏';
 
+      let bodyHTML, charText, showView;
+      if (isNonText) {
+        const paths = it.text.split('\n').filter(Boolean);
+        bodyHTML = renderFileList(it);
+        charText = paths.length + ' 个文件';
+        showView = true;
+      } else {
+        const long = it.text.length > 500;
+        bodyHTML = `<pre${long ? '' : ' class="open"'}>${highlight(it.text, q)}</pre>`;
+        charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
+        showView = long;
+      }
+
       return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}">
-        <div class="card-body">
-          <pre${long ? '' : ' class="open"'}>${highlight(it.text, q)}</pre>
-        </div>
+        <div class="card-body">${bodyHTML}</div>
         <div class="card-foot">
           <div class="card-meta">
             <span class="mid">#${it.id}</span>
@@ -239,7 +407,7 @@
             <span class="mchars">${charText}</span>
           </div>
           <div class="card-acts">
-            ${long ? `<button class="ab exp" onclick="doView(${it.id})">${viewHTML}</button>` : ''}
+            ${showView ? `<button class="ab exp" onclick="doView(${it.id})">${viewHTML}</button>` : ''}
             <button class="ab cp" onclick="doCopy(${it.id},this)">${cpHTML}</button>
             <button class="ab star${it.starred ? ' on' : ''}" onclick="doStar(${it.id},this)" title="${starTitle}">${starHTML}</button>
             <button class="ab del" onclick="doDelete(${it.id},this.closest('article'))" title="删除">${delHTML}</button>
@@ -247,6 +415,10 @@
         </div>
       </article>`;
     }).join('');
+
+    arr.forEach(it => {
+      if (isNonTextKind(it.kind || 'text')) checkFiles(it.id);
+    });
   }
 
   // ── Search ────────────────────────────────────────────────
@@ -277,6 +449,8 @@
     const PREV = document.getElementById('prevBtn');
     const NEXT = document.getElementById('nextBtn');
     const PI   = document.getElementById('pageInfo');
+    const JI   = document.getElementById('pageJumpInput');
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
     const start = totalCount === 0 ? 0 : currentPage * pageSize + 1;
     const end   = Math.min((currentPage + 1) * pageSize, totalCount);
     PI.textContent = `${start}–${end} / 共 ${totalCount} 条`;
@@ -285,6 +459,7 @@
     PAG.classList.toggle('hidden', totalCount === 0);
     BADGE.textContent = totalCount;
     RC.textContent = totalCount + ' 条结果';
+    if (JI) { JI.value = currentPage + 1; JI.max = totalPages; }
   }
 
   // ── Auto-refresh ──────────────────────────────────────────
@@ -295,8 +470,34 @@
 
   // ── Events ────────────────────────────────────────────────
   Q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(resetSearch, 180); });
-  PAGESIZE.addEventListener('change', resetSearch);
+  PAGESIZE.addEventListener('change', () => {
+    let v = parseInt(PAGESIZE.value);
+    if (isNaN(v) || v < 10) v = 10;
+    if (v > 500) v = 500;
+    PAGESIZE.value = v;
+    resetSearch();
+  });
+  PAGESIZE.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); PAGESIZE.blur(); }
+  });
   AR.addEventListener('change', setupAR);
+
+  // ── Pagesize custom dropdown ─────────────────────────────
+  const psDropdown = document.getElementById('pagesizeDropdown');
+  const psDropdownBtn = document.getElementById('pagesizeDropdownBtn');
+  psDropdownBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    psDropdown.classList.toggle('open');
+  });
+  psDropdown.addEventListener('click', (e) => {
+    const opt = e.target.closest('.pagesize-opt');
+    if (!opt) return;
+    PAGESIZE.value = opt.dataset.val;
+    psDropdown.classList.remove('open');
+    resetSearch();
+  });
+  document.addEventListener('click', () => { psDropdown.classList.remove('open'); });
 
   // ── Pagination buttons ─────────────────────────────────
   document.getElementById('prevBtn').addEventListener('click', () => {
@@ -305,6 +506,24 @@
   document.getElementById('nextBtn').addEventListener('click', () => {
     const pageSize = parseInt(PAGESIZE.value) || 50;
     if ((currentPage + 1) * pageSize < totalCount) { currentPage++; search(); }
+  });
+
+  // ── Page jump ────────────────────────────────────────────
+  function doPageJump() {
+    const pageSize = parseInt(PAGESIZE.value) || 50;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    const ji = document.getElementById('pageJumpInput');
+    let p = parseInt(ji.value);
+    if (isNaN(p) || p < 1) p = 1;
+    if (p > totalPages) p = totalPages;
+    const newPage = p - 1;
+    if (newPage === currentPage) return;
+    currentPage = newPage;
+    search();
+  }
+  document.getElementById('pageJumpBtn').addEventListener('click', doPageJump);
+  document.getElementById('pageJumpInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doPageJump(); }
   });
 
   // ── Date filter ───────────────────────────────────────
@@ -543,6 +762,9 @@
   window.doDelete = doDelete;
   window.doView = doView;
   window.doStar = doStar;
+  window.doDownload = doDownload;
+  window.doOpenDir = doOpenDir;
+  window.doFileView = doFileView;
   window.switchView = window.switchView;
   window.removePattern = window.removePattern;
 
