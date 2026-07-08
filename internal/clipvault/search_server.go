@@ -2,11 +2,15 @@ package clipvault
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
 	"embed"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -67,6 +71,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /api/file/check", s.requireAuth(s.handleFileCheck))
 	mux.HandleFunc("GET /api/file", s.requireAuth(s.handleFileServe))
 	mux.HandleFunc("POST /api/file/opendir", s.requireAuth(s.handleFileOpenDir))
+	mux.HandleFunc("GET /api/file/hash", s.requireAuth(s.handleFileHash))
 
 	// 需要二次认证的端点（导出/备份）
 	mux.HandleFunc("GET /api/export/config", s.requireSecondary(s.handleExportConfig))
@@ -368,6 +373,33 @@ func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
 	}
 	http.ServeFile(w, r, p)
+}
+
+// handleFileHash computes and returns the MD5 and SHA256 hashes of a file on demand.
+func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if p == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(p)
+	if err != nil || info.IsDir() {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "file not found"})
+		return
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	defer f.Close()
+	m := md5.New()
+	sh := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(m, sh), f); err != nil {
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.writeJSON(w, map[string]any{"ok": true, "md5": hex.EncodeToString(m.Sum(nil)), "sha256": hex.EncodeToString(sh.Sum(nil))})
 }
 
 // handleFileOpenDir opens the file's containing directory in the system file explorer.

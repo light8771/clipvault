@@ -588,6 +588,14 @@ mark {
 .ab.cp:hover { background: var(--p); color: #fff; border-color: var(--p); }
 .ab.cp.ok    { background: var(--p); color: #fff; border-color: var(--p); }
 
+.ab.hash {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--sub);
+}
+.ab.hash:hover { border-color: var(--p); color: var(--p); background: var(--p-dim); }
+.ab.hash:disabled { opacity: .35; cursor: not-allowed; }
+
 .ab.del {
   width: 24px;
   padding: 0;
@@ -1444,6 +1452,25 @@ article[data-starred="1"]:hover {
 }
 .file-status {
   font-size: 12px;
+}
+.file-hash {
+  margin-top: 4px;
+  font: 11px 'Fira Code', ui-monospace, Consolas, monospace;
+}
+.fhash-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  line-height: 1.6;
+}
+.fhash-label {
+  color: var(--muted);
+  flex-shrink: 0;
+  min-width: 48px;
+}
+.fhash-val {
+  color: var(--p);
+  word-break: break-all;
 }
 .fcheck { color: var(--muted); }
 .fok { color: var(--p); font-weight: 500; }
