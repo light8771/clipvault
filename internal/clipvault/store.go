@@ -29,6 +29,20 @@ type ClipboardItem struct {
 	Sensitive bool
 }
 
+// Group 表示一个用户自定义分组，支持嵌套（parent_id 为 0 表示顶级分组）。
+type Group struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	ParentID int64  `json:"parentId"` // 0 = 顶级分组
+}
+
+// StoredGroup 是从数据库读取的分组记录。
+type StoredGroup struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	ParentID int64  `json:"parentId"`
+}
+
 type StoredItem struct {
 	ID        int64     `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -45,15 +59,16 @@ type StoredItem struct {
 
 // SearchOptions holds parameters for Store.Search.
 type SearchOptions struct {
-	Query         string
-	Limit         int
-	Offset        int    // pagination offset
-	StarredOnly   bool
-	Kind          string // filter by kind (empty = all)
-	DateFrom      string // YYYY-MM-DD, inclusive lower bound on created_at (UTC date)
-	DateTo        string // YYYY-MM-DD, inclusive upper bound on created_at (UTC date)
-	SensitiveOnly bool   // filter to sensitive items only
-	IncludeSensitive bool // include sensitive items in results (default true)
+	Query            string
+	Limit            int
+	Offset           int    // pagination offset
+	StarredOnly      bool
+	Kind             string // filter by kind (empty = all)
+	DateFrom         string // YYYY-MM-DD, inclusive lower bound on created_at (UTC date)
+	DateTo           string // YYYY-MM-DD, inclusive upper bound on created_at (UTC date)
+	SensitiveOnly    bool   // filter to sensitive items only
+	IncludeSensitive bool   // include sensitive items in results (default true)
+	GroupID          int64  // filter by group id (0 = no group filter)
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -104,6 +119,21 @@ func (s *Store) migrate() error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		// groups 表：用户自定义分组，支持嵌套
+		`CREATE TABLE IF NOT EXISTS groups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			parent_id INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_groups_parent ON groups(parent_id)`,
+		// item_groups 表：条目与分组的多对多关联
+		`CREATE TABLE IF NOT EXISTS item_groups (
+			item_id INTEGER NOT NULL,
+			group_id INTEGER NOT NULL,
+			PRIMARY KEY (item_id, group_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_item_groups_group ON item_groups(group_id)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -182,6 +212,10 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		conds = append(conds, "sensitive = 1")
 	} else if !opts.IncludeSensitive {
 		conds = append(conds, "sensitive = 0")
+	}
+	if opts.GroupID > 0 {
+		conds = append(conds, "id IN (SELECT item_id FROM item_groups WHERE group_id = ?)")
+		args = append(args, opts.GroupID)
 	}
 
 	where := ""
@@ -352,4 +386,154 @@ func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, `%`, `\%`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
+}
+
+// ── Groups CRUD ───────────────────────────────────────────────
+
+// ListGroups 返回所有分组，按 id 排序。
+func (s *Store) ListGroups(ctx context.Context) ([]StoredGroup, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, parent_id FROM groups ORDER BY id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var groups []StoredGroup
+	for rows.Next() {
+		var g StoredGroup
+		if err := rows.Scan(&g.ID, &g.Name, &g.ParentID); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, rows.Err()
+}
+
+// CreateGroup 创建一个新分组。
+func (s *Store) CreateGroup(ctx context.Context, name string, parentID int64) (StoredGroup, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?)`,
+		name, parentID, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return StoredGroup{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return StoredGroup{}, err
+	}
+	return StoredGroup{ID: id, Name: name, ParentID: parentID}, nil
+}
+
+// UpdateGroup 更新分组名称和父分组。
+func (s *Store) UpdateGroup(ctx context.Context, id int64, name string, parentID int64) error {
+	// 不允许将分组设为自己的后代，防止循环
+	if parentID > 0 {
+		if parentID == id {
+			return fmt.Errorf("cannot set parent to self")
+		}
+		if err := s.checkDescendant(ctx, id, parentID); err != nil {
+			return err
+		}
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE groups SET name = ?, parent_id = ? WHERE id = ?`, name, parentID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("group %d not found", id)
+	}
+	return nil
+}
+
+// checkDescendant 检查 targetID 是否是 groupID 的后代（防止循环引用）。
+func (s *Store) checkDescendant(ctx context.Context, groupID, targetID int64) error {
+	cursor := targetID
+	for cursor > 0 {
+		if cursor == groupID {
+			return fmt.Errorf("cannot move group into its own descendant")
+		}
+		var parent int64
+		err := s.db.QueryRowContext(ctx, `SELECT parent_id FROM groups WHERE id = ?`, cursor).Scan(&parent)
+		if err != nil {
+			return err
+		}
+		cursor = parent
+	}
+	return nil
+}
+
+// DeleteGroup 删除分组及其所有后代分组，同时清理 item_groups 关联。
+func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
+	// 收集所有后代分组 id
+	ids := []int64{id}
+	queue := []int64{id}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		rows, err := s.db.QueryContext(ctx, `SELECT id FROM groups WHERE parent_id = ?`, cur)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var child int64
+			if err := rows.Scan(&child); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, child)
+			queue = append(queue, child)
+		}
+		rows.Close()
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for _, gid := range ids {
+		if _, err := tx.Exec(`DELETE FROM item_groups WHERE group_id = ?`, gid); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM groups WHERE id = ?`, gid); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ── Item-Group association ────────────────────────────────────
+
+// AddItemToGroup 将条目加入分组。
+func (s *Store) AddItemToGroup(ctx context.Context, itemID, groupID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO item_groups (item_id, group_id) VALUES (?, ?)`, itemID, groupID)
+	return err
+}
+
+// RemoveItemFromGroup 将条目从分组移除。
+func (s *Store) RemoveItemFromGroup(ctx context.Context, itemID, groupID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM item_groups WHERE item_id = ? AND group_id = ?`, itemID, groupID)
+	return err
+}
+
+// GetItemGroups 返回条目所属的所有分组 id。
+func (s *Store) GetItemGroups(ctx context.Context, itemID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT group_id FROM item_groups WHERE item_id = ?`, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var gid int64
+		if err := rows.Scan(&gid); err != nil {
+			return nil, err
+		}
+		ids = append(ids, gid)
+	}
+	return ids, rows.Err()
 }

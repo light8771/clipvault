@@ -14,10 +14,17 @@
   let debounce = 0, arTimer = 0, currentKind = '';
   let currentPage = 0, totalCount = 0;
   let filterDateFrom = '', filterDateTo = '';
+  let currentGroupID = 0; // 0 = no group filter
   const items = new Map();
   const filePaths = new Map();
   const NON_TEXT_KINDS = ['image','video','archive','office','files'];
   const IMAGE_EXTS = ['jpg','jpeg','png','gif','bmp','webp','svg','ico','tiff','tif','heic','heif','avif'];
+
+  // ── Group state ───────────────────────────────────────────
+  let allGroups = []; // flat list from API
+  const GROUP_EXPAND = new Set(); // expanded group ids in group modal
+  let groupModalMode = null; // 'filter' | 'assign' | 'manage'
+  let groupModalOpts = {};   // { itemId, onSelect }
 
   // ── Auth state ───────────────────────────────────────────
   let authState = { hasLockPassword: false, hasSecondaryPassword: false, authenticated: false, secondaryAuthed: false };
@@ -250,14 +257,22 @@
     document.getElementById('viewSettings').classList.toggle('hidden', isHistory);
     document.getElementById('tabHistory').classList.toggle('active', isHistory);
     document.getElementById('tabSettings').classList.toggle('active', !isHistory);
-    if (!isHistory) loadSettings();
+    if (!isHistory) { loadSettings(); }
   };
 
   // ── Filter chips ──────────────────────────────────────────
+  const GROUP_CHIP = document.getElementById('groupChip');
+
   document.getElementById('kindFilters').addEventListener('click', async e => {
     const chip = e.target.closest('.filter-chip');
     if (!chip) return;
     const kind = chip.dataset.kind;
+    // 分组 chip：打开分组选择弹窗
+    if (kind === '__group__') {
+      if (allGroups.length === 0) { await loadGroups(); }
+      openGroupModal('filter');
+      return;
+    }
     // 敏感数据分组需要二次验证
     if (kind === '__sensitive__') {
       const ok = await requestSecondaryAuth();
@@ -266,6 +281,7 @@
     document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     currentKind = kind;
+    currentGroupID = 0; // reset group filter when switching to other kinds
     resetSearch();
   });
 
@@ -664,6 +680,7 @@
   // ── Render ────────────────────────────────────────────────
   const viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 查看';
   const delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  const groupBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>';
 
   function render(arr, q) {
     items.clear();
@@ -730,6 +747,7 @@
             ${showView ? `<button class="ab exp" onclick="doView(${it.id})">${viewHTML}</button>` : ''}
             <button class="ab cp" onclick="doCopy(${it.id},this)">${cpHTML}</button>
             <button class="ab star${it.starred ? ' on' : ''}" onclick="doStar(${it.id},this)" title="${starTitle}">${starHTML}</button>
+            <button class="ab group-btn" onclick="openGroupModal('assign',{itemId:${it.id}})" title="加入分组">${groupBtnHTML}</button>
             <button class="ab del" onclick="doDelete(${it.id},this.closest('article'))" title="删除">${delHTML}</button>
           </div>
         </div>
@@ -754,8 +772,11 @@
         p.set('starred', '1');
       } else if (currentKind === '__sensitive__') {
         url = '/api/search/sensitive';
-      } else if (currentKind) {
+      } else if (currentKind && currentKind !== '__group__') {
         p.set('kind', currentKind);
+      }
+      if (currentGroupID > 0) {
+        p.set('group_id', currentGroupID);
       }
       if (filterDateFrom) p.set('date_from', filterDateFrom);
       if (filterDateTo)   p.set('date_to',   filterDateTo);
@@ -935,6 +956,10 @@
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      if (document.getElementById('groupModalOverlay')) {
+        closeGroupModal();
+        return;
+      }
       if (!VIEW_MODAL.classList.contains('hidden')) {
         window.closeModal();
         return;
@@ -1246,11 +1271,434 @@
     toast('开始导出 ' + label);
   };
 
+  // ── Group functions ─────────────────────────────────────────────────────
+
+  async function loadGroups() {
+    try {
+      const d = await fetch('/api/groups').then(r => r.json());
+      allGroups = d.groups || [];
+    } catch (_) { allGroups = []; }
+  }
+
+  function buildGroupTree(parentID) {
+    return allGroups
+      .filter(g => g.parentId === parentID)
+      .map(g => ({ ...g, children: buildGroupTree(g.id) }));
+  }
+
+  function flattenGroups(nodes, prefix) {
+    let result = [];
+    for (const n of nodes) {
+      const label = prefix ? prefix + ' / ' + n.name : n.name;
+      result.push({ id: n.id, label });
+      if (n.children && n.children.length) {
+        result = result.concat(flattenGroups(n.children, label));
+      }
+    }
+    return result;
+  }
+
+  // ── Unified Group Modal ───────────────────────────────────
+  const CHEVRON_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>';
+  const FOLDER_SVG  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+  const CHECK_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+  const EDIT_SVG    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+  const DEL_SVG     = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+  const PLUS_SVG    = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+
+  function openGroupModal(mode, opts) {
+    opts = opts || {};
+    closeGroupModal();
+    const titles = { filter: '选择分组筛选', assign: '加入分组', manage: '分组管理' };
+    const boxClass = mode === 'manage' ? 'group-modal-box-wide' : 'group-modal-box';
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'groupModalOverlay';
+    overlay.innerHTML =
+      '<div class="modal-box ' + boxClass + '" onclick="event.stopPropagation()">' +
+        '<div class="modal-head">' +
+          '<span class="modal-title">' + titles[mode] + '</span>' +
+          '<button class="modal-close" id="groupModalCloseBtn">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="modal-body group-modal-body" id="groupModalBody"></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    document.body.style.overflow = 'hidden';
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeGroupModal(); });
+    document.getElementById('groupModalCloseBtn').addEventListener('click', closeGroupModal);
+    groupModalMode = mode;
+    groupModalOpts = opts;
+    renderGroupModalContent();
+  }
+
+  window.openGroupModal = openGroupModal;
+
+  function closeGroupModal() {
+    const overlay = document.getElementById('groupModalOverlay');
+    if (overlay) overlay.remove();
+    document.body.style.overflow = '';
+    groupModalMode = null;
+    groupModalOpts = {};
+  }
+
+  async function renderGroupModalContent() {
+    const body = document.getElementById('groupModalBody');
+    if (!body) return;
+    const mode = groupModalMode;
+    const opts = groupModalOpts;
+    if (allGroups.length === 0) { await loadGroups(); }
+
+    // For assign mode, load item's current groups
+    let itemGroupIds = [];
+    if (mode === 'assign' && opts.itemId) {
+      try {
+        const d = await fetch('/api/items/groups?item_id=' + opts.itemId).then(r => r.json());
+        itemGroupIds = d.groupIds || [];
+      } catch (_) {}
+    }
+
+    let html = '';
+    // Toolbar for manage mode
+    if (mode === 'manage') {
+      html += '<div class="group-modal-toolbar">' +
+        '<button class="btn-add-group" id="gmAddRootBtn">' + PLUS_SVG + ' 新建分组</button>' +
+        '</div>';
+    }
+
+    if (allGroups.length === 0) {
+      const msg = mode === 'manage' ? '暂无分组，点击上方按钮创建' : '暂无分组，请在设置中创建';
+      html += '<div class="group-modal-empty">' + msg + '</div>';
+    } else {
+      const rootNodes = buildGroupTree(0);
+      if (mode === 'filter') {
+        html += '<div class="group-modal-tree">' + rootNodes.map(function(n) { return renderFilterNode(n); }).join('') + '</div>';
+      } else if (mode === 'assign') {
+        html += '<div class="group-modal-tree">' + rootNodes.map(function(n) { return renderAssignNode(n, itemGroupIds); }).join('') + '</div>';
+      } else if (mode === 'manage') {
+        html += '<div class="group-modal-tree">' + rootNodes.map(function(n) { return renderManageNode(n); }).join('') + '</div>';
+      }
+    }
+
+    body.innerHTML = html;
+    bindGroupModalEvents(mode, opts, itemGroupIds);
+  }
+
+  // ── Filter mode node (single select) ────────────────────────────
+  function renderFilterNode(node) {
+    const hasChildren = node.children && node.children.length > 0;
+    const expanded = GROUP_EXPAND.has(node.id);
+    const active = currentGroupID === node.id;
+    let html = '<div class="gt-node">';
+    html += '<div class="gt-row' + (active ? ' active' : '') + '" data-id="' + node.id + '">';
+    html += '<span class="gt-toggle' + (hasChildren ? '' : ' no-children') + (expanded ? ' expanded' : '') + '" data-id="' + node.id + '">' + CHEVRON_SVG + '</span>';
+    html += '<span class="gt-icon">' + FOLDER_SVG + '</span>';
+    html += '<span class="gt-label">' + esc(node.name) + '</span>';
+    html += '</div>';
+    if (hasChildren) {
+      html += '<div class="gt-children' + (expanded ? ' expanded' : '') + '">';
+      html += node.children.map(renderFilterNode).join('');
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // ── Assign mode node (multi-select with checkboxes) ────────────────────
+  function renderAssignNode(node, itemGroupIds) {
+    const hasChildren = node.children && node.children.length > 0;
+    const expanded = GROUP_EXPAND.has(node.id);
+    const checked = itemGroupIds.includes(node.id);
+    let html = '<div class="gt-node">';
+    html += '<div class="gt-row" data-id="' + node.id + '">';
+    html += '<span class="gt-toggle' + (hasChildren ? '' : ' no-children') + (expanded ? ' expanded' : '') + '" data-id="' + node.id + '">' + CHEVRON_SVG + '</span>';
+    html += '<span class="gt-check' + (checked ? ' checked' : '') + '" data-id="' + node.id + '">' + CHECK_SVG + '</span>';
+    html += '<span class="gt-icon">' + FOLDER_SVG + '</span>';
+    html += '<span class="gt-label">' + esc(node.name) + '</span>';
+    html += '</div>';
+    if (hasChildren) {
+      html += '<div class="gt-children' + (expanded ? ' expanded' : '') + '">';
+      html += node.children.map(function(n) { return renderAssignNode(n, itemGroupIds); }).join('');
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // ── Manage mode node (CRUD actions) ─────────────────────────────
+  function renderManageNode(node) {
+    const hasChildren = node.children && node.children.length > 0;
+    const expanded = GROUP_EXPAND.has(node.id);
+    let html = '<div class="gm-node">';
+    html += '<div class="gm-row">';
+    html += '<span class="gm-toggle' + (hasChildren ? '' : ' no-children') + (expanded ? ' expanded' : '') + '" data-id="' + node.id + '">' + CHEVRON_SVG + '</span>';
+    html += '<span class="gm-icon">' + FOLDER_SVG + '</span>';
+    html += '<span class="gm-name" data-id="' + node.id + '">' + esc(node.name) + '</span>';
+    html += '<div class="gm-actions">';
+    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="添加子分组">' + PLUS_SVG + '</button>';
+    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="重命名">' + EDIT_SVG + '</button>';
+    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="删除">' + DEL_SVG + '</button>';
+    html += '</div>';
+    html += '</div>';
+    if (hasChildren) {
+      html += '<div class="gm-children' + (expanded ? ' expanded' : '') + '">';
+      html += node.children.map(renderManageNode).join('');
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // ── Bind modal events ────────────────────────────────────────
+  function bindGroupModalEvents(mode, opts, itemGroupIds) {
+    const body = document.getElementById('groupModalBody');
+    if (!body) return;
+
+    // Toggle expand/collapse for all modes
+    body.querySelectorAll('.gt-toggle, .gm-toggle').forEach(function(toggle) {
+      toggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const id = parseInt(toggle.dataset.id);
+        if (GROUP_EXPAND.has(id)) { GROUP_EXPAND.delete(id); } else { GROUP_EXPAND.add(id); }
+        renderGroupModalContent();
+      });
+    });
+
+    if (mode === 'filter') {
+      // Single-select: clicking a row selects the group
+      body.querySelectorAll('.gt-row').forEach(function(row) {
+        row.addEventListener('click', function(e) {
+          if (e.target.closest('.gt-toggle')) return;
+          const id = parseInt(row.dataset.id);
+          if (currentGroupID === id) {
+            currentGroupID = 0;
+          } else {
+            currentGroupID = id;
+          }
+          currentKind = '__group__';
+          document.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
+          GROUP_CHIP.classList.add('active');
+          closeGroupModal();
+          resetSearch();
+        });
+      });
+    } else if (mode === 'assign') {
+      // Multi-select: clicking a row or checkbox toggles membership
+      body.querySelectorAll('.gt-row').forEach(function(row) {
+        row.addEventListener('click', async function(e) {
+          if (e.target.closest('.gt-toggle')) return;
+          const id = parseInt(row.dataset.id);
+          const checkEl = row.querySelector('.gt-check');
+          const isChecked = checkEl.classList.contains('checked');
+          try {
+            if (isChecked) {
+              await fetch('/api/items/group?item_id=' + opts.itemId + '&group_id=' + id, { method: 'DELETE' });
+              checkEl.classList.remove('checked');
+              toast('已移出分组');
+            } else {
+              await fetch('/api/items/group', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ itemId: opts.itemId, groupId: id }),
+              });
+              checkEl.classList.add('checked');
+              toast('已加入分组');
+            }
+          } catch (_) { toast('操作失败', 'err'); }
+        });
+      });
+    } else if (mode === 'manage') {
+      // Add root group
+      const addRootBtn = document.getElementById('gmAddRootBtn');
+      if (addRootBtn) {
+        addRootBtn.addEventListener('click', function() {
+          showGroupEditDialog('create', 0, '', async function(name) {
+            try {
+              const res = await fetch('/api/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, parentId: 0 }),
+              });
+              const d = await res.json();
+              if (d.ok) {
+                toast('分组已创建');
+                await loadGroups();
+                renderGroupModalContent();
+              } else { toast(d.error || '创建失败', 'err'); }
+            } catch (_) { toast('创建失败', 'err'); }
+          });
+        });
+      }
+      // Action buttons
+      body.querySelectorAll('.gm-act[data-action]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const action = btn.dataset.action;
+          const id = parseInt(btn.dataset.id);
+          if (action === 'rename') startRenameGroup(id);
+          else if (action === 'delete') confirmDeleteGroup(id);
+          else if (action === 'add-child') quickAddChild(id);
+        });
+      });
+    }
+  }
+
+  // ── Group CRUD helpers ───────────────────────────────────────
+  function getParentId(id) {
+    const g = allGroups.find(function(g) { return g.id === id; });
+    return g ? g.parentId : 0;
+  }
+
+  function quickAddChild(parentId) {
+    showGroupEditDialog('create', parentId, '', async function(name) {
+      try {
+        const res = await fetch('/api/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, parentId: parentId }),
+        });
+        const d = await res.json();
+        if (d.ok) {
+          toast('子分组已创建');
+          GROUP_EXPAND.add(parentId);
+          await loadGroups();
+          renderGroupModalContent();
+        } else { toast(d.error || '创建失败', 'err'); }
+      } catch (_) { toast('创建失败', 'err'); }
+    });
+  }
+
+  function startRenameGroup(id) {
+    const nameEl = document.querySelector('.gm-name[data-id="' + id + '"]');
+    if (!nameEl) return;
+    const oldName = nameEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'gm-name-input';
+    input.value = oldName;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    async function save() {
+      const newName = input.value.trim();
+      if (!newName || newName === oldName) {
+        renderGroupModalContent();
+        return;
+      }
+      try {
+        const res = await fetch('/api/groups?id=' + id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName, parentId: getParentId(id) }),
+        });
+        const d = await res.json();
+        if (d.ok) {
+          toast('已重命名');
+          await loadGroups();
+          renderGroupModalContent();
+        } else { toast(d.error || '重命名失败', 'err'); renderGroupModalContent(); }
+      } catch (_) { toast('重命名失败', 'err'); renderGroupModalContent(); }
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { renderGroupModalContent(); }
+    });
+  }
+
+  function confirmDeleteGroup(id) {
+    const g = allGroups.find(function(g) { return g.id === id; });
+    if (!g) return;
+    showConfirmDialog('删除分组', '确定删除分组「' + g.name + '」及其子分组吗？此操作不可撤销。', async function() {
+      try {
+        const res = await fetch('/api/groups?id=' + id, { method: 'DELETE' });
+        const d = await res.json();
+        if (d.ok) {
+          toast('分组已删除');
+          await loadGroups();
+          renderGroupModalContent();
+        } else { toast('删除失败', 'err'); }
+      } catch (_) { toast('删除失败', 'err'); }
+    });
+  }
+
+  // ── Generic group edit dialog (create/rename) ─────────────────────────────
+  function showGroupEditDialog(mode, parentId, defaultName, onConfirm) {
+    const title = mode === 'create' ? '新建分组' : '重命名分组';
+    const html =
+      '<div class="modal-overlay" id="groupEditOverlay">' +
+        '<div class="modal-box secondary-box" onclick="event.stopPropagation()">' +
+          '<div class="modal-head">' +
+            '<span class="modal-title">' + title + '</span>' +
+            '<button class="modal-close" onclick="closeGroupEditDialog()">' +
+              '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+            '</button>' +
+          '</div>' +
+          '<div class="modal-body" style="height:auto;padding:24px">' +
+            '<form id="groupEditForm" class="lock-form">' +
+              '<input type="text" id="groupEditInput" class="lock-input" placeholder="分组名称" value="' + esc(defaultName) + '" style="text-align:left" autofocus>' +
+              '<button type="submit" class="lock-btn">确定</button>' +
+            '</form>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('groupEditOverlay');
+    const input = document.getElementById('groupEditInput');
+    const form = document.getElementById('groupEditForm');
+    setTimeout(function() { input.focus(); input.select(); }, 50);
+
+    window.closeGroupEditDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) return;
+      overlay.remove();
+      onConfirm(name);
+    });
+  }
+
+  // ── Generic confirm dialog ───────────────────────────────────────
+  function showConfirmDialog(title, message, onConfirm) {
+    const html =
+      '<div class="modal-overlay" id="confirmDialogOverlay">' +
+        '<div class="modal-box secondary-box" onclick="event.stopPropagation()">' +
+          '<div class="modal-head"><span class="modal-title">' + title + '</span></div>' +
+          '<div class="modal-body" style="height:auto;padding:24px">' +
+            '<p style="margin:0 0 16px;color:var(--sub);font-size:14px">' + esc(message) + '</p>' +
+            '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+              '<button class="btn-cancel" onclick="closeConfirmDialog()">取消</button>' +
+              '<button class="lock-btn" id="confirmDialogBtn" style="width:auto;padding:8px 20px;background:var(--danger)">删除</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('confirmDialogOverlay');
+    window.closeConfirmDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('confirmDialogBtn').addEventListener('click', function() {
+      overlay.remove();
+      onConfirm();
+    });
+  }
+
+
   // ── Init ─────────────────────────────────────────────────
   function init() {
     refreshState();
     search();
     setupAutoSave();
+    loadGroups();
   }
 
   // ── Boot ─────────────────────────────────────────────────

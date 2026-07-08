@@ -96,6 +96,11 @@
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           敏感数据
         </button>
+        <button class="filter-chip filter-chip-group" data-kind="__group__" id="groupChip">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
+          分组
+          <svg class="group-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
       </div>
       <div class="ctrl-right">
         <label class="ar-toggle">
@@ -182,8 +187,13 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span>安全</span>
           </button>
-          <div class="snav-sep"></div>
-          <button class="snav-item" id="snav-export" onclick="snavTo('s-export','snav-export')">
+        <div class="snav-sep"></div>
+        <button class="snav-item" id="snav-groups" onclick="snavTo('s-groups','snav-groups')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
+          <span>分组</span>
+        </button>
+        <div class="snav-sep"></div>
+        <button class="snav-item" id="snav-export" onclick="snavTo('s-export','snav-export')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>导出</span>
           </button>
@@ -333,6 +343,27 @@
               </div>
               <input type="number" id="cfg-secondaryAuthTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
             </div>
+          </div>
+        </section>
+
+        <div class="ssec-sep"></div>
+
+        <!-- 分组管理 -->
+        <section class="ssec" id="s-groups">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">分组管理</h2>
+              <p class="ssec-desc">创建自定义分组对剪切板记录进行分类，支持嵌套分组</p>
+            </div>
+          </div>
+          <div class="ssec-body">
+            <button class="btn-open-group-modal" onclick="openGroupModal('manage')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
+              打开分组管理
+            </button>
           </div>
         </section>
 

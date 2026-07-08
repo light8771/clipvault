@@ -76,6 +76,15 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/file/opendir", s.requireAuth(s.handleFileOpenDir))
 	mux.HandleFunc("GET /api/file/hash", s.requireAuth(s.handleFileHash))
 
+	// 分组管理端点
+	mux.HandleFunc("GET /api/groups", s.requireAuth(s.handleGroupsList))
+	mux.HandleFunc("POST /api/groups", s.requireAuth(s.handleGroupsCreate))
+	mux.HandleFunc("PUT /api/groups", s.requireAuth(s.handleGroupsUpdate))
+	mux.HandleFunc("DELETE /api/groups", s.requireAuth(s.handleGroupsDelete))
+	mux.HandleFunc("POST /api/items/group", s.requireAuth(s.handleItemAddToGroup))
+	mux.HandleFunc("DELETE /api/items/group", s.requireAuth(s.handleItemRemoveFromGroup))
+	mux.HandleFunc("GET /api/items/groups", s.requireAuth(s.handleItemGroups))
+
 	// 导出端点（仅需锁屏认证，不限制敏感数据导出）
 	mux.HandleFunc("GET /api/export/config", s.requireAuth(s.handleExportConfig))
 	mux.HandleFunc("GET /api/export/data", s.requireAuth(s.handleExportData))
@@ -187,15 +196,17 @@ func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string
 func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 	items, total, err := s.store.Search(r.Context(), SearchOptions{
-		Query:           r.URL.Query().Get("q"),
-		Limit:           limit,
-		Offset:          offset,
-		StarredOnly:     r.URL.Query().Get("starred") == "1",
-		Kind:            r.URL.Query().Get("kind"),
-		DateFrom:        r.URL.Query().Get("date_from"),
-		DateTo:          r.URL.Query().Get("date_to"),
+		Query:            r.URL.Query().Get("q"),
+		Limit:            limit,
+		Offset:           offset,
+		StarredOnly:      r.URL.Query().Get("starred") == "1",
+		Kind:             r.URL.Query().Get("kind"),
+		DateFrom:         r.URL.Query().Get("date_from"),
+		DateTo:           r.URL.Query().Get("date_to"),
 		IncludeSensitive: true,
+		GroupID:          groupID,
 	})
 	if err != nil {
 		s.writeError(w, err)
@@ -488,6 +499,141 @@ func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// ── Groups handlers ───────────────────────────────────────────
+
+// handleGroupsList 返回所有分组（平铺列表，前端构建树）。
+func (s *SearchServer) handleGroupsList(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.store.ListGroups(r.Context())
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"groups": groups})
+}
+
+// handleGroupsCreate 创建新分组。
+func (s *SearchServer) handleGroupsCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name     string `json:"name"`
+		ParentID int64  `json:"parentId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "分组名称不能为空"})
+		return
+	}
+	g, err := s.store.CreateGroup(r.Context(), strings.TrimSpace(req.Name), req.ParentID)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.logger.Info("group_created", map[string]any{"id": g.ID, "name": g.Name, "parentId": g.ParentID})
+	s.writeJSON(w, map[string]any{"ok": true, "group": g})
+}
+
+// handleGroupsUpdate 更新分组（重命名 / 移动父级）。
+func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Name     string `json:"name"`
+		ParentID int64  `json:"parentId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "分组名称不能为空"})
+		return
+	}
+	if err := s.store.UpdateGroup(r.Context(), id, strings.TrimSpace(req.Name), req.ParentID); err != nil {
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("group_updated", map[string]any{"id": id, "name": req.Name, "parentId": req.ParentID})
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleGroupsDelete 删除分组（含后代）。
+func (s *SearchServer) handleGroupsDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.DeleteGroup(r.Context(), id); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.logger.Info("group_deleted", map[string]any{"id": id})
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleItemAddToGroup 将条目加入分组。
+func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ItemID  int64 `json:"itemId"`
+		GroupID int64 `json:"groupId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.ItemID <= 0 || req.GroupID <= 0 {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "invalid itemId or groupId"})
+		return
+	}
+	if err := s.store.AddItemToGroup(r.Context(), req.ItemID, req.GroupID); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleItemRemoveFromGroup 将条目从分组移除。
+func (s *SearchServer) handleItemRemoveFromGroup(w http.ResponseWriter, r *http.Request) {
+	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
+	if err != nil || itemID <= 0 {
+		http.Error(w, "invalid item_id", http.StatusBadRequest)
+		return
+	}
+	groupID, err := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		http.Error(w, "invalid group_id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.RemoveItemFromGroup(r.Context(), itemID, groupID); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleItemGroups 返回指定条目所属的分组 id 列表。
+func (s *SearchServer) handleItemGroups(w http.ResponseWriter, r *http.Request) {
+	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
+	if err != nil || itemID <= 0 {
+		http.Error(w, "invalid item_id", http.StatusBadRequest)
+		return
+	}
+	ids, err := s.store.GetItemGroups(r.Context(), itemID)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if ids == nil {
+		ids = []int64{}
+	}
+	s.writeJSON(w, map[string]any{"groupIds": ids})
 }
 
 func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {
