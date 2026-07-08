@@ -21,16 +21,20 @@ import (
 var webFS embed.FS
 
 type SearchServer struct {
-	cfgMgr *ConfigManager
-	store  *Store
-	state  *RuntimeState
-	logger *DailyLogger
-	server *http.Server
-	url    string
+	cfgMgr   *ConfigManager
+	store    *Store
+	state    *RuntimeState
+	logger   *DailyLogger
+	auth     *AuthManager
+	server   *http.Server
+	url      string
+	restartCh chan struct{}
 }
 
 func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger) *SearchServer {
-	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger}
+	am := NewAuthManager()
+	am.startSessionCleaner()
+	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, restartCh: make(chan struct{}, 1)}
 }
 
 func (s *SearchServer) Start() (string, error) {
@@ -39,22 +43,34 @@ func (s *SearchServer) Start() (string, error) {
 		return "", nil
 	}
 	mux := http.NewServeMux()
+
+	// 公开端点（不需要锁屏认证）
 	mux.HandleFunc("GET /", s.handleIndex)
-	mux.HandleFunc("GET /api/search", s.handleSearch)
-	mux.HandleFunc("GET /api/state", s.handleState)
-	mux.HandleFunc("POST /api/pause", s.handlePause)
-	mux.HandleFunc("DELETE /api/items", s.handleItems)
-	mux.HandleFunc("PATCH /api/items", s.handleStarItem)
-	mux.HandleFunc("POST /api/clear", s.handleClear)
-	mux.HandleFunc("GET /api/config", s.handleGetConfig)
-	mux.HandleFunc("PUT /api/config", s.handlePutConfig)
-	mux.HandleFunc("GET /api/export/config", s.handleExportConfig)
-	mux.HandleFunc("GET /api/export/data", s.handleExportData)
 	mux.HandleFunc("GET /style.css", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
-	mux.HandleFunc("GET /api/file/check", s.handleFileCheck)
-	mux.HandleFunc("GET /api/file", s.handleFileServe)
-	mux.HandleFunc("POST /api/file/opendir", s.handleFileOpenDir)
+	mux.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/secondary", s.handleAuthSecondary)
+	mux.HandleFunc("POST /api/auth/password", s.handleAuthSetPassword)
+	mux.HandleFunc("POST /api/restart", s.requireAuth(s.handleRestart))
+
+	// 需要锁屏认证的端点
+	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
+	mux.HandleFunc("GET /api/state", s.requireAuth(s.handleState))
+	mux.HandleFunc("POST /api/pause", s.requireAuth(s.handlePause))
+	mux.HandleFunc("DELETE /api/items", s.requireAuth(s.handleItems))
+	mux.HandleFunc("PATCH /api/items", s.requireAuth(s.handleStarItem))
+	mux.HandleFunc("POST /api/clear", s.requireAuth(s.handleClear))
+	mux.HandleFunc("GET /api/config", s.requireAuth(s.handleGetConfig))
+	mux.HandleFunc("PUT /api/config", s.requireSecondary(s.handlePutConfig))
+	mux.HandleFunc("GET /api/file/check", s.requireAuth(s.handleFileCheck))
+	mux.HandleFunc("GET /api/file", s.requireAuth(s.handleFileServe))
+	mux.HandleFunc("POST /api/file/opendir", s.requireAuth(s.handleFileOpenDir))
+
+	// 需要二次认证的端点（导出/备份）
+	mux.HandleFunc("GET /api/export/config", s.requireSecondary(s.handleExportConfig))
+	mux.HandleFunc("GET /api/export/data", s.requireSecondary(s.handleExportData))
 
 	host, portStr, _ := net.SplitHostPort(cfg.Search.ListenAddr)
 	if host == "" {
@@ -111,7 +127,28 @@ func (s *SearchServer) Close(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
+// RestartCh 返回重启信号 channel，收到信号时应用应关闭并重新启动 search server。
+func (s *SearchServer) RestartCh() <-chan struct{} {
+	return s.restartCh
+}
+
+// handleRestart 触发应用重启。
+func (s *SearchServer) handleRestart(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, map[string]any{"ok": true})
+	s.logger.Info("restart_requested", nil)
+	go func() {
+		select {
+		case s.restartCh <- struct{}{}:
+		default:
+		}
+	}()
+}
+
 func (s *SearchServer) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/favicon.ico" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -218,7 +255,7 @@ func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePutConfig 接收设置页面提交的配置并持久化，立即通知各组件。
-// 注意：search.listenAddr 和 hotkey 变更需重启应用后生效。
+// 注意：search.listenAddr 变更需重启应用后生效。
 func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg Config
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
@@ -354,4 +391,254 @@ func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {
 
 func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
+
+// ── Auth middleware ───────────────────────────────────────────
+
+// requireAuth 确保请求已通过锁屏认证。如果未设置锁屏密码，则直接放行。
+func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.cfgMgr.Get()
+		if !s.auth.HasLockPassword(cfg) {
+			next(w, r)
+			return
+		}
+		token := GetSessionToken(r)
+		sess := s.auth.GetSession(token)
+		if sess == nil || !sess.Authenticated {
+			http.Error(w, "{\"error\":\"unauthorized\"}", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// requireSecondary 确保请求已通过锁屏认证且拥有有效的二次认证。
+// 支持两种二次认证方式：
+//   1. 会话级缓存（timeout > 0 时，GrantSecondaryAuth 设置的有效期内免重复）
+//   2. 一次性 token（timeout = 0 时，每次操作需携带 ?secondary_token=xxx）
+// 如果未设置二次密码，则只要求锁屏认证。
+func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.cfgMgr.Get()
+		if !s.auth.HasLockPassword(cfg) {
+			// 未设置锁屏密码时，也不需要二次认证
+			if !s.auth.HasSecondaryPassword(cfg) {
+				next(w, r)
+				return
+			}
+		}
+		token := GetSessionToken(r)
+		sess := s.auth.GetSession(token)
+		if sess == nil || !sess.Authenticated {
+			if s.auth.HasLockPassword(cfg) {
+				http.Error(w, "{\"error\":\"unauthorized\"}", http.StatusUnauthorized)
+				return
+			}
+			// 没有锁屏密码时，不需要会话认证，但仍需二次认证
+		}
+		if s.auth.HasSecondaryPassword(cfg) {
+			// 先检查会话级二次认证缓存
+			if !s.auth.HasSecondaryAuth(token) {
+				// 再检查一次性 token（查询参数 ?secondary_token=xxx）
+				oneTimeToken := r.URL.Query().Get("secondary_token")
+				if !s.auth.ConsumeSecondaryToken(oneTimeToken) {
+					http.Error(w, "{\"error\":\"secondary_required\"}", http.StatusForbidden)
+					return
+				}
+			}
+		}
+		next(w, r)
+	}
+}
+
+// ── Auth endpoints ────────────────────────────────────────────
+
+// handleAuthStatus 返回当前认证状态。
+func (s *SearchServer) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgMgr.Get()
+	hasLock := s.auth.HasLockPassword(cfg)
+	hasSecondary := s.auth.HasSecondaryPassword(cfg)
+
+	token := GetSessionToken(r)
+	sess := s.auth.GetSession(token)
+
+	authenticated := !hasLock || (sess != nil && sess.Authenticated)
+	secondaryAuthed := !hasSecondary || (sess != nil && sess.SecondaryAuth && !time.Now().After(sess.SecondaryExpiry))
+
+	s.writeJSON(w, map[string]any{
+		"hasLockPassword":      hasLock,
+		"hasSecondaryPassword": hasSecondary,
+		"authenticated":        authenticated,
+		"secondaryAuthed":      secondaryAuthed,
+	})
+}
+
+// handleAuthLogin 验证锁屏密码并创建会话。
+func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	cfg := s.cfgMgr.Get()
+	if !s.auth.HasLockPassword(cfg) {
+		s.writeJSON(w, map[string]any{"ok": true, "message": "no lock password set"})
+		return
+	}
+	if !s.auth.VerifyLockPassword(cfg, req.Password) {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "密码错误"})
+		return
+	}
+	token, err := s.auth.CreateSession(cfg.Security.LockSessionTimeout)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
+	s.logger.Info("auth_login", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleAuthLogout 销毁当前会话。
+func (s *SearchServer) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	token := GetSessionToken(r)
+	s.auth.DestroySession(token)
+	ClearSessionCookie(w)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleAuthSecondary 验证二次密码并授予二次认证权限。
+func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	cfg := s.cfgMgr.Get()
+	if !s.auth.HasSecondaryPassword(cfg) {
+		s.writeJSON(w, map[string]any{"ok": true, "message": "no secondary password set"})
+		return
+	}
+	token := GetSessionToken(r)
+	sess := s.auth.GetSession(token)
+	if sess == nil || !sess.Authenticated {
+		if s.auth.HasLockPassword(cfg) {
+			http.Error(w, "{\"error\":\"unauthorized\"}", http.StatusUnauthorized)
+			return
+		}
+		// 没有锁屏密码时，创建一个临时会话用于二次认证
+		var err error
+		token, err = s.auth.CreateSession(cfg.Security.LockSessionTimeout)
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
+	}
+	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "二次密码错误"})
+		return
+	}
+	s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
+
+	// 无论 timeout 是否为 0，都生成一个一次性 token 供当前操作使用
+	oneTimeToken, err := s.auth.GenerateSecondaryToken(token)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+
+	resp := map[string]any{"ok": true, "secondaryToken": oneTimeToken}
+	if cfg.Security.SecondaryAuthTimeout > 0 {
+		resp["message"] = fmt.Sprintf("二次验证成功，%d 分钟内无需重复验证", cfg.Security.SecondaryAuthTimeout)
+	} else {
+		resp["message"] = "二次验证成功"
+	}
+	s.logger.Info("auth_secondary", nil)
+	s.writeJSON(w, resp)
+}
+
+// handleAuthSetPassword 设置或修改锁屏密码和二次密码。
+// 请求体格式:
+//   { "type": "lock"|"secondary", "action": "set"|"change", "oldPassword": "", "newPassword": "" }
+func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type        string `json:"type"`        // "lock" or "secondary"
+		Action      string `json:"action"`      // "set" or "change"
+		OldPassword string `json:"oldPassword"` // 旧密码（change 时必填）
+		NewPassword string `json:"newPassword"` // 新密码
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if req.Type != "lock" && req.Type != "secondary" {
+		http.Error(w, "invalid type", http.StatusBadRequest)
+		return
+	}
+	if req.NewPassword == "" {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "新密码不能为空"})
+		return
+	}
+
+	cfg := s.cfgMgr.Get()
+
+	// 验证旧密码（如果是 change 操作）
+	if req.Action == "change" {
+		if req.Type == "lock" {
+			if !s.auth.VerifyLockPassword(cfg, req.OldPassword) {
+				s.writeJSON(w, map[string]any{"ok": false, "error": "旧密码错误"})
+				return
+			}
+		} else {
+			if !s.auth.VerifySecondaryPassword(cfg, req.OldPassword) {
+				s.writeJSON(w, map[string]any{"ok": false, "error": "旧二次密码错误"})
+				return
+			}
+		}
+	} else if req.Action == "set" {
+		// set 操作要求该密码尚未设置
+		if req.Type == "lock" && s.auth.HasLockPassword(cfg) {
+			s.writeJSON(w, map[string]any{"ok": false, "error": "锁屏密码已设置，请使用修改功能"})
+			return
+		}
+		if req.Type == "secondary" && s.auth.HasSecondaryPassword(cfg) {
+			s.writeJSON(w, map[string]any{"ok": false, "error": "二次密码已设置，请使用修改功能"})
+			return
+		}
+	} else {
+		http.Error(w, "invalid action", http.StatusBadRequest)
+		return
+	}
+
+	// 确保有 salt
+	if cfg.Security.PasswordSalt == "" {
+		salt, err := generateSalt()
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		cfg.Security.PasswordSalt = salt
+	}
+
+	hash := hashPassword(cfg.Security.PasswordSalt, req.NewPassword)
+	if req.Type == "lock" {
+		cfg.Security.LockPasswordHash = hash
+	} else {
+		cfg.Security.SecondaryPasswordHash = hash
+	}
+
+	if err := s.cfgMgr.Update(cfg); err != nil {
+		s.writeError(w, err)
+		return
+	}
+
+	s.logger.Info("auth_password_set", map[string]any{"type": req.Type, "action": req.Action})
+	s.writeJSON(w, map[string]any{"ok": true})
 }

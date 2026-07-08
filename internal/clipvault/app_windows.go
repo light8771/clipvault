@@ -58,11 +58,6 @@ func Run(env Environment) error {
 	if searchURL != "" {
 		fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
 	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = searchServer.Close(ctx)
-	}()
 
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, searchURL)
 	logger.Info("app_started", map[string]any{
@@ -70,12 +65,44 @@ func Run(env Environment) error {
 		"dataDir":   env.DataDir,
 		"searchURL": searchURL,
 	})
-	if err := runtime.Run(); err != nil && !errors.Is(err, errAppQuit) {
-		logger.Error("app_run_failed", err, nil)
-		return err
+
+	// 启动消息循环（在 goroutine 中运行，主线程等待重启或退出）
+	errCh := make(chan error, 1)
+	go func() {
+		if err := runtime.Run(); err != nil && !errors.Is(err, errAppQuit) {
+			errCh <- err
+			return
+		}
+		errCh <- errAppQuit
+	}()
+
+	for {
+		select {
+		case err := <-errCh:
+			logger.Info("app_stopped", nil)
+			if errors.Is(err, errAppQuit) {
+				return nil
+			}
+			logger.Error("app_run_failed", err, nil)
+			return err
+		case <-searchServer.RestartCh():
+			logger.Info("restart_begin", nil)
+			// 关闭旧 search server
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = searchServer.Close(ctx)
+			cancel()
+			// 创建新的 search server
+			searchServer = NewSearchServer(cfgMgr, store, state, logger)
+			searchURL, err = searchServer.Start()
+			if err != nil {
+				logger.Error("restart_search_failed", err, nil)
+				continue
+			}
+			runtime.SearchURL = searchURL
+			logger.Info("restart_done", map[string]any{"searchURL": searchURL})
+			fmt.Printf("Web 界面已重启: %s\n", searchURL)
+		}
 	}
-	logger.Info("app_stopped", nil)
-	return nil
 }
 
 var errAppQuit = fmt.Errorf("app quit")

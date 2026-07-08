@@ -169,10 +169,6 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
             <span>基本</span>
           </button>
-          <button class="snav-item" id="snav-hotkey" onclick="snavTo('s-hotkey','snav-hotkey')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h4M18 12h.01M6 16h12"/></svg>
-            <span>热键</span>
-          </button>
           <button class="snav-item" id="snav-filter" onclick="snavTo('s-filter','snav-filter')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span>过滤</span>
@@ -180,6 +176,10 @@
           <button class="snav-item" id="snav-service" onclick="snavTo('s-service','snav-service')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
             <span>服务</span>
+          </button>
+          <button class="snav-item" id="snav-security" onclick="snavTo('s-security','snav-security')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span>安全</span>
           </button>
           <div class="snav-sep"></div>
           <button class="snav-item" id="snav-export" onclick="snavTo('s-export','snav-export')">
@@ -217,52 +217,6 @@
                 <p class="field-hint">文件拖放时最多记录的路径条数；填 0 表示不限制</p>
               </div>
               <input type="number" id="cfg-maxFileDropPaths" class="field-input field-input-sm" min="0" max="1000">
-            </div>
-          </div>
-        </section>
-
-        <div class="ssec-sep"></div>
-
-        <!-- 热键设置 -->
-        <section class="ssec" id="s-hotkey">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h4M18 12h.01M6 16h12"/></svg>
-            </div>
-            <div>
-              <h2 class="ssec-title">热键设置</h2>
-              <p class="ssec-desc">设置全局快捷键，变更后需重启应用生效</p>
-            </div>
-          </div>
-          <div class="ssec-fields">
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">启用全局热键</label>
-                <p class="field-hint">热键用于快速暂停/恢复录制</p>
-              </div>
-              <label class="toggle-label">
-                <input type="checkbox" id="cfg-hotkey-enabled" class="toggle-cb">
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-            <div class="field-row" id="hotkeyDetail">
-              <div class="field-info">
-                <label class="field-label">修饰键</label>
-                <p class="field-hint">选择一个或多个修饰键组合</p>
-              </div>
-              <div class="mod-group">
-                <label class="mod-btn"><input type="checkbox" value="ctrl"> Ctrl</label>
-                <label class="mod-btn"><input type="checkbox" value="alt"> Alt</label>
-                <label class="mod-btn"><input type="checkbox" value="shift"> Shift</label>
-                <label class="mod-btn"><input type="checkbox" value="win"> Win</label>
-              </div>
-            </div>
-            <div class="field-row" id="hotkeyKey">
-              <div class="field-info">
-                <label class="field-label" for="cfg-hotkey-key">键</label>
-                <p class="field-hint">输入单个字母或功能键，如 P、F1</p>
-              </div>
-              <input type="text" id="cfg-hotkey-key" class="field-input field-input-sm" maxlength="10" placeholder="P">
             </div>
           </div>
         </section>
@@ -317,14 +271,60 @@
           </div>
         </section>
 
-        <!-- 保存操作栏 -->
-        <div class="settings-save-bar">
-          <button class="btn-save" id="saveBtn">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            <span id="saveTx">保存设置</span>
-          </button>
-          <p class="save-hint">热键、监听地址变更需重启后生效；过滤规则和文字限制即时生效</p>
-        </div>
+        <!-- 安全设置 -->
+        <section class="ssec" id="s-security">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">安全设置</h2>
+              <p class="ssec-desc">设置锁屏密码和二次密码，保护敏感操作</p>
+            </div>
+          </div>
+          <div class="ssec-fields">
+            <!-- 锁屏密码 -->
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">锁屏密码</label>
+                <p class="field-hint">访问 Web 界面时需要输入此密码</p>
+              </div>
+              <div class="pwd-actions" id="lockPwdActions">
+                <span class="pwd-status" id="lockPwdStatus">未设置</span>
+                <button class="btn-pwd-set" id="lockPwdSetBtn" onclick="showPwdDialog('lock','set')">设置</button>
+                <button class="btn-pwd-change hidden" id="lockPwdChangeBtn" onclick="showPwdDialog('lock','change')">修改</button>
+              </div>
+            </div>
+            <!-- 二次密码 -->
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">二次密码</label>
+                <p class="field-hint">访问敏感数据、导出和备份数据时需要此密码</p>
+              </div>
+              <div class="pwd-actions" id="secondaryPwdActions">
+                <span class="pwd-status" id="secondaryPwdStatus">未设置</span>
+                <button class="btn-pwd-set" id="secondaryPwdSetBtn" onclick="showPwdDialog('secondary','set')">设置</button>
+                <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" onclick="showPwdDialog('secondary','change')">修改</button>
+              </div>
+            </div>
+            <!-- 锁屏会话超时 -->
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-lockSessionTimeout">锁屏会话超时</label>
+                <p class="field-hint">解锁后保持登录的时长（分钟）。0 = 关闭浏览器后失效，填数字表示 N 分钟内免重复解锁</p>
+              </div>
+              <input type="number" id="cfg-lockSessionTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
+            </div>
+            <!-- 二次认证缓存时长 -->
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-secondaryAuthTimeout">二次认证缓存时长</label>
+                <p class="field-hint">二次验证后免重复验证的时长（分钟）。0 = 每次操作都需要验证，填数字表示 N 分钟内免重复</p>
+              </div>
+              <input type="number" id="cfg-secondaryAuthTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
+            </div>
+          </div>
+        </section>
 
         <div class="ssec-sep"></div>
 
@@ -396,6 +396,74 @@
       </div>
       <div class="modal-body">
         <pre class="modal-pre" id="modalPre"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 锁屏遮罩 ── -->
+  <div class="lock-overlay" id="lockOverlay">
+    <div class="lock-box">
+      <div class="lock-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h2 class="lock-title">ClipVault 锁屏</h2>
+      <p class="lock-desc">请输入锁屏密码以访问 Web 界面</p>
+      <form id="lockForm" class="lock-form">
+        <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+        <input type="password" id="lockPassword" class="lock-input" placeholder="锁屏密码" autocomplete="current-password" autofocus>
+        <button type="submit" class="lock-btn" id="lockBtn">解锁</button>
+      </form>
+      <p class="lock-err hidden" id="lockErr"></p>
+    </div>
+  </div>
+
+  <!-- ── 二次密码弹窗 ── -->
+  <div class="modal-overlay hidden" id="secondaryModal">
+    <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <span class="modal-title">二次验证</span>
+        <button class="modal-close" onclick="closeSecondaryModal()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="height:auto;padding:24px">
+        <div class="secondary-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <p class="secondary-desc">此操作需要二次密码验证。请输入二次密码以继续。</p>
+        <form id="secondaryForm" class="lock-form">
+          <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+          <input type="password" id="secondaryPassword" class="lock-input" placeholder="二次密码" autocomplete="current-password">
+          <button type="submit" class="lock-btn" id="secondaryBtn">验证</button>
+        </form>
+        <p class="lock-err hidden" id="secondaryErr"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 重启遮罩 ── -->
+  <div class="modal-overlay hidden" id="restartOverlay">
+    <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+      <div class="modal-body" style="height:auto;padding:32px;text-align:center">
+        <div class="restart-spinner" id="restartSpinner"></div>
+        <h2 class="restart-title">正在重启服务</h2>
+        <p class="restart-desc">请稍候，服务恢复后将自动刷新页面…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 重启确认对话框 ── -->
+  <div class="modal-overlay hidden" id="restartConfirm">
+    <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <span class="modal-title">重启确认</span>
+      </div>
+      <div class="modal-body" style="height:auto;padding:24px">
+        <p style="margin:0 0 16px;color:var(--t2)">监听地址已修改，需要重启服务才能生效。是否立即重启？</p>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn-cancel" id="restartCancelBtn">稍后</button>
+          <button class="lock-btn" id="restartConfirmBtn" style="width:auto;padding:8px 20px">立即重启</button>
+        </div>
       </div>
     </div>
   </div>

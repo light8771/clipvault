@@ -19,6 +19,230 @@
   const NON_TEXT_KINDS = ['image','video','archive','office','files'];
   const IMAGE_EXTS = ['jpg','jpeg','png','gif','bmp','webp','svg','ico','tiff','tif','heic','heif','avif'];
 
+  // ── Auth state ───────────────────────────────────────────
+  let authState = { hasLockPassword: false, hasSecondaryPassword: false, authenticated: false, secondaryAuthed: false };
+  let secondaryResolve = null; // pending secondary auth promise resolver
+
+  const LOCK_OVERLAY = document.getElementById('lockOverlay');
+  const LOCK_FORM    = document.getElementById('lockForm');
+  const LOCK_INPUT   = document.getElementById('lockPassword');
+  const LOCK_ERR     = document.getElementById('lockErr');
+  const SECONDARY_MODAL = document.getElementById('secondaryModal');
+  const SECONDARY_FORM = document.getElementById('secondaryForm');
+  const SECONDARY_INPUT = document.getElementById('secondaryPassword');
+  const SECONDARY_ERR   = document.getElementById('secondaryErr');
+
+  async function checkAuthStatus() {
+    try {
+      const d = await fetch('/api/auth/status').then(r => r.json());
+      authState = d;
+      if (d.hasLockPassword && !d.authenticated) {
+        showLockScreen();
+        return false;
+      }
+      hideLockScreen();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function showLockScreen() {
+    LOCK_OVERLAY.classList.add('show');
+    LOCK_INPUT.value = '';
+    LOCK_ERR.classList.add('hidden');
+    setTimeout(() => LOCK_INPUT.focus(), 50);
+  }
+
+  function hideLockScreen() {
+    LOCK_OVERLAY.classList.remove('show');
+  }
+
+  LOCK_FORM.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pwd = LOCK_INPUT.value;
+    if (!pwd) return;
+    LOCK_ERR.classList.add('hidden');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        hideLockScreen();
+        authState.authenticated = true;
+        init();
+      } else {
+        LOCK_ERR.textContent = d.error || '密码错误';
+        LOCK_ERR.classList.remove('hidden');
+        LOCK_INPUT.value = '';
+        LOCK_INPUT.focus();
+      }
+    } catch (_) {
+      LOCK_ERR.textContent = '网络错误';
+      LOCK_ERR.classList.remove('hidden');
+    }
+  });
+
+  // ── Secondary auth ───────────────────────────────────────
+  let pendingSecondaryToken = null; // 一次性 token，timeout=0 模式下用
+
+  function requestSecondaryAuth() {
+    return new Promise(async (resolve) => {
+      if (!authState.hasSecondaryPassword) { resolve(true); return; }
+      // 后端校验：查询当前会话的二次认证状态
+      try {
+        const st = await fetch('/api/auth/status').then(r => r.json());
+        authState.secondaryAuthed = st.secondaryAuthed;
+        if (st.secondaryAuthed) { resolve(true); return; }
+      } catch (_) {}
+      // 需要弹窗输入二次密码
+      secondaryResolve = resolve;
+      SECONDARY_MODAL.classList.remove('hidden');
+      SECONDARY_INPUT.value = '';
+      SECONDARY_ERR.classList.add('hidden');
+      setTimeout(() => SECONDARY_INPUT.focus(), 50);
+    });
+  }
+
+  window.closeSecondaryModal = function() {
+    SECONDARY_MODAL.classList.add('hidden');
+    if (secondaryResolve) { secondaryResolve(false); secondaryResolve = null; }
+  };
+
+  SECONDARY_FORM.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pwd = SECONDARY_INPUT.value;
+    if (!pwd) return;
+    SECONDARY_ERR.classList.add('hidden');
+    try {
+      const res = await fetch('/api/auth/secondary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        SECONDARY_MODAL.classList.add('hidden');
+        authState.secondaryAuthed = true;
+        pendingSecondaryToken = d.secondaryToken || null;
+        toast(d.message || '二次验证成功');
+        if (secondaryResolve) { secondaryResolve(true); secondaryResolve = null; }
+      } else {
+        SECONDARY_ERR.textContent = d.error || '二次密码错误';
+        SECONDARY_ERR.classList.remove('hidden');
+        SECONDARY_INPUT.value = '';
+        SECONDARY_INPUT.focus();
+      }
+    } catch (_) {
+      SECONDARY_ERR.textContent = '网络错误';
+      SECONDARY_ERR.classList.remove('hidden');
+    }
+  });
+
+  SECONDARY_MODAL.addEventListener('click', (e) => {
+    if (e.target === SECONDARY_MODAL) closeSecondaryModal();
+  });
+
+  // ── Password set/change dialog ───────────────────────────
+  window.showPwdDialog = function(type, action) {
+    const isChange = action === 'change';
+    const title = (type === 'lock' ? '锁屏密码' : '二次密码') + (isChange ? '修改' : '设置');
+    const oldLabel = isChange ? '当前密码' : null;
+    const html = `
+      <div class="modal-overlay" id="pwdDialogOverlay">
+        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">${title}</span>
+            <button class="modal-close" onclick="closePwdDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <form id="pwdDialogForm" class="lock-form">
+              <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+              ${oldLabel ? `<input type="password" id="pwdDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
+              <input type="password" id="pwdDlgNew" class="lock-input" placeholder="新密码" autocomplete="new-password">
+              <input type="password" id="pwdDlgConfirm" class="lock-input" placeholder="确认新密码" autocomplete="new-password">
+              <button type="submit" class="lock-btn">确定</button>
+            </form>
+            <p class="lock-err hidden" id="pwdDlgErr"></p>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('pwdDialogOverlay');
+    const form = document.getElementById('pwdDialogForm');
+    const errEl = document.getElementById('pwdDlgErr');
+    const oldInput = document.getElementById('pwdDlgOld');
+    const newInput = document.getElementById('pwdDlgNew');
+    const confirmInput = document.getElementById('pwdDlgConfirm');
+    setTimeout(() => (oldInput || newInput).focus(), 50);
+
+    window.closePwdDialog = function() {
+      overlay.remove();
+    };
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closePwdDialog();
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const oldPwd = oldInput ? oldInput.value : '';
+      const newPwd = newInput.value;
+      const confirmPwd = confirmInput.value;
+      errEl.classList.add('hidden');
+
+      if (!newPwd) { errEl.textContent = '新密码不能为空'; errEl.classList.remove('hidden'); return; }
+      if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
+      if (isChange && !oldPwd) { errEl.textContent = '请输入当前密码'; errEl.classList.remove('hidden'); return; }
+
+      try {
+        const res = await fetch('/api/auth/password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, action, oldPassword: oldPwd, newPassword: newPwd }),
+        });
+        const d = await res.json();
+        if (d.ok) {
+          closePwdDialog();
+          toast((type === 'lock' ? '锁屏密码' : '二次密码') + '已' + (isChange ? '修改' : '设置'));
+          await checkAuthStatus();
+          updatePwdStatusUI();
+        } else {
+          errEl.textContent = d.error || '操作失败';
+          errEl.classList.remove('hidden');
+        }
+      } catch (_) {
+        errEl.textContent = '网络错误';
+        errEl.classList.remove('hidden');
+      }
+    });
+  };
+
+  function updatePwdStatusUI() {
+    const lockSet = authState.hasLockPassword;
+    const secSet = authState.hasSecondaryPassword;
+    const lockStatus = document.getElementById('lockPwdStatus');
+    const lockSetBtn = document.getElementById('lockPwdSetBtn');
+    const lockChangeBtn = document.getElementById('lockPwdChangeBtn');
+    const secStatus = document.getElementById('secondaryPwdStatus');
+    const secSetBtn = document.getElementById('secondaryPwdSetBtn');
+    const secChangeBtn = document.getElementById('secondaryPwdChangeBtn');
+    if (lockStatus) lockStatus.textContent = lockSet ? '已设置' : '未设置';
+    if (lockSetBtn) lockSetBtn.classList.toggle('hidden', lockSet);
+    if (lockChangeBtn) lockChangeBtn.classList.toggle('hidden', !lockSet);
+    if (secStatus) secStatus.textContent = secSet ? '已设置' : '未设置';
+    if (secSetBtn) secSetBtn.classList.toggle('hidden', secSet);
+    if (secChangeBtn) secChangeBtn.classList.toggle('hidden', !secSet);
+  }
+
   // ── View switch ───────────────────────────────────────────
   window.switchView = function(view) {
     const isHistory = view === 'history';
@@ -634,32 +858,21 @@
     document.getElementById('cfg-maxTextChars').value = cfg.maxTextChars ?? 0;
     document.getElementById('cfg-maxFileDropPaths').value = cfg.maxFileDropPaths ?? 0;
 
-    const hkEnabled = document.getElementById('cfg-hotkey-enabled');
-    hkEnabled.checked = cfg.hotkey && cfg.hotkey.enabled;
-    toggleHotkeyDetail(hkEnabled.checked);
-
-    // 修饰键
-    const mods = (cfg.hotkey && cfg.hotkey.modifiers) || [];
-    document.querySelectorAll('.mod-btn input').forEach(cb => {
-      cb.checked = mods.includes(cb.value);
-    });
-    document.getElementById('cfg-hotkey-key').value = (cfg.hotkey && cfg.hotkey.key) || 'P';
-
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
+
+    // 安全超时配置
+    const lockTimeoutEl = document.getElementById('cfg-lockSessionTimeout');
+    const secTimeoutEl  = document.getElementById('cfg-secondaryAuthTimeout');
+    if (lockTimeoutEl) lockTimeoutEl.value = (cfg.security && cfg.security.lockSessionTimeout) || 0;
+    if (secTimeoutEl)  secTimeoutEl.value  = (cfg.security && cfg.security.secondaryAuthTimeout) || 0;
 
     // 自定义过滤规则
     const patterns = (cfg.sensitive && cfg.sensitive.customPatterns) || [];
     renderPatterns(patterns);
-  }
 
-  function toggleHotkeyDetail(enabled) {
-    document.getElementById('hotkeyDetail').style.opacity = enabled ? '1' : '0.45';
-    document.getElementById('hotkeyKey').style.opacity = enabled ? '1' : '0.45';
+    // 更新密码状态 UI
+    updatePwdStatusUI();
   }
-
-  document.getElementById('cfg-hotkey-enabled').addEventListener('change', function() {
-    toggleHotkeyDetail(this.checked);
-  });
 
   // ── Pattern list ──────────────────────────────────────────
   function renderPatterns(patterns) {
@@ -699,44 +912,58 @@
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
 
-  // ── Save settings ──────────────────────────────────────────
-  const SAVE_BTN = document.getElementById('saveBtn');
-  const SAVE_TX  = document.getElementById('saveTx');
+  // ── Auto-save settings ───────────────────────────────────
+  const RESTART_OVERLAY  = document.getElementById('restartOverlay');
+  const RESTART_CONFIRM  = document.getElementById('restartConfirm');
+  const RESTART_CANCEL   = document.getElementById('restartCancelBtn');
+  const RESTART_CONFIRM_BTN = document.getElementById('restartConfirmBtn');
+  let saveTimer = 0;
+  let pendingRestart = false;
 
-  SAVE_BTN.addEventListener('click', async () => {
-    if (!currentCfg) return;
-    const mods = [];
-    document.querySelectorAll('.mod-btn input:checked').forEach(cb => mods.push(cb.value));
-
+  function collectConfig() {
+    if (!currentCfg) return null;
     const patterns = getPatterns();
+    const lockTimeout = parseInt(document.getElementById('cfg-lockSessionTimeout')?.value) || 0;
+    const secTimeout  = parseInt(document.getElementById('cfg-secondaryAuthTimeout')?.value) || 0;
+    return {
+      ...currentCfg,
+      maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
+      maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
+      sensitive: { customPatterns: patterns },
+      search: {
+        ...currentCfg.search,
+        listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
+      },
+      security: {
+        ...currentCfg.security,
+        lockSessionTimeout:   lockTimeout,
+        secondaryAuthTimeout: secTimeout,
+      },
+    };
+  }
+
+  async function saveConfig(opts) {
+    opts = opts || {};
+    const newCfg = collectConfig();
+    if (!newCfg) return;
+
     // 验证正则合法性
-    for (const p of patterns) {
+    for (const p of newCfg.sensitive.customPatterns) {
       try { new RegExp(p); } catch (_) {
         toast(`正则无效：${p}`, 'err');
         return;
       }
     }
 
-    const newCfg = {
-      ...currentCfg,
-      maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
-      maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
-      hotkey: {
-        enabled:   document.getElementById('cfg-hotkey-enabled').checked,
-        modifiers: mods,
-        key:       document.getElementById('cfg-hotkey-key').value.trim() || 'P',
-      },
-      sensitive: { customPatterns: patterns },
-      search: {
-        ...currentCfg.search,
-        listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
-      },
-    };
+    // 检测 listenAddr 是否变更
+    const addrChanged = currentCfg.search && currentCfg.search.listenAddr !== newCfg.search.listenAddr;
 
-    SAVE_BTN.disabled = true;
-    SAVE_TX.textContent = '保存中...';
     try {
-      const res = await fetch('/api/config', {
+      const url = pendingSecondaryToken
+        ? '/api/config?secondary_token=' + encodeURIComponent(pendingSecondaryToken)
+        : '/api/config';
+      pendingSecondaryToken = null;
+      const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCfg),
@@ -747,15 +974,101 @@
       }
       const d = await res.json();
       currentCfg = d.config;
-      toast('设置已保存');
-      SAVE_TX.textContent = '已保存 ✓';
-      setTimeout(() => { SAVE_TX.textContent = '保存设置'; }, 2000);
+      if (opts.silent !== true) toast('设置已保存');
+
+      if (addrChanged && !opts.skipRestart) {
+        showRestartConfirm();
+      }
     } catch (e) {
-      toast('保存失败：' + (e.message || e), 'err');
-      SAVE_TX.textContent = '保存设置';
+      if (e.message && e.message.includes('secondary_required')) {
+        const ok = await requestSecondaryAuth();
+        if (ok) { await saveConfig(opts); return; }
+        toast('需要二次验证才能保存配置', 'err');
+      } else {
+        toast('保存失败：' + (e.message || e), 'err');
+      }
     }
-    SAVE_BTN.disabled = false;
+  }
+
+  function showRestartConfirm() {
+    RESTART_CONFIRM.classList.remove('hidden');
+  }
+
+  function hideRestartConfirm() {
+    RESTART_CONFIRM.classList.add('hidden');
+  }
+
+  RESTART_CANCEL.addEventListener('click', () => {
+    hideRestartConfirm();
+    toast('监听地址将在下次重启后生效');
   });
+
+  RESTART_CONFIRM_BTN.addEventListener('click', async () => {
+    hideRestartConfirm();
+    await doRestart();
+  });
+
+  async function doRestart() {
+    RESTART_OVERLAY.classList.remove('hidden');
+    try {
+      const res = await fetch('/api/restart', { method: 'POST' });
+      if (!res.ok) {
+        RESTART_OVERLAY.classList.add('hidden');
+        toast('重启请求失败，请手动重启应用', 'err');
+        return;
+      }
+    } catch (_) {
+      // 服务已开始关闭，fetch 可能失败，继续轮询
+    }
+    // 开始轮询等待服务恢复
+    pollRestart();
+  }
+
+  function pollRestart() {
+    let attempts = 0;
+    const maxAttempts = 60;
+    const interval = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(interval);
+        RESTART_OVERLAY.classList.add('hidden');
+        toast('重启超时，请手动刷新页面', 'err');
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/status');
+        if (res.ok) {
+          clearInterval(interval);
+          // 服务已恢复，刷新页面
+          window.location.reload();
+        }
+      } catch (_) {
+        // 服务尚未恢复，继续轮询
+      }
+    }, 1000);
+  }
+
+  // 自动保存：监听设置区所有输入变化（debounce 800ms）
+  function setupAutoSave() {
+    const settingsEl = document.getElementById('viewSettings');
+    if (!settingsEl) return;
+    settingsEl.addEventListener('input', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => saveConfig({ silent: true }), 800);
+    });
+    settingsEl.addEventListener('change', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
+    });
+    // 过滤规则增删也触发保存
+    const addBtn = document.getElementById('addPatternBtn');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
+      });
+    }
+  }
 
   // expose for inline handlers
   window.doCopy = doCopy;
@@ -769,10 +1082,17 @@
   window.removePattern = window.removePattern;
 
   // ── Export ─────────────────────────────────────────────────────────
-  window.doExport = function(type) {
-    const url = type === 'config'
+  window.doExport = async function(type) {
+    const ok = await requestSecondaryAuth();
+    if (!ok) { toast('需要二次验证才能导出', 'err'); return; }
+    let url = type === 'config'
       ? '/api/export/config'
       : '/api/export/data?format=' + (type === 'data-csv' ? 'csv' : 'json');
+    // 如果有一次性 token，附加到 URL
+    if (pendingSecondaryToken) {
+      url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+      pendingSecondaryToken = null;
+    }
     // 使用临时链接触发浏览器下载
     const a = document.createElement('a');
     a.href = url;
@@ -784,6 +1104,18 @@
     toast('开始导出 ' + label);
   };
 
-  refreshState();
-  search();
+  // ── Init ─────────────────────────────────────────────────
+  function init() {
+    refreshState();
+    search();
+    setupAutoSave();
+  }
+
+  // ── Boot ─────────────────────────────────────────────────
+  (async function boot() {
+    const ok = await checkAuthStatus();
+    if (ok) {
+      init();
+    }
+  })();
 }());

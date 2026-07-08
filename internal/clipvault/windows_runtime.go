@@ -15,13 +15,10 @@ import (
 const (
 	wmDestroy         = 0x0002
 	wmCommand         = 0x0111
-	wmHotkey          = 0x0312
 	wmClipboardUpdate = 0x031D
 	wmTrayIcon        = 0x0400 + 1
 	wmRButtonUp       = 0x0205
 	wmLButtonDblClk   = 0x0203
-
-	idHotkeyPause = 1
 
 	idTrayIcon        = 100
 	idMenuTogglePause = 101
@@ -103,7 +100,7 @@ type WindowsRuntime struct {
 	logger    *DailyLogger
 	state     *RuntimeState
 	recorder  *Recorder
-	searchURL string
+	SearchURL string
 	hwnd      uintptr
 	hIcon     uintptr
 }
@@ -124,8 +121,6 @@ var (
 	procDispatchMessageW              = user32.NewProc("DispatchMessageW")
 	procAddClipboardFormatListener    = user32.NewProc("AddClipboardFormatListener")
 	procRemoveClipboardFormatListener = user32.NewProc("RemoveClipboardFormatListener")
-	procRegisterHotKey                = user32.NewProc("RegisterHotKey")
-	procUnregisterHotKey              = user32.NewProc("UnregisterHotKey")
 	procLoadIconW                     = user32.NewProc("LoadIconW")
 	procCreatePopupMenu               = user32.NewProc("CreatePopupMenu")
 	procAppendMenuW                   = user32.NewProc("AppendMenuW")
@@ -144,7 +139,7 @@ func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogg
 		logger:    logger,
 		state:     state,
 		recorder:  recorder,
-		searchURL: searchURL,
+		SearchURL: searchURL,
 	}
 }
 
@@ -186,12 +181,6 @@ func (r *WindowsRuntime) Run() error {
 	if ok, _, err := procAddClipboardFormatListener.Call(hwnd); ok == 0 {
 		r.logger.Warn("clipboard_listener_failed", map[string]any{"error": err.Error()})
 	}
-	cfg := r.cfgMgr.Get()
-	if cfg.Hotkey.Enabled {
-		if err := r.registerHotkey(); err != nil {
-			r.logger.Warn("hotkey_register_failed", map[string]any{"error": err.Error()})
-		}
-	}
 	if err := r.addTrayIcon(); err != nil {
 		r.logger.Warn("tray_add_failed", map[string]any{"error": err.Error()})
 	}
@@ -221,12 +210,6 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			go r.recorder.ProcessClipboardUpdate()
 		}
 		return 0
-	case wmHotkey:
-		if r != nil && wParam == idHotkeyPause {
-			paused := r.state.TogglePaused()
-			r.logger.Info("pause_toggled", map[string]any{"paused": paused, "source": "hotkey"})
-		}
-		return 0
 	case wmTrayIcon:
 		if r != nil {
 			// NOTIFYICON_VERSION_4: lParam 低16位=事件码，高16位=图标ID
@@ -253,21 +236,6 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		ret, _, _ := procDefWindowProcW.Call(hwnd, uintptr(message), wParam, lParam)
 		return ret
 	}
-}
-
-func (r *WindowsRuntime) registerHotkey() error {
-	mods, key, err := hotkeyMask(r.cfgMgr.Get().Hotkey)
-	if err != nil {
-		return err
-	}
-	ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyPause, uintptr(mods), uintptr(key))
-	if ok == 0 {
-		if err != syscall.Errno(0) {
-			return err
-		}
-		return fmt.Errorf("RegisterHotKey failed")
-	}
-	return nil
 }
 
 func (r *WindowsRuntime) addTrayIcon() error {
@@ -329,7 +297,7 @@ func (r *WindowsRuntime) showMenu() {
 
 	searchFlags := uint32(mfString)
 	searchText := "搜索历史 / 设置"
-	if r.searchURL == "" {
+	if r.SearchURL == "" {
 		searchFlags |= mfDisabled
 		searchText = "搜索历史 / 设置（端口不可用）"
 	}
@@ -377,11 +345,11 @@ func (r *WindowsRuntime) handleCommand(id uint16) {
 }
 
 func (r *WindowsRuntime) openSearch() {
-	if strings.TrimSpace(r.searchURL) == "" {
+	if strings.TrimSpace(r.SearchURL) == "" {
 		r.logger.Warn("search_open_skipped", map[string]any{"reason": "search_server_disabled"})
 		return
 	}
-	r.openPath(r.searchURL)
+	r.openPath(r.SearchURL)
 }
 
 func (r *WindowsRuntime) openPath(target string) {
@@ -425,10 +393,6 @@ func shellExecute(verb, file, params string) {
 }
 
 func (r *WindowsRuntime) cleanup() {
-	cfg := r.cfgMgr.Get()
-	if cfg.Hotkey.Enabled {
-		procUnregisterHotKey.Call(r.hwnd, idHotkeyPause)
-	}
 	procRemoveClipboardFormatListener.Call(r.hwnd)
 	nid := r.notifyIconData()
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&nid)))

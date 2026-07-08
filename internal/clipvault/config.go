@@ -19,20 +19,14 @@ type Config struct {
 	MaxTextChars     int             `json:"maxTextChars"`
 	MaxFileDropPaths int             `json:"maxFileDropPaths"`
 	Search           SearchConfig    `json:"search"`
-	Hotkey           HotkeyConfig    `json:"hotkey"`
 	Sensitive        SensitiveConfig `json:"sensitive"`
 	Autostart        AutostartConfig `json:"autostart"`
+	Security         SecurityConfig  `json:"security"`
 }
 
 type SearchConfig struct {
 	Enabled    bool   `json:"enabled"`
 	ListenAddr string `json:"listenAddr"`
-}
-
-type HotkeyConfig struct {
-	Enabled   bool     `json:"enabled"`
-	Modifiers []string `json:"modifiers"`
-	Key       string   `json:"key"`
 }
 
 // SensitiveConfig 过滤规则：默认全部记录，只有匹配自定义正则的内容才会被过滤。
@@ -43,6 +37,16 @@ type SensitiveConfig struct {
 type AutostartConfig struct {
 	Enabled bool   `json:"enabled"`
 	AppName string `json:"appName"`
+}
+
+// SecurityConfig 存储锁屏密码和二次密码的哈希值及盐。
+// 密码以 SHA-256(salt + password) 形式存储，不保存明文。
+type SecurityConfig struct {
+	LockPasswordHash      string `json:"lockPasswordHash"`
+	SecondaryPasswordHash string `json:"secondaryPasswordHash"`
+	PasswordSalt          string `json:"passwordSalt"`
+	LockSessionTimeout    int    `json:"lockSessionTimeout"`   // 锁屏会话超时(分钟)，0=浏览器会话cookie，N=N分钟
+	SecondaryAuthTimeout  int    `json:"secondaryAuthTimeout"` // 二次认证缓存时长(分钟)，0=每次都校验，N=N分钟内免重复
 }
 
 func NewEnvironment() (Environment, error) {
@@ -79,17 +83,19 @@ func DefaultConfig() Config {
 			Enabled:    true,
 			ListenAddr: "127.0.0.1:18765",
 		},
-		Hotkey: HotkeyConfig{
-			Enabled:   true,
-			Modifiers: []string{"ctrl", "alt"},
-			Key:       "P",
-		},
 		Sensitive: SensitiveConfig{
 			CustomPatterns: nil,
 		},
 		Autostart: AutostartConfig{
 			Enabled: false,
 			AppName: "ClipVault",
+		},
+		Security: SecurityConfig{
+			LockPasswordHash:      "",
+			SecondaryPasswordHash: "",
+			PasswordSalt:          "",
+			LockSessionTimeout:    0,
+			SecondaryAuthTimeout:  0,
 		},
 	}
 }
@@ -110,12 +116,6 @@ func normalizeConfig(cfg *Config) {
 	def := DefaultConfig()
 	if cfg.Search.ListenAddr == "" {
 		cfg.Search.ListenAddr = def.Search.ListenAddr
-	}
-	if cfg.Hotkey.Modifiers == nil {
-		cfg.Hotkey.Modifiers = def.Hotkey.Modifiers
-	}
-	if cfg.Hotkey.Key == "" {
-		cfg.Hotkey.Key = def.Hotkey.Key
 	}
 	if cfg.Autostart.AppName == "" {
 		cfg.Autostart.AppName = def.Autostart.AppName
