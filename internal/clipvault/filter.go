@@ -6,15 +6,14 @@ import (
 	"unicode/utf8"
 )
 
-// FilterEngine 只执行用户自定义的正则过滤规则。
-// 默认全部记录，只有匹配自定义规则的内容才会被拒绝。
+// FilterEngine 执行用户自定义的正则规则，匹配的内容会被标记为敏感而非拒绝。
 type FilterEngine struct {
 	customs []*regexp.Regexp
 }
 
 type FilterDecision struct {
-	Allowed bool
-	Reason  string
+	Sensitive bool
+	Reason    string
 }
 
 // NewFilterEngine 根据配置编译自定义正则表达式，创建过滤引擎。
@@ -33,15 +32,15 @@ func NewFilterEngine(cfg SensitiveConfig) (*FilterEngine, error) {
 	return engine, nil
 }
 
-// CheckText 检查文本是否匹配任意自定义过滤规则。
-// 无规则时始终返回允许；匹配到规则则拒绝并说明原因。
+// CheckText 检查文本是否匹配任意敏感规则。
+// 匹配到规则则标记为敏感；无规则或不匹配时返回非敏感。
 func (e *FilterEngine) CheckText(text string) FilterDecision {
 	for _, custom := range e.customs {
 		if custom.MatchString(text) {
-			return FilterDecision{Allowed: false, Reason: "custom_pattern"}
+			return FilterDecision{Sensitive: true, Reason: "custom_pattern"}
 		}
 	}
-	return FilterDecision{Allowed: true}
+	return FilterDecision{Sensitive: false}
 }
 
 func textRuneLen(text string) int {

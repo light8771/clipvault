@@ -2,8 +2,8 @@ package clipvault
 
 import "testing"
 
-func TestFilterEngineAllowsAllByDefault(t *testing.T) {
-	// 默认无自定义规则，所有内容应被允许
+func TestFilterEngineNoMatchByDefault(t *testing.T) {
+	// 默认无自定义规则，所有内容应非敏感
 	engine, err := NewFilterEngine(DefaultConfig().Sensitive)
 	if err != nil {
 		t.Fatal(err)
@@ -22,14 +22,14 @@ func TestFilterEngineAllowsAllByDefault(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if d := engine.CheckText(tc.text); !d.Allowed {
-				t.Fatalf("expected allowed, got blocked: %s", d.Reason)
+			if d := engine.CheckText(tc.text); d.Sensitive {
+				t.Fatalf("expected not sensitive, got sensitive: %s", d.Reason)
 			}
 		})
 	}
 }
 
-func TestFilterEngineBlocksCustomPattern(t *testing.T) {
+func TestFilterEngineTagsCustomPattern(t *testing.T) {
 	cfg := SensitiveConfig{
 		CustomPatterns: []string{`(?i)secret`, `^\d{6}$`},
 	}
@@ -38,17 +38,17 @@ func TestFilterEngineBlocksCustomPattern(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blocked := []string{"my_secret_key", "123456"}
-	for _, text := range blocked {
-		if d := engine.CheckText(text); d.Allowed {
-			t.Fatalf("expected blocked for %q, got allowed", text)
+	sensitive := []string{"my_secret_key", "123456"}
+	for _, text := range sensitive {
+		if d := engine.CheckText(text); !d.Sensitive {
+			t.Fatalf("expected sensitive for %q, got not sensitive", text)
 		}
 	}
 
-	allowed := []string{"hello world", "1234567", "normal text"}
-	for _, text := range allowed {
-		if d := engine.CheckText(text); !d.Allowed {
-			t.Fatalf("expected allowed for %q, got blocked: %s", text, d.Reason)
+	notSensitive := []string{"hello world", "1234567", "normal text"}
+	for _, text := range notSensitive {
+		if d := engine.CheckText(text); d.Sensitive {
+			t.Fatalf("expected not sensitive for %q, got sensitive: %s", text, d.Reason)
 		}
 	}
 }

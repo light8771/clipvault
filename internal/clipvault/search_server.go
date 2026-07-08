@@ -68,14 +68,17 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/clear", s.requireAuth(s.handleClear))
 	mux.HandleFunc("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.HandleFunc("PUT /api/config", s.requireSecondary(s.handlePutConfig))
+	mux.HandleFunc("GET /api/sensitive/rules", s.requireSecondary(s.handleSensitiveRules))
+	mux.HandleFunc("GET /api/search/sensitive", s.requireSecondary(s.handleSensitiveSearch))
+	mux.HandleFunc("GET /api/items/sensitive", s.requireSecondary(s.handleSensitiveItem))
 	mux.HandleFunc("GET /api/file/check", s.requireAuth(s.handleFileCheck))
 	mux.HandleFunc("GET /api/file", s.requireAuth(s.handleFileServe))
 	mux.HandleFunc("POST /api/file/opendir", s.requireAuth(s.handleFileOpenDir))
 	mux.HandleFunc("GET /api/file/hash", s.requireAuth(s.handleFileHash))
 
-	// 需要二次认证的端点（导出/备份）
-	mux.HandleFunc("GET /api/export/config", s.requireSecondary(s.handleExportConfig))
-	mux.HandleFunc("GET /api/export/data", s.requireSecondary(s.handleExportData))
+	// 导出端点（仅需锁屏认证，不限制敏感数据导出）
+	mux.HandleFunc("GET /api/export/config", s.requireAuth(s.handleExportConfig))
+	mux.HandleFunc("GET /api/export/data", s.requireAuth(s.handleExportData))
 
 	host, portStr, _ := net.SplitHostPort(cfg.Search.ListenAddr)
 	if host == "" {
@@ -185,19 +188,69 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	items, total, err := s.store.Search(r.Context(), SearchOptions{
-		Query:       r.URL.Query().Get("q"),
-		Limit:       limit,
-		Offset:      offset,
-		StarredOnly: r.URL.Query().Get("starred") == "1",
-		Kind:        r.URL.Query().Get("kind"),
-		DateFrom:    r.URL.Query().Get("date_from"),
-		DateTo:      r.URL.Query().Get("date_to"),
+		Query:           r.URL.Query().Get("q"),
+		Limit:           limit,
+		Offset:          offset,
+		StarredOnly:     r.URL.Query().Get("starred") == "1",
+		Kind:            r.URL.Query().Get("kind"),
+		DateFrom:        r.URL.Query().Get("date_from"),
+		DateTo:          r.URL.Query().Get("date_to"),
+		IncludeSensitive: true,
+	})
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	// 未通过二次认证时，遮蔽敏感项的明文
+	token := GetSessionToken(r)
+	if !s.auth.HasSecondaryAuth(token) {
+		for i := range items {
+			if items[i].Sensitive {
+				items[i].Text = "【敏感内容，点击查看】"
+			}
+		}
+	}
+	s.writeJSON(w, map[string]any{"items": items, "total": total})
+}
+
+// handleSensitiveSearch 仅返回敏感记录，需要二次认证。
+func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	items, total, err := s.store.Search(r.Context(), SearchOptions{
+		Query:         r.URL.Query().Get("q"),
+		Limit:         limit,
+		Offset:        offset,
+		Kind:          r.URL.Query().Get("kind"),
+		DateFrom:      r.URL.Query().Get("date_from"),
+		DateTo:        r.URL.Query().Get("date_to"),
+		SensitiveOnly: true,
 	})
 	if err != nil {
 		s.writeError(w, err)
 		return
 	}
 	s.writeJSON(w, map[string]any{"items": items, "total": total})
+}
+
+// handleSensitiveItem 返回单条敏感记录的明文，需要二次认证。
+func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+	item, err := s.store.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	if !item.Sensitive {
+		http.Error(w, `{"error":"not sensitive"}`, http.StatusBadRequest)
+		return
+	}
+	s.writeJSON(w, map[string]any{"item": item})
 }
 
 func (s *SearchServer) handleState(w http.ResponseWriter, r *http.Request) {
@@ -255,8 +308,24 @@ func (s *SearchServer) handleClear(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetConfig 返回当前完整配置（用于设置页面初始化）。
+// 敏感过滤规则（customPatterns）在未通过二次认证时被遮蔽，需要二次认证后通过 /api/sensitive/rules 获取。
 func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	s.writeJSON(w, s.cfgMgr.Get())
+	cfg := s.cfgMgr.Get()
+	token := GetSessionToken(r)
+	if !s.auth.HasSecondaryAuth(token) {
+		masked := make([]string, len(cfg.Sensitive.CustomPatterns))
+		for i := range cfg.Sensitive.CustomPatterns {
+			masked[i] = "__masked__"
+		}
+		cfg.Sensitive.CustomPatterns = masked
+	}
+	s.writeJSON(w, cfg)
+}
+
+// handleSensitiveRules 返回真实的敏感过滤规则，需要二次认证。
+func (s *SearchServer) handleSensitiveRules(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgMgr.Get()
+	s.writeJSON(w, map[string]any{"customPatterns": cfg.Sensitive.CustomPatterns})
 }
 
 // handlePutConfig 接收设置页面提交的配置并持久化，立即通知各组件。
@@ -306,11 +375,15 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.csv"`)
 		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "starred"})
+		_ = cw.Write([]string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "starred", "sensitive"})
 		for _, item := range items {
 			starred := "0"
 			if item.Starred {
 				starred = "1"
+			}
+			sensitive := "0"
+			if item.Sensitive {
+				sensitive = "1"
 			}
 			_ = cw.Write([]string{
 				strconv.FormatInt(item.ID, 10),
@@ -322,6 +395,7 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 				strconv.Itoa(item.CharLen),
 				item.SHA256,
 				starred,
+				sensitive,
 			})
 		}
 		cw.Flush()

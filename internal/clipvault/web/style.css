@@ -533,6 +533,60 @@ mark {
 .mkind-files   { color: var(--sub);    background: transparent;              border-color: var(--card-border); }
 .mkind-binary  { color: var(--sub);    background: transparent;              border-color: var(--card-border); }
 
+.msens {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #dc2626;
+  background: rgba(220,38,38,.08);
+  border: 1px solid rgba(220,38,38,.2);
+  flex-shrink: 0;
+}
+
+article[data-sensitive="1"] {
+  border-left: 3px solid rgba(220,38,38,.3);
+}
+
+.filter-auth-gate {
+  padding: 28px 20px;
+  text-align: center;
+}
+.filter-auth-gate-inner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--sub);
+  font-size: 13px;
+}
+.filter-auth-gate-inner svg {
+  color: var(--sub);
+  opacity: .6;
+}
+.btn-unlock-filter {
+  padding: 6px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: rgba(249,115,22,.08);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-unlock-filter:hover {
+  background: rgba(249,115,22,.15);
+}
+.filter-content.hidden { display: none; }
+
+.sensitive-mask {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 13px;
+  padding: 8px 0;
+}
+
 .mtime {
   font: 12.5px sans-serif;
   color: var(--muted);
@@ -1208,6 +1262,10 @@ article[data-starred="1"]:hover {
   color: var(--tx);
   max-height: none;
   overflow: visible;
+}
+pre.modal-pre::after {
+  content: none;
+  display: none;
 }
 
 @keyframes mOverlayIn { from { opacity:0 } to { opacity:1 } }

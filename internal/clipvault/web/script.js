@@ -254,12 +254,18 @@
   };
 
   // ── Filter chips ──────────────────────────────────────────
-  document.getElementById('kindFilters').addEventListener('click', e => {
+  document.getElementById('kindFilters').addEventListener('click', async e => {
     const chip = e.target.closest('.filter-chip');
     if (!chip) return;
+    const kind = chip.dataset.kind;
+    // 敏感数据分组需要二次验证
+    if (kind === '__sensitive__') {
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能查看敏感数据', 'err'); return; }
+    }
     document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
-    currentKind = chip.dataset.kind;
+    currentKind = kind;
     resetSearch();
   });
 
@@ -320,11 +326,30 @@
   // ── Copy ──────────────────────────────────────────────────
   const cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
 
+  async function fetchSensitiveText(id) {
+    let url = '/api/items/sensitive?id=' + id;
+    if (pendingSecondaryToken) {
+      url += '&secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+      pendingSecondaryToken = null;
+    }
+    const res = await fetch(url);
+    if (res.status === 403) return null;
+    const d = await res.json();
+    return d.item ? d.item.text : null;
+  }
+
   async function doCopy(id, btn) {
     const item = items.get(id);
     if (!item) return;
+    let textToCopy = item.text;
+    if (item.sensitive) {
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
+      textToCopy = await fetchSensitiveText(id);
+      if (textToCopy === null) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
+    }
     try {
-      await navigator.clipboard.writeText(item.text);
+      await navigator.clipboard.writeText(textToCopy);
       btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
       btn.classList.add('ok');
       toast('已复制到剪切板');
@@ -377,14 +402,41 @@
   const MODAL_PRE   = document.getElementById('modalPre');
   const MODAL_TITLE = document.getElementById('modalTitle');
 
-  function doView(id) {
+  async function doView(id) {
     const item = items.get(id);
     if (!item) return;
     currentModalId = id;
     const kindKey = item.kind || 'text';
 
+    // 敏感内容需要二次验证后获取明文
+    if (item.sensitive && !authState.secondaryAuthed) {
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能查看敏感内容', 'err'); return; }
+    }
+
+    let displayText = item.text;
+    if (item.sensitive) {
+      try {
+        let url = '/api/items/sensitive?id=' + id;
+        if (pendingSecondaryToken) {
+          url += '&secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+          pendingSecondaryToken = null;
+        }
+        const res = await fetch(url);
+        if (res.status === 403) {
+          const ok = await requestSecondaryAuth();
+          if (!ok) { toast('需要二次验证才能查看敏感内容', 'err'); return; }
+          return doView(id);
+        }
+        const d = await res.json();
+        if (d.item && d.item.text) {
+          displayText = d.item.text;
+        }
+      } catch (_) { toast('获取敏感内容失败', 'err'); return; }
+    }
+
     if (isNonTextKind(kindKey)) {
-      const paths = item.text.split('\n').filter(Boolean);
+      const paths = displayText.split('\n').filter(Boolean);
       MODAL_TITLE.textContent = '文件列表 · #' + id;
       MODAL_PRE.style.display = 'none';
       let preview = document.getElementById('modalFilePreview');
@@ -406,9 +458,9 @@
         '</div>';
       }).join('');
     } else {
-      MODAL_TITLE.textContent = '内容预览 · #' + id;
+      MODAL_TITLE.textContent = '内容预览 · #' + id + (item.sensitive ? ' · 敏感' : '');
       MODAL_PRE.style.display = 'block';
-      MODAL_PRE.textContent = item.text;
+      MODAL_PRE.textContent = displayText;
       const preview = document.getElementById('modalFilePreview');
       if (preview) preview.style.display = 'none';
     }
@@ -428,8 +480,15 @@
     const item = items.get(currentModalId);
     if (!item) return;
     const btn = document.getElementById('modalCopyBtn');
+    let textToCopy = item.text;
+    if (item.sensitive) {
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
+      textToCopy = await fetchSensitiveText(currentModalId);
+      if (textToCopy === null) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
+    }
     try {
-      await navigator.clipboard.writeText(item.text);
+      await navigator.clipboard.writeText(textToCopy);
       btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
       btn.classList.add('ok');
       toast('已复制到剪切板');
@@ -633,9 +692,16 @@
       const fullTime  = esc(new Date(it.createdAt).toLocaleString());
       const starHTML  = it.starred ? starOnHTML : starOffHTML;
       const starTitle = it.starred ? '取消收藏' : '收藏';
+      const sensHTML  = it.sensitive ? '<span class="msens">敏感</span>' : '';
+      const sensAttr  = it.sensitive ? ' data-sensitive="1"' : '';
 
       let bodyHTML, charText, showView;
-      if (isNonText) {
+      if (it.sensitive && !authState.secondaryAuthed) {
+        // 敏感内容未通过二次认证时显示遮蔽占位
+        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>敏感内容已隐藏，点击查看按钮查看明文</pre>`;
+        charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
+        showView = true;
+      } else if (isNonText) {
         const paths = it.text.split('\n').filter(Boolean);
         bodyHTML = renderFileList(it);
         charText = paths.length + ' 个文件';
@@ -647,13 +713,14 @@
         showView = long;
       }
 
-      return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}">
+      return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}"${sensAttr}>
         <div class="card-body">${bodyHTML}</div>
         <div class="card-foot">
           <div class="card-meta">
             <span class="mid">#${it.id}</span>
             <span class="msep">·</span>
             <span class="${kindClass}">${kindLabel}</span>
+            ${sensHTML ? '<span class="msep">·</span>' + sensHTML : ''}
             <span class="msep">·</span>
             <span class="mtime" title="${fullTime}">${relTime(it.createdAt)}</span>
             <span class="msep">·</span>
@@ -682,14 +749,28 @@
     const pageSize = parseInt(PAGESIZE.value) || 50;
     try {
       const p = new URLSearchParams({ q, limit: pageSize, offset: currentPage * pageSize });
+      let url = '/api/search';
       if (currentKind === '__starred__') {
         p.set('starred', '1');
+      } else if (currentKind === '__sensitive__') {
+        url = '/api/search/sensitive';
       } else if (currentKind) {
         p.set('kind', currentKind);
       }
       if (filterDateFrom) p.set('date_from', filterDateFrom);
       if (filterDateTo)   p.set('date_to',   filterDateTo);
-      const d = await fetch('/api/search?' + p).then(r => r.json());
+      // 敏感搜索需要二次认证 token
+      if (url === '/api/search/sensitive' && pendingSecondaryToken) {
+        p.set('secondary_token', pendingSecondaryToken);
+        pendingSecondaryToken = null;
+      }
+      const d = await fetch(url + '?' + p).then(r => r.json());
+      if (d.error === 'secondary_required') {
+        const ok = await requestSecondaryAuth();
+        if (ok) { await search(); return; }
+        toast('需要二次验证才能查看敏感数据', 'err');
+        return;
+      }
       totalCount = d.total || 0;
       render(d.items || [], q);
       updatePagination();
@@ -895,14 +976,52 @@
     if (lockTimeoutEl) lockTimeoutEl.value = (cfg.security && cfg.security.lockSessionTimeout) || 0;
     if (secTimeoutEl)  secTimeoutEl.value  = (cfg.security && cfg.security.secondaryAuthTimeout) || 0;
 
-    // 自定义过滤规则
+    // 检查过滤规则是否被遮蔽
     const patterns = (cfg.sensitive && cfg.sensitive.customPatterns) || [];
-    renderPatterns(patterns);
+    const isMasked = patterns.length > 0 && patterns.every(p => p === '__masked__');
+    const gate = document.getElementById('filterAuthGate');
+    const content = document.getElementById('filterContent');
+    if (isMasked) {
+      // 规则被遮蔽，显示验证门
+      if (gate) gate.classList.remove('hidden');
+      if (content) content.classList.add('hidden');
+      renderPatterns([]);
+    } else {
+      // 已通过二次认证或无规则，显示规则
+      if (gate) gate.classList.add('hidden');
+      if (content) content.classList.remove('hidden');
+      renderPatterns(patterns);
+    }
 
     // 更新密码状态 UI
     updatePwdStatusUI();
   }
 
+  // ── Unlock filter rules (secondary auth) ────────────────
+  const unlockFilterBtn = document.getElementById('unlockFilterBtn');
+  if (unlockFilterBtn) {
+    unlockFilterBtn.addEventListener('click', async () => {
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能查看过滤规则', 'err'); return; }
+      try {
+        let url = '/api/sensitive/rules';
+        if (pendingSecondaryToken) {
+          url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+          pendingSecondaryToken = null;
+        }
+        const d = await fetch(url).then(r => r.json());
+        if (d.error === 'secondary_required') {
+          toast('二次验证失败', 'err');
+          return;
+        }
+        const patterns = d.customPatterns || [];
+        document.getElementById('filterAuthGate').classList.add('hidden');
+        document.getElementById('filterContent').classList.remove('hidden');
+        renderPatterns(patterns);
+        toast('已解锁敏感过滤规则');
+      } catch (_) { toast('加载过滤规则失败', 'err'); }
+    });
+  }
   // ── Pattern list ──────────────────────────────────────────
   function renderPatterns(patterns) {
     const list = document.getElementById('patternList');
@@ -1113,16 +1232,9 @@
 
   // ── Export ─────────────────────────────────────────────────────────
   window.doExport = async function(type) {
-    const ok = await requestSecondaryAuth();
-    if (!ok) { toast('需要二次验证才能导出', 'err'); return; }
     let url = type === 'config'
       ? '/api/export/config'
       : '/api/export/data?format=' + (type === 'data-csv' ? 'csv' : 'json');
-    // 如果有一次性 token，附加到 URL
-    if (pendingSecondaryToken) {
-      url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-      pendingSecondaryToken = null;
-    }
     // 使用临时链接触发浏览器下载
     const a = document.createElement('a');
     a.href = url;
@@ -1147,5 +1259,16 @@
     if (ok) {
       init();
     }
+
+    // 标签页切回前台时，刷新认证状态和数据
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState !== 'visible') return;
+      const wasSecondaryAuthed = authState.secondaryAuthed;
+      await checkAuthStatus();
+      // 如果二次认证缓存已过期，重新搜索以遮蔽敏感内容
+      if (wasSecondaryAuthed && !authState.secondaryAuthed) {
+        search();
+      }
+    });
   })();
 }());

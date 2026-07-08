@@ -78,13 +78,6 @@ func (r *Recorder) ProcessClipboardUpdate() {
 	}
 
 	decision := r.filter.CheckText(snapshot.Text)
-	if !decision.Allowed {
-		r.logger.Info("clipboard_skipped", map[string]any{
-			"reason": decision.Reason,
-			"kind":   snapshot.Kind,
-		})
-		return
-	}
 
 	if snapshot.SHA256 == "" {
 		snapshot.SHA256 = hashString(snapshot.Kind + "\x00" + snapshot.Format + "\x00" + snapshot.Text)
@@ -103,22 +96,24 @@ func (r *Recorder) ProcessClipboardUpdate() {
 	}
 
 	if err := r.store.Save(context.Background(), ClipboardItem{
-		Kind:     snapshot.Kind,
-		Format:   snapshot.Format,
-		Text:     snapshot.Text,
-		ByteLen:  snapshot.ByteLen,
-		CharLen:  snapshot.CharLen,
-		SHA256:   snapshot.SHA256,
-		MetaJSON: metaJSON,
+		Kind:      snapshot.Kind,
+		Format:    snapshot.Format,
+		Text:      snapshot.Text,
+		ByteLen:   snapshot.ByteLen,
+		CharLen:   snapshot.CharLen,
+		SHA256:    snapshot.SHA256,
+		MetaJSON:  metaJSON,
+		Sensitive: decision.Sensitive,
 	}); err != nil {
 		r.logger.Error("clipboard_save_failed", err, map[string]any{"kind": snapshot.Kind})
 		return
 	}
 	r.logger.Info("clipboard_saved", map[string]any{
-		"kind":    snapshot.Kind,
-		"format":  snapshot.Format,
-		"charLen": snapshot.CharLen,
-		"byteLen": snapshot.ByteLen,
+		"kind":      snapshot.Kind,
+		"format":    snapshot.Format,
+		"charLen":   snapshot.CharLen,
+		"byteLen":   snapshot.ByteLen,
+		"sensitive": decision.Sensitive,
 	})
 }
 

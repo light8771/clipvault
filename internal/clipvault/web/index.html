@@ -92,6 +92,10 @@
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           其他文件
         </button>
+        <button class="filter-chip" data-kind="__sensitive__">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          敏感数据
+        </button>
       </div>
       <div class="ctrl-right">
         <label class="ar-toggle">
@@ -228,19 +232,28 @@
             </div>
             <div>
               <h2 class="ssec-title">敏感内容过滤</h2>
-              <p class="ssec-desc">匹配以下正则表达式的内容将被跳过，不予记录</p>
+              <p class="ssec-desc">匹配以下关键字/正则的内容将被标记为敏感，分组到敏感数据。查看和修改规则需要二次验证</p>
             </div>
           </div>
           <div class="ssec-body">
-            <div class="pattern-hint">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <span>每行填一条正则表达式，内容匹配则跳过记录。示例：<code>^\d{6}$</code> 过滤6位纯数字；<code>password|token</code> 过滤含敏感词的内容；<code>(?i)secret</code> 大小写不敏感匹配。</span>
+            <div class="filter-auth-gate" id="filterAuthGate">
+              <div class="filter-auth-gate-inner">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>查看和修改敏感过滤规则需要二次验证</span>
+                <button class="btn-unlock-filter" id="unlockFilterBtn">二次验证</button>
+              </div>
             </div>
-            <div id="patternList" class="pattern-list"></div>
-            <button class="btn-add-pattern" id="addPatternBtn">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              添加过滤规则
-            </button>
+            <div id="filterContent" class="filter-content hidden">
+              <div class="pattern-hint">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>每行填一条关键字或正则表达式，内容匹配则标记为敏感。示例：<code>password|token</code> 标记含敏感词的内容；<code>^\d{6}$</code> 标记6位纯数字；<code>(?i)secret</code> 大小写不敏感匹配。</span>
+              </div>
+              <div id="patternList" class="pattern-list"></div>
+              <button class="btn-add-pattern" id="addPatternBtn">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                添加过滤规则
+              </button>
+            </div>
           </div>
         </section>
 
