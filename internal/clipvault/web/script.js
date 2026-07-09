@@ -1423,6 +1423,137 @@
     toast('开始导出 ' + label);
   };
 
+  // ── Encrypted export (.cvexport) ─────────────────────────────
+  window.doExportCvexport = function() {
+    const html = `
+      <div class="modal-overlay" id="cvexportOverlay">
+        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">加密导出</span>
+            <button class="modal-close" onclick="closeCvexportDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+              输入密码加密导出文件。导入时需要相同的密码才能解密。
+            </p>
+            <form id="cvexportForm" class="lock-form">
+              <input type="password" id="cvexportPwd" class="lock-input" placeholder="加密密码" autocomplete="new-password">
+              <input type="password" id="cvexportConfirm" class="lock-input" placeholder="确认密码" autocomplete="new-password">
+              <button type="submit" class="lock-btn">加密导出</button>
+            </form>
+            <p class="lock-err hidden" id="cvexportErr"></p>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('cvexportOverlay');
+    const form = document.getElementById('cvexportForm');
+    const errEl = document.getElementById('cvexportErr');
+    const pwdInput = document.getElementById('cvexportPwd');
+    const confirmInput = document.getElementById('cvexportConfirm');
+    setTimeout(() => pwdInput.focus(), 50);
+
+    window.closeCvexportDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCvexportDialog(); });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pwd = pwdInput.value;
+      const confirm = confirmInput.value;
+      errEl.classList.add('hidden');
+      if (!pwd) { errEl.textContent = '密码不能为空'; errEl.classList.remove('hidden'); return; }
+      if (pwd !== confirm) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
+
+      closeCvexportDialog();
+      const url = '/api/export/data?format=cvexport&password=' + encodeURIComponent(pwd);
+      const a = document.createElement('a');
+      a.href = url;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast('开始加密导出');
+    });
+  };
+
+  // ── Import dialog ────────────────────────────────────────────
+  window.showImportDialog = function() {
+    const html = `
+      <div class="modal-overlay" id="importOverlay">
+        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">导入数据</span>
+            <button class="modal-close" onclick="closeImportDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+              选择 JSON 或加密 .cvexport 文件导入。如果是加密文件，需要输入密码。
+            </p>
+            <input type="file" id="importFile" accept=".json,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--text-secondary)">
+            <input type="password" id="importPwd" class="lock-input" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off" style="margin-bottom:12px">
+            <button class="lock-btn" onclick="doImport()">开始导入</button>
+            <p class="lock-err hidden" id="importErr" style="margin-top:12px"></p>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('importOverlay');
+    window.closeImportDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeImportDialog(); });
+  };
+
+  async function doImport() {
+    const fileInput = document.getElementById('importFile');
+    const pwdInput = document.getElementById('importPwd');
+    const errEl = document.getElementById('importErr');
+    errEl.classList.add('hidden');
+
+    if (!fileInput.files || !fileInput.files[0]) {
+      errEl.textContent = '请选择文件';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const file = fileInput.files[0];
+    const isCvexport = file.name.endsWith('.cvexport');
+    const pwd = pwdInput.value;
+
+    if (isCvexport && !pwd) {
+      errEl.textContent = '加密文件需要输入密码';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const url = '/api/import/data' + (pwd ? '?password=' + encodeURIComponent(pwd) : '');
+      const res = await fetch(url, { method: 'POST', body: file });
+      const d = await res.json();
+      if (d.ok) {
+        closeImportDialog();
+        toast('导入成功');
+      } else {
+        errEl.textContent = d.error || '导入失败';
+        errEl.classList.remove('hidden');
+      }
+    } catch (e) {
+      errEl.textContent = '网络错误: ' + e.message;
+      errEl.classList.remove('hidden');
+    }
+  }
+  window.doImport = doImport;
+
   // ── Group functions ─────────────────────────────────────────────────────
 
   async function loadGroups() {

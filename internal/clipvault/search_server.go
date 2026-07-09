@@ -376,10 +376,10 @@ func (s *SearchServer) handleExportConfig(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write(data)
 }
 
-// handleExportData 导出所有剪切板记录，支持 format=json（默认）和 format=csv。
+// handleExportData 导出所有剪切板记录，支持 format=json（默认）、format=csv、format=cvexport。
 func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
-	if format != "csv" {
+	if format != "csv" && format != "cvexport" {
 		format = "json"
 	}
 
@@ -452,6 +452,26 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(export)
 		s.logger.Info("data_exported", map[string]any{"format": "json", "total": len(export.Items)})
+	case "cvexport":
+		password := r.URL.Query().Get("password")
+		if password == "" {
+			http.Error(w, "password is required for cvexport format", http.StatusBadRequest)
+			return
+		}
+		export, err := s.store.ExportFullForJSON(r.Context())
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		encData, err := EncryptExportJSON(export, password)
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.cvexport"`)
+		_, _ = w.Write(encData)
+		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "total": len(export.Items)})
 	}
 }
 
@@ -468,7 +488,7 @@ func csvSafe(s string) string {
 	return s
 }
 
-// handleImportData receives a JSON export file and imports it into the database.
+// handleImportData receives a JSON export file (or encrypted .cvexport file) and imports it.
 func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) {
 	// Limit upload to 100MB
 	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
@@ -477,7 +497,25 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.store.ImportFullJSON(r.Context(), data); err != nil {
+
+	// Check if this is an encrypted .cvexport file
+	var jsonData []byte
+	if IsCVExport(data) {
+		password := r.URL.Query().Get("password")
+		if password == "" {
+			http.Error(w, "password is required to decrypt .cvexport file", http.StatusBadRequest)
+			return
+		}
+		jsonData, err = DecryptExport(data, password)
+		if err != nil {
+			s.writeError(w, fmt.Errorf("decrypt cvexport: %w", err))
+			return
+		}
+	} else {
+		jsonData = data
+	}
+
+	if err := s.store.ImportFullJSON(r.Context(), jsonData); err != nil {
 		s.writeError(w, err)
 		s.logger.Error("import_failed", err, nil)
 		return
