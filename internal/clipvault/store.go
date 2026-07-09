@@ -64,7 +64,7 @@ type StoredItem struct {
 type SearchOptions struct {
 	Query            string
 	Limit            int
-	Offset           int    // pagination offset
+	Offset           int // pagination offset
 	StarredOnly      bool
 	Kind             string // filter by kind (empty = all)
 	DateFrom         string // YYYY-MM-DD, inclusive lower bound on created_at (UTC date)
@@ -143,12 +143,6 @@ func OpenStore(opts StoreOptions) (*Store, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return store, nil
-}
-
-// OpenStorePath is a backward-compatible wrapper that derives DataDir from the db file path.
-// Deprecated: use OpenStore with StoreOptions instead.
-func OpenStorePath(path string) (*Store, error) {
-	return OpenStore(StoreOptions{DataDir: filepath.Dir(path)})
 }
 
 // DBKey returns the raw database encryption key (for recovery file creation).
@@ -526,6 +520,10 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("export config: %w", err)
 	}
+	// 导出时清除密码哈希和盐，避免泄露
+	cfg.Security.LockPasswordHash = ""
+	cfg.Security.SecondaryPasswordHash = ""
+	cfg.Security.PasswordSalt = ""
 
 	return &ExportData{
 		ExportVersion: 2,
@@ -607,7 +605,12 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 	}
 
 	// Import config (optional, only if present)
+	// 保留当前密码安全配置，不被导入的空值覆盖
 	if export.Config != nil {
+		curCfg, err := s.GetConfig()
+		if err == nil {
+			export.Config.Security = curCfg.Security
+		}
 		cfgData, err := json.Marshal(export.Config)
 		if err != nil {
 			return fmt.Errorf("marshal config: %w", err)

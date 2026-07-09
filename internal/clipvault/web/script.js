@@ -223,7 +223,8 @@
           await checkAuthStatus();
           updatePwdStatusUI();
         } else {
-          errEl.textContent = d.error || '操作失败';
+          const errMap = { too_short: '密码至少 8 位', too_weak: '密码需包含大小写字母、数字、特殊字符中的至少两种' };
+          errEl.textContent = errMap[d.error] || d.error || '操作失败';
           errEl.classList.remove('hidden');
         }
       } catch (_) {
@@ -256,7 +257,15 @@
 
   async function loadRecoveryStatus() {
     try {
-      const res = await fetch('/api/recovery/status');
+      const ok = await requestSecondaryAuth();
+      if (!ok) return;
+      let url = '/api/recovery/status';
+      if (pendingSecondaryToken) {
+        url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+        pendingSecondaryToken = null;
+      }
+      const res = await fetch(url);
+      if (res.status === 403) return; // 二次验证失败，静默跳过
       if (!res.ok) return;
       const d = await res.json();
       recoveryState.hasRecovery = d.hasRecovery;
@@ -328,15 +337,32 @@
       if (isChange && !oldPwd) { errEl.textContent = '请输入当前恢复密码'; errEl.classList.remove('hidden'); return; }
 
       try {
-        const url = isChange ? '/api/recovery/change' : '/api/recovery/set';
+        const ok = await requestSecondaryAuth();
+        if (!ok) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
+        const baseUrl = isChange ? '/api/recovery/change' : '/api/recovery/set';
         const body = isChange
           ? { oldPassword: oldPwd, newPassword: newPwd }
           : { password: newPwd };
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+
+        const doFetch = async () => {
+          let url = baseUrl;
+          if (pendingSecondaryToken) {
+            url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+            pendingSecondaryToken = null;
+          }
+          return await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        };
+
+        let res = await doFetch();
+        if (res.status === 403) {
+          const ok2 = await requestSecondaryAuth();
+          if (!ok2) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
+          res = await doFetch();
+        }
         const d = await res.json();
         if (d.ok) {
           closeRecDialog();
@@ -386,7 +412,22 @@
 
   async function doRecoveryRemove() {
     try {
-      const res = await fetch('/api/recovery/remove', { method: 'POST' });
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能删除恢复密码', 'err'); return; }
+      const doFetch = async () => {
+        let url = '/api/recovery/remove';
+        if (pendingSecondaryToken) {
+          url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+          pendingSecondaryToken = null;
+        }
+        return await fetch(url, { method: 'POST' });
+      };
+      let res = await doFetch();
+      if (res.status === 403) {
+        const ok2 = await requestSecondaryAuth();
+        if (!ok2) { toast('需要二次验证才能删除恢复密码', 'err'); return; }
+        res = await doFetch();
+      }
       const d = await res.json();
       if (d.ok) {
         closeRecRemoveDialog();
@@ -499,8 +540,12 @@
       url += '&secondary_token=' + encodeURIComponent(pendingSecondaryToken);
       pendingSecondaryToken = null;
     }
-    const res = await fetch(url);
-    if (res.status === 403) return null;
+    let res = await fetch(url);
+    if (res.status === 403) {
+      const ok = await requestSecondaryAuth();
+      if (!ok) return null;
+      return fetchSensitiveText(id);
+    }
     const d = await res.json();
     return d.item ? d.item.text : null;
   }
@@ -1258,7 +1303,12 @@
 
   function collectConfig() {
     if (!currentCfg) return null;
-    const patterns = getPatterns();
+    // 当过滤规则被遮蔽（auth gate 可见）时，保留原配置中的 patterns，避免用空数组覆盖
+    const gate = document.getElementById('filterAuthGate');
+    const patternsMasked = gate && !gate.classList.contains('hidden');
+    const patterns = patternsMasked
+      ? (currentCfg.sensitive && currentCfg.sensitive.customPatterns) || []
+      : getPatterns();
     const lockTimeout = parseInt(document.getElementById('cfg-lockSessionTimeout')?.value) || 0;
     const secTimeout  = parseInt(document.getElementById('cfg-secondaryAuthTimeout')?.value) || 0;
     const hkEnabled = document.getElementById('cfg-hotkeyEnabled')?.checked || false;
@@ -1267,6 +1317,10 @@
       if (cb.checked) hkMods |= parseInt(cb.value);
     });
     const hkKeyChar = (document.getElementById('cfg-hotkeyKey')?.value || '').toUpperCase().charCodeAt(0) || 0;
+    if (hkEnabled && (hkMods === 0 || hkKeyChar === 0)) {
+      toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
+      return null;
+    }
     return {
       ...currentCfg,
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
@@ -1321,7 +1375,11 @@
       }
       const d = await res.json();
       currentCfg = d.config;
-      if (opts.silent !== true) toast('设置已保存');
+      if (d.hotkeyError) {
+        toast(d.hotkeyError, 'err');
+      } else if (opts.silent !== true) {
+        toast('设置已保存');
+      }
 
       if (addrChanged && !opts.skipRestart) {
         showRestartConfirm();
@@ -1386,8 +1444,8 @@
         const res = await fetch('/api/auth/status');
         if (res.ok) {
           clearInterval(interval);
-          // 服务已恢复，刷新页面
-          window.location.reload();
+          // 新页面已由后端 shellExecute 在新标签页打开，仅隐藏遮罩
+          RESTART_OVERLAY.classList.add('hidden');
         }
       } catch (_) {
         // 服务尚未恢复，继续轮询
@@ -1440,19 +1498,47 @@
   window.removePattern = window.removePattern;
 
   // ── Export ─────────────────────────────────────────────────────────
+  // authedDownload 处理二次认证后通过 fetch 下载文件（blob），避免 <a> 标签无法捕获 403。
+  async function authedDownload(baseUrl, fallbackFilename) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ok = await requestSecondaryAuth();
+      if (!ok) { toast('需要二次验证才能导出', 'err'); return false; }
+      let url = baseUrl;
+      if (pendingSecondaryToken) {
+        url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+        pendingSecondaryToken = null;
+      }
+      try {
+        const res = await fetch(url);
+        if (res.status === 403) continue; // token 失效，重试
+        if (!res.ok) { toast('导出失败: ' + res.status, 'err'); return false; }
+        const blob = await res.blob();
+        const cd = res.headers.get('Content-Disposition') || '';
+        const m = cd.match(/filename="([^"]+)"/);
+        const filename = m ? m[1] : fallbackFilename;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        return true;
+      } catch (_) { toast('导出失败: 网络错误', 'err'); return false; }
+    }
+    toast('需要二次验证才能导出', 'err');
+    return false;
+  }
+
   window.doExport = async function(type) {
-    let url = type === 'config'
+    const baseUrl = type === 'config'
       ? '/api/export/config'
       : '/api/export/data?format=' + (type === 'data-csv' ? 'csv' : 'json');
-    // 使用临时链接触发浏览器下载
-    const a = document.createElement('a');
-    a.href = url;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const fallback = type === 'config' ? 'clipvault-config.json'
+      : (type === 'data-csv' ? 'clipvault-data.csv' : 'clipvault-data.json');
     const label = type === 'config' ? '配置' : ('剪切板记录（' + (type === 'data-csv' ? 'CSV' : 'JSON') + '）');
-    toast('开始导出 ' + label);
+    const ok = await authedDownload(baseUrl, fallback);
+    if (ok) toast('已导出 ' + label);
   };
 
   // ── Encrypted export (.cvexport) ─────────────────────────────
@@ -1502,14 +1588,9 @@
       if (pwd !== confirm) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
 
       closeCvexportDialog();
-      const url = '/api/export/data?format=cvexport&password=' + encodeURIComponent(pwd);
-      const a = document.createElement('a');
-      a.href = url;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast('开始加密导出');
+      const baseUrl = '/api/export/data?format=cvexport&password=' + encodeURIComponent(pwd);
+      const ok = await authedDownload(baseUrl, 'clipvault-data.cvexport');
+      if (ok) toast('已加密导出');
     });
   };
 
@@ -1567,10 +1648,28 @@
     }
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const url = '/api/import/data' + (pwd ? '?password=' + encodeURIComponent(pwd) : '');
+      const ok = await requestSecondaryAuth();
+      if (!ok) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
+      let url = '/api/import/data' + (pwd ? '?password=' + encodeURIComponent(pwd) : '');
+      if (pendingSecondaryToken) {
+        url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+        pendingSecondaryToken = null;
+      }
       const res = await fetch(url, { method: 'POST', body: file });
+      if (res.status === 403) {
+        const ok2 = await requestSecondaryAuth();
+        if (!ok2) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
+        let retryUrl = '/api/import/data' + (pwd ? '?password=' + encodeURIComponent(pwd) : '');
+        if (pendingSecondaryToken) {
+          retryUrl += (retryUrl.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+          pendingSecondaryToken = null;
+        }
+        const res2 = await fetch(retryUrl, { method: 'POST', body: file });
+        const d2 = await res2.json();
+        if (d2.ok) { closeImportDialog(); toast('导入成功'); }
+        else { errEl.textContent = d2.error || '导入失败'; errEl.classList.remove('hidden'); }
+        return;
+      }
       const d = await res.json();
       if (d.ok) {
         closeImportDialog();

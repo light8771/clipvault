@@ -78,10 +78,11 @@ func Run(env Environment) error {
 		logger.Warn("autostart_sync_failed", map[string]any{"error": err.Error()})
 	}
 	// 配置变更时同步 autostart
-	cfgMgr.OnChange(func(newCfg Config) {
+	cfgMgr.OnChange(func(newCfg Config) error {
 		if err := SetAutostart(newCfg.Autostart.AppName, newCfg.Autostart.Enabled); err != nil {
 			logger.Warn("autostart_sync_failed", map[string]any{"error": err.Error()})
 		}
+		return nil
 	})
 
 	state := NewRuntimeState(false)
@@ -98,8 +99,8 @@ func Run(env Environment) error {
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, searchURL)
 
 	// 配置变更时重新注册全局快捷键
-	cfgMgr.OnChange(func(newCfg Config) {
-		runtime.ReregisterHotkey(newCfg)
+	cfgMgr.OnChange(func(newCfg Config) error {
+		return runtime.ReregisterHotkey(newCfg)
 	})
 
 	logger.Info("app_started", map[string]any{

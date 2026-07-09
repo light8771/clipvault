@@ -57,7 +57,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("POST /api/auth/secondary", s.handleAuthSecondary)
-	mux.HandleFunc("POST /api/auth/password", s.handleAuthSetPassword)
+	mux.HandleFunc("POST /api/auth/password", s.requireAuth(s.handleAuthSetPassword))
 	mux.HandleFunc("POST /api/restart", s.requireAuth(s.handleRestart))
 
 	// 需要锁屏认证的端点
@@ -220,9 +220,10 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	// 未通过二次认证时，遮蔽敏感项的明文
+	// 未设置二次密码时不需要遮蔽；已通过二次认证时也不遮蔽
+	cfg := s.cfgMgr.Get()
 	token := GetSessionToken(r)
-	if !s.auth.HasSecondaryAuth(token) {
+	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
 		for i := range items {
 			if items[i].Sensitive {
 				items[i].Text = "【敏感内容，点击查看】"
@@ -331,14 +332,22 @@ func (s *SearchServer) handleClear(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.Get()
 	token := GetSessionToken(r)
-	if !s.auth.HasSecondaryAuth(token) {
+	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
 		masked := make([]string, len(cfg.Sensitive.CustomPatterns))
 		for i := range cfg.Sensitive.CustomPatterns {
 			masked[i] = "__masked__"
 		}
 		cfg.Sensitive.CustomPatterns = masked
 	}
-	s.writeJSON(w, cfg)
+	s.writeJSON(w, stripSecrets(cfg))
+}
+
+// stripSecrets 清除配置中的密码哈希和盐，避免向前端或导出文件泄露。
+func stripSecrets(cfg Config) Config {
+	cfg.Security.LockPasswordHash = ""
+	cfg.Security.SecondaryPasswordHash = ""
+	cfg.Security.PasswordSalt = ""
+	return cfg
 }
 
 // handleSensitiveRules 返回真实的敏感过滤规则，需要二次认证。
@@ -355,17 +364,41 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// 前端可能在未通过二次认证时提交遮蔽后的 patterns（__masked__），保留原值
+	for _, p := range cfg.Sensitive.CustomPatterns {
+		if p == "__masked__" {
+			cfg.Sensitive.CustomPatterns = s.cfgMgr.Get().Sensitive.CustomPatterns
+			break
+		}
+	}
+	// 保留当前密码哈希和盐，不被前端回传的空值覆盖
+	curCfg := s.cfgMgr.Get()
+	if cfg.Security.LockPasswordHash == "" {
+		cfg.Security.LockPasswordHash = curCfg.Security.LockPasswordHash
+	}
+	if cfg.Security.SecondaryPasswordHash == "" {
+		cfg.Security.SecondaryPasswordHash = curCfg.Security.SecondaryPasswordHash
+	}
+	if cfg.Security.PasswordSalt == "" {
+		cfg.Security.PasswordSalt = curCfg.Security.PasswordSalt
+	}
 	if err := s.cfgMgr.Update(cfg); err != nil {
+		var hkErr *HotkeyError
+		if errors.As(err, &hkErr) {
+			s.logger.Info("config_updated", map[string]any{"hotkey_error": hkErr.Error()})
+			s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get()), "hotkeyError": hkErr.Error()})
+			return
+		}
 		s.writeError(w, err)
 		return
 	}
 	s.logger.Info("config_updated", nil)
-	s.writeJSON(w, map[string]any{"ok": true, "config": s.cfgMgr.Get()})
+	s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get())})
 }
 
 // handleExportConfig 将当前配置以 JSON 文件形式下载。
 func (s *SearchServer) handleExportConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := s.cfgMgr.Get()
+	cfg := stripSecrets(s.cfgMgr.Get())
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		s.writeError(w, err)
@@ -797,6 +830,15 @@ func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
+// formatDuration 将时长格式化为中文可读字符串。
+func formatDuration(d time.Duration) string {
+	if d >= time.Minute {
+		min := int(d.Minutes())
+		return fmt.Sprintf("%d 分钟", min)
+	}
+	return fmt.Sprintf("%d 秒", int(d.Seconds()))
+}
+
 // ── Auth middleware ───────────────────────────────────────────
 
 // requireAuth 确保请求已通过锁屏认证。如果未设置锁屏密码，则直接放行。
@@ -819,8 +861,9 @@ func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // requireSecondary 确保请求已通过锁屏认证且拥有有效的二次认证。
 // 支持两种二次认证方式：
-//   1. 会话级缓存（timeout > 0 时，GrantSecondaryAuth 设置的有效期内免重复）
-//   2. 一次性 token（timeout = 0 时，每次操作需携带 ?secondary_token=xxx）
+//  1. 会话级缓存（timeout > 0 时，GrantSecondaryAuth 设置的有效期内免重复）
+//  2. 一次性 token（timeout = 0 时，每次操作需携带 ?secondary_token=xxx）
+//
 // 如果未设置二次密码，则只要求锁屏认证。
 func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -892,10 +935,16 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, map[string]any{"ok": true, "message": "no lock password set"})
 		return
 	}
+	if allowed, wait := s.auth.CheckRateLimit(); !allowed {
+		s.writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("尝试次数过多，请 %s 后再试", formatDuration(wait))})
+		return
+	}
 	if !s.auth.VerifyLockPassword(cfg, req.Password) {
+		s.auth.RecordFailedAttempt()
 		s.writeJSON(w, map[string]any{"ok": false, "error": "密码错误"})
 		return
 	}
+	s.auth.ResetRateLimit()
 	token, err := s.auth.CreateSession(cfg.Security.LockSessionTimeout)
 	if err != nil {
 		s.writeError(w, err)
@@ -928,6 +977,10 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		s.writeJSON(w, map[string]any{"ok": true, "message": "no secondary password set"})
 		return
 	}
+	if allowed, wait := s.auth.CheckRateLimit(); !allowed {
+		s.writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("尝试次数过多，请 %s 后再试", formatDuration(wait))})
+		return
+	}
 	token := GetSessionToken(r)
 	sess := s.auth.GetSession(token)
 	if sess == nil || !sess.Authenticated {
@@ -945,9 +998,11 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
 	}
 	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
+		s.auth.RecordFailedAttempt()
 		s.writeJSON(w, map[string]any{"ok": false, "error": "二次密码错误"})
 		return
 	}
+	s.auth.ResetRateLimit()
 	s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
 
 	// 无论 timeout 是否为 0，都生成一个一次性 token 供当前操作使用
@@ -969,7 +1024,8 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 
 // handleAuthSetPassword 设置或修改锁屏密码和二次密码。
 // 请求体格式:
-//   { "type": "lock"|"secondary", "action": "set"|"change", "oldPassword": "", "newPassword": "" }
+//
+//	{ "type": "lock"|"secondary", "action": "set"|"change", "oldPassword": "", "newPassword": "" }
 func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type        string `json:"type"`        // "lock" or "secondary"
@@ -990,22 +1046,37 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		s.writeJSON(w, map[string]any{"ok": false, "error": "新密码不能为空"})
 		return
 	}
+	if err := CheckPasswordStrength(req.NewPassword); err != nil {
+		if rpErr, ok := err.(*RecoveryPasswordError); ok {
+			s.writeJSON(w, map[string]any{"ok": false, "error": rpErr.Code})
+		} else {
+			s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		}
+		return
+	}
 
 	cfg := s.cfgMgr.Get()
 
 	// 验证旧密码（如果是 change 操作）
 	if req.Action == "change" {
+		if allowed, wait := s.auth.CheckRateLimit(); !allowed {
+			s.writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("尝试次数过多，请 %s 后再试", formatDuration(wait))})
+			return
+		}
 		if req.Type == "lock" {
 			if !s.auth.VerifyLockPassword(cfg, req.OldPassword) {
+				s.auth.RecordFailedAttempt()
 				s.writeJSON(w, map[string]any{"ok": false, "error": "旧密码错误"})
 				return
 			}
 		} else {
 			if !s.auth.VerifySecondaryPassword(cfg, req.OldPassword) {
+				s.auth.RecordFailedAttempt()
 				s.writeJSON(w, map[string]any{"ok": false, "error": "旧二次密码错误"})
 				return
 			}
 		}
+		s.auth.ResetRateLimit()
 	} else if req.Action == "set" {
 		// set 操作要求该密码尚未设置
 		if req.Type == "lock" && s.auth.HasLockPassword(cfg) {
@@ -1041,6 +1112,15 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	if err := s.cfgMgr.Update(cfg); err != nil {
 		s.writeError(w, err)
 		return
+	}
+
+	// 密码修改后失效旧认证状态
+	if req.Type == "lock" {
+		// 锁屏密码修改：踢出其他会话，保留当前会话
+		s.auth.DestroyAllSessionsExcept(GetSessionToken(r))
+	} else {
+		// 二次密码修改：撤销所有会话的二次认证，强制重新验证
+		s.auth.RevokeAllSecondaryAuth()
 	}
 
 	s.logger.Info("auth_password_set", map[string]any{"type": req.Type, "action": req.Action})

@@ -40,12 +40,13 @@ func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logge
 		filter: filter,
 	}
 	// 配置变更时重建 FilterEngine（立即生效）
-	cfgMgr.OnChange(func(cfg Config) {
+	cfgMgr.OnChange(func(cfg Config) error {
 		if newFilter, err := NewFilterEngine(cfg.Sensitive); err == nil {
 			r.mu.Lock()
 			r.filter = newFilter
 			r.mu.Unlock()
 		}
+		return nil
 	})
 	return r
 }

@@ -8,7 +8,7 @@ type ConfigManager struct {
 	mu       sync.RWMutex
 	cfg      Config
 	store    *Store
-	onChange []func(Config)
+	onChange []func(Config) error
 }
 
 // NewConfigManager 从数据库加载配置，创建 ConfigManager。
@@ -28,6 +28,7 @@ func (cm *ConfigManager) Get() Config {
 }
 
 // Update 校验并持久化新配置，然后同步通知所有已注册的监听器。
+// 返回监听器的第一个非 nil 错误（存储错误优先）。
 func (cm *ConfigManager) Update(cfg Config) error {
 	normalizeConfig(&cfg)
 	if err := cm.store.SaveConfig(cfg); err != nil {
@@ -35,17 +36,19 @@ func (cm *ConfigManager) Update(cfg Config) error {
 	}
 	cm.mu.Lock()
 	cm.cfg = cfg
-	listeners := append([]func(Config){}, cm.onChange...)
+	listeners := append([]func(Config) error{}, cm.onChange...)
 	cm.mu.Unlock()
 
 	for _, fn := range listeners {
-		fn(cfg)
+		if err := fn(cfg); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // OnChange 注册一个配置变更监听器，在 Update 成功后被同步调用。
-func (cm *ConfigManager) OnChange(fn func(Config)) {
+func (cm *ConfigManager) OnChange(fn func(Config) error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.onChange = append(cm.onChange, fn)

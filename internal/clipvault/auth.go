@@ -14,6 +14,11 @@ const (
 	sessionTokenBytes = 32
 	// 内部会话最长存活时间，用于清理过期会话
 	maxSessionLifetime = 24 * time.Hour
+
+	// 密码限流参数
+	rateLimitThreshold = 100              // 连续失败次数阈值
+	rateLimitWindow    = 30 * time.Minute // 统计窗口
+	rateLimitMaxLock   = 5 * time.Minute  // 最大锁定时长
 )
 
 // Session 表示一个已认证的浏览器会话。
@@ -31,6 +36,8 @@ type AuthManager struct {
 	mu              sync.RWMutex
 	sessions        map[string]*Session
 	secondaryTokens map[string]string // 一次性二次认证 token -> session token
+	rateMu          sync.Mutex
+	rateBuckets     map[string]*rateBucket // IP -> 失败记录
 }
 
 // NewAuthManager 创建一个新的 AuthManager。
@@ -38,6 +45,7 @@ func NewAuthManager() *AuthManager {
 	return &AuthManager{
 		sessions:        make(map[string]*Session),
 		secondaryTokens: make(map[string]string),
+		rateBuckets:     make(map[string]*rateBucket),
 	}
 }
 
@@ -147,8 +155,8 @@ func (am *AuthManager) GrantSecondaryAuth(token string, timeoutMin int) {
 // HasSecondaryAuth 检查会话是否拥有有效的二次认证。
 func (am *AuthManager) HasSecondaryAuth(token string) bool {
 	am.mu.RLock()
-	defer am.mu.RUnlock()
 	sess, ok := am.sessions[token]
+	am.mu.RUnlock()
 	if !ok {
 		return false
 	}
@@ -156,7 +164,9 @@ func (am *AuthManager) HasSecondaryAuth(token string) bool {
 		return false
 	}
 	if time.Now().After(sess.SecondaryExpiry) {
+		am.mu.Lock()
 		sess.SecondaryAuth = false
+		am.mu.Unlock()
 		return false
 	}
 	return true
@@ -201,17 +211,55 @@ func (am *AuthManager) DestroySession(token string) {
 	am.mu.Unlock()
 }
 
+// RevokeAllSecondaryAuth 撤销所有会话的二次认证权限。
+// 用于二次密码被修改后，强制所有会话重新进行二次验证。
+func (am *AuthManager) RevokeAllSecondaryAuth() {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	for _, sess := range am.sessions {
+		sess.SecondaryAuth = false
+	}
+	// 清理所有一次性 token
+	am.secondaryTokens = make(map[string]string)
+}
+
+// DestroyAllSessionsExcept 销毁除指定 token 外的所有会话。
+// 用于锁屏密码被修改后，踢出其他设备的会话。
+func (am *AuthManager) DestroyAllSessionsExcept(exceptToken string) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	for token := range am.sessions {
+		if token != exceptToken {
+			delete(am.sessions, token)
+		}
+	}
+	// 清理绑定到已销毁会话的一次性 token
+	for st, sess := range am.secondaryTokens {
+		if sess != exceptToken {
+			delete(am.secondaryTokens, st)
+		}
+	}
+}
+
 // CleanExpiredSessions 清理所有过期会话和一次性 token。
 func (am *AuthManager) CleanExpiredSessions() {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	now := time.Now()
+	alive := make(map[string]bool)
 	for token, sess := range am.sessions {
 		if now.After(sess.ExpiresAt) {
 			delete(am.sessions, token)
+		} else {
+			alive[token] = true
 		}
 	}
-	// 一次性 token 不做定期清理，因为它们在创建后很快被消费或随会话销毁
+	// 清理绑定到已过期会话的一次性 token
+	for st, sess := range am.secondaryTokens {
+		if !alive[sess] {
+			delete(am.secondaryTokens, st)
+		}
+	}
 }
 
 // GetSessionToken 从请求中提取会话令牌。
@@ -252,13 +300,96 @@ func ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// startSessionCleaner 启动一个后台 goroutine 定期清理过期会话。
+// rateBucket 记录全局密码失败尝试。
+type rateBucket struct {
+	failures    []time.Time // 失败时间戳
+	lockedUntil time.Time   // 锁定截止时间
+}
+
+// CheckRateLimit 检查是否被限流。返回 (是否允许, 剩余锁定时长)。
+func (am *AuthManager) CheckRateLimit() (bool, time.Duration) {
+	am.rateMu.Lock()
+	defer am.rateMu.Unlock()
+	b, ok := am.rateBuckets["__global__"]
+	if !ok {
+		return true, 0
+	}
+	if time.Now().Before(b.lockedUntil) {
+		return false, time.Until(b.lockedUntil)
+	}
+	return true, 0
+}
+
+// RecordFailedAttempt 记录一次密码验证失败，返回是否触发了限流及锁定时长。
+func (am *AuthManager) RecordFailedAttempt() (bool, time.Duration) {
+	am.rateMu.Lock()
+	defer am.rateMu.Unlock()
+	now := time.Now()
+	b, ok := am.rateBuckets["__global__"]
+	if !ok {
+		b = &rateBucket{}
+		am.rateBuckets["__global__"] = b
+	}
+	// 清理窗口外的旧记录
+	cutoff := now.Add(-rateLimitWindow)
+	kept := b.failures[:0]
+	for _, t := range b.failures {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	b.failures = append(kept, now)
+	if len(b.failures) >= rateLimitThreshold {
+		// 指数退避：1min, 2min, 4min, 5min(上限)
+		backoff := time.Minute << (len(b.failures) - rateLimitThreshold)
+		if backoff > rateLimitMaxLock {
+			backoff = rateLimitMaxLock
+		}
+		b.lockedUntil = now.Add(backoff)
+		return true, backoff
+	}
+	return false, 0
+}
+
+// ResetRateLimit 清除失败记录（密码验证成功后调用）。
+func (am *AuthManager) ResetRateLimit() {
+	am.rateMu.Lock()
+	defer am.rateMu.Unlock()
+	delete(am.rateBuckets, "__global__")
+}
+
+// CleanExpiredRateBuckets 清理过期的限流桶。
+func (am *AuthManager) CleanExpiredRateBuckets() {
+	am.rateMu.Lock()
+	defer am.rateMu.Unlock()
+	now := time.Now()
+	for ip, b := range am.rateBuckets {
+		if now.After(b.lockedUntil) && len(b.failures) == 0 {
+			delete(am.rateBuckets, ip)
+		}
+		// 清理窗口外的失败记录
+		cutoff := now.Add(-rateLimitWindow)
+		kept := b.failures[:0]
+		for _, t := range b.failures {
+			if t.After(cutoff) {
+				kept = append(kept, t)
+			}
+		}
+		b.failures = kept
+		if now.After(b.lockedUntil) && len(b.failures) == 0 {
+			delete(am.rateBuckets, ip)
+		}
+	}
+}
+
+// startSessionCleaner 启动一个后台 goroutine 定期清理过期会话和限流桶。
 func (am *AuthManager) startSessionCleaner() {
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			am.CleanExpiredSessions()
+			am.CleanExpiredRateBuckets()
 		}
 	}()
 }

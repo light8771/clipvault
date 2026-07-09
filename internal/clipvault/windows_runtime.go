@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -20,6 +22,7 @@ const (
 	wmRButtonUp       = 0x0205
 	wmLButtonDblClk   = 0x0203
 	wmHotkey          = 0x0312
+	wmReregisterHotkey = 0x0400 + 2
 
 	idTrayIcon        = 100
 	idMenuTogglePause = 101
@@ -110,7 +113,16 @@ type WindowsRuntime struct {
 	SearchURL string
 	hwnd      uintptr
 	hIcon     uintptr
+
+	hotkeyMu          sync.Mutex
+	pendingHotkey     *HotkeyConfig
+	pendingHotkeyResult chan error
 }
+
+// HotkeyError 表示全局快捷键注册失败。
+type HotkeyError struct{ Msg string }
+
+func (e *HotkeyError) Error() string { return e.Msg }
 
 var activeRuntime *WindowsRuntime
 
@@ -139,6 +151,7 @@ var (
 	procShellExecuteW                 = shell32.NewProc("ShellExecuteW")
 	procRegisterHotKey                = user32.NewProc("RegisterHotKey")
 	procUnregisterHotKey              = user32.NewProc("UnregisterHotKey")
+	procPostMessageW                  = user32.NewProc("PostMessageW")
 )
 
 func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, searchURL string) *WindowsRuntime {
@@ -240,6 +253,21 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		if r != nil && wParam == idHotkeyToggle {
 			paused := r.state.TogglePaused()
 			r.logger.Info("pause_toggled", map[string]any{"paused": paused, "source": "hotkey"})
+		}
+		return 0
+	case wmReregisterHotkey:
+		if r != nil {
+			r.hotkeyMu.Lock()
+			hk := r.pendingHotkey
+			resultCh := r.pendingHotkeyResult
+			r.pendingHotkey = nil
+			r.pendingHotkeyResult = nil
+			r.hotkeyMu.Unlock()
+			if hk != nil && resultCh != nil {
+				r.unregisterHotkey()
+				err := r.doRegisterHotkey(*hk)
+				resultCh <- err
+			}
 		}
 		return 0
 	case wmDestroy:
@@ -419,34 +447,42 @@ func (r *WindowsRuntime) cleanup() {
 	}
 }
 
-func (r *WindowsRuntime) registerHotkey() {
-	cfg := r.cfgMgr.Get()
-	if !cfg.Hotkey.Enabled || cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0 {
-		return
+func (r *WindowsRuntime) doRegisterHotkey(hk HotkeyConfig) error {
+	if !hk.Enabled || hk.Modifiers == 0 || hk.Key == 0 {
+		r.logger.Info("hotkey_disabled", nil)
+		return nil
 	}
-	ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyToggle, uintptr(cfg.Hotkey.Modifiers), uintptr(cfg.Hotkey.Key))
+	ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyToggle, uintptr(hk.Modifiers), uintptr(hk.Key))
 	if ok == 0 {
 		r.logger.Warn("hotkey_register_failed", map[string]any{"error": err.Error()})
-	} else {
-		r.logger.Info("hotkey_registered", map[string]any{"modifiers": cfg.Hotkey.Modifiers, "key": cfg.Hotkey.Key})
+		return &HotkeyError{Msg: fmt.Sprintf("快捷键注册失败（可能与其他应用冲突）: %v", err)}
 	}
+	r.logger.Info("hotkey_registered", map[string]any{"modifiers": hk.Modifiers, "key": hk.Key})
+	return nil
+}
+
+func (r *WindowsRuntime) registerHotkey() {
+	_ = r.doRegisterHotkey(r.cfgMgr.Get().Hotkey)
 }
 
 func (r *WindowsRuntime) unregisterHotkey() {
 	procUnregisterHotKey.Call(r.hwnd, idHotkeyToggle)
 }
 
-func (r *WindowsRuntime) ReregisterHotkey(cfg Config) {
-	r.unregisterHotkey()
-	if cfg.Hotkey.Enabled && cfg.Hotkey.Modifiers != 0 && cfg.Hotkey.Key != 0 {
-		ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyToggle, uintptr(cfg.Hotkey.Modifiers), uintptr(cfg.Hotkey.Key))
-		if ok == 0 {
-			r.logger.Warn("hotkey_register_failed", map[string]any{"error": err.Error()})
-		} else {
-			r.logger.Info("hotkey_registered", map[string]any{"modifiers": cfg.Hotkey.Modifiers, "key": cfg.Hotkey.Key})
-		}
-	} else {
-		r.logger.Info("hotkey_disabled", nil)
+// ReregisterHotkey 从任意线程调用，通过 PostMessage 将重注册请求
+// 转发到消息循环线程执行，确保 RegisterHotKey 在正确的线程上调用。
+// 返回 nil 表示成功，返回 *HotkeyError 表示注册失败。
+func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
+	r.hotkeyMu.Lock()
+	r.pendingHotkey = &cfg.Hotkey
+	r.pendingHotkeyResult = make(chan error, 1)
+	r.hotkeyMu.Unlock()
+	procPostMessageW.Call(r.hwnd, wmReregisterHotkey, 0, 0)
+	select {
+	case err := <-r.pendingHotkeyResult:
+		return err
+	case <-time.After(3 * time.Second):
+		return &HotkeyError{Msg: "快捷键注册超时"}
 	}
 }
 
