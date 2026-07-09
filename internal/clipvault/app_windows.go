@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -22,12 +23,22 @@ func Run(env Environment) error {
 		return err
 	}
 
+	// Determine startup mode via state file
+	startupMode := determineStartupMode(env.DataDir)
+	logger.Info("startup_mode", map[string]any{"mode": startupMode})
+
 	store, err := OpenStore(StoreOptions{DataDir: env.DataDir})
 	if err != nil {
-		logger.Error("store_open_failed", err, nil)
-		return err
+		logger.Error("store_open_failed", err, map[string]any{"mode": startupMode})
+		// DPAPI failure — return recovery error so caller can prompt for password
+		return &RecoveryError{Err: err, DataDir: env.DataDir}
 	}
 	defer store.Close()
+
+	// Write/update state file after successful open
+	if err := updateStateOnStartup(env.DataDir, store); err != nil {
+		logger.Warn("state_update_failed", map[string]any{"error": err.Error()})
+	}
 
 	cfgMgr, err := NewConfigManager(store)
 	if err != nil {
@@ -106,3 +117,66 @@ func Run(env Environment) error {
 }
 
 var errAppQuit = fmt.Errorf("app quit")
+
+// RecoveryError indicates the store could not be opened (e.g. DPAPI failure)
+// and the user may need to enter a recovery password.
+type RecoveryError struct {
+	Err     error
+	DataDir string
+}
+
+func (e *RecoveryError) Error() string {
+	return fmt.Sprintf("store open failed (recovery needed): %v", e.Err)
+}
+
+func (e *RecoveryError) Unwrap() error { return e.Err }
+
+// determineStartupMode checks the state file and key file to determine startup flow.
+func determineStartupMode(dataDir string) string {
+	stateExists := StateExists(dataDir)
+	keyPath := filepath.Join(dataDir, "clipvault.key")
+	_, keyErr := os.Stat(keyPath)
+
+	if !stateExists {
+		if os.IsNotExist(keyErr) {
+			return "first_install"
+		}
+		return "state_corrupt"
+	}
+	if os.IsNotExist(keyErr) {
+		return "recovery_needed"
+	}
+	return "normal"
+}
+
+// updateStateOnStartup writes or updates the state file after a successful store open.
+func updateStateOnStartup(dataDir string, store *Store) error {
+	fp := KeyFingerprint(store.dbKey)
+
+	if StateExists(dataDir) {
+		// Update last_opened_at only
+		state, err := ReadStateFile(dataDir)
+		if err != nil {
+			// State corrupt — rewrite
+			state = AppState{}
+		}
+		state.LastOpenedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		if state.KeyFingerprint == "" {
+			state.KeyFingerprint = fmt.Sprintf("%x", fp)
+		}
+		if state.Engine == "" {
+			state.Engine = "duckdb"
+		}
+		return WriteStateFile(dataDir, state)
+	}
+
+	// First time — create state file
+	state := AppState{
+		Engine:         "duckdb",
+		KeyFingerprint: fmt.Sprintf("%x", fp),
+		HasRecovery:    false,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+		LastOpenedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	return WriteStateFile(dataDir, state)
+}

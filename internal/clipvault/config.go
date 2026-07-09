@@ -10,8 +10,76 @@ const appDirName = "ClipVault"
 // Environment 持有运行时路径信息（数据目录、日志目录）。
 // 配置不再存储为 JSON 文件，而是持久化在数据库的 settings 表中。
 type Environment struct {
-	DataDir string
-	LogDir  string
+	DataDir   string
+	LogDir    string
+	Portable  bool
+}
+
+// NewEnvironment resolves the runtime environment with DataDir priority:
+// 1. dataDirOverride (from --data-dir flag)
+// 2. CLIPVAULT_DATA_DIR env var
+// 3. portable.flag in exe directory
+// 4. %LOCALAPPDATA%\ClipVault
+// 5. %APPDATA%\ClipVault fallback
+func NewEnvironment() (Environment, error) {
+	return newEnvironment("")
+}
+
+func newEnvironment(dataDirOverride string) (Environment, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return Environment{}, err
+	}
+	exeDir := filepath.Dir(exePath)
+
+	// 1. --data-dir override
+	if dataDirOverride != "" {
+		return Environment{
+			DataDir: dataDirOverride,
+			LogDir:  filepath.Join(exeDir, "logs"),
+		}, nil
+	}
+
+	// 2. CLIPVAULT_DATA_DIR env var
+	if envDir := os.Getenv("CLIPVAULT_DATA_DIR"); envDir != "" {
+		return Environment{
+			DataDir: envDir,
+			LogDir:  filepath.Join(exeDir, "logs"),
+		}, nil
+	}
+
+	// 3. portable.flag in exe directory
+	portableFlag := filepath.Join(exeDir, "portable.flag")
+	if _, err := os.Stat(portableFlag); err == nil {
+		return Environment{
+			DataDir:  filepath.Join(exeDir, "data"),
+			LogDir:   filepath.Join(exeDir, "logs"),
+			Portable: true,
+		}, nil
+	}
+
+	// 4. %LOCALAPPDATA%\ClipVault
+	local := os.Getenv("LOCALAPPDATA")
+	if local != "" {
+		return Environment{
+			DataDir: filepath.Join(local, appDirName),
+			LogDir:  filepath.Join(exeDir, "logs"),
+		}, nil
+	}
+
+	// 5. %APPDATA%\ClipVault fallback
+	roaming := os.Getenv("APPDATA")
+	if roaming == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return Environment{}, err
+		}
+		roaming = filepath.Join(home, "AppData", "Roaming")
+	}
+	return Environment{
+		DataDir: filepath.Join(roaming, appDirName),
+		LogDir:  filepath.Join(exeDir, "logs"),
+	}, nil
 }
 
 // Config 是应用的完整配置结构，通过 Web 界面修改，存储在数据库中。
@@ -47,32 +115,6 @@ type SecurityConfig struct {
 	PasswordSalt          string `json:"passwordSalt"`
 	LockSessionTimeout    int    `json:"lockSessionTimeout"`   // 锁屏会话超时(分钟)，0=浏览器会话cookie，N=N分钟
 	SecondaryAuthTimeout  int    `json:"secondaryAuthTimeout"` // 二次认证缓存时长(分钟)，0=每次都校验，N=N分钟内免重复
-}
-
-func NewEnvironment() (Environment, error) {
-	local := os.Getenv("LOCALAPPDATA")
-	if local == "" {
-		roaming := os.Getenv("APPDATA")
-		if roaming == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return Environment{}, err
-			}
-			roaming = filepath.Join(home, "AppData", "Roaming")
-		}
-		local = roaming
-	}
-
-	exePath, err := os.Executable()
-	if err != nil {
-		return Environment{}, err
-	}
-	exeDir := filepath.Dir(exePath)
-
-	return Environment{
-		DataDir: filepath.Join(local, appDirName),
-		LogDir:  filepath.Join(exeDir, "logs"),
-	}, nil
 }
 
 func DefaultConfig() Config {
