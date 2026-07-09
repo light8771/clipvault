@@ -85,9 +85,10 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("DELETE /api/items/group", s.requireAuth(s.handleItemRemoveFromGroup))
 	mux.HandleFunc("GET /api/items/groups", s.requireAuth(s.handleItemGroups))
 
-	// 导出端点（仅需锁屏认证，不限制敏感数据导出）
-	mux.HandleFunc("GET /api/export/config", s.requireAuth(s.handleExportConfig))
-	mux.HandleFunc("GET /api/export/data", s.requireAuth(s.handleExportData))
+	// 导出/导入端点（需二次认证）
+	mux.HandleFunc("GET /api/export/config", s.requireSecondary(s.handleExportConfig))
+	mux.HandleFunc("GET /api/export/data", s.requireSecondary(s.handleExportData))
+	mux.HandleFunc("POST /api/import/data", s.requireSecondary(s.handleImportData))
 
 	host, portStr, _ := net.SplitHostPort(cfg.Search.ListenAddr)
 	if host == "" {
@@ -375,53 +376,107 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		format = "json"
 	}
 
-	items, err := s.store.ExportAll(r.Context())
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-
 	switch format {
 	case "csv":
+		items, err := s.store.ExportAll(r.Context())
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		// Build item -> groups map for CSV
+		itemGroupsMap := make(map[int64][]int64)
+		for _, item := range items {
+			gids, _ := s.store.GetItemGroups(r.Context(), item.ID)
+			itemGroupsMap[item.ID] = gids
+		}
+		groups, _ := s.store.ListGroups(r.Context())
+		groupNameMap := make(map[int64]string)
+		for _, g := range groups {
+			groupNameMap[g.ID] = g.Name
+		}
+
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.csv"`)
 		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "starred", "sensitive"})
+		_ = cw.Write([]string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive", "groupIds", "groupNames"})
 		for _, item := range items {
-			starred := "0"
+			starred := "false"
 			if item.Starred {
-				starred = "1"
+				starred = "true"
 			}
-			sensitive := "0"
+			sensitive := "false"
 			if item.Sensitive {
-				sensitive = "1"
+				sensitive = "true"
+			}
+			gids := itemGroupsMap[item.ID]
+			gidStrs := make([]string, len(gids))
+			nameStrs := make([]string, len(gids))
+			for i, gid := range gids {
+				gidStrs[i] = strconv.FormatInt(gid, 10)
+				nameStrs[i] = groupNameMap[gid]
 			}
 			_ = cw.Write([]string{
 				strconv.FormatInt(item.ID, 10),
 				item.CreatedAt.Format(time.RFC3339),
-				item.Kind,
-				item.Format,
-				item.Text,
+				csvSafe(item.Kind),
+				csvSafe(item.Format),
+				csvSafe(item.Text),
 				strconv.Itoa(item.ByteLen),
 				strconv.Itoa(item.CharLen),
 				item.SHA256,
+				csvSafe(item.MetaJSON),
 				starred,
 				sensitive,
+				strings.Join(gidStrs, ";"),
+				csvSafe(strings.Join(nameStrs, ";")),
 			})
 		}
 		cw.Flush()
+		s.logger.Info("data_exported", map[string]any{"format": "csv", "total": len(items)})
 	default: // json
+		export, err := s.store.ExportFullForJSON(r.Context())
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.json"`)
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(map[string]any{
-			"exportedAt": time.Now().UTC().Format(time.RFC3339),
-			"total":      len(items),
-			"items":      items,
-		})
+		_ = enc.Encode(export)
+		s.logger.Info("data_exported", map[string]any{"format": "json", "total": len(export.Items)})
 	}
-	s.logger.Info("data_exported", map[string]any{"format": format, "total": len(items)})
+}
+
+// csvSafe prefixes cell values that start with =, +, -, or @ with a single quote
+// to prevent CSV formula injection.
+func csvSafe(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@':
+		return "'" + s
+	}
+	return s
+}
+
+// handleImportData receives a JSON export file and imports it into the database.
+func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) {
+	// Limit upload to 100MB
+	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.store.ImportFullJSON(r.Context(), data); err != nil {
+		s.writeError(w, err)
+		s.logger.Error("import_failed", err, nil)
+		return
+	}
+	s.logger.Info("data_imported", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
 }
 
 // handleFileCheck checks if a file exists and returns its metadata.

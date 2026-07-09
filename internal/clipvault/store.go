@@ -473,6 +473,157 @@ func (s *Store) ExportAll(ctx context.Context) ([]StoredItem, error) {
 	return items, rows.Err()
 }
 
+// ExportData is the complete JSON export structure.
+type ExportData struct {
+	ExportVersion int             `json:"exportVersion"`
+	App           string          `json:"app"`
+	ExportedAt    string          `json:"exportedAt"`
+	SourceEngine  string          `json:"sourceEngine"`
+	Warning       string          `json:"warning"`
+	Config        *Config         `json:"config,omitempty"`
+	Items         []StoredItem    `json:"items"`
+	Groups        []StoredGroup   `json:"groups"`
+	ItemGroups    []ItemGroupLink `json:"itemGroups"`
+}
+
+// ItemGroupLink is a single item-group association for export/import.
+type ItemGroupLink struct {
+	ItemID  int64 `json:"itemId"`
+	GroupID int64 `json:"groupId"`
+}
+
+// ExportFullForJSON exports all data (config + items + groups + itemGroups) for JSON import/export.
+func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
+	items, err := s.ExportAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("export items: %w", err)
+	}
+
+	groups, err := s.ListGroups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("export groups: %w", err)
+	}
+
+	// Export item_groups
+	rows, err := s.db.QueryContext(ctx, `SELECT item_id, group_id FROM item_groups ORDER BY item_id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("export item_groups: %w", err)
+	}
+	defer rows.Close()
+	var links []ItemGroupLink
+	for rows.Next() {
+		var l ItemGroupLink
+		if err := rows.Scan(&l.ItemID, &l.GroupID); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	cfg, err := s.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("export config: %w", err)
+	}
+
+	return &ExportData{
+		ExportVersion: 2,
+		App:           "ClipVault",
+		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
+		SourceEngine:  "duckdb",
+		Warning:       "This export contains plaintext clipboard content.",
+		Config:        &cfg,
+		Items:         items,
+		Groups:        groups,
+		ItemGroups:    links,
+	}, nil
+}
+
+// ImportFullJSON imports a complete JSON export into the database.
+// It remaps IDs to avoid conflicts and uses a transaction for atomicity.
+func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
+	var export ExportData
+	if err := json.Unmarshal(data, &export); err != nil {
+		return fmt.Errorf("parse export JSON: %w", err)
+	}
+	if export.App != "ClipVault" {
+		return fmt.Errorf("not a ClipVault export (app=%q)", export.App)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Import groups with ID remapping
+	groupIDMap := make(map[int64]int64) // oldID -> newID
+	for _, g := range export.Groups {
+		var newID int64
+		parentID := groupIDMap[g.ParentID] // 0 if not found (top-level)
+		err := tx.QueryRowContext(ctx,
+			`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
+			g.Name, parentID, time.Now().UTC().Format(time.RFC3339Nano),
+		).Scan(&newID)
+		if err != nil {
+			return fmt.Errorf("import group %d: %w", g.ID, err)
+		}
+		groupIDMap[g.ID] = newID
+	}
+
+	// Import items with ID remapping
+	itemIDMap := make(map[int64]int64) // oldID -> newID
+	for _, item := range export.Items {
+		var newID int64
+		err := tx.QueryRowContext(ctx,
+			`INSERT INTO clipboard_items
+			(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			item.CreatedAt.UTC().Format(time.RFC3339Nano),
+			item.Kind, item.Format, item.Text,
+			item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
+			item.Starred, item.Sensitive,
+		).Scan(&newID)
+		if err != nil {
+			return fmt.Errorf("import item %d: %w", item.ID, err)
+		}
+		itemIDMap[item.ID] = newID
+	}
+
+	// Import item_groups with remapped IDs
+	for _, link := range export.ItemGroups {
+		newItemID, ok1 := itemIDMap[link.ItemID]
+		newGroupID, ok2 := groupIDMap[link.GroupID]
+		if !ok1 || !ok2 {
+			continue // skip orphaned links
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+			newItemID, newGroupID,
+		); err != nil {
+			return fmt.Errorf("import item_group: %w", err)
+		}
+	}
+
+	// Import config (optional, only if present)
+	if export.Config != nil {
+		cfgData, err := json.Marshal(export.Config)
+		if err != nil {
+			return fmt.Errorf("marshal config: %w", err)
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO settings (key, value) VALUES ('config', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+			string(cfgData),
+		); err != nil {
+			return fmt.Errorf("import config: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `%`, `\%`)
