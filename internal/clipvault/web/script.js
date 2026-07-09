@@ -13,6 +13,8 @@
 
   let debounce = 0, arTimer = 0, currentKind = '';
   let currentPage = 0, totalCount = 0;
+  let pendingLocateId = 0; // 定位后需要高亮的 item id
+  let locateActive = false; // 定位进行中，阻止 resetSearch 干扰
   let filterDateFrom = '', filterDateTo = '';
   let currentGroupID = 0; // 0 = no group filter
   const items = new Map();
@@ -877,6 +879,7 @@
   const viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 查看';
   const delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   const groupBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>';
+  const locateHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
 
   function render(arr, q) {
     items.clear();
@@ -941,6 +944,7 @@
           </div>
           <div class="card-acts">
             ${showView ? `<button class="ab exp" onclick="doView(${it.id})">${viewHTML}</button>` : ''}
+            ${q ? `<button class="ab locate-btn" onclick="doLocate(${it.id})" title="定位到时间线">${locateHTML}</button>` : ''}
             <button class="ab cp" onclick="doCopy(${it.id},this)">${cpHTML}</button>
             <button class="ab star${it.starred ? ' on' : ''}" onclick="doStar(${it.id},this)" title="${starTitle}">${starHTML}</button>
             <button class="ab group-btn" onclick="openGroupModal('assign',{itemId:${it.id}})" title="加入分组">${groupBtnHTML}</button>
@@ -953,16 +957,54 @@
     arr.forEach(it => {
       if (isNonTextKind(it.kind || 'text')) checkFiles(it.id);
     });
+
+    if (pendingLocateId) {
+      const el = LIST.querySelector(`article[data-id="${pendingLocateId}"]`);
+      if (el) {
+        el.classList.add('locate-highlight');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => el.classList.remove('locate-highlight'), 3500);
+      }
+      pendingLocateId = 0;
+    }
   }
 
+  // ── Locate (jump to item in full timeline) ───────────────
+  async function doLocate(id) {
+    try {
+      const d = await fetch('/api/items/position?id=' + id).then(r => r.json());
+      if (d.error) { toast(d.error, 'err'); return; }
+      const pageSize = parseInt(PAGESIZE.value) || 50;
+      pendingLocateId = id;
+      locateActive = true;
+      currentPage = Math.floor(d.position / pageSize);
+      Q.value = '';
+      clearTimeout(debounce);
+      currentKind = '';
+      currentGroupID = 0;
+      filterDateFrom = '';
+      filterDateTo = '';
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      document.querySelector('.filter-chip[data-kind=""]').classList.add('active');
+      const df = document.getElementById('dateFrom'); const dt = document.getElementById('dateTo');
+      if (df) df.value = ''; if (dt) dt.value = '';
+      const cdb = document.getElementById('clearDateBtn'); if (cdb) cdb.classList.add('hidden');
+      await search();
+      locateActive = false;
+      clearTimeout(debounce);
+    } catch (_) { toast('定位失败', 'err'); }
+  }
+  window.doLocate = doLocate;
+
   // ── Search ────────────────────────────────────────────────
-    function resetSearch() { currentPage = 0; search(); }
+    function resetSearch() { if (locateActive) return; currentPage = 0; search(); }
 
   async function search() {
     const q = Q.value;
     const pageSize = parseInt(PAGESIZE.value) || 50;
     try {
-      const p = new URLSearchParams({ q, limit: pageSize, offset: currentPage * pageSize });
+      const offset = currentPage * pageSize;
+      const p = new URLSearchParams({ q, limit: pageSize, offset });
       let url = '/api/search';
       if (currentKind === '__starred__') {
         p.set('starred', '1');

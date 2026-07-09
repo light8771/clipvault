@@ -72,6 +72,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /api/sensitive/rules", s.requireSecondary(s.handleSensitiveRules))
 	mux.HandleFunc("GET /api/search/sensitive", s.requireSecondary(s.handleSensitiveSearch))
 	mux.HandleFunc("GET /api/items/sensitive", s.requireSecondary(s.handleSensitiveItem))
+	mux.HandleFunc("GET /api/items/position", s.requireAuth(s.handleItemPosition))
 	mux.HandleFunc("GET /api/file/check", s.requireAuth(s.handleFileCheck))
 	mux.HandleFunc("GET /api/file", s.requireAuth(s.handleFileServe))
 	mux.HandleFunc("POST /api/file/opendir", s.requireAuth(s.handleFileOpenDir))
@@ -271,6 +272,21 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.writeJSON(w, map[string]any{"item": item})
+}
+
+func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+	pos, err := s.store.GetPositionByID(r.Context(), id)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"position": pos})
 }
 
 func (s *SearchServer) handleState(w http.ResponseWriter, r *http.Request) {

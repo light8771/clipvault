@@ -372,6 +372,18 @@ func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 	return item, nil
 }
 
+// GetPositionByID 返回指定 ID 在全量列表（按 id DESC）中的 0-based 偏移量。
+// 用于搜索结果定位到时间线中的页码位置。
+func (s *Store) GetPositionByID(ctx context.Context, id int64) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM clipboard_items WHERE id > ?`, id).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *Store) Star(ctx context.Context, id int64, starred bool) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE clipboard_items SET starred = ? WHERE id = ?`, starred, id)
 	if err != nil {

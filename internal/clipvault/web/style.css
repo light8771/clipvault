@@ -1955,6 +1955,32 @@ pre.modal-pre::after {
 }
 .ab.group-btn:hover { border-color: var(--p); color: var(--p); background: var(--p-dim); }
 
+/* ── Card: locate button ──────────────────────────────────── */
+.ab.locate-btn {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--sub);
+}
+.ab.locate-btn:hover { border-color: var(--p); color: var(--p); background: var(--p-dim); }
+
+/* ── Locate highlight animation ───────────────────────────── */
+@keyframes locate-flash {
+  0%   { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; transform: scale(1); }
+  10%  { box-shadow: 0 0 0 3px var(--p), 0 0 30px 6px rgba(20,184,166,.7); transform: scale(1.02); }
+  20%  { box-shadow: 0 0 0 3px var(--p), 0 0 40px 10px rgba(20,184,166,.5); transform: scale(1); }
+  35%  { box-shadow: 0 0 0 2px var(--p), 0 0 20px 4px rgba(20,184,166,.4); }
+  50%  { box-shadow: 0 0 0 3px var(--p), 0 0 35px 8px rgba(20,184,166,.6); }
+  65%  { box-shadow: 0 0 0 2px var(--p), 0 0 18px 3px rgba(20,184,166,.35); }
+  80%  { box-shadow: 0 0 0 3px var(--p), 0 0 28px 6px rgba(20,184,166,.45); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; transform: scale(1); }
+}
+article.locate-highlight {
+  animation: locate-flash 3.5s ease-out;
+  border-color: var(--p) !important;
+  z-index: 10;
+  position: relative;
+}
+
 /* ── Group tree checkbox (assign mode) ────────────────────── */
 .gt-check {
   width: 16px;
