@@ -90,6 +90,7 @@ type Config struct {
 	Sensitive        SensitiveConfig `json:"sensitive"`
 	Autostart        AutostartConfig `json:"autostart"`
 	Security         SecurityConfig  `json:"security"`
+	Hotkey           HotkeyConfig    `json:"hotkey"`
 }
 
 type SearchConfig struct {
@@ -105,6 +106,16 @@ type SensitiveConfig struct {
 type AutostartConfig struct {
 	Enabled bool   `json:"enabled"`
 	AppName string `json:"appName"`
+}
+
+// HotkeyConfig 全局快捷键配置，用于暂停/恢复录制。
+// Modifiers 使用 Win32 MOD_* 位掩码：MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4, MOD_WIN=8
+// Key 使用 Win32 虚拟键码（如 'P'=0x50）。
+// Modifiers=0 且 Key=0 表示快捷键已禁用。
+type HotkeyConfig struct {
+	Enabled   bool `json:"enabled"`
+	Modifiers int  `json:"modifiers"`
+	Key       int  `json:"key"`
 }
 
 // SecurityConfig 存储锁屏密码和二次密码的哈希值及盐。
@@ -138,6 +149,11 @@ func DefaultConfig() Config {
 			PasswordSalt:          "",
 			LockSessionTimeout:    0,
 			SecondaryAuthTimeout:  0,
+		},
+		Hotkey: HotkeyConfig{
+			Enabled:   true,
+			Modifiers: 0x0002 | 0x0001, // MOD_CONTROL | MOD_ALT
+			Key:       0x50,            // VK_P
 		},
 	}
 }
@@ -176,5 +192,8 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Autostart.AppName == "" {
 		cfg.Autostart.AppName = def.Autostart.AppName
+	}
+	if cfg.Hotkey.Enabled && (cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0) {
+		cfg.Hotkey = def.Hotkey
 	}
 }

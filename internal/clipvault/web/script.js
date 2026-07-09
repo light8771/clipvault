@@ -1147,6 +1147,17 @@
 
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
 
+    // 全局快捷键
+    const hk = cfg.hotkey || {};
+    const hkEnabled = document.getElementById('cfg-hotkeyEnabled');
+    const hkKey = document.getElementById('cfg-hotkeyKey');
+    if (hkEnabled) hkEnabled.checked = !!hk.enabled;
+    const mods = hk.modifiers || 0;
+    document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
+      cb.checked = (mods & parseInt(cb.value)) !== 0;
+    });
+    if (hkKey) hkKey.value = hk.key ? String.fromCharCode(hk.key) : '';
+
     // 安全超时配置
     const lockTimeoutEl = document.getElementById('cfg-lockSessionTimeout');
     const secTimeoutEl  = document.getElementById('cfg-secondaryAuthTimeout');
@@ -1250,6 +1261,12 @@
     const patterns = getPatterns();
     const lockTimeout = parseInt(document.getElementById('cfg-lockSessionTimeout')?.value) || 0;
     const secTimeout  = parseInt(document.getElementById('cfg-secondaryAuthTimeout')?.value) || 0;
+    const hkEnabled = document.getElementById('cfg-hotkeyEnabled')?.checked || false;
+    let hkMods = 0;
+    document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
+      if (cb.checked) hkMods |= parseInt(cb.value);
+    });
+    const hkKeyChar = (document.getElementById('cfg-hotkeyKey')?.value || '').toUpperCase().charCodeAt(0) || 0;
     return {
       ...currentCfg,
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
@@ -1263,6 +1280,11 @@
         ...currentCfg.security,
         lockSessionTimeout:   lockTimeout,
         secondaryAuthTimeout: secTimeout,
+      },
+      hotkey: {
+        enabled:   hkEnabled,
+        modifiers: hkMods,
+        key:       hkKeyChar,
       },
     };
   }
@@ -1351,13 +1373,13 @@
 
   function pollRestart() {
     let attempts = 0;
-    const maxAttempts = 60;
+    const maxAttempts = 15;
     const interval = setInterval(async () => {
       attempts++;
       if (attempts > maxAttempts) {
         clearInterval(interval);
         RESTART_OVERLAY.classList.add('hidden');
-        toast('重启超时，请手动刷新页面', 'err');
+        toast('重启超时，新页面可能已在新标签页打开', 'err');
         return;
       }
       try {
@@ -1377,14 +1399,24 @@
   function setupAutoSave() {
     const settingsEl = document.getElementById('viewSettings');
     if (!settingsEl) return;
-    settingsEl.addEventListener('input', () => {
+    const listenAddrEl = document.getElementById('cfg-listenAddr');
+    settingsEl.addEventListener('input', (e) => {
+      if (e.target === listenAddrEl) return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => saveConfig({ silent: true }), 800);
     });
-    settingsEl.addEventListener('change', () => {
+    settingsEl.addEventListener('change', (e) => {
+      if (e.target === listenAddrEl) return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
     });
+    // 监听地址失焦时立即保存（触发重启确认）
+    if (listenAddrEl) {
+      listenAddrEl.addEventListener('blur', () => {
+        clearTimeout(saveTimer);
+        saveConfig({ silent: true });
+      });
+    }
     // 过滤规则增删也触发保存
     const addBtn = document.getElementById('addPatternBtn');
     if (addBtn) {

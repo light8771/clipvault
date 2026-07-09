@@ -96,6 +96,12 @@ func Run(env Environment) error {
 	}
 
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, searchURL)
+
+	// 配置变更时重新注册全局快捷键
+	cfgMgr.OnChange(func(newCfg Config) {
+		runtime.ReregisterHotkey(newCfg)
+	})
+
 	logger.Info("app_started", map[string]any{
 		"pid":       os.Getpid(),
 		"dataDir":   env.DataDir,
@@ -137,6 +143,7 @@ func Run(env Environment) error {
 			runtime.SearchURL = searchURL
 			logger.Info("restart_done", map[string]any{"searchURL": searchURL})
 			fmt.Printf("Web 界面已重启: %s\n", searchURL)
+			shellExecute("open", searchURL, "")
 		}
 	}
 }

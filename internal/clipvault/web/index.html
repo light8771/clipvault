@@ -229,6 +229,25 @@
               </div>
               <input type="number" id="cfg-maxFileDropPaths" class="field-input field-input-sm" min="0" max="1000">
             </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">全局快捷键</label>
+                <p class="field-hint">按下快捷键暂停/恢复剪贴板录制，在所有应用中生效</p>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <label class="ar-toggle">
+                  <input type="checkbox" id="cfg-hotkeyEnabled">
+                  <span>启用</span>
+                </label>
+                <div class="mod-group" id="hotkeyMods">
+                  <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
+                  <label class="mod-btn"><input type="checkbox" value="1">Alt</label>
+                  <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
+                  <label class="mod-btn"><input type="checkbox" value="8">Win</label>
+                </div>
+                <input type="text" id="cfg-hotkeyKey" class="field-input" style="width:60px;text-align:center;text-transform:uppercase" placeholder="P" maxlength="1">
+              </div>
+            </div>
           </div>
         </section>
 
@@ -524,7 +543,7 @@
       <div class="modal-body" style="height:auto;padding:32px;text-align:center">
         <div class="restart-spinner" id="restartSpinner"></div>
         <h2 class="restart-title">正在重启服务</h2>
-        <p class="restart-desc">请稍候，服务恢复后将自动刷新页面…</p>
+        <p class="restart-desc">新页面将自动在新标签页打开，可关闭本页面</p>
       </div>
     </div>
   </div>

@@ -19,6 +19,7 @@ const (
 	wmTrayIcon        = 0x0400 + 1
 	wmRButtonUp       = 0x0205
 	wmLButtonDblClk   = 0x0203
+	wmHotkey          = 0x0312
 
 	idTrayIcon        = 100
 	idMenuTogglePause = 101
@@ -26,6 +27,12 @@ const (
 	idMenuDataDir     = 103
 	idMenuAutostart   = 104
 	idMenuExit        = 105
+	idHotkeyToggle    = 1000
+
+	modAlt     = 0x0001
+	modControl = 0x0002
+	modShift   = 0x0004
+	modWin     = 0x0008
 
 	nimAdd        = 0x00000000
 	nimModify     = 0x00000001
@@ -130,6 +137,8 @@ var (
 	procSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
 	procShellNotifyIconW              = shell32.NewProc("Shell_NotifyIconW")
 	procShellExecuteW                 = shell32.NewProc("ShellExecuteW")
+	procRegisterHotKey                = user32.NewProc("RegisterHotKey")
+	procUnregisterHotKey              = user32.NewProc("UnregisterHotKey")
 )
 
 func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, searchURL string) *WindowsRuntime {
@@ -184,6 +193,7 @@ func (r *WindowsRuntime) Run() error {
 	if err := r.addTrayIcon(); err != nil {
 		r.logger.Warn("tray_add_failed", map[string]any{"error": err.Error()})
 	}
+	r.registerHotkey()
 	r.state.OnPauseChange(func(bool) { r.updateTrayIcon() })
 	go r.recorder.ProcessClipboardUpdate()
 
@@ -224,6 +234,12 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	case wmCommand:
 		if r != nil {
 			r.handleCommand(uint16(wParam & 0xffff))
+		}
+		return 0
+	case wmHotkey:
+		if r != nil && wParam == idHotkeyToggle {
+			paused := r.state.TogglePaused()
+			r.logger.Info("pause_toggled", map[string]any{"paused": paused, "source": "hotkey"})
 		}
 		return 0
 	case wmDestroy:
@@ -393,12 +409,44 @@ func shellExecute(verb, file, params string) {
 }
 
 func (r *WindowsRuntime) cleanup() {
+	r.unregisterHotkey()
 	procRemoveClipboardFormatListener.Call(r.hwnd)
 	nid := r.notifyIconData()
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&nid)))
 	if r.hIcon != 0 {
 		procDestroyIcon.Call(r.hIcon)
 		r.hIcon = 0
+	}
+}
+
+func (r *WindowsRuntime) registerHotkey() {
+	cfg := r.cfgMgr.Get()
+	if !cfg.Hotkey.Enabled || cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0 {
+		return
+	}
+	ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyToggle, uintptr(cfg.Hotkey.Modifiers), uintptr(cfg.Hotkey.Key))
+	if ok == 0 {
+		r.logger.Warn("hotkey_register_failed", map[string]any{"error": err.Error()})
+	} else {
+		r.logger.Info("hotkey_registered", map[string]any{"modifiers": cfg.Hotkey.Modifiers, "key": cfg.Hotkey.Key})
+	}
+}
+
+func (r *WindowsRuntime) unregisterHotkey() {
+	procUnregisterHotKey.Call(r.hwnd, idHotkeyToggle)
+}
+
+func (r *WindowsRuntime) ReregisterHotkey(cfg Config) {
+	r.unregisterHotkey()
+	if cfg.Hotkey.Enabled && cfg.Hotkey.Modifiers != 0 && cfg.Hotkey.Key != 0 {
+		ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyToggle, uintptr(cfg.Hotkey.Modifiers), uintptr(cfg.Hotkey.Key))
+		if ok == 0 {
+			r.logger.Warn("hotkey_register_failed", map[string]any{"error": err.Error()})
+		} else {
+			r.logger.Info("hotkey_registered", map[string]any{"modifiers": cfg.Hotkey.Modifiers, "key": cfg.Hotkey.Key})
+		}
+	} else {
+		r.logger.Info("hotkey_disabled", nil)
 	}
 }
 
