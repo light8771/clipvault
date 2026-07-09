@@ -22,7 +22,7 @@ func Run(env Environment) error {
 		return err
 	}
 
-	store, err := OpenStore(env.DatabaseFile())
+	store, err := OpenStore(StoreOptions{DataDir: env.DataDir})
 	if err != nil {
 		logger.Error("store_open_failed", err, nil)
 		return err

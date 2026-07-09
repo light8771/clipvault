@@ -2,7 +2,9 @@ package clipvault
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,11 +13,12 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	dbKey []byte
 }
 
 type ClipboardItem struct {
@@ -71,20 +74,89 @@ type SearchOptions struct {
 	GroupID          int64  // filter by group id (0 = no group filter)
 }
 
-func OpenStore(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
+// StoreOptions holds parameters for opening an encrypted DuckDB store.
+type StoreOptions struct {
+	DataDir  string
+	Portable bool
+}
+
+// OpenStore opens or creates an encrypted DuckDB store.
+// On first run (no key file + no db file), it generates a new db_key,
+// protects it with DPAPI, writes the key file, and creates the database.
+// On subsequent runs, it reads the key file, DPAPI-decrypts the key, and opens the db.
+func OpenStore(opts StoreOptions) (*Store, error) {
+	if err := os.MkdirAll(opts.DataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("mkdir data dir: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+
+	keyPath := filepath.Join(opts.DataDir, "clipvault.key")
+	dbPath := filepath.Join(opts.DataDir, "clipvault.duckdb")
+
+	var dbKey []byte
+
+	_, keyErr := os.Stat(keyPath)
+	if keyErr == nil {
+		// Key file exists — DPAPI decrypt
+		key, _, err := ReadDPAPIKeyFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("read DPAPI key file: %w", err)
+		}
+		dbKey = key
+	} else if os.IsNotExist(keyErr) {
+		// First run — generate new key
+		dbKey = make([]byte, 32)
+		if _, err := rand.Read(dbKey); err != nil {
+			return nil, fmt.Errorf("generate db key: %w", err)
+		}
+		if err := WriteDPAPIKeyFile(keyPath, dbKey); err != nil {
+			return nil, fmt.Errorf("write DPAPI key file: %w", err)
+		}
+	} else {
+		return nil, fmt.Errorf("stat key file: %w", keyErr)
+	}
+
+	keyHex := hex.EncodeToString(dbKey)
+
+	// Open DuckDB :memory: + ATTACH encrypted file
+	db, err := sql.Open("duckdb", "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sql.Open(duckdb): %w", err)
 	}
-	store := &Store{db: db}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+
+	escapedPath := escapeSQLPath(dbPath)
+	attachSQL := fmt.Sprintf("ATTACH '%s' AS vault (ENCRYPTION_KEY '%s')", escapedPath, keyHex)
+	if _, err := db.Exec(attachSQL); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ATTACH with ENCRYPTION_KEY: %w", err)
+	}
+	if _, err := db.Exec("USE vault"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("USE vault: %w", err)
+	}
+
+	store := &Store{db: db, dbKey: dbKey}
 	if err := store.migrate(); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return store, nil
+}
+
+// OpenStorePath is a backward-compatible wrapper that derives DataDir from the db file path.
+// Deprecated: use OpenStore with StoreOptions instead.
+func OpenStorePath(path string) (*Store, error) {
+	return OpenStore(StoreOptions{DataDir: filepath.Dir(path)})
+}
+
+// DBKey returns the raw database encryption key (for recovery file creation).
+func (s *Store) DBKey() []byte { return s.dbKey }
+
+// escapeSQLPath escapes single quotes in a file path for safe embedding in SQL.
+func escapeSQLPath(path string) string {
+	return strings.ReplaceAll(path, "'", "''")
 }
 
 func (s *Store) Close() error {
@@ -92,11 +164,29 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate() error {
+	// schema_migrations table for version tracking
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
+	// Check current version
+	var currentVersion int
+	err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&currentVersion)
+	if err != nil {
+		return fmt.Errorf("check schema version: %w", err)
+	}
+
+	if currentVersion >= 1 {
+		return nil // already migrated
+	}
+
 	stmts := []string{
-		`PRAGMA journal_mode=WAL`,
-		`PRAGMA busy_timeout=5000`,
+		`CREATE SEQUENCE IF NOT EXISTS seq_clipboard_items START 1`,
 		`CREATE TABLE IF NOT EXISTS clipboard_items (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id INTEGER PRIMARY KEY DEFAULT nextval('seq_clipboard_items'),
 			created_at TEXT NOT NULL,
 			kind TEXT NOT NULL,
 			format TEXT NOT NULL,
@@ -105,29 +195,25 @@ func (s *Store) migrate() error {
 			char_len INTEGER NOT NULL,
 			sha256 TEXT NOT NULL,
 			meta_json TEXT NOT NULL,
-			starred INTEGER NOT NULL DEFAULT 0,
-			sensitive INTEGER NOT NULL DEFAULT 0
+			starred BOOLEAN NOT NULL DEFAULT false,
+			sensitive BOOLEAN NOT NULL DEFAULT false
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_created_at ON clipboard_items(created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_kind ON clipboard_items(kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_sha256 ON clipboard_items(sha256)`,
-		// 迁移：为旧表（无 sensitive 列）添加该列，已存在则忽略错误
-		`ALTER TABLE clipboard_items ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_sensitive ON clipboard_items(sensitive)`,
-		// settings 表：存储应用配置（key-value，value 为 JSON）
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
-		// groups 表：用户自定义分组，支持嵌套
+		`CREATE SEQUENCE IF NOT EXISTS seq_groups START 1`,
 		`CREATE TABLE IF NOT EXISTS groups (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id INTEGER PRIMARY KEY DEFAULT nextval('seq_groups'),
 			name TEXT NOT NULL,
 			parent_id INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_groups_parent ON groups(parent_id)`,
-		// item_groups 表：条目与分组的多对多关联
 		`CREATE TABLE IF NOT EXISTS item_groups (
 			item_id INTEGER NOT NULL,
 			group_id INTEGER NOT NULL,
@@ -137,12 +223,16 @@ func (s *Store) migrate() error {
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
-			// ALTER TABLE ADD COLUMN 在列已存在时会报错，忽略即可
-			if strings.Contains(err.Error(), "duplicate column") {
-				continue
-			}
-			return err
+			return fmt.Errorf("migrate stmt: %w\nSQL: %s", err, stmt)
 		}
+	}
+
+	// Record migration version
+	if _, err := s.db.Exec(
+		`INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)`,
+		time.Now().UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		return fmt.Errorf("record migration: %w", err)
 	}
 	return nil
 }
@@ -152,10 +242,6 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		item.MetaJSON = "{}"
 	} else if !json.Valid([]byte(item.MetaJSON)) {
 		item.MetaJSON = "{}"
-	}
-	sensVal := 0
-	if item.Sensitive {
-		sensVal = 1
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO clipboard_items
 		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, sensitive)
@@ -168,7 +254,7 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		item.CharLen,
 		item.SHA256,
 		item.MetaJSON,
-		sensVal,
+		item.Sensitive,
 	)
 	return err
 }
@@ -194,7 +280,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		args = append(args, like, like, like)
 	}
 	if opts.StarredOnly {
-		conds = append(conds, "starred = 1")
+		conds = append(conds, "starred = true")
 	}
 	if opts.Kind != "" {
 		conds = append(conds, "kind = ?")
@@ -209,9 +295,9 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		args = append(args, opts.DateTo)
 	}
 	if opts.SensitiveOnly {
-		conds = append(conds, "sensitive = 1")
+		conds = append(conds, "sensitive = true")
 	} else if !opts.IncludeSensitive {
-		conds = append(conds, "sensitive = 0")
+		conds = append(conds, "sensitive = false")
 	}
 	if opts.GroupID > 0 {
 		conds = append(conds, "id IN (SELECT item_id FROM item_groups WHERE group_id = ?)")
@@ -244,13 +330,10 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	for rows.Next() {
 		var item StoredItem
 		var created string
-		var starredInt, sensInt int
 		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
-			&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &starredInt, &sensInt); err != nil {
+			&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
 			return nil, 0, err
 		}
-		item.Starred = starredInt != 0
-		item.Sensitive = sensInt != 0
 		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
 			item.CreatedAt = parsed
 		}
@@ -263,17 +346,14 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 	var item StoredItem
 	var created string
-	var starredInt, sensInt int
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive
 		FROM clipboard_items WHERE id = ?`, id).Scan(
 		&item.ID, &created, &item.Kind, &item.Format, &item.Text,
-		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &starredInt, &sensInt)
+		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive)
 	if err != nil {
 		return item, err
 	}
-	item.Starred = starredInt != 0
-	item.Sensitive = sensInt != 0
 	if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
 		item.CreatedAt = parsed
 	}
@@ -281,11 +361,7 @@ func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 }
 
 func (s *Store) Star(ctx context.Context, id int64, starred bool) error {
-	v := 0
-	if starred {
-		v = 1
-	}
-	result, err := s.db.ExecContext(ctx, `UPDATE clipboard_items SET starred = ? WHERE id = ?`, v, id)
+	result, err := s.db.ExecContext(ctx, `UPDATE clipboard_items SET starred = ? WHERE id = ?`, starred, id)
 	if err != nil {
 		return err
 	}
@@ -348,7 +424,8 @@ func (s *Store) SaveConfig(cfg Config) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT OR REPLACE INTO settings (key, value) VALUES ('config', ?)`,
+		`INSERT INTO settings (key, value) VALUES ('config', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		string(data),
 	)
 	return err
@@ -367,12 +444,9 @@ func (s *Store) ExportAll(ctx context.Context) ([]StoredItem, error) {
 	for rows.Next() {
 		var item StoredItem
 		var created string
-		var starredInt, sensInt int
-		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text, &item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &starredInt, &sensInt); err != nil {
+		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text, &item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
 			return nil, err
 		}
-		item.Starred = starredInt != 0
-		item.Sensitive = sensInt != 0
 		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
 			item.CreatedAt = parsed
 		}
@@ -410,13 +484,10 @@ func (s *Store) ListGroups(ctx context.Context) ([]StoredGroup, error) {
 
 // CreateGroup 创建一个新分组。
 func (s *Store) CreateGroup(ctx context.Context, name string, parentID int64) (StoredGroup, error) {
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?)`,
-		name, parentID, time.Now().UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return StoredGroup{}, err
-	}
-	id, err := res.LastInsertId()
+	var id int64
+	err := s.db.QueryRowContext(ctx,
+		`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
+		name, parentID, time.Now().UTC().Format(time.RFC3339Nano)).Scan(&id)
 	if err != nil {
 		return StoredGroup{}, err
 	}
@@ -509,7 +580,7 @@ func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 // AddItemToGroup 将条目加入分组。
 func (s *Store) AddItemToGroup(ctx context.Context, itemID, groupID int64) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO item_groups (item_id, group_id) VALUES (?, ?)`, itemID, groupID)
+		`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, itemID, groupID)
 	return err
 }
 

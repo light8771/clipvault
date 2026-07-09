@@ -65,7 +65,7 @@ func run(args []string) error {
 }
 
 func search(env clipvault.Environment, args []string) error {
-	store, err := clipvault.OpenStore(env.DatabaseFile())
+	store, err := clipvault.OpenStore(clipvault.StoreOptions{DataDir: env.DataDir})
 	if err != nil {
 		return err
 	}

@@ -2,12 +2,11 @@ package clipvault
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 )
 
 func TestStoreSaveAndSearch(t *testing.T) {
-	store, err := OpenStore(filepath.Join(t.TempDir(), "clipvault.db"))
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

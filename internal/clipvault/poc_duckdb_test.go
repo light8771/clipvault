@@ -38,11 +38,6 @@ func generateTestKey(t *testing.T) string {
 	return hex.EncodeToString(b) // 64 个 [0-9a-f] 字符
 }
 
-// escapeSQLPath 对 SQL 路径中的单引号做转义（' -> ''）。
-func escapeSQLPath(path string) string {
-	return strings.ReplaceAll(path, "'", "''")
-}
-
 // openDuckDBEncrypted 打开一个加密的 DuckDB 数据库。
 // dbPath: .duckdb 文件路径
 // keyHex: hex 编码的加密 key

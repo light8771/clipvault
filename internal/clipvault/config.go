@@ -100,9 +100,24 @@ func DefaultConfig() Config {
 	}
 }
 
-// DatabaseFile 返回数据库文件的绝对路径。
+// DatabaseFile 返回 DuckDB 数据库文件的绝对路径。
 func (e Environment) DatabaseFile() string {
-	return filepath.Join(e.DataDir, "clipvault.db")
+	return filepath.Join(e.DataDir, "clipvault.duckdb")
+}
+
+// KeyFile 返回 DPAPI 保护的密钥文件路径。
+func (e Environment) KeyFile() string {
+	return filepath.Join(e.DataDir, "clipvault.key")
+}
+
+// RecoveryFile 返回恢复密码加密的密钥文件路径。
+func (e Environment) RecoveryFile() string {
+	return filepath.Join(e.DataDir, "clipvault.recovery")
+}
+
+// StateFile 返回应用状态文件路径。
+func (e Environment) StateFile() string {
+	return filepath.Join(e.DataDir, "clipvault.state")
 }
 
 // LogDirectory 返回日志目录路径。
