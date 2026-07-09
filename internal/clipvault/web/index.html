@@ -327,6 +327,19 @@
                 <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" onclick="showPwdDialog('secondary','change')">修改</button>
               </div>
             </div>
+            <!-- 数据恢复密码 -->
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">数据恢复密码</label>
+                <p class="field-hint">换电脑、重装系统或 DPAPI 失效时，用此密码恢复加密数据库。至少 8 位，需包含大小写字母、数字或特殊字符中的两种。</p>
+              </div>
+              <div class="pwd-actions" id="recoveryPwdActions">
+                <span class="pwd-status" id="recoveryPwdStatus">未设置</span>
+                <button class="btn-pwd-set" id="recoveryPwdSetBtn" onclick="showRecoveryDialog('set')">设置</button>
+                <button class="btn-pwd-change hidden" id="recoveryPwdChangeBtn" onclick="showRecoveryDialog('change')">修改</button>
+                <button class="btn-pwd-change hidden" id="recoveryPwdRemoveBtn" onclick="showRecoveryRemoveDialog()">删除</button>
+              </div>
+            </div>
             <!-- 锁屏会话超时 -->
             <div class="field-row">
               <div class="field-info">

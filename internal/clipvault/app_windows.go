@@ -86,7 +86,7 @@ func Run(env Environment) error {
 
 	state := NewRuntimeState(false)
 	recorder := NewRecorder(cfgMgr, store, state, logger)
-	searchServer := NewSearchServer(cfgMgr, store, state, logger)
+	searchServer := NewSearchServer(cfgMgr, store, state, logger, env)
 	searchURL, err := searchServer.Start()
 	if err != nil {
 		logger.Warn("search_server_start_failed", map[string]any{"error": err.Error()})
@@ -128,7 +128,7 @@ func Run(env Environment) error {
 			_ = searchServer.Close(ctx)
 			cancel()
 			// 创建新的 search server
-			searchServer = NewSearchServer(cfgMgr, store, state, logger)
+			searchServer = NewSearchServer(cfgMgr, store, state, logger, env)
 			searchURL, err = searchServer.Start()
 			if err != nil {
 				logger.Error("restart_search_failed", err, nil)

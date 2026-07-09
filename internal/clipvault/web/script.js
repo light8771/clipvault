@@ -248,7 +248,158 @@
     if (secStatus) secStatus.textContent = secSet ? '已设置' : '未设置';
     if (secSetBtn) secSetBtn.classList.toggle('hidden', secSet);
     if (secChangeBtn) secChangeBtn.classList.toggle('hidden', !secSet);
+    updateRecoveryPwdUI();
   }
+
+  // ── Recovery password management ──────────────────────────
+  let recoveryState = { hasRecovery: false };
+
+  async function loadRecoveryStatus() {
+    try {
+      const res = await fetch('/api/recovery/status');
+      if (!res.ok) return;
+      const d = await res.json();
+      recoveryState.hasRecovery = d.hasRecovery;
+      updateRecoveryPwdUI();
+    } catch (_) {}
+  }
+
+  function updateRecoveryPwdUI() {
+    const status = document.getElementById('recoveryPwdStatus');
+    const setBtn = document.getElementById('recoveryPwdSetBtn');
+    const changeBtn = document.getElementById('recoveryPwdChangeBtn');
+    const removeBtn = document.getElementById('recoveryPwdRemoveBtn');
+    if (status) status.textContent = recoveryState.hasRecovery ? '已设置' : '未设置';
+    if (setBtn) setBtn.classList.toggle('hidden', recoveryState.hasRecovery);
+    if (changeBtn) changeBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
+    if (removeBtn) removeBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
+  }
+
+  window.showRecoveryDialog = function(action) {
+    const isChange = action === 'change';
+    const title = '数据恢复密码' + (isChange ? '修改' : '设置');
+    const oldLabel = isChange ? '当前恢复密码' : null;
+    const html = `
+      <div class="modal-overlay" id="recDialogOverlay">
+        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">${title}</span>
+            <button class="modal-close" onclick="closeRecDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <form id="recDialogForm" class="lock-form">
+              <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+              ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
+              <input type="password" id="recDlgNew" class="lock-input" placeholder="新恢复密码（至少8位）" autocomplete="new-password">
+              <input type="password" id="recDlgConfirm" class="lock-input" placeholder="确认新恢复密码" autocomplete="new-password">
+              <button type="submit" class="lock-btn">确定</button>
+            </form>
+            <p class="lock-err hidden" id="recDlgErr"></p>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('recDialogOverlay');
+    const form = document.getElementById('recDialogForm');
+    const errEl = document.getElementById('recDlgErr');
+    const oldInput = document.getElementById('recDlgOld');
+    const newInput = document.getElementById('recDlgNew');
+    const confirmInput = document.getElementById('recDlgConfirm');
+    setTimeout(() => (oldInput || newInput).focus(), 50);
+
+    window.closeRecDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRecDialog(); });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const oldPwd = oldInput ? oldInput.value : '';
+      const newPwd = newInput.value;
+      const confirmPwd = confirmInput.value;
+      errEl.classList.add('hidden');
+
+      if (!newPwd) { errEl.textContent = '新密码不能为空'; errEl.classList.remove('hidden'); return; }
+      if (newPwd.length < 8) { errEl.textContent = '密码至少 8 位'; errEl.classList.remove('hidden'); return; }
+      if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
+      if (isChange && !oldPwd) { errEl.textContent = '请输入当前恢复密码'; errEl.classList.remove('hidden'); return; }
+
+      try {
+        const url = isChange ? '/api/recovery/change' : '/api/recovery/set';
+        const body = isChange
+          ? { oldPassword: oldPwd, newPassword: newPwd }
+          : { password: newPwd };
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await res.json();
+        if (d.ok) {
+          closeRecDialog();
+          toast('数据恢复密码已' + (isChange ? '修改' : '设置'));
+          await loadRecoveryStatus();
+        } else {
+          errEl.textContent = d.error || '操作失败';
+          errEl.classList.remove('hidden');
+        }
+      } catch (_) {
+        errEl.textContent = '网络错误';
+        errEl.classList.remove('hidden');
+      }
+    });
+  };
+
+  window.showRecoveryRemoveDialog = function() {
+    const html = `
+      <div class="modal-overlay" id="recRemoveOverlay">
+        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">删除恢复密码</span>
+            <button class="modal-close" onclick="closeRecRemoveDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <p style="margin-bottom:16px;color:var(--text-secondary);line-height:1.6;font-size:14px">
+              删除恢复密码后，如果 DPAPI 失效（换电脑、重装系统等），将无法恢复加密数据库中的数据。
+              确定要删除吗？
+            </p>
+            <div style="display:flex;gap:12px">
+              <button class="lock-btn" style="flex:1;background:var(--danger,#e94560)" onclick="doRecoveryRemove()">确认删除</button>
+              <button class="lock-btn" style="flex:1;background:var(--surface-3,#30475e)" onclick="closeRecRemoveDialog()">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('recRemoveOverlay');
+    window.closeRecRemoveDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRecRemoveDialog(); });
+  };
+
+  async function doRecoveryRemove() {
+    try {
+      const res = await fetch('/api/recovery/remove', { method: 'POST' });
+      const d = await res.json();
+      if (d.ok) {
+        closeRecRemoveDialog();
+        toast('恢复密码已删除');
+        await loadRecoveryStatus();
+      } else {
+        toast(d.error || '删除失败', 'error');
+      }
+    } catch (_) {
+      toast('网络错误', 'error');
+    }
+  }
+  window.doRecoveryRemove = doRecoveryRemove;
 
   // ── View switch ───────────────────────────────────────────
   window.switchView = function(view) {
@@ -987,6 +1138,7 @@
       currentCfg = cfg;
       applyConfigToForm(cfg);
     } catch (_) { toast('加载配置失败', 'err'); }
+    loadRecoveryStatus();
   }
 
   function applyConfigToForm(cfg) {

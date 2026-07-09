@@ -25,20 +25,21 @@ import (
 var webFS embed.FS
 
 type SearchServer struct {
-	cfgMgr   *ConfigManager
-	store    *Store
-	state    *RuntimeState
-	logger   *DailyLogger
-	auth     *AuthManager
-	server   *http.Server
-	url      string
+	cfgMgr    *ConfigManager
+	store     *Store
+	state     *RuntimeState
+	logger    *DailyLogger
+	auth      *AuthManager
+	env       Environment
+	server    *http.Server
+	url       string
 	restartCh chan struct{}
 }
 
-func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger) *SearchServer {
+func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger, env Environment) *SearchServer {
 	am := NewAuthManager()
 	am.startSessionCleaner()
-	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, restartCh: make(chan struct{}, 1)}
+	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, env: env, restartCh: make(chan struct{}, 1)}
 }
 
 func (s *SearchServer) Start() (string, error) {
@@ -89,6 +90,12 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /api/export/config", s.requireSecondary(s.handleExportConfig))
 	mux.HandleFunc("GET /api/export/data", s.requireSecondary(s.handleExportData))
 	mux.HandleFunc("POST /api/import/data", s.requireSecondary(s.handleImportData))
+
+	// 恢复密码管理端点（需二次认证）
+	mux.HandleFunc("GET /api/recovery/status", s.requireSecondary(s.handleRecoveryStatus))
+	mux.HandleFunc("POST /api/recovery/set", s.requireSecondary(s.handleRecoverySet))
+	mux.HandleFunc("POST /api/recovery/change", s.requireSecondary(s.handleRecoveryChange))
+	mux.HandleFunc("POST /api/recovery/remove", s.requireSecondary(s.handleRecoveryRemove))
 
 	host, portStr, _ := net.SplitHostPort(cfg.Search.ListenAddr)
 	if host == "" {
@@ -476,6 +483,58 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.logger.Info("data_imported", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// ── Recovery password management ──────────────────────────────
+
+func (s *SearchServer) handleRecoveryStatus(w http.ResponseWriter, r *http.Request) {
+	hasRecovery := HasRecoveryPassword(s.env.DataDir)
+	s.writeJSON(w, map[string]any{"hasRecovery": hasRecovery})
+}
+
+func (s *SearchServer) handleRecoverySet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := SetRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.Password); err != nil {
+		s.logger.Error("recovery_set_failed", err, nil)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("recovery_password_set", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := ChangeRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.OldPassword, req.NewPassword); err != nil {
+		s.logger.Error("recovery_change_failed", err, nil)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("recovery_password_changed", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *SearchServer) handleRecoveryRemove(w http.ResponseWriter, r *http.Request) {
+	if err := RemoveRecoveryPassword(s.env.DataDir); err != nil {
+		s.logger.Error("recovery_remove_failed", err, nil)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("recovery_password_removed", nil)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
