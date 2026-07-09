@@ -333,7 +333,7 @@ func TestPOC4_LikeEscape(t *testing.T) {
 	if err != nil {
 		t.Logf("[FAIL] ILIKE: err=%v", err)
 	} else {
-		t.Logf("[OK] ILIKE '%project%' -> count=%d (大小写不敏感应=2)", ilikeCount)
+		t.Logf("[OK] ILIKE '%%project%%' -> count=%d (大小写不敏感应=2)", ilikeCount)
 	}
 }
 
@@ -467,14 +467,14 @@ func TestPOC6_FullCRUDWithSingleConn(t *testing.T) {
 	if err := db.QueryRow("SELECT COUNT(*) FROM clipboard_items WHERE text LIKE '%你好%'").Scan(&cnCount); err != nil {
 		t.Fatalf("search cn: %v", err)
 	}
-	t.Logf("[OK] LIKE '%你好%' -> %d", cnCount)
+	t.Logf("[OK] LIKE '%%你好%%' -> %d", cnCount)
 
 	// LIKE 搜索 emoji
 	var emojiCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM clipboard_items WHERE text LIKE '%🎉%'").Scan(&emojiCount); err != nil {
 		t.Fatalf("search emoji: %v", err)
 	}
-	t.Logf("[OK] LIKE '%🎉%' -> %d", emojiCount)
+	t.Logf("[OK] LIKE '%%🎉%%' -> %d", emojiCount)
 
 	// BOOLEAN 过滤
 	var starCount int
