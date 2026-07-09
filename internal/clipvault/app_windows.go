@@ -30,8 +30,33 @@ func Run(env Environment) error {
 	store, err := OpenStore(StoreOptions{DataDir: env.DataDir})
 	if err != nil {
 		logger.Error("store_open_failed", err, map[string]any{"mode": startupMode})
-		// DPAPI failure — return recovery error so caller can prompt for password
-		return &RecoveryError{Err: err, DataDir: env.DataDir}
+
+		// Start recovery server for user to recover or create new database
+		rs := NewRecoveryServer(env.DataDir)
+		recURL, recErr := rs.Start()
+		if recErr != nil {
+			logger.Error("recovery_server_start_failed", recErr, nil)
+			return &RecoveryError{Err: err, DataDir: env.DataDir}
+		}
+		logger.Info("recovery_server_started", map[string]any{"url": recURL})
+		fmt.Printf("Recovery page: %s\n", recURL)
+		openBrowser(recURL)
+
+		// Wait for recovery to complete
+		<-rs.Done()
+		rs.Close()
+
+		if !rs.Success() {
+			return &RecoveryError{Err: err, DataDir: env.DataDir}
+		}
+
+		// Retry opening the store after recovery
+		store, err = OpenStore(StoreOptions{DataDir: env.DataDir})
+		if err != nil {
+			logger.Error("store_open_after_recovery_failed", err, nil)
+			return &RecoveryError{Err: err, DataDir: env.DataDir}
+		}
+		logger.Info("store_opened_after_recovery", nil)
 	}
 	defer store.Close()
 
