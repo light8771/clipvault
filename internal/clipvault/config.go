@@ -91,6 +91,7 @@ type Config struct {
 	Autostart        AutostartConfig `json:"autostart"`
 	Security         SecurityConfig  `json:"security"`
 	Hotkey           HotkeyConfig    `json:"hotkey"`
+	Backup           BackupConfig    `json:"backup"`
 }
 
 type SearchConfig struct {
@@ -128,6 +129,35 @@ type SecurityConfig struct {
 	SecondaryAuthTimeout  int    `json:"secondaryAuthTimeout"` // 二次认证缓存时长(分钟)，0=每次都校验，N=N分钟内免重复
 }
 
+// BackupConfig 存储定时备份配置。修改备份设置需要二次认证。
+type BackupConfig struct {
+	DirBackup   DirBackupConfig   `json:"dirBackup"`
+	EmailBackup EmailBackupConfig `json:"emailBackup"`
+}
+
+// DirBackupConfig 定时备份到指定目录。
+type DirBackupConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Interval int    `json:"interval"` // 备份间隔(小时)
+	Dir      string `json:"dir"`      // 目标目录路径
+	Format   string `json:"format"`   // "json" 或 "cvexport"
+	Password string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+}
+
+// EmailBackupConfig 定时发送备份邮件到指定邮箱。
+type EmailBackupConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Interval int    `json:"interval"`  // 备份间隔(小时)
+	SMTPHost string `json:"smtpHost"`  // SMTP 服务器地址
+	SMTPPort int    `json:"smtpPort"`  // SMTP 端口
+	SMTPUser string `json:"smtpUser"`  // SMTP 用户名
+	SMTPPass string `json:"smtpPass"`  // SMTP 密码（敏感，不向前端返回明文）
+	From     string `json:"from"`      // 发件人邮箱
+	To       string `json:"to"`        // 收件人邮箱
+	Format   string `json:"format"`    // "json" 或 "cvexport"
+	Password string `json:"password"`  // cvexport 加密密码（仅 cvexport 格式使用）
+}
+
 func DefaultConfig() Config {
 	return Config{
 		MaxTextChars:     0, // 0 表示不限制
@@ -154,6 +184,10 @@ func DefaultConfig() Config {
 			Enabled:   true,
 			Modifiers: 0x0002 | 0x0001, // MOD_CONTROL | MOD_ALT
 			Key:       0x50,            // VK_P
+		},
+		Backup: BackupConfig{
+			DirBackup:   DirBackupConfig{},
+			EmailBackup: EmailBackupConfig{},
 		},
 	}
 }
@@ -195,5 +229,11 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Hotkey.Enabled && (cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0) {
 		cfg.Hotkey = def.Hotkey
+	}
+	if cfg.Backup.DirBackup.Format != "cvexport" {
+		cfg.Backup.DirBackup.Format = "json"
+	}
+	if cfg.Backup.EmailBackup.Format != "cvexport" {
+		cfg.Backup.EmailBackup.Format = "json"
 	}
 }

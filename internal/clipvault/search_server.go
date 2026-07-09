@@ -34,12 +34,13 @@ type SearchServer struct {
 	server    *http.Server
 	url       string
 	restartCh chan struct{}
+	backup    *BackupService
 }
 
-func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger, env Environment) *SearchServer {
+func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger, env Environment, backup *BackupService) *SearchServer {
 	am := NewAuthManager()
 	am.startSessionCleaner()
-	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, env: env, restartCh: make(chan struct{}, 1)}
+	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, env: env, restartCh: make(chan struct{}, 1), backup: backup}
 }
 
 func (s *SearchServer) Start() (string, error) {
@@ -66,7 +67,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/pause", s.requireAuth(s.handlePause))
 	mux.HandleFunc("DELETE /api/items", s.requireAuth(s.handleItems))
 	mux.HandleFunc("PATCH /api/items", s.requireAuth(s.handleStarItem))
-	mux.HandleFunc("POST /api/clear", s.requireAuth(s.handleClear))
+	mux.HandleFunc("POST /api/clear", s.requireSecondary(s.handleClear))
 	mux.HandleFunc("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.HandleFunc("PUT /api/config", s.requireSecondary(s.handlePutConfig))
 	mux.HandleFunc("GET /api/sensitive/rules", s.requireSecondary(s.handleSensitiveRules))
@@ -97,6 +98,12 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/recovery/set", s.requireSecondary(s.handleRecoverySet))
 	mux.HandleFunc("POST /api/recovery/change", s.requireSecondary(s.handleRecoveryChange))
 	mux.HandleFunc("POST /api/recovery/remove", s.requireSecondary(s.handleRecoveryRemove))
+
+	// 备份管理端点（需二次认证）
+	mux.HandleFunc("GET /api/backup/status", s.requireAuth(s.handleBackupStatus))
+	mux.HandleFunc("POST /api/backup/dir/now", s.requireSecondary(s.handleBackupDirNow))
+	mux.HandleFunc("POST /api/backup/email/now", s.requireSecondary(s.handleBackupEmailNow))
+	mux.HandleFunc("POST /api/backup/email/test", s.requireSecondary(s.handleBackupEmailTest))
 
 	host, portStr, _ := net.SplitHostPort(cfg.Search.ListenAddr)
 	if host == "" {
@@ -363,6 +370,16 @@ func stripSecrets(cfg Config) Config {
 	cfg.Security.LockPasswordHash = ""
 	cfg.Security.SecondaryPasswordHash = ""
 	cfg.Security.PasswordSalt = ""
+	// 备份相关敏感密码用占位符标记，前端回传时保留原值
+	if cfg.Backup.DirBackup.Password != "" {
+		cfg.Backup.DirBackup.Password = "__set__"
+	}
+	if cfg.Backup.EmailBackup.SMTPPass != "" {
+		cfg.Backup.EmailBackup.SMTPPass = "__set__"
+	}
+	if cfg.Backup.EmailBackup.Password != "" {
+		cfg.Backup.EmailBackup.Password = "__set__"
+	}
 	return cfg
 }
 
@@ -397,6 +414,16 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.Security.PasswordSalt == "" {
 		cfg.Security.PasswordSalt = curCfg.Security.PasswordSalt
+	}
+	// 保留备份相关敏感密码，不被前端回传的占位符或空值覆盖
+	if cfg.Backup.DirBackup.Password == "" || cfg.Backup.DirBackup.Password == "__set__" {
+		cfg.Backup.DirBackup.Password = curCfg.Backup.DirBackup.Password
+	}
+	if cfg.Backup.EmailBackup.SMTPPass == "" || cfg.Backup.EmailBackup.SMTPPass == "__set__" {
+		cfg.Backup.EmailBackup.SMTPPass = curCfg.Backup.EmailBackup.SMTPPass
+	}
+	if cfg.Backup.EmailBackup.Password == "" || cfg.Backup.EmailBackup.Password == "__set__" {
+		cfg.Backup.EmailBackup.Password = curCfg.Backup.EmailBackup.Password
 	}
 	if err := s.cfgMgr.Update(cfg); err != nil {
 		var hkErr *HotkeyError
@@ -622,6 +649,106 @@ func (s *SearchServer) handleRecoveryRemove(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	s.logger.Info("recovery_password_removed", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// ── Backup handlers ───────────────────────────────────────────
+
+// handleBackupStatus 返回目录备份和邮件备份的最近状态。
+func (s *SearchServer) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgMgr.Get()
+	resp := map[string]any{
+		"dirBackup": map[string]any{
+			"enabled":  cfg.Backup.DirBackup.Enabled,
+			"interval": cfg.Backup.DirBackup.Interval,
+			"dir":      cfg.Backup.DirBackup.Dir,
+			"format":   cfg.Backup.DirBackup.Format,
+			"hasPassword": cfg.Backup.DirBackup.Password != "",
+		},
+		"emailBackup": map[string]any{
+			"enabled":   cfg.Backup.EmailBackup.Enabled,
+			"interval":  cfg.Backup.EmailBackup.Interval,
+			"smtpHost":  cfg.Backup.EmailBackup.SMTPHost,
+			"smtpPort":  cfg.Backup.EmailBackup.SMTPPort,
+			"smtpUser":  cfg.Backup.EmailBackup.SMTPUser,
+			"from":      cfg.Backup.EmailBackup.From,
+			"to":        cfg.Backup.EmailBackup.To,
+			"format":    cfg.Backup.EmailBackup.Format,
+			"hasSmtpPass": cfg.Backup.EmailBackup.SMTPPass != "",
+			"hasPassword": cfg.Backup.EmailBackup.Password != "",
+		},
+	}
+	if s.backup != nil {
+		ds := s.backup.DirStatus()
+		es := s.backup.EmailStatus()
+		resp["dirStatus"] = map[string]any{
+			"lastTime":   ds.LastTime.Format(time.RFC3339),
+			"lastOK":     ds.LastOK,
+			"lastError":  ds.LastError,
+			"backupFile": ds.BackupFile,
+		}
+		resp["emailStatus"] = map[string]any{
+			"lastTime":   es.LastTime.Format(time.RFC3339),
+			"lastOK":     es.LastOK,
+			"lastError":  es.LastError,
+			"backupFile": es.BackupFile,
+		}
+	}
+	s.writeJSON(w, resp)
+}
+
+// handleBackupDirNow 立即执行一次目录备份。
+func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request) {
+	if s.backup == nil {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
+		return
+	}
+	cfg := s.cfgMgr.Get()
+	if cfg.Backup.DirBackup.Dir == "" {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "未配置备份目录"})
+		return
+	}
+	if err := s.backup.RunDirBackup(); err != nil {
+		s.logger.Error("dir_backup_manual_failed", err, nil)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("dir_backup_manual_ok", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleBackupEmailNow 立即执行一次邮件备份。
+func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Request) {
+	if s.backup == nil {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
+		return
+	}
+	cfg := s.cfgMgr.Get()
+	if cfg.Backup.EmailBackup.SMTPHost == "" || cfg.Backup.EmailBackup.To == "" {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "SMTP 配置不完整"})
+		return
+	}
+	if err := s.backup.RunEmailBackup(); err != nil {
+		s.logger.Error("email_backup_manual_failed", err, nil)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("email_backup_manual_ok", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleBackupEmailTest 发送一封测试邮件。
+func (s *SearchServer) handleBackupEmailTest(w http.ResponseWriter, r *http.Request) {
+	if s.backup == nil {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
+		return
+	}
+	if err := s.backup.SendTestEmail(); err != nil {
+		s.logger.Error("email_test_failed", err, nil)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("email_test_ok", nil)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 

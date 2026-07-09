@@ -1161,7 +1161,15 @@
       CLEAR_BTN.classList.add('loading');
       CLEAR_TX.textContent = '清除中...';
       try {
-        const res = await fetch('/api/clear', { method: 'POST' });
+        const ok = await requestSecondaryAuth();
+        if (!ok) { throw new Error('secondary_required'); }
+        let url = '/api/clear';
+        if (pendingSecondaryToken) {
+          url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+          pendingSecondaryToken = null;
+        }
+        const res = await fetch(url, { method: 'POST' });
+        if (res.status === 403) { throw new Error('secondary_required'); }
         const d = await res.json();
         if (d.ok) {
           toast('已清除 ' + d.deleted + ' 条记录');
@@ -1177,7 +1185,13 @@
             <span>暂无剪切板记录</span>
           </div>`;
         } else { throw 0; }
-      } catch (_) { toast('清除失败', 'err'); }
+      } catch (e) {
+        if (e && e.message === 'secondary_required') {
+          toast('需要二次验证才能清除记录', 'err');
+        } else {
+          toast('清除失败', 'err');
+        }
+      }
       CLEAR_BTN.classList.remove('loading');
       CLEAR_BTN.classList.remove('confirm');
       CLEAR_TX.textContent = '清除';
@@ -1270,6 +1284,49 @@
 
     // 更新密码状态 UI
     updatePwdStatusUI();
+
+    // 备份配置
+    const bk = cfg.backup || {};
+    const db = bk.dirBackup || {};
+    const eb = bk.emailBackup || {};
+    const dirEnabled = document.getElementById('cfg-dirBackupEnabled');
+    const dirInterval = document.getElementById('cfg-dirBackupInterval');
+    const dirDir = document.getElementById('cfg-dirBackupDir');
+    const dirFormat = document.getElementById('cfg-dirBackupFormat');
+    const dirPwd = document.getElementById('cfg-dirBackupPwd');
+    const dirPwdRow = document.getElementById('cfg-dirBackupPwdRow');
+    if (dirEnabled) dirEnabled.checked = !!db.enabled;
+    if (dirInterval) dirInterval.value = db.interval || 24;
+    if (dirDir) dirDir.value = db.dir || '';
+    if (dirFormat) dirFormat.value = db.format || 'json';
+    if (dirPwd) dirPwd.value = '';
+    if (dirPwdRow) dirPwdRow.style.display = (db.format === 'cvexport') ? '' : 'none';
+
+    const emailEnabled = document.getElementById('cfg-emailBackupEnabled');
+    const emailInterval = document.getElementById('cfg-emailBackupInterval');
+    const emailHost = document.getElementById('cfg-emailBackupSMTPHost');
+    const emailPort = document.getElementById('cfg-emailBackupSMTPPort');
+    const emailUser = document.getElementById('cfg-emailBackupSMTPUser');
+    const emailPass = document.getElementById('cfg-emailBackupSMTPPass');
+    const emailFrom = document.getElementById('cfg-emailBackupFrom');
+    const emailTo = document.getElementById('cfg-emailBackupTo');
+    const emailFormat = document.getElementById('cfg-emailBackupFormat');
+    const emailPwd = document.getElementById('cfg-emailBackupPwd');
+    const emailPwdRow = document.getElementById('cfg-emailBackupPwdRow');
+    if (emailEnabled) emailEnabled.checked = !!eb.enabled;
+    if (emailInterval) emailInterval.value = eb.interval || 24;
+    if (emailHost) emailHost.value = eb.smtpHost || '';
+    if (emailPort) emailPort.value = eb.smtpPort || 587;
+    if (emailUser) emailUser.value = eb.smtpUser || '';
+    if (emailPass) emailPass.value = '';
+    if (emailFrom) emailFrom.value = eb.from || '';
+    if (emailTo) emailTo.value = eb.to || '';
+    if (emailFormat) emailFormat.value = eb.format || 'json';
+    if (emailPwd) emailPwd.value = '';
+    if (emailPwdRow) emailPwdRow.style.display = (eb.format === 'cvexport') ? '' : 'none';
+
+    // 加载备份状态
+    loadBackupStatus();
   }
 
   // ── Unlock filter rules (secondary auth) ────────────────
@@ -1381,6 +1438,30 @@
         enabled:   hkEnabled,
         modifiers: hkMods,
         key:       hkKeyChar,
+      },
+      backup: {
+        ...currentCfg.backup,
+        dirBackup: {
+          ...currentCfg.backup?.dirBackup,
+          enabled:  document.getElementById('cfg-dirBackupEnabled')?.checked || false,
+          interval: parseInt(document.getElementById('cfg-dirBackupInterval')?.value) || 24,
+          dir:      document.getElementById('cfg-dirBackupDir')?.value.trim() || '',
+          format:   document.getElementById('cfg-dirBackupFormat')?.value || 'json',
+          password: document.getElementById('cfg-dirBackupPwd')?.value || '',
+        },
+        emailBackup: {
+          ...currentCfg.backup?.emailBackup,
+          enabled:   document.getElementById('cfg-emailBackupEnabled')?.checked || false,
+          interval:  parseInt(document.getElementById('cfg-emailBackupInterval')?.value) || 24,
+          smtpHost:  document.getElementById('cfg-emailBackupSMTPHost')?.value.trim() || '',
+          smtpPort:  parseInt(document.getElementById('cfg-emailBackupSMTPPort')?.value) || 587,
+          smtpUser:  document.getElementById('cfg-emailBackupSMTPUser')?.value.trim() || '',
+          smtpPass:  document.getElementById('cfg-emailBackupSMTPPass')?.value || '',
+          from:      document.getElementById('cfg-emailBackupFrom')?.value.trim() || '',
+          to:        document.getElementById('cfg-emailBackupTo')?.value.trim() || '',
+          format:    document.getElementById('cfg-emailBackupFormat')?.value || 'json',
+          password:  document.getElementById('cfg-emailBackupPwd')?.value || '',
+        },
       },
     };
   }
@@ -1523,6 +1604,21 @@
       addBtn.addEventListener('click', () => {
         clearTimeout(saveTimer);
         saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
+      });
+    }
+    // 备份格式切换时显示/隐藏加密密码行
+    const dirFmt = document.getElementById('cfg-dirBackupFormat');
+    if (dirFmt) {
+      dirFmt.addEventListener('change', () => {
+        const row = document.getElementById('cfg-dirBackupPwdRow');
+        if (row) row.style.display = (dirFmt.value === 'cvexport') ? '' : 'none';
+      });
+    }
+    const emailFmt = document.getElementById('cfg-emailBackupFormat');
+    if (emailFmt) {
+      emailFmt.addEventListener('change', () => {
+        const row = document.getElementById('cfg-emailBackupPwdRow');
+        if (row) row.style.display = (emailFmt.value === 'cvexport') ? '' : 'none';
       });
     }
   }
@@ -1726,6 +1822,73 @@
     }
   }
   window.doImport = doImport;
+
+  // ── Backup actions ─────────────────────────────────────────
+  async function backupAction(url, successMsg) {
+    const ok = await requestSecondaryAuth();
+    if (!ok) { toast('需要二次验证', 'err'); return; }
+    let finalUrl = url;
+    if (pendingSecondaryToken) {
+      finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
+      pendingSecondaryToken = null;
+    }
+    try {
+      const res = await fetch(finalUrl, { method: 'POST' });
+      const d = await res.json();
+      if (d.ok) {
+        toast(successMsg);
+        loadBackupStatus();
+      } else {
+        toast(d.error || '操作失败', 'err');
+      }
+    } catch (e) {
+      toast('网络错误: ' + e.message, 'err');
+    }
+  }
+
+  window.doBackupDirNow = function() {
+    backupAction('/api/backup/dir/now', '目录备份成功');
+  };
+  window.doBackupEmailNow = function() {
+    backupAction('/api/backup/email/now', '邮件备份已发送');
+  };
+  window.doBackupEmailTest = function() {
+    backupAction('/api/backup/email/test', '测试邮件已发送');
+  };
+
+  async function loadBackupStatus() {
+    try {
+      const d = await fetch('/api/backup/status').then(r => r.json());
+      const ds = d.dirStatus;
+      const es = d.emailStatus;
+      if (ds && ds.lastTime && ds.lastTime !== '0001-01-01T00:00:00Z') {
+        const row = document.getElementById('cfg-dirBackupStatusRow');
+        const text = document.getElementById('cfg-dirBackupStatusText');
+        if (row) row.style.display = '';
+        if (text) {
+          const time = new Date(ds.lastTime).toLocaleString('zh-CN');
+          if (ds.lastOK) {
+            text.textContent = '成功 · ' + time + ' · ' + (ds.backupFile || '');
+          } else {
+            text.textContent = '失败 · ' + time + ' · ' + (ds.lastError || '未知错误');
+          }
+        }
+      }
+      if (es && es.lastTime && es.lastTime !== '0001-01-01T00:00:00Z') {
+        const row = document.getElementById('cfg-emailBackupStatusRow');
+        const text = document.getElementById('cfg-emailBackupStatusText');
+        if (row) row.style.display = '';
+        if (text) {
+          const time = new Date(es.lastTime).toLocaleString('zh-CN');
+          if (es.lastOK) {
+            text.textContent = '成功 · ' + time + ' · ' + (es.backupFile || '');
+          } else {
+            text.textContent = '失败 · ' + time + ' · ' + (es.lastError || '未知错误');
+          }
+        }
+      }
+    } catch (_) {}
+  }
 
   // ── Group functions ─────────────────────────────────────────────────────
 

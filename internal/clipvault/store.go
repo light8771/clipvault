@@ -536,6 +536,10 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	cfg.Security.LockPasswordHash = ""
 	cfg.Security.SecondaryPasswordHash = ""
 	cfg.Security.PasswordSalt = ""
+	// 清除备份相关敏感密码
+	cfg.Backup.DirBackup.Password = ""
+	cfg.Backup.EmailBackup.SMTPPass = ""
+	cfg.Backup.EmailBackup.Password = ""
 
 	return &ExportData{
 		ExportVersion: 2,
