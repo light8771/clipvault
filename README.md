@@ -14,6 +14,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **恢复密码**：可设置恢复密码备份数据库密钥，DPAPI 失效时（换电脑、重装系统）可恢复数据
 - **锁屏密码 & 二次密码**：Web 界面访问密码 + 敏感操作二次验证
 - **加密导出包**：支持 `.cvexport` 加密格式，用密码加密导出数据，安全传输或备份
+- **定时备份**：支持定时备份到指定目录和定时发送备份邮件到指定邮箱，均需二次密码验证，支持 JSON 和加密 .cvexport 格式
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
 - **便携模式**：exe 同目录放置 `portable.flag` 文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：exe 同目录下的 `logs\YYYY-MM-DD.log`
@@ -36,7 +37,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 一键复制 | 点击「复制」按钮，内容写入系统剪贴板并弹出 Toast 提示 |
 | 弹窗查看 | 长文本点击「查看」按钮弹出全文预览，支持弹窗内复制，`Esc` 关闭 |
 | 删除单条 | 点击「删除」按钮，卡片滑出动画后移除 |
-| 清除全部 | 顶栏「清除」按钮，需二次确认后删除所有记录 |
+| 清除全部 | 顶栏「清除」按钮，需二次确认 + 二次密码验证后删除所有记录 |
 | 暂停/恢复 | 顶栏按钮一键切换录制状态 |
 | 自动刷新 | 勾选后每 3 秒拉取最新记录 |
 | 键盘快捷键 | `Ctrl+K` 聚焦搜索框，`Esc` 清空并失焦 / 关闭弹窗 |
@@ -52,6 +53,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 过滤 | 自定义正则过滤规则，支持增删，匹配内容不记录 |
 | 分组 | 创建/编辑/删除分组，支持嵌套，可将记录加入分组 |
 | 导出 | 导出配置（JSON）、导出全部记录（JSON / CSV / 加密 .cvexport）、导入数据（JSON / .cvexport） |
+| 备份 | 定时目录备份（间隔/目录/格式/加密密码）、定时邮件备份（SMTP 配置/间隔/格式/加密密码）、立即备份/发送、测试邮件、备份状态查看 |
 
 > 过滤规则和文字限制**即时生效**；监听地址变更需**重启应用**后生效。
 
@@ -88,12 +90,15 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 > **前提**：需要 MinGW（CGO 依赖，DuckDB 需要 C 编译器）和 Go 1.25+
 
 ```powershell
-# 设置 CGO 和 MinGW 路径
+# 设置 CGO 和 MinGW 路径（每次新开终端都需要）
 $env:CGO_ENABLED = 1
 $env:PATH = "D:\mingw64\bin;" + $env:PATH
 
 # 开发调试（有控制台窗口）
 go run ./cmd/clipvault
+
+# 一行快捷运行（不想手动设置环境变量时）
+$env:CGO_ENABLED="1"; $env:PATH="D:\mingw64\bin;"+$env:PATH; go run ./cmd/clipvault
 
 # 控制台版构建
 go build -o bin\clipvault.exe .\cmd\clipvault
@@ -148,7 +153,7 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/pause` | POST | 锁屏 | 暂停/恢复 |
 | `DELETE /api/items?id=N` | DELETE | 锁屏 | 删除指定记录 |
 | `PATCH /api/items?id=N&starred=1` | PATCH | 锁屏 | 收藏/取消收藏 |
-| `POST /api/clear` | POST | 锁屏 | 清除全部记录 |
+| `POST /api/clear` | POST | 二次 | 清除全部记录 |
 | `GET /api/config` | GET | 锁屏 | 获取配置 |
 | `PUT /api/config` | PUT | 二次 | 保存配置 |
 | `GET /api/export/config` | GET | 二次 | 导出配置（JSON） |
@@ -158,6 +163,10 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/recovery/set` | POST | 二次 | 设置恢复密码 |
 | `POST /api/recovery/change` | POST | 二次 | 修改恢复密码 |
 | `POST /api/recovery/remove` | POST | 二次 | 删除恢复密码 |
+| `GET /api/backup/status` | GET | 锁屏 | 查看备份配置与最近状态 |
+| `POST /api/backup/dir/now` | POST | 二次 | 立即执行目录备份 |
+| `POST /api/backup/email/now` | POST | 二次 | 立即发送备份邮件 |
+| `POST /api/backup/email/test` | POST | 二次 | 发送测试邮件 |
 | `GET /api/groups` | GET | 锁屏 | 列出分组 |
 | `POST /api/groups` | POST | 锁屏 | 创建分组 |
 | `PUT /api/groups` | PUT | 锁屏 | 更新分组 |
@@ -207,6 +216,27 @@ curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data
   "security": {
     "lockSessionTimeout": 0,
     "secondaryAuthTimeout": 0
+  },
+  "backup": {
+    "dirBackup": {
+      "enabled": false,
+      "interval": 24,
+      "dir": "",
+      "format": "json",
+      "password": ""
+    },
+    "emailBackup": {
+      "enabled": false,
+      "interval": 24,
+      "smtpHost": "",
+      "smtpPort": 587,
+      "smtpUser": "",
+      "smtpPass": "",
+      "from": "",
+      "to": "",
+      "format": "json",
+      "password": ""
+    }
   }
 }
 ```
@@ -220,6 +250,21 @@ curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data
 | `autostart.enabled` | 是否开机自启动 |
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |
 | `security.secondaryAuthTimeout` | 二次认证缓存时长（分钟），0 = 每次都校验 |
+| `backup.dirBackup.enabled` | 是否启用定时目录备份 |
+| `backup.dirBackup.interval` | 目录备份间隔（小时） |
+| `backup.dirBackup.dir` | 备份文件保存目录 |
+| `backup.dirBackup.format` | 备份格式：`json` 或 `cvexport`（加密） |
+| `backup.dirBackup.password` | cvexport 格式的加密密码 |
+| `backup.emailBackup.enabled` | 是否启用定时邮件备份 |
+| `backup.emailBackup.interval` | 邮件备份间隔（小时） |
+| `backup.emailBackup.smtpHost` | SMTP 服务器地址 |
+| `backup.emailBackup.smtpPort` | SMTP 端口（通常 587 或 465） |
+| `backup.emailBackup.smtpUser` | SMTP 用户名 |
+| `backup.emailBackup.smtpPass` | SMTP 密码或授权码 |
+| `backup.emailBackup.from` | 发件人邮箱 |
+| `backup.emailBackup.to` | 收件人邮箱 |
+| `backup.emailBackup.format` | 邮件备份格式：`json` 或 `cvexport` |
+| `backup.emailBackup.password` | cvexport 格式的加密密码 |
 
 ## 项目结构
 
@@ -237,6 +282,7 @@ clipboard_ext/
 │   ├── app_windows.go          # Windows 启动流程 + 恢复入口
 │   ├── auth.go                 # 锁屏密码 & 二次密码认证管理
 │   ├── autostart_windows.go    # 开机启动（注册表）
+│   ├── backup.go               # 定时备份服务（目录备份 + 邮件备份 + SMTP）
 │   ├── clipboard_windows.go    # 剪贴板监听与读取、文件类型识别
 │   ├── config.go               # 配置结构、默认值、环境路径解析
 │   ├── config_manager.go       # 配置管理器（内存缓存 + 变更通知）
@@ -269,5 +315,6 @@ clipboard_ext/
 - **DuckDB**（`github.com/duckdb/duckdb-go/v2`）— 加密列式数据库
 - **Windows DPAPI** — 用户级密钥保护
 - **scrypt + AES-256-GCM** — 恢复密码和加密导出包
+- **SMTP** — 定时邮件备份发送
 - **Win32 API** — 系统托盘、剪贴板监听、全局热键
 - **embed.FS** — 前端静态资源编译时嵌入
