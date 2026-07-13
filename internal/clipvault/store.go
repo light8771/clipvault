@@ -565,6 +565,18 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 		return fmt.Errorf("not a ClipVault export (app=%q)", export.App)
 	}
 
+	// Read the current security settings before opening the transaction. The
+	// store deliberately uses a single DuckDB connection, so querying s.db
+	// while a transaction owns that connection would deadlock.
+	var currentSecurity SecurityConfig
+	if export.Config != nil {
+		curCfg, err := s.GetConfig()
+		if err != nil {
+			return fmt.Errorf("read current security config: %w", err)
+		}
+		currentSecurity = curCfg.Security
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -623,10 +635,7 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 	// Import config (optional, only if present)
 	// 保留当前密码安全配置，不被导入的空值覆盖
 	if export.Config != nil {
-		curCfg, err := s.GetConfig()
-		if err == nil {
-			export.Config.Security = curCfg.Security
-		}
+		export.Config.Security = currentSecurity
 		cfgData, err := json.Marshal(export.Config)
 		if err != nil {
 			return fmt.Errorf("marshal config: %w", err)

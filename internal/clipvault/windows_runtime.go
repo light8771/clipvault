@@ -12,16 +12,18 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"clipboard_ext/internal/licensing"
 )
 
 const (
-	wmDestroy         = 0x0002
-	wmCommand         = 0x0111
-	wmClipboardUpdate = 0x031D
-	wmTrayIcon        = 0x0400 + 1
-	wmRButtonUp       = 0x0205
-	wmLButtonDblClk   = 0x0203
-	wmHotkey          = 0x0312
+	wmDestroy          = 0x0002
+	wmCommand          = 0x0111
+	wmClipboardUpdate  = 0x031D
+	wmTrayIcon         = 0x0400 + 1
+	wmRButtonUp        = 0x0205
+	wmLButtonDblClk    = 0x0203
+	wmHotkey           = 0x0312
 	wmReregisterHotkey = 0x0400 + 2
 
 	idTrayIcon        = 100
@@ -110,12 +112,13 @@ type WindowsRuntime struct {
 	logger    *DailyLogger
 	state     *RuntimeState
 	recorder  *Recorder
+	license   *licensing.Manager
 	SearchURL string
 	hwnd      uintptr
 	hIcon     uintptr
 
-	hotkeyMu          sync.Mutex
-	pendingHotkey     *HotkeyConfig
+	hotkeyMu            sync.Mutex
+	pendingHotkey       *HotkeyConfig
 	pendingHotkeyResult chan error
 }
 
@@ -129,7 +132,7 @@ var activeRuntime *WindowsRuntime
 var (
 	procGetModuleHandleW              = kernel32.NewProc("GetModuleHandleW")
 	procCreateMutexW                  = kernel32.NewProc("CreateMutexW")
-	procGetLastError                  = kernel32.NewProc("GetLastError")
+	procCloseHandle                   = kernel32.NewProc("CloseHandle")
 	procRegisterClassExW              = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW               = user32.NewProc("CreateWindowExW")
 	procDefWindowProcW                = user32.NewProc("DefWindowProcW")
@@ -154,15 +157,22 @@ var (
 	procPostMessageW                  = user32.NewProc("PostMessageW")
 )
 
-func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, searchURL string) *WindowsRuntime {
-	return &WindowsRuntime{
+var singleInstanceMutex uintptr
+
+func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, searchURL string, license *licensing.Manager) *WindowsRuntime {
+	r := &WindowsRuntime{
 		env:       env,
 		cfgMgr:    cfgMgr,
 		logger:    logger,
 		state:     state,
 		recorder:  recorder,
+		license:   license,
 		SearchURL: searchURL,
 	}
+	if license != nil {
+		license.OnChange(func(licensing.Context) { r.updateTrayIcon() })
+	}
+	return r
 }
 
 func (r *WindowsRuntime) Run() error {
@@ -319,7 +329,9 @@ func (r *WindowsRuntime) notifyIconData() notifyIconData {
 		Icon:            r.hIcon,
 	}
 	tip := "ClipVault - 正在记录"
-	if r.state.IsPaused() {
+	if r.license != nil && !r.license.CanUsePaidFeatures() {
+		tip = "ClipVault - 未激活，未记录"
+	} else if r.state.IsPaused() {
 		tip = "ClipVault - 已暂停"
 	}
 	copy(nid.Tip[:], syscall.StringToUTF16(tip))
@@ -488,13 +500,14 @@ func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
 
 func acquireSingleInstance(name string) error {
 	mutexName, _ := syscall.UTF16PtrFromString(`Local\` + name)
-	handle, _, _ := procCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
+	handle, _, callErr := procCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
 	if handle == 0 {
-		return fmt.Errorf("CreateMutexW failed")
+		return fmt.Errorf("CreateMutexW failed: %w", callErr)
 	}
-	last, _, _ := procGetLastError.Call()
-	if last == 183 {
+	if errno, ok := callErr.(syscall.Errno); ok && errno == syscall.Errno(183) {
+		procCloseHandle.Call(handle)
 		return fmt.Errorf("another ClipVault instance is already running")
 	}
+	singleInstanceMutex = handle
 	return nil
 }

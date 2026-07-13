@@ -7,17 +7,18 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **托盘后台运行**：右键菜单支持暂停/恢复、搜索历史/设置、打开数据目录、开机自启动、退出
 - **全局快捷键**：`Ctrl+Alt+P` 暂停/恢复（可在 Web 设置页配置）
 - **星标收藏**：点击卡片上的 ⭐ 按钮收藏条目，支持「收藏」筛选器快速查看
-- **自定义过滤**：通过正则表达式屏蔽不想记录的内容（如密码、Token 等）
+- **敏感内容规则**：通过正则表达式标记敏感内容；记录仍会加密保存，查看时可要求二次验证
 - **文件拖放记录**：复制文件时记录路径清单，按扩展名自动分类（图片/视频/压缩包/Office/其他）
 - **哈希去重**：相同内容连续复制只保存一条
 - **DuckDB 加密存储**：数据库使用 AES-256 加密，密钥由 DPAPI 保护
 - **恢复密码**：可设置恢复密码备份数据库密钥，DPAPI 失效时（换电脑、重装系统）可恢复数据
 - **锁屏密码 & 二次密码**：Web 界面访问密码 + 敏感操作二次验证
 - **加密导出包**：支持 `.cvexport` 加密格式，用密码加密导出数据，安全传输或备份
-- **定时备份**：支持定时备份到指定目录和定时发送备份邮件到指定邮箱，均需二次密码验证，支持 JSON 和加密 .cvexport 格式
+- **定时备份**：目录备份支持 JSON 或加密 `.cvexport`；邮件备份强制使用加密 `.cvexport`，SMTP 强制 TLS
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
 - **便携模式**：exe 同目录放置 `portable.flag` 文件即可切换为便携模式，数据存放在 exe 目录下
-- **日志按日期分文件**：exe 同目录下的 `logs\YYYY-MM-DD.log`
+- **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`；便携模式写入 exe 同目录
+- **永久离线授权**：正式 release 构建支持机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用
 
 ### Web 界面（搜索 + 设置）
 
@@ -50,6 +51,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 基本 | 最大文字长度（0 = 不限）、最大文件路径数（0 = 不限） |
 | 服务 | Web 监听地址 |
 | 安全 | 锁屏密码、二次密码、数据恢复密码（设置/修改/删除）、锁屏会话超时、二次认证缓存时长 |
+| 授权 | 查看授权状态与机器码、复制购买信息、粘贴激活码并即时激活 |
 | 过滤 | 自定义正则过滤规则，支持增删，匹配内容不记录 |
 | 分组 | 创建/编辑/删除分组，支持嵌套，可将记录加入分组 |
 | 导出 | 导出配置（JSON）、导出全部记录（JSON / CSV / 加密 .cvexport）、导入数据（JSON / .cvexport） |
@@ -87,7 +89,7 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 
 ## 构建
 
-> **前提**：需要 MinGW（CGO 依赖，DuckDB 需要 C 编译器）和 Go 1.25+
+> **前提**：需要 MinGW（CGO 依赖，DuckDB 需要 C 编译器）和 Go 1.25+。正式 Garble 发布构建需要 Go 1.26+
 
 ```powershell
 # 设置 CGO 和 MinGW 路径（每次新开终端都需要）
@@ -109,18 +111,42 @@ go build '-ldflags=-H=windowsgui' -o bin\clipvault.exe .\cmd\clipvault
 
 > Windows 资源文件（`.syso`）已预生成在 `cmd/clipvault/` 目录下，包含图标和版本信息。修改图标后需用 `rsrc` 工具重新生成。
 
+### 正式授权构建
+
+开发构建不会因缺少授权而停用录制；只有带 `release` 构建标签的正式包才强制校验授权。生产私钥只用于离线签发激活码，不能放入源码、构建机、安装包或 Git 仓库。
+
+```powershell
+# 在断网或专用签发机上创建加密私钥；口令文件至少 16 字节
+go run ./cmd/license-keygen generate-key `
+  -out D:\offline\clipvault.private-key `
+  -passphrase-file D:\offline\key-passphrase.txt
+
+# 根据用户界面复制出的完整机器码签发永久激活码
+go run ./cmd/license-keygen issue `
+  -key D:\offline\clipvault.private-key `
+  -passphrase-file D:\offline\key-passphrase.txt `
+  -license-id CV-2026-000001 `
+  -machine 用户完整机器码
+
+# 发布机只持有 .pub 公钥；脚本使用 Garble、release 标签并输出 SHA-256
+$env:CLIPVAULT_LICENSE_KEY_ID = "cv-main-2026"
+$env:CLIPVAULT_LICENSE_PUBLIC_KEY = (Get-Content D:\offline\clipvault.private-key.pub -Raw).Trim()
+$env:CLIPVAULT_GARBLE_SEED = "请使用长期保存的随机 Garble seed"
+.\scripts\build-release.ps1
+```
+
+发布前还需要使用可信代码签名证书对 `dist\clipvault.exe` 做 Authenticode 签名，并在干净的 Windows 虚拟机验证安装、激活、升级和卸载流程。代码混淆只能增加分析成本，不能替代签名、私钥隔离和授权校验。
+
 ## 使用
 
 ```powershell
 .\bin\clipvault.exe                     # 托盘后台运行
 .\bin\clipvault.exe run                 # 同上
 .\bin\clipvault.exe search 关键字       # 命令行搜索历史
-.\bin\clipvault.exe autostart on        # 开启开机启动
-.\bin\clipvault.exe autostart off       # 关闭开机启动
-.\bin\clipvault.exe autostart status    # 查看开机启动状态
-.\bin\clipvault.exe config              # 打印配置文件路径
 .\bin\clipvault.exe data                # 打印数据目录路径
 ```
+
+开机启动通过托盘菜单或 Web 设置页管理。
 
 ### 便携模式
 
@@ -135,11 +161,10 @@ New-Item -ItemType File "portable.flag"
 
 ### 数据目录优先级
 
-1. `--data-dir` 命令行参数
-2. `CLIPVAULT_DATA_DIR` 环境变量
-3. `portable.flag` 文件存在 → `exe目录\data\`
-4. `%LOCALAPPDATA%\ClipVault\`（默认）
-5. `%APPDATA%\ClipVault\`（降级）
+1. `CLIPVAULT_DATA_DIR` 环境变量
+2. `portable.flag` 文件存在 → `exe目录\data\`
+3. `%LOCALAPPDATA%\ClipVault\`（默认）
+4. `%APPDATA%\ClipVault\`（降级）
 
 ## Web API
 
@@ -148,6 +173,10 @@ New-Item -ItemType File "portable.flag"
 | `GET /` | GET | — | 搜索与设置页面 |
 | `POST /api/auth/login` | POST | — | 锁屏密码登录 |
 | `POST /api/auth/secondary` | POST | — | 二次密码验证 |
+| `GET /api/csrf` | GET | — | 获取本机页面的 CSRF token |
+| `GET /api/license/status` | GET | 同源 | 查询授权状态 |
+| `GET /api/license/machine` | GET | 同源 | 获取当前完整机器码 |
+| `POST /api/license/activate` | POST | 同源 + CSRF | 离线激活 |
 | `GET /api/search` | GET | 锁屏 | 搜索历史 |
 | `GET /api/state` | GET | 锁屏 | 返回运行状态 |
 | `POST /api/pause` | POST | 锁屏 | 暂停/恢复 |
@@ -157,7 +186,8 @@ New-Item -ItemType File "portable.flag"
 | `GET /api/config` | GET | 锁屏 | 获取配置 |
 | `PUT /api/config` | PUT | 二次 | 保存配置 |
 | `GET /api/export/config` | GET | 二次 | 导出配置（JSON） |
-| `GET /api/export/data?format=json` | GET | 二次 | 导出记录（json/csv/cvexport） |
+| `GET /api/export/data?format=json` | GET | 二次 | 导出记录（json/csv） |
+| `POST /api/export/data?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
 | `POST /api/import/data` | POST | 二次 | 导入数据（JSON 或 .cvexport） |
 | `GET /api/recovery/status` | GET | 二次 | 查询恢复密码状态 |
 | `POST /api/recovery/set` | POST | 二次 | 设置恢复密码 |
@@ -184,15 +214,7 @@ New-Item -ItemType File "portable.flag"
 | `date_from` | 起始日期（`YYYY-MM-DD`，含） |
 | `date_to` | 结束日期（`YYYY-MM-DD`，含） |
 
-**加密导出示例：**
-
-```powershell
-# 加密导出（需要密码）
-curl "http://127.0.0.1:18765/api/export/data?format=cvexport&password=mypassword" -o clipvault-data.cvexport
-
-# 导入加密文件（需要密码）
-curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data-binary @clipvault-data.cvexport
-```
+加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。
 
 ## 配置说明
 
@@ -222,7 +244,7 @@ curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data
       "enabled": false,
       "interval": 24,
       "dir": "",
-      "format": "json",
+      "format": "cvexport",
       "password": ""
     },
     "emailBackup": {
@@ -234,7 +256,7 @@ curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data
       "smtpPass": "",
       "from": "",
       "to": "",
-      "format": "json",
+      "format": "cvexport",
       "password": ""
     }
   }
@@ -245,7 +267,7 @@ curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data
 |------|------|
 | `maxTextChars` | 超过此字符数的文本直接跳过；`0` 表示不限制 |
 | `maxFileDropPaths` | 文件拖放时最多记录的路径数；`0` 表示不限制 |
-| `search.listenAddr` | Web 服务监听地址；端口被占时自动尝试下 5 个端口 |
+| `search.listenAddr` | Web 服务监听地址；默认仅 localhost/回环地址。开放局域网监听必须先设置锁屏与二次密码，并经风险确认和一次新的二次验证；端口被占时自动尝试下 5 个端口 |
 | `sensitive.customPatterns` | 自定义正则列表；匹配则不保存 |
 | `autostart.enabled` | 是否开机自启动 |
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |
@@ -263,7 +285,7 @@ curl -X POST "http://127.0.0.1:18765/api/import/data?password=mypassword" --data
 | `backup.emailBackup.smtpPass` | SMTP 密码或授权码 |
 | `backup.emailBackup.from` | 发件人邮箱 |
 | `backup.emailBackup.to` | 收件人邮箱 |
-| `backup.emailBackup.format` | 邮件备份格式：`json` 或 `cvexport` |
+| `backup.emailBackup.format` | 固定为加密 `cvexport`；旧配置会自动归一化 |
 | `backup.emailBackup.password` | cvexport 格式的加密密码 |
 
 ## 项目结构
@@ -278,6 +300,7 @@ clipboard_ext/
 │   ├── rsrc.rc                 # Windows 资源脚本（图标 + 版本信息）
 │   ├── rsrc_windows_amd64.syso # 编译时链入的资源文件
 │   └── rsrc_windows_386.syso   # 同上（32 位）
+├── cmd/license-keygen/         # 离线密钥生成与永久激活码签发工具
 ├── internal/clipvault/         # 核心逻辑
 │   ├── app_windows.go          # Windows 启动流程 + 恢复入口
 │   ├── auth.go                 # 锁屏密码 & 二次密码认证管理
@@ -305,6 +328,8 @@ clipboard_ext/
 │       ├── index.html
 │       ├── style.css
 │       └── script.js
+├── internal/licensing/         # 机器码、Ed25519 验签、DPAPI 授权凭据
+├── scripts/build-release.ps1   # Garble 正式发布构建与校验和
 ├── go.mod
 └── go.sum
 ```
@@ -315,6 +340,7 @@ clipboard_ext/
 - **DuckDB**（`github.com/duckdb/duckdb-go/v2`）— 加密列式数据库
 - **Windows DPAPI** — 用户级密钥保护
 - **scrypt + AES-256-GCM** — 恢复密码和加密导出包
+- **Ed25519 + DPAPI** — 永久离线激活码验签与当前用户授权凭据保护
 - **SMTP** — 定时邮件备份发送
 - **Win32 API** — 系统托盘、剪贴板监听、全局热键
 - **embed.FS** — 前端静态资源编译时嵌入

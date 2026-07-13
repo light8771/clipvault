@@ -49,6 +49,11 @@
     </div>
   </nav>
 
+  <div class="license-banner hidden" id="licenseBanner" role="status">
+    <span>尚未激活：当前不会新增剪贴板记录，已有数据仍可查看和导出。</span>
+    <button type="button" onclick="openLicenseSettings()">立即激活</button>
+  </div>
+
   <!-- ── 历史视图 ── -->
   <main id="viewHistory">
     <div class="search-wrap">
@@ -175,6 +180,10 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
             <span>基本</span>
           </button>
+          <button class="snav-item" id="snav-license" onclick="snavTo('s-license','snav-license')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
+            <span>授权</span>
+          </button>
           <button class="snav-item" id="snav-filter" onclick="snavTo('s-filter','snav-filter')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span>过滤</span>
@@ -258,6 +267,56 @@
 
         <div class="ssec-sep"></div>
 
+        <!-- 授权 -->
+        <section class="ssec" id="s-license">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">软件授权</h2>
+              <p class="ssec-desc">一次购买，当前设备永久使用；激活过程无需联网</p>
+            </div>
+          </div>
+          <div class="ssec-fields">
+            <div class="field-row">
+              <div class="field-info">
+                <span class="field-label">当前状态</span>
+                <p class="field-hint" id="licenseStatusHint">正在读取授权状态…</p>
+              </div>
+              <span class="license-status" id="licenseStatusBadge">检查中</span>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="licenseMachineCode">机器码</label>
+                <p class="field-hint">发送购买信息给卖家以获取只适用于此设备的激活码</p>
+              </div>
+              <div class="license-copy-row">
+                <input id="licenseMachineCode" class="field-input license-machine" type="text" readonly value="读取中…">
+                <button class="btn-export" type="button" onclick="copyPurchaseInfo()">复制购买信息</button>
+              </div>
+            </div>
+            <div class="license-activate-block" id="licenseActivateBlock">
+              <label class="field-label" for="licenseTokenInput">激活码</label>
+              <p class="field-hint">完整粘贴卖家提供的激活码。激活码不会上传到网络。</p>
+              <textarea id="licenseTokenInput" class="field-input license-token-input" rows="4" autocomplete="off" spellcheck="false" placeholder="CV1.…"></textarea>
+              <div class="license-actions">
+                <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" onclick="activateLicense()">立即激活</button>
+                <span class="license-message" id="licenseMessage" role="alert" aria-live="polite"></span>
+              </div>
+            </div>
+            <div class="field-row hidden" id="licenseDetailsRow">
+              <div class="field-info">
+                <span class="field-label">授权编号</span>
+                <p class="field-hint">当前设备永久买断授权</p>
+              </div>
+              <code id="licenseIdText"></code>
+            </div>
+          </div>
+        </section>
+
+        <div class="ssec-sep"></div>
+
         <!-- 敏感内容过滤 -->
         <section class="ssec" id="s-filter">
           <div class="ssec-head">
@@ -312,6 +371,10 @@
               </div>
               <input type="text" id="cfg-listenAddr" class="field-input" style="width:180px" placeholder="127.0.0.1:18765">
             </div>
+            <div class="listen-security-warning hidden" id="listenAddrWarning" role="alert">
+              <strong>局域网访问风险</strong>
+              <span>非回环地址会把剪贴板服务暴露给同一网络。保存前必须设置锁屏密码和二次密码，并重新输入二次密码确认。建议仅在可信网络中使用，并检查 Windows 防火墙规则。</span>
+            </div>
           </div>
         </section>
 
@@ -337,6 +400,7 @@
                 <span class="pwd-status" id="lockPwdStatus">未设置</span>
                 <button class="btn-pwd-set" id="lockPwdSetBtn" onclick="showPwdDialog('lock','set')">设置</button>
                 <button class="btn-pwd-change hidden" id="lockPwdChangeBtn" onclick="showPwdDialog('lock','change')">修改</button>
+                <button class="btn-pwd-remove hidden" id="lockPwdRemoveBtn" onclick="showPwdDialog('lock','remove')">删除</button>
               </div>
             </div>
             <!-- 二次密码 -->
@@ -349,6 +413,7 @@
                 <span class="pwd-status" id="secondaryPwdStatus">未设置</span>
                 <button class="btn-pwd-set" id="secondaryPwdSetBtn" onclick="showPwdDialog('secondary','set')">设置</button>
                 <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" onclick="showPwdDialog('secondary','change')">修改</button>
+                <button class="btn-pwd-remove hidden" id="secondaryPwdRemoveBtn" onclick="showPwdDialog('secondary','remove')">删除</button>
               </div>
             </div>
             <!-- 数据恢复密码 -->
@@ -520,9 +585,9 @@
               <label class="field-label" for="cfg-dirBackupFormat">备份格式</label>
               <p class="field-hint">JSON 明文或加密 .cvexport 格式</p>
             </div>
-            <select id="cfg-dirBackupFormat" class="field-input" style="width:120px">
-              <option value="json">JSON</option>
-              <option value="cvexport">加密</option>
+            <select id="cfg-dirBackupFormat" class="field-input" style="width:150px">
+              <option value="cvexport">加密（推荐）</option>
+              <option value="json">JSON（明文）</option>
             </select>
           </div>
           <div class="field-row" id="cfg-dirBackupPwdRow" style="display:none">
@@ -616,11 +681,10 @@
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupFormat">备份格式</label>
-              <p class="field-hint">JSON 明文或加密 .cvexport 格式</p>
+              <p class="field-hint">邮件备份必须使用加密 .cvexport 格式</p>
             </div>
-            <select id="cfg-emailBackupFormat" class="field-input" style="width:120px">
-              <option value="json">JSON</option>
-              <option value="cvexport">加密</option>
+            <select id="cfg-emailBackupFormat" class="field-input" style="width:150px">
+              <option value="cvexport">加密（必选）</option>
             </select>
           </div>
           <div class="field-row" id="cfg-emailBackupPwdRow" style="display:none">

@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"clipboard_ext/internal/licensing"
 )
 
 func Run(env Environment) error {
@@ -18,7 +21,7 @@ func Run(env Environment) error {
 	}
 	defer logger.Close()
 
-	if err := acquireSingleInstance("ClipVaultClipboardRecorder"); err != nil {
+	if err := acquireSingleInstance(singleInstanceName()); err != nil {
 		logger.Warn("single_instance_blocked", map[string]any{"error": err.Error()})
 		return err
 	}
@@ -38,8 +41,9 @@ func Run(env Environment) error {
 			logger.Error("recovery_server_start_failed", recErr, nil)
 			return &RecoveryError{Err: err, DataDir: env.DataDir}
 		}
-		logger.Info("recovery_server_started", map[string]any{"url": recURL})
-		fmt.Printf("Recovery page: %s\n", recURL)
+		safeRecoveryURL := strings.SplitN(recURL, "#", 2)[0]
+		logger.Info("recovery_server_started", map[string]any{"url": safeRecoveryURL})
+		fmt.Printf("Recovery page: %s\n", safeRecoveryURL)
 		openBrowser(recURL)
 
 		// Wait for recovery to complete
@@ -72,6 +76,15 @@ func Run(env Environment) error {
 	}
 
 	cfg := cfgMgr.Get()
+	receiptPath := filepath.Join(env.DataDir, "license", "clipvault.lic")
+	licenseMgr := licensing.NewManager(receiptPath, licensing.BuiltinTrustedKeys())
+	licenseCtx := licenseMgr.Load()
+	logger.Info("license_loaded", map[string]any{
+		"status":      licenseCtx.Status,
+		"enforced":    licenseCtx.Enforced,
+		"licenseId":   licenseCtx.LicenseID,
+		"machineCode": licenseCtx.MachineCode,
+	})
 
 	// 同步 autostart 注册表项
 	if err := SetAutostart(cfg.Autostart.AppName, cfg.Autostart.Enabled); err != nil {
@@ -86,10 +99,10 @@ func Run(env Environment) error {
 	})
 
 	state := NewRuntimeState(false)
-	recorder := NewRecorder(cfgMgr, store, state, logger)
-	backup := NewBackupService(cfgMgr, store, logger)
+	recorder := NewRecorder(cfgMgr, store, state, logger, licenseMgr)
+	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
 	backup.Start()
-	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup)
+	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 	searchURL, err := searchServer.Start()
 	if err != nil {
 		logger.Warn("search_server_start_failed", map[string]any{"error": err.Error()})
@@ -98,7 +111,7 @@ func Run(env Environment) error {
 		fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
 	}
 
-	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, searchURL)
+	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, searchURL, licenseMgr)
 
 	// 配置变更时重新注册全局快捷键
 	cfgMgr.OnChange(func(newCfg Config) error {
@@ -137,7 +150,7 @@ func Run(env Environment) error {
 			_ = searchServer.Close(ctx)
 			cancel()
 			// 创建新的 search server
-			searchServer = NewSearchServer(cfgMgr, store, state, logger, env, backup)
+			searchServer = NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 			searchURL, err = searchServer.Start()
 			if err != nil {
 				logger.Error("restart_search_failed", err, nil)

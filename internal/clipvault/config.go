@@ -7,12 +7,14 @@ import (
 
 const appDirName = "ClipVault"
 
+const AppVersion = "0.1.0"
+
 // Environment 持有运行时路径信息（数据目录、日志目录）。
 // 配置不再存储为 JSON 文件，而是持久化在数据库的 settings 表中。
 type Environment struct {
-	DataDir   string
-	LogDir    string
-	Portable  bool
+	DataDir  string
+	LogDir   string
+	Portable bool
 }
 
 // NewEnvironment resolves the runtime environment with DataDir priority:
@@ -31,12 +33,13 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 		return Environment{}, err
 	}
 	exeDir := filepath.Dir(exePath)
+	logDir := defaultLogDirectory(exeDir)
 
 	// 1. --data-dir override
 	if dataDirOverride != "" {
 		return Environment{
 			DataDir: dataDirOverride,
-			LogDir:  filepath.Join(exeDir, "logs"),
+			LogDir:  logDir,
 		}, nil
 	}
 
@@ -44,7 +47,7 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 	if envDir := os.Getenv("CLIPVAULT_DATA_DIR"); envDir != "" {
 		return Environment{
 			DataDir: envDir,
-			LogDir:  filepath.Join(exeDir, "logs"),
+			LogDir:  logDir,
 		}, nil
 	}
 
@@ -63,7 +66,7 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 	if local != "" {
 		return Environment{
 			DataDir: filepath.Join(local, appDirName),
-			LogDir:  filepath.Join(exeDir, "logs"),
+			LogDir:  logDir,
 		}, nil
 	}
 
@@ -78,8 +81,28 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 	}
 	return Environment{
 		DataDir: filepath.Join(roaming, appDirName),
-		LogDir:  filepath.Join(exeDir, "logs"),
+		LogDir:  logDir,
 	}, nil
+}
+
+func defaultLogDirectory(exeDir string) string {
+	if local := os.Getenv("LOCALAPPDATA"); local != "" {
+		return filepath.Join(local, appDirName, "logs")
+	}
+	if roaming := os.Getenv("APPDATA"); roaming != "" {
+		return filepath.Join(roaming, appDirName, "logs")
+	}
+	return filepath.Join(exeDir, "logs")
+}
+
+// StartupErrorLogFile returns a writable per-user location for errors that
+// occur before the normal daily logger can be initialized.
+func StartupErrorLogFile() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "startup-error.log"
+	}
+	return filepath.Join(defaultLogDirectory(filepath.Dir(exe)), "startup-error.log")
 }
 
 // Config 是应用的完整配置结构，通过 Web 界面修改，存储在数据库中。
@@ -147,15 +170,15 @@ type DirBackupConfig struct {
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。
 type EmailBackupConfig struct {
 	Enabled  bool   `json:"enabled"`
-	Interval int    `json:"interval"`  // 备份间隔(小时)
-	SMTPHost string `json:"smtpHost"`  // SMTP 服务器地址
-	SMTPPort int    `json:"smtpPort"`  // SMTP 端口
-	SMTPUser string `json:"smtpUser"`  // SMTP 用户名
-	SMTPPass string `json:"smtpPass"`  // SMTP 密码（敏感，不向前端返回明文）
-	From     string `json:"from"`      // 发件人邮箱
-	To       string `json:"to"`        // 收件人邮箱
-	Format   string `json:"format"`    // "json" 或 "cvexport"
-	Password string `json:"password"`  // cvexport 加密密码（仅 cvexport 格式使用）
+	Interval int    `json:"interval"` // 备份间隔(小时)
+	SMTPHost string `json:"smtpHost"` // SMTP 服务器地址
+	SMTPPort int    `json:"smtpPort"` // SMTP 端口
+	SMTPUser string `json:"smtpUser"` // SMTP 用户名
+	SMTPPass string `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
+	From     string `json:"from"`     // 发件人邮箱
+	To       string `json:"to"`       // 收件人邮箱
+	Format   string `json:"format"`   // "json" 或 "cvexport"
+	Password string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
 }
 
 func DefaultConfig() Config {
@@ -186,8 +209,15 @@ func DefaultConfig() Config {
 			Key:       0x50,            // VK_P
 		},
 		Backup: BackupConfig{
-			DirBackup:   DirBackupConfig{},
-			EmailBackup: EmailBackupConfig{},
+			DirBackup: DirBackupConfig{
+				Interval: 24,
+				Format:   "cvexport",
+			},
+			EmailBackup: EmailBackupConfig{
+				Interval: 24,
+				SMTPPort: 587,
+				Format:   "cvexport",
+			},
 		},
 	}
 }
@@ -230,10 +260,11 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Hotkey.Enabled && (cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0) {
 		cfg.Hotkey = def.Hotkey
 	}
-	if cfg.Backup.DirBackup.Format != "cvexport" {
+	if cfg.Backup.DirBackup.Format == "" {
+		cfg.Backup.DirBackup.Format = def.Backup.DirBackup.Format
+	} else if cfg.Backup.DirBackup.Format != "cvexport" {
 		cfg.Backup.DirBackup.Format = "json"
 	}
-	if cfg.Backup.EmailBackup.Format != "cvexport" {
-		cfg.Backup.EmailBackup.Format = "json"
-	}
+	// 邮件会离开本机，始终要求使用加密导出格式，不允许明文 JSON。
+	cfg.Backup.EmailBackup.Format = "cvexport"
 }

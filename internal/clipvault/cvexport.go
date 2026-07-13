@@ -55,7 +55,7 @@ func EncryptExport(data []byte, password string) ([]byte, error) {
 	// Build the envelope
 	var buf bytes.Buffer
 	buf.WriteString(cvexportMagic)
-	buf.WriteByte(1) // version
+	buf.WriteByte(1)           // version
 	buf.Write([]byte{0, 0, 0}) // reserved
 	buf.Write(salt)
 	buf.Write(nonce)

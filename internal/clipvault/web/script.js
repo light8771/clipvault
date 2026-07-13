@@ -1,4 +1,40 @@
 (function(){
+	const nativeFetch = window.fetch.bind(window);
+	let csrfTokenPromise = null;
+
+	async function getCSRFToken(forceRefresh) {
+		if (forceRefresh) csrfTokenPromise = null;
+		if (!csrfTokenPromise) {
+			csrfTokenPromise = nativeFetch('/api/csrf', { cache: 'no-store' })
+				.then(r => {
+					if (!r.ok) throw new Error('csrf bootstrap failed');
+					return r.json();
+				})
+				.then(d => d.token || '');
+		}
+		return csrfTokenPromise;
+	}
+
+	window.fetch = async function(input, init) {
+		const opts = Object.assign({}, init || {});
+		const method = String(opts.method || 'GET').toUpperCase();
+		const target = typeof input === 'string' ? input : (input && input.url) || '';
+		const isLocal = target.startsWith('/') || target.startsWith(window.location.origin);
+		if (isLocal && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+			const headers = new Headers(opts.headers || (typeof input !== 'string' && input ? input.headers : undefined));
+			headers.set('X-ClipVault-CSRF', await getCSRFToken(false));
+			opts.headers = headers;
+		}
+		let response = await nativeFetch(input, opts);
+		if (isLocal && response.status === 403 && response.headers.get('X-ClipVault-CSRF-Invalid') === '1') {
+			const headers = new Headers(opts.headers || {});
+			headers.set('X-ClipVault-CSRF', await getCSRFToken(true));
+			opts.headers = headers;
+			response = await nativeFetch(input, opts);
+		}
+		return response;
+	};
+
   const Q    = document.getElementById('q'),
         PAGESIZE = document.getElementById('pagesize'),
         LIST = document.getElementById('list'),
@@ -17,6 +53,8 @@
   let locateActive = false; // 定位进行中，阻止 resetSearch 干扰
   let filterDateFrom = '', filterDateTo = '';
   let currentGroupID = 0; // 0 = no group filter
+	let licenseState = { licensed: true, enforced: false, status: 'loading', machineCode: '', version: '' };
+	let fullMachineId = '';
   const items = new Map();
   const filePaths = new Map();
   const NON_TEXT_KINDS = ['image','video','archive','office','files'];
@@ -98,11 +136,41 @@
   // ── Secondary auth ───────────────────────────────────────
   let pendingSecondaryToken = null; // 一次性 token，timeout=0 模式下用
 
-  function requestSecondaryAuth() {
+  function withSecondaryToken(init) {
+    const opts = Object.assign({}, init || {});
+    const headers = new Headers(opts.headers || {});
+    if (pendingSecondaryToken) {
+      headers.set('X-ClipVault-Secondary-Token', pendingSecondaryToken);
+      pendingSecondaryToken = null;
+    }
+    opts.headers = headers;
+    return opts;
+  }
+
+  function secondaryFetch(url, init) {
+    return fetch(url, withSecondaryToken(init));
+  }
+
+  function freshSecondaryFetch(url, init) {
+    const opts = Object.assign({}, init || {});
+    const headers = new Headers(opts.headers || {});
+    if (pendingSecondaryToken) {
+      headers.set('X-ClipVault-Fresh-Secondary', pendingSecondaryToken);
+      pendingSecondaryToken = null;
+    }
+    opts.headers = headers;
+    return fetch(url, opts);
+  }
+
+  function requestSecondaryAuth(forceFresh = false) {
     return new Promise(async (resolve) => {
       if (!authState.hasSecondaryPassword) { resolve(true); return; }
+      // 已经完成验证且一次性 token 尚未使用时，直接复用到紧随其后的
+      // 受保护请求。典型场景是进入设置页后加载恢复密码状态，避免连弹两次。
+      if (!forceFresh && pendingSecondaryToken) { resolve(true); return; }
       // 后端校验：查询当前会话的二次认证状态
       try {
+        if (forceFresh) throw new Error('fresh verification requested');
         const st = await fetch('/api/auth/status').then(r => r.json());
         authState.secondaryAuthed = st.secondaryAuthed;
         if (st.secondaryAuthed) { resolve(true); return; }
@@ -157,27 +225,38 @@
 
   // ── Password set/change dialog ───────────────────────────
   window.showPwdDialog = function(type, action) {
+	const trigger = document.activeElement;
     const isChange = action === 'change';
-    const title = (type === 'lock' ? '锁屏密码' : '二次密码') + (isChange ? '修改' : '设置');
-    const oldLabel = isChange ? '当前密码' : null;
+    const isRemove = action === 'remove';
+    const passwordName = type === 'lock' ? '锁屏密码' : '二次密码';
+    const title = passwordName + (isRemove ? '删除' : (isChange ? '修改' : '设置'));
+    const oldLabel = (isChange || isRemove) ? '当前密码' : null;
+    const removeWarning = type === 'lock'
+      ? '删除后，任何能打开此服务的人都可以直接进入 ClipVault。'
+      : '删除后，敏感数据、导出、备份和安全设置将不再受二次密码保护。';
     const html = `
       <div class="modal-overlay" id="pwdDialogOverlay">
-        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="pwdDialogTitle" onclick="event.stopPropagation()">
           <div class="modal-head">
-            <span class="modal-title">${title}</span>
-            <button class="modal-close" onclick="closePwdDialog()">
+            <span class="modal-title" id="pwdDialogTitle">${title}</span>
+            <button class="modal-close" type="button" aria-label="关闭密码设置" onclick="closePwdDialog()">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
             <form id="pwdDialogForm" class="lock-form">
               <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
-              ${oldLabel ? `<input type="password" id="pwdDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
-              <input type="password" id="pwdDlgNew" class="lock-input" placeholder="新密码" autocomplete="new-password">
-              <input type="password" id="pwdDlgConfirm" class="lock-input" placeholder="确认新密码" autocomplete="new-password">
-              <button type="submit" class="lock-btn">确定</button>
+              ${oldLabel ? `<label class="field-label" for="pwdDlgOld">${oldLabel}</label><input type="password" id="pwdDlgOld" class="lock-input" autocomplete="current-password">` : ''}
+              ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
+              <label class="field-label" for="pwdDlgNew">新密码</label>
+              <input type="password" id="pwdDlgNew" class="lock-input" autocomplete="new-password" aria-describedby="pwdDlgHint">
+              <p class="field-hint" id="pwdDlgHint">至少 8 位，包含大小写字母、数字或特殊字符中的至少两种</p>
+              <label class="field-label" for="pwdDlgConfirm">确认新密码</label>
+              <input type="password" id="pwdDlgConfirm" class="lock-input" autocomplete="new-password">`}
+              <label class="password-show"><input type="checkbox" id="pwdDlgShow"> 显示密码</label>
+              <button type="submit" class="lock-btn${isRemove ? ' danger' : ''}">${isRemove ? '确认删除' : (isChange ? '修改' : '设置')}${passwordName}</button>
             </form>
-            <p class="lock-err hidden" id="pwdDlgErr"></p>
+            <p class="lock-err hidden" id="pwdDlgErr" role="alert" aria-live="assertive"></p>
           </div>
         </div>
       </div>
@@ -191,11 +270,28 @@
     const oldInput = document.getElementById('pwdDlgOld');
     const newInput = document.getElementById('pwdDlgNew');
     const confirmInput = document.getElementById('pwdDlgConfirm');
+	const showInput = document.getElementById('pwdDlgShow');
     setTimeout(() => (oldInput || newInput).focus(), 50);
 
     window.closePwdDialog = function() {
       overlay.remove();
+	  if (trigger && trigger.focus) trigger.focus();
     };
+
+	showInput.addEventListener('change', () => {
+	  const visible = showInput.checked;
+	  [oldInput, newInput, confirmInput].filter(Boolean).forEach(input => { input.type = visible ? 'text' : 'password'; });
+	});
+
+	overlay.addEventListener('keydown', (e) => {
+	  if (e.key === 'Escape') { e.preventDefault(); closePwdDialog(); return; }
+	  if (e.key !== 'Tab') return;
+	  const focusable = Array.from(overlay.querySelectorAll('button:not([disabled]), input:not([disabled])')).filter(el => el.offsetParent !== null);
+	  if (!focusable.length) return;
+	  const first = focusable[0], last = focusable[focusable.length - 1];
+	  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+	  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+	});
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) closePwdDialog();
@@ -204,13 +300,13 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const oldPwd = oldInput ? oldInput.value : '';
-      const newPwd = newInput.value;
-      const confirmPwd = confirmInput.value;
+      const newPwd = newInput ? newInput.value : '';
+      const confirmPwd = confirmInput ? confirmInput.value : '';
       errEl.classList.add('hidden');
 
-      if (!newPwd) { errEl.textContent = '新密码不能为空'; errEl.classList.remove('hidden'); return; }
-      if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
-      if (isChange && !oldPwd) { errEl.textContent = '请输入当前密码'; errEl.classList.remove('hidden'); return; }
+      if (!isRemove && !newPwd) { errEl.textContent = '新密码不能为空'; errEl.classList.remove('hidden'); return; }
+      if (!isRemove && newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
+      if ((isChange || isRemove) && !oldPwd) { errEl.textContent = '请输入当前密码'; errEl.classList.remove('hidden'); return; }
 
       try {
         const res = await fetch('/api/auth/password', {
@@ -221,7 +317,7 @@
         const d = await res.json();
         if (d.ok) {
           closePwdDialog();
-          toast((type === 'lock' ? '锁屏密码' : '二次密码') + '已' + (isChange ? '修改' : '设置'));
+          toast(passwordName + '已' + (isRemove ? '删除' : (isChange ? '修改' : '设置')));
           await checkAuthStatus();
           updatePwdStatusUI();
         } else {
@@ -242,15 +338,19 @@
     const lockStatus = document.getElementById('lockPwdStatus');
     const lockSetBtn = document.getElementById('lockPwdSetBtn');
     const lockChangeBtn = document.getElementById('lockPwdChangeBtn');
+    const lockRemoveBtn = document.getElementById('lockPwdRemoveBtn');
     const secStatus = document.getElementById('secondaryPwdStatus');
     const secSetBtn = document.getElementById('secondaryPwdSetBtn');
     const secChangeBtn = document.getElementById('secondaryPwdChangeBtn');
+    const secRemoveBtn = document.getElementById('secondaryPwdRemoveBtn');
     if (lockStatus) lockStatus.textContent = lockSet ? '已设置' : '未设置';
     if (lockSetBtn) lockSetBtn.classList.toggle('hidden', lockSet);
     if (lockChangeBtn) lockChangeBtn.classList.toggle('hidden', !lockSet);
+    if (lockRemoveBtn) lockRemoveBtn.classList.toggle('hidden', !lockSet);
     if (secStatus) secStatus.textContent = secSet ? '已设置' : '未设置';
     if (secSetBtn) secSetBtn.classList.toggle('hidden', secSet);
     if (secChangeBtn) secChangeBtn.classList.toggle('hidden', !secSet);
+    if (secRemoveBtn) secRemoveBtn.classList.toggle('hidden', !secSet);
     updateRecoveryPwdUI();
   }
 
@@ -261,12 +361,7 @@
     try {
       const ok = await requestSecondaryAuth();
       if (!ok) return;
-      let url = '/api/recovery/status';
-      if (pendingSecondaryToken) {
-        url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-        pendingSecondaryToken = null;
-      }
-      const res = await fetch(url);
+      const res = await secondaryFetch('/api/recovery/status');
       if (res.status === 403) return; // 二次验证失败，静默跳过
       if (!res.ok) return;
       const d = await res.json();
@@ -347,12 +442,7 @@
           : { password: newPwd };
 
         const doFetch = async () => {
-          let url = baseUrl;
-          if (pendingSecondaryToken) {
-            url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-            pendingSecondaryToken = null;
-          }
-          return await fetch(url, {
+          return await secondaryFetch(baseUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -417,12 +507,7 @@
       const ok = await requestSecondaryAuth();
       if (!ok) { toast('需要二次验证才能删除恢复密码', 'err'); return; }
       const doFetch = async () => {
-        let url = '/api/recovery/remove';
-        if (pendingSecondaryToken) {
-          url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-          pendingSecondaryToken = null;
-        }
-        return await fetch(url, { method: 'POST' });
+        return await secondaryFetch('/api/recovery/remove', { method: 'POST' });
       };
       let res = await doFetch();
       if (res.status === 403) {
@@ -445,13 +530,25 @@
   window.doRecoveryRemove = doRecoveryRemove;
 
   // ── View switch ───────────────────────────────────────────
-  window.switchView = function(view) {
+  window.switchView = async function(view) {
     const isHistory = view === 'history';
+    if (!isHistory) {
+      const ok = await requestSecondaryAuth();
+      if (!ok) {
+        document.getElementById('viewHistory').classList.remove('hidden');
+        document.getElementById('viewSettings').classList.add('hidden');
+        document.getElementById('tabHistory').classList.add('active');
+        document.getElementById('tabSettings').classList.remove('active');
+        toast('已取消进入设置，需要二次密码验证', 'err');
+        return false;
+      }
+    }
     document.getElementById('viewHistory').classList.toggle('hidden', !isHistory);
     document.getElementById('viewSettings').classList.toggle('hidden', isHistory);
     document.getElementById('tabHistory').classList.toggle('active', isHistory);
     document.getElementById('tabSettings').classList.toggle('active', !isHistory);
-    if (!isHistory) { loadSettings(); }
+    if (!isHistory) { await loadSettings(); }
+    return true;
   };
 
   // ── Filter chips ──────────────────────────────────────────
@@ -484,13 +581,124 @@
     const el = document.createElement('div');
     el.className = 'tk ' + type;
     el.textContent = msg;
+	el.setAttribute('role', type === 'err' ? 'alert' : 'status');
+	el.setAttribute('aria-live', type === 'err' ? 'assertive' : 'polite');
     TC.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
-    const duration = type === 'err' ? 5000 : 2200;
+    const duration = type === 'err' ? 7000 : 3500;
     setTimeout(() => {
       el.classList.remove('show');
       setTimeout(() => el.remove(), 260);
     }, duration);
+  }
+
+  async function loadLicenseStatus() {
+    try {
+      const d = await fetch('/api/license/status').then(r => r.json());
+      licenseState = d;
+      const banner = document.getElementById('licenseBanner');
+      const badge = document.getElementById('licenseStatusBadge');
+      const hint = document.getElementById('licenseStatusHint');
+      const code = document.getElementById('licenseMachineCode');
+      const activateBlock = document.getElementById('licenseActivateBlock');
+      const details = document.getElementById('licenseDetailsRow');
+      badge.classList.toggle('warn', d.enforced && !d.licensed);
+      if (!d.enforced) {
+        badge.textContent = '开发构建';
+        hint.textContent = '当前构建未强制授权，正式 release 构建会启用授权检查';
+      } else if (d.licensed) {
+        badge.textContent = '已激活';
+        hint.textContent = '当前设备永久有效';
+      } else {
+        badge.textContent = '未激活';
+        hint.textContent = licenseStatusText(d.status);
+      }
+      banner.classList.toggle('hidden', !d.enforced || d.licensed);
+      activateBlock.classList.toggle('hidden', d.licensed);
+      details.classList.toggle('hidden', !d.licensed);
+      if (d.licenseId) document.getElementById('licenseIdText').textContent = d.licenseId;
+      if (d.machineCode) code.value = d.machineCode;
+      await loadMachineID();
+      await refreshState();
+    } catch (_) {
+      document.getElementById('licenseStatusBadge').textContent = '读取失败';
+      document.getElementById('licenseStatusHint').textContent = '无法读取本机授权状态，请查看本地日志';
+    }
+  }
+
+  function licenseStatusText(status) {
+    if (status === 'machine_mismatch') return '授权与当前设备不匹配，请申请重新签发';
+    if (status === 'corrupt') return '本地授权信息损坏，请重新输入激活码';
+    if (status === 'machine_error') return '无法读取设备信息，请复制诊断信息联系支持';
+    if (status === 'unconfigured') return '正式授权公钥尚未配置';
+    return '输入对应当前设备的激活码后即可永久使用';
+  }
+
+  async function loadMachineID() {
+    try {
+      const d = await fetch('/api/license/machine').then(r => r.json());
+      fullMachineId = d.machineId || '';
+      if (d.machineCode) document.getElementById('licenseMachineCode').value = d.machineCode;
+    } catch (_) {}
+  }
+
+  window.openLicenseSettings = async function() {
+    if (await switchView('settings')) snavTo('s-license', 'snav-license');
+  };
+
+  window.copyPurchaseInfo = async function() {
+    if (!fullMachineId) await loadMachineID();
+    if (!fullMachineId) { toast('机器码读取失败', 'err'); return; }
+    const info = '产品：ClipVault\n版本：' + (licenseState.version || '未知') + '\n机器码：' + fullMachineId;
+    try {
+      await navigator.clipboard.writeText(info);
+      toast('购买信息已复制');
+    } catch (_) { toast('复制失败', 'err'); }
+  };
+
+  window.activateLicense = async function() {
+    const input = document.getElementById('licenseTokenInput');
+    const button = document.getElementById('licenseActivateBtn');
+    const message = document.getElementById('licenseMessage');
+    const token = input.value.trim();
+    if (!token) { message.textContent = '请粘贴完整激活码'; message.className = 'license-message err'; return; }
+    button.disabled = true;
+    button.textContent = '正在验证…';
+    message.textContent = '';
+    try {
+      const res = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const d = await res.json();
+      if (!d.ok) {
+        message.textContent = licenseActivationError(d.error);
+        message.className = 'license-message err';
+        if (d.machineCode) document.getElementById('licenseMachineCode').value = d.machineCode;
+        return;
+      }
+      input.value = '';
+      message.textContent = '激活成功，ClipVault 已开始记录剪贴板';
+      message.className = 'license-message ok';
+      toast('激活成功');
+      await loadLicenseStatus();
+    } catch (_) {
+      message.textContent = '本地服务暂时无法完成激活，请重试';
+      message.className = 'license-message err';
+    } finally {
+      button.disabled = false;
+      button.textContent = '立即激活';
+    }
+  };
+
+  function licenseActivationError(code) {
+    if (code === 'license_bad_format') return '激活码不完整，请重新复制后粘贴';
+    if (code === 'license_bad_signature') return '激活码验证未通过，请确认输入是否正确。';
+    if (code === 'license_machine_mismatch') return '此激活码不适用于当前设备，请重新提供本机机器码。';
+    if (code === 'license_unsupported') return '当前版本无法识别此激活码，请联系技术支持。';
+    if (code === 'license_machine_unavailable') return '无法读取设备信息，尚未进行激活';
+    return '激活码有效性或本地保存失败，请重试';
   }
 
   // ── Utils ─────────────────────────────────────────────────
@@ -522,10 +730,12 @@
   async function refreshState() {
     try {
       const d = await fetch('/api/state').then(r => r.json());
-      DOT.className = 'dot' + (d.paused ? ' paused' : '');
-      ST.textContent = d.paused ? '已暂停' : '记录中';
+      const licenseBlocked = licenseState.enforced && !licenseState.licensed;
+      DOT.className = 'dot' + ((d.paused || licenseBlocked) ? ' paused' : '');
+      ST.textContent = licenseBlocked ? '未激活' : (d.paused ? '已暂停' : '记录中');
       TOG.className = 'btn-toggle' + (d.paused ? ' off' : '');
-      TOGTX.textContent = d.paused ? '恢复' : '暂停';
+      TOG.disabled = licenseBlocked;
+      TOGTX.textContent = licenseBlocked ? '未激活' : (d.paused ? '恢复' : '暂停');
       const togIcon = document.getElementById('togIcon');
       togIcon.innerHTML = d.paused
         ? '<polygon points="5 3 19 12 5 21 5 3"/>'
@@ -537,12 +747,8 @@
   const cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
 
   async function fetchSensitiveText(id) {
-    let url = '/api/items/sensitive?id=' + id;
-    if (pendingSecondaryToken) {
-      url += '&secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-      pendingSecondaryToken = null;
-    }
-    let res = await fetch(url);
+    const url = '/api/items/sensitive?id=' + id;
+    let res = await secondaryFetch(url);
     if (res.status === 403) {
       const ok = await requestSecondaryAuth();
       if (!ok) return null;
@@ -631,12 +837,8 @@
     let displayText = item.text;
     if (item.sensitive) {
       try {
-        let url = '/api/items/sensitive?id=' + id;
-        if (pendingSecondaryToken) {
-          url += '&secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-          pendingSecondaryToken = null;
-        }
-        const res = await fetch(url);
+        const url = '/api/items/sensitive?id=' + id;
+        const res = await secondaryFetch(url);
         if (res.status === 403) {
           const ok = await requestSecondaryAuth();
           if (!ok) { toast('需要二次验证才能查看敏感内容', 'err'); return; }
@@ -661,12 +863,12 @@
         document.querySelector('.modal-body').appendChild(preview);
       }
       preview.style.display = 'flex';
-      preview.innerHTML = paths.map((p) => {
+      preview.innerHTML = paths.map((p, idx) => {
         const name = getBaseName(p);
         const ext = getExt(name);
         const isImg = IMAGE_EXTS.includes(ext);
         return '<div class="modal-file-item">' +
-          (isImg ? '<img src="/api/file?path=' + encodeURIComponent(p) + '" loading="lazy" alt="' + esc(name) + '" onerror="this.style.display=\'none\'">' : '') +
+          (isImg && ext !== 'svg' ? '<img src="/api/file?item_id=' + item.id + '&file_index=' + idx + '" loading="lazy" alt="' + esc(name) + '" onerror="this.style.display=\'none\'">' : '') +
           '<div class="modal-file-name">' + esc(name) + '</div>' +
           '<div class="modal-file-path">' + esc(p) + '</div>' +
         '</div>';
@@ -771,7 +973,8 @@
     for (let idx = 0; idx < paths.length; idx++) {
       const p = paths[idx];
       try {
-        const d = await fetch('/api/file/check?path=' + encodeURIComponent(p)).then(r => r.json());
+        const fileRef = 'item_id=' + itemId + '&file_index=' + idx;
+        const d = await fetch('/api/file/check?' + fileRef).then(r => r.json());
         const stat = document.getElementById('fstat-' + itemId + '-' + idx);
         const dl = document.getElementById('fdl-' + itemId + '-' + idx);
         const dir = document.getElementById('fdir-' + itemId + '-' + idx);
@@ -784,7 +987,7 @@
           const ext = getExt(d.name || p);
           if (IMAGE_EXTS.includes(ext)) {
             const thumb = document.getElementById('fthumb-' + itemId + '-' + idx);
-            if (thumb) thumb.innerHTML = '<img src="/api/file?path=' + encodeURIComponent(p) + '" loading="lazy" onclick="doFileView(' + itemId + ',' + idx + ')">';
+            if (thumb && ext !== 'svg') thumb.innerHTML = '<img src="/api/file?item_id=' + itemId + '&file_index=' + idx + '" loading="lazy" onclick="doFileView(' + itemId + ',' + idx + ')">';
           }
         } else {
           if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 \u6587\u4ef6\u4e0d\u5b58\u5728</span>';
@@ -799,10 +1002,9 @@
   function doDownload(itemId, idx) {
     const paths = filePaths.get(itemId);
     if (!paths || !paths[idx]) return;
-    const p = paths[idx];
     const a = document.createElement('a');
-    a.href = '/api/file?path=' + encodeURIComponent(p) + '&download=1';
-    a.download = getBaseName(p);
+    a.href = '/api/file?item_id=' + itemId + '&file_index=' + idx + '&download=1';
+    a.download = getBaseName(paths[idx]);
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
@@ -813,11 +1015,10 @@
   async function doOpenDir(itemId, idx) {
     const paths = filePaths.get(itemId);
     if (!paths || !paths[idx]) return;
-    const p = paths[idx];
     const btn = document.getElementById('fdir-' + itemId + '-' + idx);
     if (btn) { btn.disabled = true; }
     try {
-      const res = await fetch('/api/file/opendir?path=' + encodeURIComponent(p), { method: 'POST' });
+      const res = await fetch('/api/file/opendir?item_id=' + itemId + '&file_index=' + idx, { method: 'POST' });
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
         throw new Error(msg || ('HTTP ' + res.status));
@@ -833,13 +1034,12 @@
   async function doFileHash(itemId, idx) {
     const paths = filePaths.get(itemId);
     if (!paths || !paths[idx]) return;
-    const p = paths[idx];
     const btn = document.getElementById('fhashbtn-' + itemId + '-' + idx);
     const hashDiv = document.getElementById('fhash-' + itemId + '-' + idx);
     if (btn) { btn.disabled = true; }
     if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">计算中...</span>';
     try {
-      const d = await fetch('/api/file/hash?path=' + encodeURIComponent(p)).then(r => r.json());
+      const d = await fetch('/api/file/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
       if (d.ok) {
         if (hashDiv) hashDiv.innerHTML =
           '<div class="fhash-line"><span class="fhash-label">MD5</span> <span class="fhash-val">' + esc(d.md5) + '</span></div>' +
@@ -870,7 +1070,7 @@
       document.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
-    preview.innerHTML = '<img src="/api/file?path=' + encodeURIComponent(p) + '" alt="' + esc(name) + '">';
+    preview.innerHTML = getExt(name) === 'svg' ? '<div class="fmiss">SVG 文件仅支持下载，不提供内联预览</div>' : '<img src="/api/file?item_id=' + itemId + '&file_index=' + idx + '" alt="' + esc(name) + '">';
     VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   }
@@ -1018,12 +1218,8 @@
       }
       if (filterDateFrom) p.set('date_from', filterDateFrom);
       if (filterDateTo)   p.set('date_to',   filterDateTo);
-      // 敏感搜索需要二次认证 token
-      if (url === '/api/search/sensitive' && pendingSecondaryToken) {
-        p.set('secondary_token', pendingSecondaryToken);
-        pendingSecondaryToken = null;
-      }
-      const d = await fetch(url + '?' + p).then(r => r.json());
+      const request = url === '/api/search/sensitive' ? secondaryFetch : fetch;
+      const d = await request(url + '?' + p).then(r => r.json());
       if (d.error === 'secondary_required') {
         const ok = await requestSecondaryAuth();
         if (ok) { await search(); return; }
@@ -1163,12 +1359,7 @@
       try {
         const ok = await requestSecondaryAuth();
         if (!ok) { throw new Error('secondary_required'); }
-        let url = '/api/clear';
-        if (pendingSecondaryToken) {
-          url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-          pendingSecondaryToken = null;
-        }
-        const res = await fetch(url, { method: 'POST' });
+        const res = await secondaryFetch('/api/clear', { method: 'POST' });
         if (res.status === 403) { throw new Error('secondary_required'); }
         const d = await res.json();
         if (d.ok) {
@@ -1242,11 +1433,33 @@
     loadRecoveryStatus();
   }
 
+  function isLoopbackListenAddress(addr) {
+    const value = String(addr || '').trim();
+    let host = '';
+    if (value.startsWith('[')) {
+      const end = value.indexOf(']');
+      host = end > 0 ? value.slice(1, end) : '';
+    } else {
+      const colon = value.lastIndexOf(':');
+      host = colon > 0 ? value.slice(0, colon) : '';
+    }
+    host = host.trim().toLowerCase();
+    return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+  }
+
+  function updateListenAddressWarning() {
+    const input = document.getElementById('cfg-listenAddr');
+    const warning = document.getElementById('listenAddrWarning');
+    if (!input || !warning) return;
+    warning.classList.toggle('hidden', isLoopbackListenAddress(input.value));
+  }
+
   function applyConfigToForm(cfg) {
     document.getElementById('cfg-maxTextChars').value = cfg.maxTextChars ?? 0;
     document.getElementById('cfg-maxFileDropPaths').value = cfg.maxFileDropPaths ?? 0;
 
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
+    updateListenAddressWarning();
 
     // 全局快捷键
     const hk = cfg.hotkey || {};
@@ -1336,12 +1549,7 @@
       const ok = await requestSecondaryAuth();
       if (!ok) { toast('需要二次验证才能查看过滤规则', 'err'); return; }
       try {
-        let url = '/api/sensitive/rules';
-        if (pendingSecondaryToken) {
-          url += '?secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-          pendingSecondaryToken = null;
-        }
-        const d = await fetch(url).then(r => r.json());
+        const d = await secondaryFetch('/api/sensitive/rules').then(r => r.json());
         if (d.error === 'secondary_required') {
           toast('二次验证失败', 'err');
           return;
@@ -1459,7 +1667,7 @@
           smtpPass:  document.getElementById('cfg-emailBackupSMTPPass')?.value || '',
           from:      document.getElementById('cfg-emailBackupFrom')?.value.trim() || '',
           to:        document.getElementById('cfg-emailBackupTo')?.value.trim() || '',
-          format:    document.getElementById('cfg-emailBackupFormat')?.value || 'json',
+          format:    document.getElementById('cfg-emailBackupFormat')?.value || 'cvexport',
           password:  document.getElementById('cfg-emailBackupPwd')?.value || '',
         },
       },
@@ -1481,20 +1689,39 @@
 
     // 检测 listenAddr 是否变更
     const addrChanged = currentCfg.search && currentCfg.search.listenAddr !== newCfg.search.listenAddr;
+    const openingLAN = addrChanged && isLoopbackListenAddress(currentCfg.search.listenAddr) && !isLoopbackListenAddress(newCfg.search.listenAddr);
+
+    if (openingLAN) {
+      if (!authState.hasLockPassword || !authState.hasSecondaryPassword) {
+        toast('开放局域网监听前，请先设置锁屏密码和二次密码', 'err');
+        return;
+      }
+      const confirmed = window.confirm('安全警告：非回环地址会让同一网络中的设备访问 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？');
+      if (!confirmed) {
+        document.getElementById('cfg-listenAddr').value = currentCfg.search.listenAddr;
+        updateListenAddressWarning();
+        toast('已取消开放局域网监听');
+        return;
+      }
+      const verified = await requestSecondaryAuth(true);
+      if (!verified) {
+        toast('需要重新输入二次密码才能开放局域网监听', 'err');
+        return;
+      }
+    }
 
     try {
-      const url = pendingSecondaryToken
-        ? '/api/config?secondary_token=' + encodeURIComponent(pendingSecondaryToken)
-        : '/api/config';
-      pendingSecondaryToken = null;
-      const res = await fetch(url, {
+      const configFetch = openingLAN ? freshSecondaryFetch : secondaryFetch;
+      const res = await configFetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCfg),
       });
       if (!res.ok) {
         const txt = await res.text();
-        throw new Error(txt);
+        let message = txt;
+        try { message = JSON.parse(txt).error || txt; } catch (_) {}
+        throw new Error(message);
       }
       const d = await res.json();
       currentCfg = d.config;
@@ -1593,6 +1820,7 @@
     });
     // 监听地址失焦时立即保存（触发重启确认）
     if (listenAddrEl) {
+      listenAddrEl.addEventListener('input', updateListenAddressWarning);
       listenAddrEl.addEventListener('blur', () => {
         clearTimeout(saveTimer);
         saveConfig({ silent: true });
@@ -1637,17 +1865,12 @@
 
   // ── Export ─────────────────────────────────────────────────────────
   // authedDownload 处理二次认证后通过 fetch 下载文件（blob），避免 <a> 标签无法捕获 403。
-  async function authedDownload(baseUrl, fallbackFilename) {
+  async function authedDownload(baseUrl, fallbackFilename, requestInit) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const ok = await requestSecondaryAuth();
       if (!ok) { toast('需要二次验证才能导出', 'err'); return false; }
-      let url = baseUrl;
-      if (pendingSecondaryToken) {
-        url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-        pendingSecondaryToken = null;
-      }
       try {
-        const res = await fetch(url);
+        const res = await secondaryFetch(baseUrl, requestInit);
         if (res.status === 403) continue; // token 失效，重试
         if (!res.ok) { toast('导出失败: ' + res.status, 'err'); return false; }
         const blob = await res.blob();
@@ -1675,6 +1898,7 @@
     const fallback = type === 'config' ? 'clipvault-config.json'
       : (type === 'data-csv' ? 'clipvault-data.csv' : 'clipvault-data.json');
     const label = type === 'config' ? '配置' : ('剪切板记录（' + (type === 'data-csv' ? 'CSV' : 'JSON') + '）');
+    if (type !== 'config' && !window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
     const ok = await authedDownload(baseUrl, fallback);
     if (ok) toast('已导出 ' + label);
   };
@@ -1725,9 +1949,14 @@
       if (!pwd) { errEl.textContent = '密码不能为空'; errEl.classList.remove('hidden'); return; }
       if (pwd !== confirm) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
 
+      const ok = await authedDownload('/api/export/data?format=cvexport', 'clipvault-data.cvexport', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+      pwdInput.value = '';
+      confirmInput.value = '';
       closeCvexportDialog();
-      const baseUrl = '/api/export/data?format=cvexport&password=' + encodeURIComponent(pwd);
-      const ok = await authedDownload(baseUrl, 'clipvault-data.cvexport');
       if (ok) toast('已加密导出');
     });
   };
@@ -1788,21 +2017,19 @@
     try {
       const ok = await requestSecondaryAuth();
       if (!ok) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
-      let url = '/api/import/data' + (pwd ? '?password=' + encodeURIComponent(pwd) : '');
-      if (pendingSecondaryToken) {
-        url += (url.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-        pendingSecondaryToken = null;
-      }
-      const res = await fetch(url, { method: 'POST', body: file });
+      const res = await secondaryFetch('/api/import/data', {
+        method: 'POST',
+        headers: pwd ? { 'X-ClipVault-Import-Password': pwd } : {},
+        body: file,
+      });
       if (res.status === 403) {
         const ok2 = await requestSecondaryAuth();
         if (!ok2) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
-        let retryUrl = '/api/import/data' + (pwd ? '?password=' + encodeURIComponent(pwd) : '');
-        if (pendingSecondaryToken) {
-          retryUrl += (retryUrl.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-          pendingSecondaryToken = null;
-        }
-        const res2 = await fetch(retryUrl, { method: 'POST', body: file });
+        const res2 = await secondaryFetch('/api/import/data', {
+          method: 'POST',
+          headers: pwd ? { 'X-ClipVault-Import-Password': pwd } : {},
+          body: file,
+        });
         const d2 = await res2.json();
         if (d2.ok) { closeImportDialog(); toast('导入成功'); }
         else { errEl.textContent = d2.error || '导入失败'; errEl.classList.remove('hidden'); }
@@ -1827,19 +2054,17 @@
   async function backupAction(url, successMsg) {
     const ok = await requestSecondaryAuth();
     if (!ok) { toast('需要二次验证', 'err'); return; }
-    let finalUrl = url;
-    if (pendingSecondaryToken) {
-      finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'secondary_token=' + encodeURIComponent(pendingSecondaryToken);
-      pendingSecondaryToken = null;
-    }
     try {
-      const res = await fetch(finalUrl, { method: 'POST' });
+      const res = await secondaryFetch(url, { method: 'POST' });
       const d = await res.json();
       if (d.ok) {
         toast(successMsg);
         loadBackupStatus();
       } else {
-        toast(d.error || '操作失败', 'err');
+        const message = d.error === 'license required'
+          ? '需要先激活 ClipVault 才能使用备份功能'
+          : (d.error || '操作失败');
+        toast(message, 'err');
       }
     } catch (e) {
       toast('网络错误: ' + e.message, 'err');
@@ -2313,8 +2538,8 @@
 
 
   // ── Init ─────────────────────────────────────────────────
-  function init() {
-    refreshState();
+  async function init() {
+    await loadLicenseStatus();
     search();
     setupAutoSave();
     loadGroups();
@@ -2332,6 +2557,7 @@
       if (document.visibilityState !== 'visible') return;
       const wasSecondaryAuthed = authState.secondaryAuthed;
       await checkAuthStatus();
+      await loadLicenseStatus();
       // 如果二次认证缓存已过期，重新搜索以遮蔽敏感内容
       if (wasSecondaryAuthed && !authState.secondaryAuthed) {
         search();

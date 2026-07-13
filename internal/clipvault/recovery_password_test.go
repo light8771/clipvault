@@ -105,16 +105,16 @@ func TestPasswordStrength(t *testing.T) {
 		password string
 		wantErr  bool
 	}{
-		{"short", true},           // too short
-		{"alllowercase", true},     // only lowercase (1 category)
-		{"ALLUPPERCASE", true},     // only uppercase (1 category)
-		{"12345678", true},         // only digits (1 category)
-		{"abcdefgh1", false},       // lowercase + digit (2 categories)
-		{"ABCdefgh", false},        // uppercase + lowercase (2 categories)
-		{"Abc12345", false},        // uppercase + lowercase + digit (3 categories)
-		{"Abc123!@#", false},       // all 4 categories
-		{"Pass1", true},            // too short even with multiple categories
-		{"", true},                 // empty
+		{"short", true},        // too short
+		{"alllowercase", true}, // only lowercase (1 category)
+		{"ALLUPPERCASE", true}, // only uppercase (1 category)
+		{"12345678", true},     // only digits (1 category)
+		{"abcdefgh1", false},   // lowercase + digit (2 categories)
+		{"ABCdefgh", false},    // uppercase + lowercase (2 categories)
+		{"Abc12345", false},    // uppercase + lowercase + digit (3 categories)
+		{"Abc123!@#", false},   // all 4 categories
+		{"Pass1", true},        // too short even with multiple categories
+		{"", true},             // empty
 	}
 
 	for _, tt := range tests {

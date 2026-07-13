@@ -3,10 +3,16 @@ package clipvault
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/scrypt"
 )
 
 const (
@@ -16,9 +22,15 @@ const (
 	maxSessionLifetime = 24 * time.Hour
 
 	// 密码限流参数
-	rateLimitThreshold = 100              // 连续失败次数阈值
-	rateLimitWindow    = 30 * time.Minute // 统计窗口
-	rateLimitMaxLock   = 5 * time.Minute  // 最大锁定时长
+	rateLimitThreshold = 10              // 每个统计窗口最多失败次数
+	rateLimitWindow    = 5 * time.Minute // 滚动统计窗口
+
+	authScryptN      = 32768
+	authScryptR      = 8
+	authScryptP      = 1
+	authScryptKeyLen = 32
+	authPasswordSalt = 16
+	authHashPrefix   = "$scrypt$v=1$"
 )
 
 // Session 表示一个已认证的浏览器会话。
@@ -49,19 +61,64 @@ func NewAuthManager() *AuthManager {
 	}
 }
 
-// hashPassword 使用 SHA-256(salt + password) 计算密码哈希。
-func hashPassword(salt, password string) string {
+// hashPasswordLegacy 验证旧版本保存的 SHA-256(salt + password) 哈希。
+func hashPasswordLegacy(salt, password string) string {
 	h := sha256.Sum256([]byte(salt + password))
 	return hex.EncodeToString(h[:])
 }
 
-// generateSalt 生成一个随机的 16 字节盐值。
-func generateSalt() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+func newPasswordHash(password string) (string, error) {
+	salt := make([]byte, authPasswordSalt)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("generate password salt: %w", err)
 	}
-	return hex.EncodeToString(b), nil
+	derived, err := scrypt.Key([]byte(password), salt, authScryptN, authScryptR, authScryptP, authScryptKeyLen)
+	if err != nil {
+		return "", fmt.Errorf("derive password hash: %w", err)
+	}
+	return fmt.Sprintf("%sn=%d$r=%d$p=%d$%s$%s", authHashPrefix, authScryptN, authScryptR, authScryptP, hex.EncodeToString(salt), hex.EncodeToString(derived)), nil
+}
+
+func verifyPasswordHash(encoded, legacySalt, password string) bool {
+	if encoded == "" {
+		return true
+	}
+	if !strings.HasPrefix(encoded, authHashPrefix) {
+		expected := hashPasswordLegacy(legacySalt, password)
+		return subtle.ConstantTimeCompare([]byte(expected), []byte(encoded)) == 1
+	}
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 8 || parts[1] != "scrypt" || parts[2] != "v=1" {
+		return false
+	}
+	parseParam := func(part, name string) (int, bool) {
+		prefix := name + "="
+		if !strings.HasPrefix(part, prefix) {
+			return 0, false
+		}
+		value, err := strconv.Atoi(strings.TrimPrefix(part, prefix))
+		return value, err == nil
+	}
+	n, okN := parseParam(parts[3], "n")
+	r, okR := parseParam(parts[4], "r")
+	p, okP := parseParam(parts[5], "p")
+	if !okN || !okR || !okP || n != authScryptN || r != authScryptR || p != authScryptP {
+		return false
+	}
+	salt, err := hex.DecodeString(parts[6])
+	if err != nil || len(salt) != authPasswordSalt {
+		return false
+	}
+	expected, err := hex.DecodeString(parts[7])
+	if err != nil || len(expected) != authScryptKeyLen {
+		return false
+	}
+	actual, err := scrypt.Key([]byte(password), salt, n, r, p, len(expected))
+	return err == nil && subtle.ConstantTimeCompare(actual, expected) == 1
+}
+
+func isLegacyPasswordHash(encoded string) bool {
+	return encoded != "" && !strings.HasPrefix(encoded, authHashPrefix)
 }
 
 // generateToken 生成一个随机的会话令牌。
@@ -78,7 +135,7 @@ func (am *AuthManager) VerifyLockPassword(cfg Config, password string) bool {
 	if cfg.Security.LockPasswordHash == "" {
 		return true
 	}
-	return hashPassword(cfg.Security.PasswordSalt, password) == cfg.Security.LockPasswordHash
+	return verifyPasswordHash(cfg.Security.LockPasswordHash, cfg.Security.PasswordSalt, password)
 }
 
 // VerifySecondaryPassword 验证二次密码。
@@ -86,7 +143,7 @@ func (am *AuthManager) VerifySecondaryPassword(cfg Config, password string) bool
 	if cfg.Security.SecondaryPasswordHash == "" {
 		return true
 	}
-	return hashPassword(cfg.Security.PasswordSalt, password) == cfg.Security.SecondaryPasswordHash
+	return verifyPasswordHash(cfg.Security.SecondaryPasswordHash, cfg.Security.PasswordSalt, password)
 }
 
 // HasLockPassword 检查是否已设置锁屏密码。
@@ -306,22 +363,56 @@ type rateBucket struct {
 	lockedUntil time.Time   // 锁定截止时间
 }
 
-// CheckRateLimit 检查是否被限流。返回 (是否允许, 剩余锁定时长)。
-func (am *AuthManager) CheckRateLimit() (bool, time.Duration) {
+// RateLimitStatus 描述当前密码尝试额度。
+type RateLimitStatus struct {
+	Allowed    bool
+	Remaining  int
+	RetryAfter time.Duration
+}
+
+func pruneRateFailures(b *rateBucket, now time.Time) {
+	cutoff := now.Add(-rateLimitWindow)
+	kept := b.failures[:0]
+	for _, failedAt := range b.failures {
+		if failedAt.After(cutoff) {
+			kept = append(kept, failedAt)
+		}
+	}
+	b.failures = kept
+	if !b.lockedUntil.IsZero() && !now.Before(b.lockedUntil) {
+		b.lockedUntil = time.Time{}
+	}
+}
+
+func rateLimitStatus(b *rateBucket, now time.Time) RateLimitStatus {
+	remaining := rateLimitThreshold - len(b.failures)
+	if remaining < 0 {
+		remaining = 0
+	}
+	status := RateLimitStatus{Allowed: true, Remaining: remaining}
+	if now.Before(b.lockedUntil) {
+		status.Allowed = false
+		status.Remaining = 0
+		status.RetryAfter = b.lockedUntil.Sub(now)
+	}
+	return status
+}
+
+// CheckRateLimit 检查当前密码尝试额度。
+func (am *AuthManager) CheckRateLimit() RateLimitStatus {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
 	b, ok := am.rateBuckets["__global__"]
 	if !ok {
-		return true, 0
+		return RateLimitStatus{Allowed: true, Remaining: rateLimitThreshold}
 	}
-	if time.Now().Before(b.lockedUntil) {
-		return false, time.Until(b.lockedUntil)
-	}
-	return true, 0
+	now := time.Now()
+	pruneRateFailures(b, now)
+	return rateLimitStatus(b, now)
 }
 
-// RecordFailedAttempt 记录一次密码验证失败，返回是否触发了限流及锁定时长。
-func (am *AuthManager) RecordFailedAttempt() (bool, time.Duration) {
+// RecordFailedAttempt 记录一次密码验证失败并返回剩余额度。
+func (am *AuthManager) RecordFailedAttempt() RateLimitStatus {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
 	now := time.Now()
@@ -330,25 +421,13 @@ func (am *AuthManager) RecordFailedAttempt() (bool, time.Duration) {
 		b = &rateBucket{}
 		am.rateBuckets["__global__"] = b
 	}
-	// 清理窗口外的旧记录
-	cutoff := now.Add(-rateLimitWindow)
-	kept := b.failures[:0]
-	for _, t := range b.failures {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	b.failures = append(kept, now)
+	pruneRateFailures(b, now)
+	b.failures = append(b.failures, now)
 	if len(b.failures) >= rateLimitThreshold {
-		// 指数退避：1min, 2min, 4min, 5min(上限)
-		backoff := time.Minute << (len(b.failures) - rateLimitThreshold)
-		if backoff > rateLimitMaxLock {
-			backoff = rateLimitMaxLock
-		}
-		b.lockedUntil = now.Add(backoff)
-		return true, backoff
+		// 滚动窗口：直到最早一次失败离开 5 分钟窗口后恢复额度。
+		b.lockedUntil = b.failures[0].Add(rateLimitWindow)
 	}
-	return false, 0
+	return rateLimitStatus(b, now)
 }
 
 // ResetRateLimit 清除失败记录（密码验证成功后调用）。
@@ -367,15 +446,7 @@ func (am *AuthManager) CleanExpiredRateBuckets() {
 		if now.After(b.lockedUntil) && len(b.failures) == 0 {
 			delete(am.rateBuckets, ip)
 		}
-		// 清理窗口外的失败记录
-		cutoff := now.Add(-rateLimitWindow)
-		kept := b.failures[:0]
-		for _, t := range b.failures {
-			if t.After(cutoff) {
-				kept = append(kept, t)
-			}
-		}
-		b.failures = kept
+		pruneRateFailures(b, now)
 		if now.After(b.lockedUntil) && len(b.failures) == 0 {
 			delete(am.rateBuckets, ip)
 		}

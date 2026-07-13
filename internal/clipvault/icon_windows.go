@@ -162,4 +162,3 @@ func createClipboardIcon() uintptr {
 func premultiply(c, a uint8) uint8 {
 	return uint8(uint16(c) * uint16(a) / 255)
 }
-
