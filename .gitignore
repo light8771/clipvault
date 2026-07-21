@@ -28,3 +28,4 @@ error.log
 *.ed25519
 *.private-key
 private-keys/
+logs/

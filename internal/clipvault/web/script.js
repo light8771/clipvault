@@ -1937,13 +1937,10 @@
   }
 
   window.doExport = async function(type) {
-    const baseUrl = type === 'config'
-      ? '/api/export/config'
-      : '/api/export/data?format=' + (type === 'data-csv' ? 'csv' : 'json');
-    const fallback = type === 'config' ? 'clipvault-config.json'
-      : (type === 'data-csv' ? 'clipvault-data.csv' : 'clipvault-data.json');
-    const label = type === 'config' ? '配置' : ('剪切板记录（' + (type === 'data-csv' ? 'CSV' : 'JSON') + '）');
-    if (type !== 'config' && !window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
+    const baseUrl = '/api/export/data?format=' + (type === 'data-csv' ? 'csv' : 'json');
+    const fallback = type === 'data-csv' ? 'clipvault-data.csv' : 'clipvault-data.json';
+    const label = '剪切板记录（' + (type === 'data-csv' ? 'CSV' : 'JSON') + '）';
+    if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
     const ok = await authedDownload(baseUrl, fallback);
     if (ok) toast('已导出 ' + label);
   };

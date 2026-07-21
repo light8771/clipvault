@@ -90,6 +90,27 @@ func TestExportImportRoundtrip(t *testing.T) {
 	}
 	defer store2.Close()
 
+	cfgBefore := DefaultConfig()
+	cfgBefore.Search.ListenAddr = "127.0.0.1:19999"
+	cfgBefore.Backup.EmailBackup.SMTPPass = "keep-smtp-pass"
+	cfgBefore.Backup.EmailBackup.Password = "keep-export-pass"
+	if err := store2.SaveConfig(cfgBefore); err != nil {
+		t.Fatalf("SaveConfig before import: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("Unmarshal payload: %v", err)
+	}
+	cfgFromImport := DefaultConfig()
+	cfgFromImport.Search.ListenAddr = "0.0.0.0:18765"
+	cfgFromImport.Backup.EmailBackup.SMTPPass = "clobbered"
+	cfgFromImport.Backup.EmailBackup.Password = "clobbered"
+	payload["config"] = cfgFromImport
+	data, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal payload with config: %v", err)
+	}
+
 	if err := store2.ImportFullJSON(ctx, data); err != nil {
 		t.Fatalf("ImportFullJSON: %v", err)
 	}
@@ -133,12 +154,21 @@ func TestExportImportRoundtrip(t *testing.T) {
 	}
 	t.Logf("[OK] sensitive flag preserved")
 
-	// Verify config was imported
-	cfg, err := store2.GetConfig()
+	// Verify config embedded in data imports is ignored.
+	cfgAfter, err := store2.GetConfig()
 	if err != nil {
 		t.Fatalf("GetConfig after import: %v", err)
 	}
-	t.Logf("[OK] config imported: search.enabled=%v", cfg.Search.Enabled)
+	if cfgAfter.Search.ListenAddr != cfgBefore.Search.ListenAddr {
+		t.Fatalf("import changed listenAddr: got %q, want %q", cfgAfter.Search.ListenAddr, cfgBefore.Search.ListenAddr)
+	}
+	if cfgAfter.Backup.EmailBackup.SMTPPass != cfgBefore.Backup.EmailBackup.SMTPPass {
+		t.Fatal("import changed SMTP password")
+	}
+	if cfgAfter.Backup.EmailBackup.Password != cfgBefore.Backup.EmailBackup.Password {
+		t.Fatal("import changed email backup export password")
+	}
+	t.Logf("[OK] config embedded in import payload was ignored")
 }
 
 func TestCSVSafe(t *testing.T) {

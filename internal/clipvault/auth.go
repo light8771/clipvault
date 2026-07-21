@@ -180,19 +180,20 @@ func (am *AuthManager) CreateSession(timeoutMin int) (string, error) {
 	return token, nil
 }
 
-// GetSession 根据令牌获取会话，已过期则返回 nil。
+// GetSession 根据令牌获取会话快照，已过期则返回 nil。
 func (am *AuthManager) GetSession(token string) *Session {
-	am.mu.RLock()
+	am.mu.Lock()
+	defer am.mu.Unlock()
 	sess, ok := am.sessions[token]
-	am.mu.RUnlock()
 	if !ok {
 		return nil
 	}
 	if time.Now().After(sess.ExpiresAt) {
-		am.DestroySession(token)
+		am.destroySessionLocked(token)
 		return nil
 	}
-	return sess
+	snapshot := *sess
+	return &snapshot
 }
 
 // GrantSecondaryAuth 为会话授予二次认证权限。
@@ -211,9 +212,9 @@ func (am *AuthManager) GrantSecondaryAuth(token string, timeoutMin int) {
 
 // HasSecondaryAuth 检查会话是否拥有有效的二次认证。
 func (am *AuthManager) HasSecondaryAuth(token string) bool {
-	am.mu.RLock()
+	am.mu.Lock()
+	defer am.mu.Unlock()
 	sess, ok := am.sessions[token]
-	am.mu.RUnlock()
 	if !ok {
 		return false
 	}
@@ -221,9 +222,7 @@ func (am *AuthManager) HasSecondaryAuth(token string) bool {
 		return false
 	}
 	if time.Now().After(sess.SecondaryExpiry) {
-		am.mu.Lock()
 		sess.SecondaryAuth = false
-		am.mu.Unlock()
 		return false
 	}
 	return true
@@ -258,14 +257,17 @@ func (am *AuthManager) ConsumeSecondaryToken(token string) bool {
 // DestroySession 销毁会话。
 func (am *AuthManager) DestroySession(token string) {
 	am.mu.Lock()
+	defer am.mu.Unlock()
+	am.destroySessionLocked(token)
+}
+
+func (am *AuthManager) destroySessionLocked(token string) {
 	delete(am.sessions, token)
-	// 清理绑定到该会话的一次性 token
 	for st, sess := range am.secondaryTokens {
 		if sess == token {
 			delete(am.secondaryTokens, st)
 		}
 	}
-	am.mu.Unlock()
 }
 
 // RevokeAllSecondaryAuth 撤销所有会话的二次认证权限。

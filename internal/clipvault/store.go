@@ -486,7 +486,6 @@ type ExportData struct {
 	ExportedAt    string          `json:"exportedAt"`
 	SourceEngine  string          `json:"sourceEngine"`
 	Warning       string          `json:"warning"`
-	Config        *Config         `json:"config,omitempty"`
 	Items         []StoredItem    `json:"items"`
 	Groups        []StoredGroup   `json:"groups"`
 	ItemGroups    []ItemGroupLink `json:"itemGroups"`
@@ -498,7 +497,8 @@ type ItemGroupLink struct {
 	GroupID int64 `json:"groupId"`
 }
 
-// ExportFullForJSON exports all data (config + items + groups + itemGroups) for JSON import/export.
+// ExportFullForJSON exports clipboard data, groups, and item-group links.
+// Runtime configuration is intentionally excluded from data import/export.
 func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	items, err := s.ExportAll(ctx)
 	if err != nil {
@@ -528,34 +528,21 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 		return nil, err
 	}
 
-	cfg, err := s.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("export config: %w", err)
-	}
-	// 导出时清除密码哈希和盐，避免泄露
-	cfg.Security.LockPasswordHash = ""
-	cfg.Security.SecondaryPasswordHash = ""
-	cfg.Security.PasswordSalt = ""
-	// 清除备份相关敏感密码
-	cfg.Backup.DirBackup.Password = ""
-	cfg.Backup.EmailBackup.SMTPPass = ""
-	cfg.Backup.EmailBackup.Password = ""
-
 	return &ExportData{
 		ExportVersion: 2,
 		App:           "ClipVault",
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
 		SourceEngine:  "duckdb",
 		Warning:       "This export contains plaintext clipboard content.",
-		Config:        &cfg,
 		Items:         items,
 		Groups:        groups,
 		ItemGroups:    links,
 	}, nil
 }
 
-// ImportFullJSON imports a complete JSON export into the database.
+// ImportFullJSON imports clipboard data and groups into the database.
 // It remaps IDs to avoid conflicts and uses a transaction for atomicity.
+// Any config field in older export files is ignored.
 func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 	var export ExportData
 	if err := json.Unmarshal(data, &export); err != nil {
@@ -563,18 +550,6 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 	}
 	if export.App != "ClipVault" {
 		return fmt.Errorf("not a ClipVault export (app=%q)", export.App)
-	}
-
-	// Read the current security settings before opening the transaction. The
-	// store deliberately uses a single DuckDB connection, so querying s.db
-	// while a transaction owns that connection would deadlock.
-	var currentSecurity SecurityConfig
-	if export.Config != nil {
-		curCfg, err := s.GetConfig()
-		if err != nil {
-			return fmt.Errorf("read current security config: %w", err)
-		}
-		currentSecurity = curCfg.Security
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -629,23 +604,6 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 			newItemID, newGroupID,
 		); err != nil {
 			return fmt.Errorf("import item_group: %w", err)
-		}
-	}
-
-	// Import config (optional, only if present)
-	// 保留当前密码安全配置，不被导入的空值覆盖
-	if export.Config != nil {
-		export.Config.Security = currentSecurity
-		cfgData, err := json.Marshal(export.Config)
-		if err != nil {
-			return fmt.Errorf("marshal config: %w", err)
-		}
-		if _, err := tx.Exec(
-			`INSERT INTO settings (key, value) VALUES ('config', ?)
-			ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-			string(cfgData),
-		); err != nil {
-			return fmt.Errorf("import config: %w", err)
 		}
 	}
 

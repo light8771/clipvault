@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -62,4 +63,51 @@ func TestPasswordRateLimitAllowsTenAttemptsPerFiveMinutes(t *testing.T) {
 	if status := auth.CheckRateLimit(); !status.Allowed || status.Remaining != rateLimitThreshold {
 		t.Fatalf("rate limit not reset: %+v", status)
 	}
+}
+
+func TestGetSessionReturnsSnapshot(t *testing.T) {
+	auth := NewAuthManager()
+	token, err := auth.CreateSession(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := auth.GetSession(token)
+	if sess == nil || !sess.Authenticated {
+		t.Fatalf("session not authenticated: %+v", sess)
+	}
+	sess.Authenticated = false
+	sess.SecondaryAuth = true
+
+	fresh := auth.GetSession(token)
+	if fresh == nil {
+		t.Fatal("session disappeared")
+	}
+	if !fresh.Authenticated {
+		t.Fatal("mutating returned session snapshot changed stored authentication state")
+	}
+	if fresh.SecondaryAuth {
+		t.Fatal("mutating returned session snapshot changed stored secondary state")
+	}
+}
+
+func TestAuthManagerConcurrentSessionAccess(t *testing.T) {
+	auth := NewAuthManager()
+	token, err := auth.CreateSession(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				auth.GrantSecondaryAuth(token, 1)
+				_ = auth.HasSecondaryAuth(token)
+				_ = auth.GetSession(token)
+				auth.RevokeAllSecondaryAuth()
+			}
+		}()
+	}
+	wg.Wait()
 }

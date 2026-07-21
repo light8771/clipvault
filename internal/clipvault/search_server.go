@@ -110,7 +110,6 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /api/items/groups", s.requireAuth(s.handleItemGroups))
 
 	// 导出/导入端点（需二次认证）
-	mux.HandleFunc("GET /api/export/config", s.requireSecondary(s.handleExportConfig))
 	mux.HandleFunc("GET /api/export/data", s.requireSecondary(s.handleExportData))
 	mux.HandleFunc("POST /api/export/data", s.requireSecondary(s.handleExportData))
 	mux.HandleFunc("POST /api/import/data", s.requireSecondary(s.handleImportData))
@@ -569,19 +568,6 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("config_updated", nil)
 	s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get())})
-}
-
-// handleExportConfig 将当前配置以 JSON 文件形式下载。
-func (s *SearchServer) handleExportConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := stripSecrets(s.cfgMgr.Get())
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="clipvault-config.json"`)
-	_, _ = w.Write(data)
 }
 
 // handleExportData 导出所有剪切板记录，支持 format=json（默认）、format=csv、format=cvexport。
