@@ -111,7 +111,7 @@ func Run(env Environment) error {
 		fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
 	}
 
-	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, searchURL, licenseMgr)
+	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, store, searchURL, licenseMgr)
 
 	// 配置变更时重新注册全局快捷键
 	cfgMgr.OnChange(func(newCfg Config) error {

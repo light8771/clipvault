@@ -33,6 +33,7 @@ const (
 	idMenuAutostart   = 104
 	idMenuExit        = 105
 	idHotkeyToggle    = 1000
+	idHotkeySearch    = 1001
 
 	modAlt     = 0x0001
 	modControl = 0x0002
@@ -113,12 +114,14 @@ type WindowsRuntime struct {
 	state     *RuntimeState
 	recorder  *Recorder
 	license   *licensing.Manager
+	store     *Store
 	SearchURL string
 	hwnd      uintptr
 	hIcon     uintptr
 
 	hotkeyMu            sync.Mutex
 	pendingHotkey       *HotkeyConfig
+	pendingSearchHotkey *HotkeyConfig
 	pendingHotkeyResult chan error
 }
 
@@ -159,7 +162,7 @@ var (
 
 var singleInstanceMutex uintptr
 
-func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, searchURL string, license *licensing.Manager) *WindowsRuntime {
+func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, store *Store, searchURL string, license *licensing.Manager) *WindowsRuntime {
 	r := &WindowsRuntime{
 		env:       env,
 		cfgMgr:    cfgMgr,
@@ -167,6 +170,7 @@ func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogg
 		state:     state,
 		recorder:  recorder,
 		license:   license,
+		store:     store,
 		SearchURL: searchURL,
 	}
 	if license != nil {
@@ -217,6 +221,7 @@ func (r *WindowsRuntime) Run() error {
 		r.logger.Warn("tray_add_failed", map[string]any{"error": err.Error()})
 	}
 	r.registerHotkey()
+	r.registerSearchHotkey()
 	r.state.OnPauseChange(func(bool) { r.updateTrayIcon() })
 	go r.recorder.ProcessClipboardUpdate()
 
@@ -260,22 +265,36 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmHotkey:
-		if r != nil && wParam == idHotkeyToggle {
-			paused := r.state.TogglePaused()
-			r.logger.Info("pause_toggled", map[string]any{"paused": paused, "source": "hotkey"})
+		if r != nil {
+			switch wParam {
+			case idHotkeyToggle:
+				paused := r.state.TogglePaused()
+				r.logger.Info("pause_toggled", map[string]any{"paused": paused, "source": "hotkey"})
+			case idHotkeySearch:
+				r.openQuickSearch()
+			}
 		}
 		return 0
 	case wmReregisterHotkey:
 		if r != nil {
 			r.hotkeyMu.Lock()
 			hk := r.pendingHotkey
+			shk := r.pendingSearchHotkey
 			resultCh := r.pendingHotkeyResult
 			r.pendingHotkey = nil
+			r.pendingSearchHotkey = nil
 			r.pendingHotkeyResult = nil
 			r.hotkeyMu.Unlock()
-			if hk != nil && resultCh != nil {
+			if resultCh != nil {
 				r.unregisterHotkey()
-				err := r.doRegisterHotkey(*hk)
+				r.unregisterSearchHotkey()
+				var err error
+				if hk != nil {
+					err = r.doRegisterHotkey(idHotkeyToggle, *hk)
+				}
+				if shk != nil && err == nil {
+					err = r.doRegisterHotkey(idHotkeySearch, *shk)
+				}
 				resultCh <- err
 			}
 		}
@@ -450,6 +469,7 @@ func shellExecute(verb, file, params string) {
 
 func (r *WindowsRuntime) cleanup() {
 	r.unregisterHotkey()
+	r.unregisterSearchHotkey()
 	procRemoveClipboardFormatListener.Call(r.hwnd)
 	nid := r.notifyIconData()
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&nid)))
@@ -459,26 +479,43 @@ func (r *WindowsRuntime) cleanup() {
 	}
 }
 
-func (r *WindowsRuntime) doRegisterHotkey(hk HotkeyConfig) error {
+func (r *WindowsRuntime) doRegisterHotkey(id int, hk HotkeyConfig) error {
 	if !hk.Enabled || hk.Modifiers == 0 || hk.Key == 0 {
-		r.logger.Info("hotkey_disabled", nil)
+		r.logger.Info("hotkey_disabled", map[string]any{"id": id})
 		return nil
 	}
-	ok, _, err := procRegisterHotKey.Call(r.hwnd, idHotkeyToggle, uintptr(hk.Modifiers), uintptr(hk.Key))
+	ok, _, err := procRegisterHotKey.Call(r.hwnd, uintptr(id), uintptr(hk.Modifiers), uintptr(hk.Key))
 	if ok == 0 {
-		r.logger.Warn("hotkey_register_failed", map[string]any{"error": err.Error()})
+		r.logger.Warn("hotkey_register_failed", map[string]any{"id": id, "error": err.Error()})
 		return &HotkeyError{Msg: fmt.Sprintf("快捷键注册失败（可能与其他应用冲突）: %v", err)}
 	}
-	r.logger.Info("hotkey_registered", map[string]any{"modifiers": hk.Modifiers, "key": hk.Key})
+	r.logger.Info("hotkey_registered", map[string]any{"id": id, "modifiers": hk.Modifiers, "key": hk.Key})
 	return nil
 }
 
 func (r *WindowsRuntime) registerHotkey() {
-	_ = r.doRegisterHotkey(r.cfgMgr.Get().Hotkey)
+	_ = r.doRegisterHotkey(idHotkeyToggle, r.cfgMgr.Get().Hotkey)
 }
 
 func (r *WindowsRuntime) unregisterHotkey() {
 	procUnregisterHotKey.Call(r.hwnd, idHotkeyToggle)
+}
+
+func (r *WindowsRuntime) registerSearchHotkey() {
+	_ = r.doRegisterHotkey(idHotkeySearch, r.cfgMgr.Get().SearchHotkey)
+}
+
+func (r *WindowsRuntime) unregisterSearchHotkey() {
+	procUnregisterHotKey.Call(r.hwnd, idHotkeySearch)
+}
+
+// openQuickSearch 响应搜索快捷键，弹出桌面搜索窗口。
+func (r *WindowsRuntime) openQuickSearch() {
+	if r.store == nil || strings.TrimSpace(r.SearchURL) == "" {
+		r.logger.Warn("quick_search_skipped", map[string]any{"reason": "store_or_url_missing"})
+		return
+	}
+	ShowSearchWindow(r.store, r.SearchURL, r.logger)
 }
 
 // ReregisterHotkey 从任意线程调用，通过 PostMessage 将重注册请求
@@ -487,6 +524,7 @@ func (r *WindowsRuntime) unregisterHotkey() {
 func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
 	r.hotkeyMu.Lock()
 	r.pendingHotkey = &cfg.Hotkey
+	r.pendingSearchHotkey = &cfg.SearchHotkey
 	r.pendingHotkeyResult = make(chan error, 1)
 	r.hotkeyMu.Unlock()
 	procPostMessageW.Call(r.hwnd, wmReregisterHotkey, 0, 0)

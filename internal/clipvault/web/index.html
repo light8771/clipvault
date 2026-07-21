@@ -262,6 +262,25 @@
                 <input type="text" id="cfg-hotkeyKey" class="field-input" style="width:60px;text-align:center;text-transform:uppercase" placeholder="P" maxlength="1">
               </div>
             </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">搜索框快捷键</label>
+                <p class="field-hint">按下快捷键呼出桌面快速搜索框，输入即时显示建议，回车跳转到本页面并定位到对应词条</p>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <label class="ar-toggle">
+                  <input type="checkbox" id="cfg-searchHotkeyEnabled">
+                  <span>启用</span>
+                </label>
+                <div class="mod-group" id="searchHotkeyMods">
+                  <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
+                  <label class="mod-btn"><input type="checkbox" value="1">Alt</label>
+                  <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
+                  <label class="mod-btn"><input type="checkbox" value="8">Win</label>
+                </div>
+                <input type="text" id="cfg-searchHotkeyKey" class="field-input" style="width:60px;text-align:center;text-transform:uppercase" placeholder="Space" maxlength="1">
+              </div>
+            </div>
           </div>
         </section>
 
@@ -815,6 +834,10 @@
       </div>
     </div>
   </div>
+
+  <button class="scroll-top-btn" id="scrollTopBtn" aria-label="回到顶部" title="回到顶部">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+  </button>
 
   <div class="tc" id="tc"></div>
   <script src="/script.js"></script>

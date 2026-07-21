@@ -18,7 +18,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
 - **便携模式**：exe 同目录放置 `portable.flag` 文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`；便携模式写入 exe 同目录
-- **永久离线授权**：正式 release 构建支持机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用
+- **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用
 
 ### Web 界面（搜索 + 设置）
 
@@ -113,7 +113,7 @@ go build '-ldflags=-H=windowsgui' -o bin\clipvault.exe .\cmd\clipvault
 
 ### 正式授权构建
 
-开发构建不会因缺少授权而停用录制；只有带 `release` 构建标签的正式包才强制校验授权。生产私钥只用于离线签发激活码，不能放入源码、构建机、安装包或 Git 仓库。
+所有构建均强制校验授权：未输入与当前机器码匹配的激活码前，录制功能不会启用。生产私钥只用于离线签发激活码，不能放入源码、构建机、安装包或 Git 仓库。
 
 ```powershell
 # 在断网或专用签发机上创建加密私钥；口令文件至少 16 字节
@@ -128,7 +128,7 @@ go run ./cmd/license-keygen issue `
   -license-id CV-2026-000001 `
   -machine 用户完整机器码
 
-# 发布机只持有 .pub 公钥；脚本使用 Garble、release 标签并输出 SHA-256
+# 发布机只持有 .pub 公钥；脚本使用 Garble 混淆并输出 SHA-256
 $env:CLIPVAULT_LICENSE_KEY_ID = "cv-main-2026"
 $env:CLIPVAULT_LICENSE_PUBLIC_KEY = (Get-Content D:\offline\clipvault.private-key.pub -Raw).Trim()
 $env:CLIPVAULT_GARBLE_SEED = "请使用长期保存的随机 Garble seed"

@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 )
 
-// These values are injected into release builds with -ldflags -X.
+// These values are injected into builds with -ldflags -X.
 // The public key is not secret. The private key must never enter this repo.
 var (
 	builtinKeyID           = "cv-main-2026"

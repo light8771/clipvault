@@ -1,0 +1,31 @@
+﻿# 私钥与口令文件绝不进入 Git。
+# 此文件作为兜底；脚本和 README 仍被 Git 跟踪，便于流程版本化。
+#
+# 误提交防护：以下模式匹配 signing/ 目录下的所有敏感材料。
+
+# 加密的 Ed25519 私钥（keygen generate-key 输出）
+*.ed25519
+*.private-key
+*.private-key.pub
+
+# 私钥口令文件
+*passphrase*.txt
+passphrase.txt
+
+# 签发记录与凭据（如有）
+*.lic
+issue-log.*
+issued-licenses.*
+
+# 本地工作目录（脚本可能生成的临时文件）
+_local/
+*.tmp
+
+# 临时检查/调试脚本和输出（下划线前缀）
+_*.ps1
+_*.txt
+_smoke*
+_test_ignored/
+
+# 按订单生成的密钥对和构建产物（一用户一密钥对，含私钥，绝不进 Git）
+orders/

@@ -114,6 +114,7 @@ type Config struct {
 	Autostart        AutostartConfig `json:"autostart"`
 	Security         SecurityConfig  `json:"security"`
 	Hotkey           HotkeyConfig    `json:"hotkey"`
+	SearchHotkey     HotkeyConfig    `json:"searchHotkey"`
 	Backup           BackupConfig    `json:"backup"`
 }
 
@@ -208,6 +209,11 @@ func DefaultConfig() Config {
 			Modifiers: 0x0002 | 0x0001, // MOD_CONTROL | MOD_ALT
 			Key:       0x50,            // VK_P
 		},
+		SearchHotkey: HotkeyConfig{
+			Enabled:   true,
+			Modifiers: 0x0002 | 0x0004, // MOD_CONTROL | MOD_SHIFT
+			Key:       0x20,            // VK_SPACE
+		},
 		Backup: BackupConfig{
 			DirBackup: DirBackupConfig{
 				Interval: 24,
@@ -259,6 +265,9 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Hotkey.Enabled && (cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0) {
 		cfg.Hotkey = def.Hotkey
+	}
+	if cfg.SearchHotkey.Enabled && (cfg.SearchHotkey.Modifiers == 0 || cfg.SearchHotkey.Key == 0) {
+		cfg.SearchHotkey = def.SearchHotkey
 	}
 	if cfg.Backup.DirBackup.Format == "" {
 		cfg.Backup.DirBackup.Format = def.Backup.DirBackup.Format

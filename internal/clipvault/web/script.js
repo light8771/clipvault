@@ -53,7 +53,7 @@
   let locateActive = false; // 定位进行中，阻止 resetSearch 干扰
   let filterDateFrom = '', filterDateTo = '';
   let currentGroupID = 0; // 0 = no group filter
-	let licenseState = { licensed: true, enforced: false, status: 'loading', machineCode: '', version: '' };
+	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '' };
 	let fullMachineId = '';
   const items = new Map();
   const filePaths = new Map();
@@ -602,18 +602,15 @@
       const code = document.getElementById('licenseMachineCode');
       const activateBlock = document.getElementById('licenseActivateBlock');
       const details = document.getElementById('licenseDetailsRow');
-      badge.classList.toggle('warn', d.enforced && !d.licensed);
-      if (!d.enforced) {
-        badge.textContent = '开发构建';
-        hint.textContent = '当前构建未强制授权，正式 release 构建会启用授权检查';
-      } else if (d.licensed) {
+      badge.classList.toggle('warn', !d.licensed);
+      if (d.licensed) {
         badge.textContent = '已激活';
         hint.textContent = '当前设备永久有效';
       } else {
         badge.textContent = '未激活';
         hint.textContent = licenseStatusText(d.status);
       }
-      banner.classList.toggle('hidden', !d.enforced || d.licensed);
+      banner.classList.toggle('hidden', d.licensed);
       activateBlock.classList.toggle('hidden', d.licensed);
       details.classList.toggle('hidden', !d.licensed);
       if (d.licenseId) document.getElementById('licenseIdText').textContent = d.licenseId;
@@ -649,7 +646,10 @@
   window.copyPurchaseInfo = async function() {
     if (!fullMachineId) await loadMachineID();
     if (!fullMachineId) { toast('机器码读取失败', 'err'); return; }
-    const info = '产品：ClipVault\n版本：' + (licenseState.version || '未知') + '\n机器码：' + fullMachineId;
+    const displayCode = document.getElementById('licenseMachineCode').value || '';
+    const info = '产品：ClipVault\n版本：' + (licenseState.version || '未知') +
+      '\n机器码：' + fullMachineId +
+      (displayCode && displayCode !== '读取中…' ? '\n识别码：' + displayCode : '');
     try {
       await navigator.clipboard.writeText(info);
       toast('购买信息已复制');
@@ -730,7 +730,7 @@
   async function refreshState() {
     try {
       const d = await fetch('/api/state').then(r => r.json());
-      const licenseBlocked = licenseState.enforced && !licenseState.licensed;
+      const licenseBlocked = !licenseState.licensed;
       DOT.className = 'dot' + ((d.paused || licenseBlocked) ? ' paused' : '');
       ST.textContent = licenseBlocked ? '未激活' : (d.paused ? '已暂停' : '记录中');
       TOG.className = 'btn-toggle' + (d.paused ? ' off' : '');
@@ -1472,6 +1472,17 @@
     });
     if (hkKey) hkKey.value = hk.key ? String.fromCharCode(hk.key) : '';
 
+    // 搜索框快捷键
+    const shk = cfg.searchHotkey || {};
+    const shkEnabled = document.getElementById('cfg-searchHotkeyEnabled');
+    const shkKey = document.getElementById('cfg-searchHotkeyKey');
+    if (shkEnabled) shkEnabled.checked = !!shk.enabled;
+    const smods = shk.modifiers || 0;
+    document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
+      cb.checked = (smods & parseInt(cb.value)) !== 0;
+    });
+    if (shkKey) shkKey.value = shk.key ? String.fromCharCode(shk.key) : '';
+
     // 安全超时配置
     const lockTimeoutEl = document.getElementById('cfg-lockSessionTimeout');
     const secTimeoutEl  = document.getElementById('cfg-secondaryAuthTimeout');
@@ -1628,6 +1639,21 @@
       toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
       return null;
     }
+    const shkEnabled = document.getElementById('cfg-searchHotkeyEnabled')?.checked || false;
+    let shkMods = 0;
+    document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
+      if (cb.checked) shkMods |= parseInt(cb.value);
+    });
+    const shkKeyChar = (document.getElementById('cfg-searchHotkeyKey')?.value || '').toUpperCase().charCodeAt(0) || 0;
+    if (shkEnabled && (shkMods === 0 || shkKeyChar === 0)) {
+      toast('启用搜索框快捷键时需选择至少一个修饰键并输入一个按键', 'err');
+      return null;
+    }
+    // 防止两个快捷键完全相同
+    if (hkEnabled && shkEnabled && hkMods === shkMods && hkKeyChar === shkKeyChar) {
+      toast('搜索框快捷键不能与全局快捷键相同', 'err');
+      return null;
+    }
     return {
       ...currentCfg,
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
@@ -1646,6 +1672,11 @@
         enabled:   hkEnabled,
         modifiers: hkMods,
         key:       hkKeyChar,
+      },
+      searchHotkey: {
+        enabled:   shkEnabled,
+        modifiers: shkMods,
+        key:       shkKeyChar,
       },
       backup: {
         ...currentCfg.backup,
@@ -2538,8 +2569,46 @@
 
 
   // ── Init ─────────────────────────────────────────────────
+  // -- Scroll-to-top ------------------------------------------
+  const SCROLL_TOP_BTN = document.getElementById('scrollTopBtn');
+  let scrollTicking = false;
+
+  window.addEventListener('scroll', () => {
+    if (scrollTicking) return;
+    scrollTicking = true;
+    requestAnimationFrame(() => {
+      SCROLL_TOP_BTN.classList.toggle('visible', window.scrollY > 300);
+      scrollTicking = false;
+    });
+  }, { passive: true });
+
+  SCROLL_TOP_BTN.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
   async function init() {
     await loadLicenseStatus();
+    // 支持 URL 参数快速跳转：
+    //   ?q=<text>      直接以文本搜索
+    //   ?locate=<id>   定位到时间线中的指定词条（复用 doLocate 逻辑）
+    const params = new URLSearchParams(window.location.search);
+    const qParam = params.get('q');
+    const locateParam = params.get('locate');
+    if (locateParam) {
+      const id = parseInt(locateParam, 10);
+      if (id > 0) {
+        // 清掉 URL 上的 locate 参数，避免刷新时重复定位
+        try { history.replaceState(null, '', window.location.pathname); } catch (_) {}
+        doLocate(id);
+        setupAutoSave();
+        loadGroups();
+        return;
+      }
+    }
+    if (qParam !== null) {
+      Q.value = qParam;
+      try { history.replaceState(null, '', window.location.pathname); } catch (_) {}
+    }
     search();
     setupAutoSave();
     loadGroups();

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Output = "dist\ClipVault.exe",
     [string]$KeyId = $env:CLIPVAULT_LICENSE_KEY_ID,
     [string]$PublicKey = $env:CLIPVAULT_LICENSE_PUBLIC_KEY,
@@ -47,16 +47,23 @@ $ldflags = "-s -w -H=windowsgui " +
     "-X clipboard_ext/internal/licensing.builtinKeyID=$KeyId " +
     "-X clipboard_ext/internal/licensing.builtinPublicKeyBase64=$PublicKey"
 
-& garble "-seed=$GarbleSeed" -literals build `
-    -trimpath `
-    -buildvcs=false `
-    -tags=release `
-    "-ldflags=$ldflags" `
-    -o $Output `
-    .\cmd\clipvault
+# garble 的 warning（如 -seed 只用前 8 字节）输出到 stderr，在 $ErrorActionPreference="Stop"
+# 下会被当成终止性错误。临时切换到 Continue，仅靠 $LASTEXITCODE 判断成败。
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & garble "-seed=$GarbleSeed" -literals build `
+        -trimpath `
+        -buildvcs=false `
+        "-ldflags=$ldflags" `
+        -o $Output `
+        .\cmd\clipvault 2>&1 | ForEach-Object { Write-Host $_ }
+} finally {
+    $ErrorActionPreference = $prevEAP
+}
 
 if ($LASTEXITCODE -ne 0) {
-    throw "release build failed"
+    throw "build failed"
 }
 
 $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $Output
