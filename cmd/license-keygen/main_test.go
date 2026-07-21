@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
+
+	"clipboard_ext/internal/licensing"
 )
 
 func TestEncryptedPrivateKeyRoundtrip(t *testing.T) {
@@ -13,21 +15,21 @@ func TestEncryptedPrivateKeyRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	passphrase := []byte("correct horse battery staple")
-	encrypted, err := encryptPrivateKey(privateKey, passphrase)
+	encrypted, err := licensing.EncryptPrivateKey(privateKey, passphrase)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(encrypted, privateKey) {
 		t.Fatal("encrypted file contains plaintext private key")
 	}
-	decrypted, err := decryptPrivateKey(encrypted, passphrase)
+	decrypted, err := licensing.DecryptPrivateKey(encrypted, passphrase)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(decrypted, privateKey) {
 		t.Fatal("decrypted private key differs")
 	}
-	if _, err := decryptPrivateKey(encrypted, []byte("this is the wrong passphrase")); err == nil {
+	if _, err := licensing.DecryptPrivateKey(encrypted, []byte("this is the wrong passphrase")); err == nil {
 		t.Fatal("wrong passphrase unexpectedly succeeded")
 	}
 }

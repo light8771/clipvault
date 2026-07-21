@@ -1470,7 +1470,7 @@
     document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
       cb.checked = (mods & parseInt(cb.value)) !== 0;
     });
-    if (hkKey) hkKey.value = hk.key ? String.fromCharCode(hk.key) : '';
+    if (hkKey) hkKey.value = vkToDisplay(hk.key);
 
     // 搜索框快捷键
     const shk = cfg.searchHotkey || {};
@@ -1481,7 +1481,7 @@
     document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
       cb.checked = (smods & parseInt(cb.value)) !== 0;
     });
-    if (shkKey) shkKey.value = shk.key ? String.fromCharCode(shk.key) : '';
+    if (shkKey) shkKey.value = vkToDisplay(shk.key);
 
     // 安全超时配置
     const lockTimeoutEl = document.getElementById('cfg-lockSessionTimeout');
@@ -1617,6 +1617,20 @@
   const RESTART_CANCEL   = document.getElementById('restartCancelBtn');
   const RESTART_CONFIRM_BTN = document.getElementById('restartConfirmBtn');
   let saveTimer = 0;
+
+  // VK 码与显示文本互转：Space(0x20) 显示为 "Space"，避免空格字符在输入框中不可见
+  function vkToDisplay(vk) {
+    if (!vk) return '';
+    if (vk === 0x20) return 'Space';
+    return String.fromCharCode(vk);
+  }
+  function parseVkInput(val) {
+    const s = (val || '').trim().toUpperCase();
+    if (!s) return 0;
+    if (s === 'SPACE' || s === '空格') return 0x20;
+    return s.charCodeAt(0);
+  }
+
   let pendingRestart = false;
 
   function collectConfig() {
@@ -1634,7 +1648,7 @@
     document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
       if (cb.checked) hkMods |= parseInt(cb.value);
     });
-    const hkKeyChar = (document.getElementById('cfg-hotkeyKey')?.value || '').toUpperCase().charCodeAt(0) || 0;
+    const hkKeyChar = parseVkInput(document.getElementById('cfg-hotkeyKey')?.value);
     if (hkEnabled && (hkMods === 0 || hkKeyChar === 0)) {
       toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
       return null;
@@ -1644,7 +1658,7 @@
     document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
       if (cb.checked) shkMods |= parseInt(cb.value);
     });
-    const shkKeyChar = (document.getElementById('cfg-searchHotkeyKey')?.value || '').toUpperCase().charCodeAt(0) || 0;
+    const shkKeyChar = parseVkInput(document.getElementById('cfg-searchHotkeyKey')?.value);
     if (shkEnabled && (shkMods === 0 || shkKeyChar === 0)) {
       toast('启用搜索框快捷键时需选择至少一个修饰键并输入一个按键', 'err');
       return null;

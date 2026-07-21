@@ -89,24 +89,73 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 
 ## 构建
 
-> **前提**：需要 MinGW（CGO 依赖，DuckDB 需要 C 编译器）和 Go 1.25+。正式 Garble 发布构建需要 Go 1.26+
+> **前提**：需要 MinGW-w64（CGO 依赖，DuckDB 需要 C 编译器，`gcc --version` 必须可用）和 Go 1.25+。正式 Garble 发布构建需要 Go 1.26+
+
+> **授权注入**：`internal/licensing/keys.go` 中 `builtinPublicKeyBase64` 默认为空字符串，未通过 `-ldflags -X` 注入公钥时，`BuiltinTrustedKeys()` 返回空 map，启动后 `Status=unconfigured` 且 `Enforced=true`，**录制、备份等付费功能全部禁用，也无法激活**。因此 `go run` / `go build` 开发调试时必须同时注入 `CLIPVAULT_LICENSE_KEY_ID` 和 `CLIPVAULT_LICENSE_PUBLIC_KEY`（与 `scripts/build-release.ps1` 同源）。
+
+### 开发调试（推荐：用 dev-run 脚本）
+
+`.\scripts\dev-run.ps1` 一条命令搞定全部：
+
+1. 检查 `signing/cv-dev.ed25519` 调试密钥对是否存在，不存在则自动生成（口令文件也不存在时自动生成随机口令）
+2. 用调试私钥给**当前机器**签发永久激活码，直接写入 receipt 文件（`%LOCALAPPDATA%\ClipVault\license\clipvault.lic`）
+3. 读调试公钥，通过 `-ldflags -X` 注入到 clipvault
+4. `go run` 启动 clipvault（带控制台窗口，便于看日志）
+
+启动后客户端就是**已激活状态**，不需要再手动粘激活码。
+
+```powershell
+# 设置 MinGW 路径（每次新开终端都需要，CGO 由脚本自动设置）
+$env:PATH = "D:\mingw64\bin;" + $env:PATH
+
+# 一键启动
+.\scripts\dev-run.ps1
+
+# 透传子命令，例如命令行搜索
+.\scripts\dev-run.ps1 search 关键字
+```
+
+脚本默认用 `signing/cv-dev.ed25519` + `signing/cv-dev.ed25519.pub` + `signing/key-passphrase-dev.txt` 这套调试密钥（私钥和口令被 `.gitignore` 拦截不进 Git，公钥可公开）。也可以用环境变量覆盖：
+
+| 参数 | 环境变量 | 默认值 |
+|------|---------|--------|
+| KeyID | `CLIPVAULT_LICENSE_KEY_ID` | `cv-main-2026` |
+| 私钥路径 | — | `signing\cv-dev.ed25519` |
+| 公钥路径 | — | `signing\cv-dev.ed25519.pub` |
+| 口令文件 | — | `signing\key-passphrase-dev.txt` |
+
+### 手动签发激活码（可选）
+
+`dev-run.ps1` 已经自动签发并写入 receipt，通常不需要手动操作。如果想给**另一台机器**签发激活码（比如同事的电脑），用 `license-keygen`：
+
+```powershell
+# 1. 让对方运行 clipvault，从 Web 设置页「复制购买信息」拿到完整机器码（64 位十六进制）
+
+# 2. 用调试私钥签发激活码
+go run ./cmd/license-keygen issue `
+  -key signing\cv-dev.ed25519 `
+  -passphrase-file signing\key-passphrase-dev.txt `
+  -license-id CV-DEV-000002 `
+  -machine <对方完整机器码>
+```
+
+输出的 `CV1.xxx.yyy` 激活码粘到对方客户端「设置 → 授权」分区激活即可。
+
+### 手动构建
 
 ```powershell
 # 设置 CGO 和 MinGW 路径（每次新开终端都需要）
 $env:CGO_ENABLED = 1
 $env:PATH = "D:\mingw64\bin;" + $env:PATH
 
-# 开发调试（有控制台窗口）
-go run ./cmd/clipvault
+# 控制台版构建（开发调试用，需自行注入 ldflags 才能激活授权）
+$KeyId = $env:CLIPVAULT_LICENSE_KEY_ID
+$PublicKey = $env:CLIPVAULT_LICENSE_PUBLIC_KEY
+$ldflags = "-X clipboard_ext/internal/licensing.builtinKeyID=$KeyId -X clipboard_ext/internal/licensing.builtinPublicKeyBase64=$PublicKey"
+go build "-ldflags=$ldflags" -o bin\clipvault.exe .\cmd\clipvault
 
-# 一行快捷运行（不想手动设置环境变量时）
-$env:CGO_ENABLED="1"; $env:PATH="D:\mingw64\bin;"+$env:PATH; go run ./cmd/clipvault
-
-# 控制台版构建
-go build -o bin\clipvault.exe .\cmd\clipvault
-
-# GUI 版（正式发布，无黑窗口）
-go build '-ldflags=-H=windowsgui' -o bin\clipvault.exe .\cmd\clipvault
+# GUI 版（无黑窗口，正式发布用 build-release.ps1）
+go build "-ldflags=-H=windowsgui $ldflags" -o bin\clipvault.exe .\cmd\clipvault
 ```
 
 > Windows 资源文件（`.syso`）已预生成在 `cmd/clipvault/` 目录下，包含图标和版本信息。修改图标后需用 `rsrc` 工具重新生成。
@@ -301,6 +350,7 @@ clipboard_ext/
 │   ├── rsrc_windows_amd64.syso # 编译时链入的资源文件
 │   └── rsrc_windows_386.syso   # 同上（32 位）
 ├── cmd/license-keygen/         # 离线密钥生成与永久激活码签发工具
+├── cmd/dev-activate/           # 开发用：给当前机器签发激活码并写入 receipt
 ├── internal/clipvault/         # 核心逻辑
 │   ├── app_windows.go          # Windows 启动流程 + 恢复入口
 │   ├── auth.go                 # 锁屏密码 & 二次密码认证管理

@@ -67,6 +67,13 @@ func unprotectCurrentUser(data []byte) ([]byte, error) {
 }
 
 func writeReceipt(path, token string) error {
+	return WriteReceipt(path, token)
+}
+
+// WriteReceipt writes a license token to the receipt file at path, encrypted
+// with the current user's DPAPI. Exported so tooling (e.g. dev-activate) can
+// pre-populate the receipt without going through the activation UI.
+func WriteReceipt(path, token string) error {
 	plain, err := json.Marshal(receipt{Version: 1, Token: token})
 	if err != nil {
 		return err
