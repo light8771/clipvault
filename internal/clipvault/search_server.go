@@ -467,7 +467,7 @@ func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, stripSecrets(cfg))
 }
 
-// stripSecrets 清除配置中的密码哈希和盐，避免向前端或导出文件泄露。
+// stripSecrets 清除配置中的密码哈希和盐，避免向前端响应泄露。
 func stripSecrets(cfg Config) Config {
 	cfg.Security.LockPasswordHash = ""
 	cfg.Security.SecondaryPasswordHash = ""
