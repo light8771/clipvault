@@ -44,7 +44,25 @@ if ($publicBytes.Length -ne 32) {
 $env:CGO_ENABLED = "1"
 $cc = Get-Command gcc -ErrorAction SilentlyContinue
 if (-not $cc) {
-    throw "gcc not found in PATH; install MinGW-w64 and add its bin directory to PATH"
+    # Support common standalone MinGW-w64 locations without requiring a
+    # permanent PATH change. D:\mingw64 is used by the local dev setup.
+    $gccCandidates = @(
+        "D:\mingw64\bin\gcc.exe",
+        "C:\mingw64\bin\gcc.exe"
+    )
+    foreach ($gccCandidate in $gccCandidates) {
+        if (-not (Test-Path -Path $gccCandidate -PathType Leaf)) {
+            continue
+        }
+        $gccDir = Split-Path -Parent $gccCandidate
+        $env:Path = $gccDir + [IO.Path]::PathSeparator + $env:Path
+        $env:CC = $gccCandidate
+        $cc = Get-Command gcc -ErrorAction SilentlyContinue
+        break
+    }
+}
+if (-not $cc) {
+    throw "gcc not found; install MinGW-w64 or place it in D:\mingw64\bin (or add its bin directory to PATH)"
 }
 
 # Step 4: sign a perpetual license for the current machine and write it
