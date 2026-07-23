@@ -31,19 +31,27 @@ const (
 	wsExDlgModalFrame = 0x00000001
 
 	esAutoHscroll = 0x0080
+	bsOwnerDraw   = 0x000B
 
 	lbsNotify       = 0x0001
 	lbsSort         = 0x0002
 	lbsHasStrings   = 0x0040
 	lbsWantKeyboard = 0x0400
 
-	wmCreate   = 0x0001
-	wmClose    = 0x0010
-	wmActivate = 0x0006
-	wmKeydown  = 0x0100
-	wmChar     = 0x0102
-	wmTimer    = 0x0113
-	wmApp      = 0x8000
+	wmCreate          = 0x0001
+	wmEraseBkgnd      = 0x0014
+	wmClose           = 0x0010
+	wmActivate        = 0x0006
+	wmKeydown         = 0x0100
+	wmChar            = 0x0102
+	wmTimer           = 0x0113
+	wmDrawItem        = 0x002B
+	wmLButtonDown     = 0x0201
+	wmNCLButtonDown   = 0x00A1
+	wmCtlColorEdit    = 0x0133
+	wmCtlColorListbox = 0x0134
+	wmCtlColorStatic  = 0x0138
+	wmApp             = 0x8000
 
 	wmSearchResult = wmApp + 1
 
@@ -68,6 +76,7 @@ const (
 	wmGetText    = 0x000D
 	wmGetTextLen = 0x000E
 	wmSetFocus   = 0x0007
+	wmSetFont    = 0x0030
 
 	vkReturn = 0x0D
 	vkEscape = 0x1B
@@ -76,11 +85,22 @@ const (
 
 	gwlpWndProc = uintptr(^uintptr(0) - 3) // -4 as uintptr (two's complement)
 
-	idcSearchEdit = 2001
-	idcSearchList = 2002
+	idcSearchEdit  = 2001
+	idcSearchList  = 2002
+	idcSearchClose = 2004
+	idcSearchClear = 2005
 
-	searchDebounceTimerID = 1
-	searchDebounceDelay   = 120
+	searchDebounceTimerID  = 1
+	searchDebounceDelay    = 80
+	quickSearchResultLimit = 20
+
+	dtCenter          = 0x0001
+	dtVCenter         = 0x0004
+	dtSingleLine      = 0x0020
+	bkModeTransparent = 1
+	ssCenter          = 0x0001
+	defaultCharSet    = 1
+	clearTypeQuality  = 5
 )
 
 var (
@@ -102,6 +122,14 @@ var (
 	procBringWindowToTop    = user32.NewProc("BringWindowToTop")
 	procSetTimer            = user32.NewProc("SetTimer")
 	procKillTimer           = user32.NewProc("KillTimer")
+	procGetClientRect       = user32.NewProc("GetClientRect")
+	procFillRect            = user32.NewProc("FillRect")
+	procDrawTextW           = user32.NewProc("DrawTextW")
+	procSearchSetTextColor  = gdi32.NewProc("SetTextColor")
+	procSearchSetBkColor    = gdi32.NewProc("SetBkColor")
+	procSearchSetBkMode     = gdi32.NewProc("SetBkMode")
+	procSearchCreateBrush   = gdi32.NewProc("CreateSolidBrush")
+	procSearchCreateFontW   = gdi32.NewProc("CreateFontW")
 )
 
 const (
@@ -118,20 +146,53 @@ type searchWindow struct {
 	hwnd    uintptr
 	hEdit   uintptr
 	hList   uintptr
+	hHeader uintptr
+	hEmpty  uintptr
 	oldEdit uintptr      // 原始 edit 控件 wndproc
 	items   []StoredItem // 当前 listbox 对应的搜索结果
 
-	mu             sync.Mutex
-	closed         bool
-	searchSequence uint64
-	searchCancel   context.CancelFunc
-	pendingResults map[uint64]searchResult
+	mu              sync.Mutex
+	closed          bool
+	searchSequence  uint64
+	searchCancel    context.CancelFunc
+	pendingResults  map[uint64]searchResult
+	backgroundBrush uintptr
+	surfaceBrush    uintptr
+	accentBrush     uintptr
+	closeBrush      uintptr
+	emojiFont       uintptr
 }
 
 type searchResult struct {
 	items []StoredItem
 	err   error
+	query string
 }
+
+type searchRect struct {
+	left, top, right, bottom int32
+}
+
+type searchDrawItem struct {
+	ctlType    uint32
+	ctlID      uint32
+	itemID     uint32
+	itemAction uint32
+	itemState  uint32
+	hwndItem   uintptr
+	hdc        uintptr
+	rect       searchRect
+	itemData   uintptr
+}
+
+const (
+	searchColorBackground = 0x140C07 // #070C14
+	searchColorSurface    = 0x201810 // #101820
+	searchColorText       = 0xF3F6E8 // #E8F6F3
+	searchColorSubtle     = 0xBFC48F // #8FC4BF
+	searchColorAccent     = 0xA6B814 // #14B8A6
+	searchColorClose      = 0x635CD9 // #D95C63
+)
 
 var (
 	activeSearchWindow     *searchWindow
@@ -144,10 +205,12 @@ var (
 // ShowSearchWindow 在新线程上启动搜索弹窗。如果已有弹窗则将其前置。
 func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger) {
 	searchWindowMu.Lock()
-	if activeSearchWindow != nil {
-		// 已存在：仅前置并聚焦
-		activeSearchWindow.focus()
+	existing := activeSearchWindow
+	if existing != nil {
 		searchWindowMu.Unlock()
+		// Window activation can synchronously dispatch messages. Never hold the
+		// registry lock while calling into User32 or the window procedure deadlocks.
+		existing.focus()
 		return
 	}
 	sw := &searchWindow{
@@ -182,8 +245,8 @@ func (sw *searchWindow) run() {
 	}
 
 	title, _ := syscall.UTF16PtrFromString("ClipVault 快速搜索")
-	cx := 620
-	cy := 420
+	cx := 680
+	cy := 500
 	screenCx, _, _ := procGetSystemMetrics.Call(smCxScreen)
 	screenCy, _, _ := procGetSystemMetrics.Call(smCyScreen)
 	x := (int(screenCx) - cx) / 2
@@ -193,7 +256,7 @@ func (sw *searchWindow) run() {
 		uintptr(wsExTopmost|wsExToolWindow),
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(title)),
-		uintptr(wsPopup|wsCaption|wsSysMenu|wsVisible),
+		uintptr(wsPopup|wsVisible),
 		uintptr(x), uintptr(y), uintptr(cx), uintptr(cy),
 		0, 0, instance, 0,
 	)
@@ -203,36 +266,96 @@ func (sw *searchWindow) run() {
 	sw.mu.Lock()
 	sw.hwnd = hwnd
 	sw.mu.Unlock()
+	sw.initModernPalette()
 
-	// 子控件
+	// Modern search surface, while keeping native controls for reliable IME and keyboard handling.
 	editCls, _ := syscall.UTF16PtrFromString("EDIT")
 	listCls, _ := syscall.UTF16PtrFromString("LISTBOX")
+	staticCls, _ := syscall.UTF16PtrFromString("STATIC")
+	headerText, _ := syscall.UTF16PtrFromString("CLIPVAULT")
+	sw.hHeader, _, _ = procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(staticCls)),
+		uintptr(unsafe.Pointer(headerText)),
+		uintptr(wsChild|wsVisible),
+		20, 14, 150, 18,
+		hwnd, 0, instance, 0,
+	)
+	subtitleText, _ := syscall.UTF16PtrFromString("快速搜索")
+	procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(staticCls)),
+		uintptr(unsafe.Pointer(subtitleText)),
+		uintptr(wsChild|wsVisible),
+		20, 32, 180, 20,
+		hwnd, 0, instance, 0,
+	)
 	sw.hEdit, _, _ = procCreateWindowExW.Call(
-		uintptr(wsExDlgModalFrame),
+		0,
 		uintptr(unsafe.Pointer(editCls)),
 		0,
-		uintptr(wsChild|wsVisible|esAutoHscroll),
-		12, 12, uintptr(cx-24-90), 24,
+		uintptr(wsChild|wsVisible|wsBorder|esAutoHscroll),
+		20, 64, 502, 34,
 		hwnd, uintptr(idcSearchEdit), instance, 0,
 	)
-	// "搜索"按钮（仅装饰，回车即触发）
+	// "搜索"按钮（回车同样触发）
 	btnCls, _ := syscall.UTF16PtrFromString("BUTTON")
 	btnText, _ := syscall.UTF16PtrFromString("搜索")
+	closeText, _ := syscall.UTF16PtrFromString("X")
+	procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(btnCls)),
+		uintptr(unsafe.Pointer(closeText)),
+		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		636, 12, 24, 24,
+		hwnd, uintptr(idcSearchClose), instance, 0,
+	)
+	clearText, _ := syscall.UTF16PtrFromString("X")
+	procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(btnCls)),
+		uintptr(unsafe.Pointer(clearText)),
+		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		528, 69, 24, 24,
+		hwnd, uintptr(idcSearchClear), instance, 0,
+	)
 	procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
 		uintptr(unsafe.Pointer(btnText)),
-		uintptr(wsChild|wsVisible),
-		uintptr(cx-24-78+10), 12, 78, 24,
+		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		568, 64, 92, 34,
 		hwnd, 2003, instance, 0,
 	)
 	sw.hList, _, _ = procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(listCls)),
 		0,
-		uintptr(wsChild|wsVisible|lbsNotify|lbsHasStrings|wsVscroll),
-		12, 44, uintptr(cx-24), uintptr(cy-44-12),
+		uintptr(wsChild|wsVisible|wsBorder|lbsNotify|lbsHasStrings|wsVscroll),
+		20, 112, 640, 308,
 		hwnd, uintptr(idcSearchList), instance, 0,
+	)
+	emptyText, _ := syscall.UTF16PtrFromString("")
+	sw.hEmpty, _, _ = procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(staticCls)),
+		uintptr(unsafe.Pointer(emptyText)),
+		uintptr(wsChild|ssCenter),
+		20, 250, 640, 28,
+		hwnd, 0, instance, 0,
+	)
+	sw.initTextFont()
+	sw.applyTextFont(sw.hEdit)
+	sw.applyTextFont(sw.hList)
+	sw.applyTextFont(sw.hEmpty)
+	hintText, _ := syscall.UTF16PtrFromString(fmt.Sprintf("最多显示最近 %d 条匹配记录   X 清空输入   Enter 打开   ↑↓ 选择   Esc 关闭", quickSearchResultLimit))
+	procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(staticCls)),
+		uintptr(unsafe.Pointer(hintText)),
+		uintptr(wsChild|wsVisible),
+		20, 442, 640, 18,
+		hwnd, 0, instance, 0,
 	)
 
 	// 子类化 edit 控件以拦截 Up/Down/Return/Esc
@@ -297,11 +420,136 @@ func searchWindowWndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) u
 	return sw.wndProc(hwnd, message, wParam, lParam)
 }
 
+func (sw *searchWindow) initModernPalette() {
+	sw.backgroundBrush, _, _ = procSearchCreateBrush.Call(searchColorBackground)
+	sw.surfaceBrush, _, _ = procSearchCreateBrush.Call(searchColorSurface)
+	sw.accentBrush, _, _ = procSearchCreateBrush.Call(searchColorAccent)
+	sw.closeBrush, _, _ = procSearchCreateBrush.Call(searchColorClose)
+}
+
+func (sw *searchWindow) initTextFont() {
+	face, _ := syscall.UTF16PtrFromString("Segoe UI Emoji")
+	sw.emojiFont, _, _ = procSearchCreateFontW.Call(
+		uintptr(uint32(^uint32(17))), 0, 0, 0, 400,
+		0, 0, 0, defaultCharSet, 0, 0, clearTypeQuality, 0,
+		uintptr(unsafe.Pointer(face)),
+	)
+}
+
+func (sw *searchWindow) applyTextFont(hwnd uintptr) {
+	if hwnd == 0 || sw.emojiFont == 0 {
+		return
+	}
+	procSendMessageW.Call(hwnd, wmSetFont, sw.emojiFont, 1)
+}
+
+func (sw *searchWindow) paintBackground(hdc uintptr) {
+	if sw.backgroundBrush == 0 {
+		return
+	}
+	var rect searchRect
+	procGetClientRect.Call(sw.hwnd, uintptr(unsafe.Pointer(&rect)))
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&rect)), sw.backgroundBrush)
+}
+
+func (sw *searchWindow) controlColor(hdc, child uintptr, brush, textColor uintptr) uintptr {
+	if brush == 0 {
+		return 0
+	}
+	if child == sw.hHeader {
+		textColor = searchColorAccent
+	}
+	procSearchSetTextColor.Call(hdc, textColor)
+	procSearchSetBkColor.Call(hdc, searchColorBackground)
+	if brush == sw.surfaceBrush {
+		procSearchSetBkColor.Call(hdc, searchColorSurface)
+	}
+	return brush
+}
+
+func (sw *searchWindow) drawSearchButton(lParam uintptr) bool {
+	if lParam == 0 {
+		return false
+	}
+	item := (*searchDrawItem)(unsafe.Pointer(lParam))
+	brush := sw.accentBrush
+	labelText := "搜索"
+	textColor := uintptr(searchColorBackground)
+	switch item.ctlID {
+	case 2003:
+	case idcSearchClear:
+		brush = sw.surfaceBrush
+		labelText = "X"
+		textColor = searchColorSubtle
+	case idcSearchClose:
+		brush = sw.closeBrush
+		labelText = "X"
+		textColor = searchColorText
+	default:
+		return false
+	}
+	if brush == 0 {
+		return false
+	}
+	procFillRect.Call(item.hdc, uintptr(unsafe.Pointer(&item.rect)), brush)
+	procSearchSetTextColor.Call(item.hdc, textColor)
+	procSearchSetBkMode.Call(item.hdc, bkModeTransparent)
+	label, _ := syscall.UTF16PtrFromString(labelText)
+	procDrawTextW.Call(
+		item.hdc,
+		uintptr(unsafe.Pointer(label)),
+		^uintptr(0),
+		uintptr(unsafe.Pointer(&item.rect)),
+		dtCenter|dtVCenter|dtSingleLine,
+	)
+	return true
+}
+
+func (sw *searchWindow) releaseModernTheme() {
+	if sw.backgroundBrush != 0 {
+		procDeleteObject.Call(sw.backgroundBrush)
+		sw.backgroundBrush = 0
+	}
+	if sw.surfaceBrush != 0 {
+		procDeleteObject.Call(sw.surfaceBrush)
+		sw.surfaceBrush = 0
+	}
+	if sw.accentBrush != 0 {
+		procDeleteObject.Call(sw.accentBrush)
+		sw.accentBrush = 0
+	}
+	if sw.closeBrush != 0 {
+		procDeleteObject.Call(sw.closeBrush)
+		sw.closeBrush = 0
+	}
+	if sw.emojiFont != 0 {
+		procDeleteObject.Call(sw.emojiFont)
+		sw.emojiFont = 0
+	}
+}
+
 // wndProc 搜索窗口的主窗口过程
 func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
 	case wmCreate:
 		return 0
+	case wmLButtonDown:
+		if int16(hiword(lParam)) < 54 {
+			procReleaseCapture.Call()
+			procSendMessageW.Call(hwnd, wmNCLButtonDown, 2, 0)
+			return 0
+		}
+	case wmEraseBkgnd:
+		sw.paintBackground(wParam)
+		return 1
+	case wmCtlColorEdit, wmCtlColorListbox:
+		return sw.controlColor(wParam, lParam, sw.surfaceBrush, searchColorText)
+	case wmCtlColorStatic:
+		return sw.controlColor(wParam, lParam, sw.backgroundBrush, searchColorSubtle)
+	case wmDrawItem:
+		if sw.drawSearchButton(lParam) {
+			return 1
+		}
 	case wmActivate:
 		// 失去焦点时自动关闭（与 Spotlight 类似行为）
 		if uint16(loword(wParam)) == waInactive {
@@ -332,6 +580,10 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 			}
 		case 2003: // 搜索按钮
 			sw.confirmSelection()
+		case idcSearchClose:
+			sw.close()
+		case idcSearchClear:
+			sw.clearSearchInput()
 		}
 		return 0
 	case wmClose:
@@ -343,6 +595,17 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 	}
 	ret, _, _ := procDefWindowProcW.Call(hwnd, uintptr(message), wParam, lParam)
 	return ret
+}
+
+func (sw *searchWindow) clearSearchInput() {
+	if sw.hEdit == 0 {
+		return
+	}
+	procSetWindowTextW.Call(sw.hEdit, 0)
+	procSetFocus.Call(sw.hEdit)
+	// WM_SETTEXT normally emits EN_CHANGE. Reset the debounce timer here as
+	// well so native control variations cannot leave stale suggestions visible.
+	sw.onEditChange()
 }
 
 // editProc 子类化的 edit 控件过程，拦截 Up/Down/Return/Esc
@@ -432,12 +695,14 @@ func (sw *searchWindow) startSearch(q string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	sw.searchCancel = cancel
 	sw.mu.Unlock()
+	sw.showSearchStatus("正在搜索...")
 
 	go func() {
 		items, _, err := sw.store.Search(ctx, SearchOptions{
 			Query:            q,
-			Limit:            8,
+			Limit:            quickSearchResultLimit,
 			IncludeSensitive: false,
+			SkipTotal:        true,
 		})
 		if ctx.Err() != nil {
 			return
@@ -448,7 +713,7 @@ func (sw *searchWindow) startSearch(q string) {
 			sw.mu.Unlock()
 			return
 		}
-		sw.pendingResults[sequence] = searchResult{items: items, err: err}
+		sw.pendingResults[sequence] = searchResult{items: items, err: err, query: q}
 		sw.mu.Unlock()
 
 		if ok, _, _ := procPostMessageW.Call(hwnd, wmSearchResult, uintptr(sequence), 0); ok == 0 {
@@ -472,22 +737,53 @@ func (sw *searchWindow) handleSearchResult(sequence uint64) {
 		if sw.logger != nil {
 			sw.logger.Warn("search_window_query_failed", map[string]any{"error": result.err.Error()})
 		}
+		sw.showSearchStatus("搜索失败，请重试")
 		return
 	}
-	sw.refreshList(result.items)
+	sw.refreshList(result.items, result.query)
 }
 
-func (sw *searchWindow) refreshList(items []StoredItem) {
+func (sw *searchWindow) refreshList(items []StoredItem, query string) {
 	if sw.hList == 0 {
 		return
 	}
 	procSendMessageW.Call(sw.hList, lbResetContent, 0, 0)
 	sw.items = items
+	if len(items) == 0 {
+		message := "没有找到匹配的剪贴板记录"
+		if strings.TrimSpace(query) == "" {
+			message = "暂无可搜索的剪贴板记录"
+		}
+		sw.showSearchStatus(message)
+		return
+	}
+	sw.hideSearchStatus()
 	for i, it := range items {
 		label := formatSuggestion(it)
 		text, _ := syscall.UTF16PtrFromString(label)
 		procSendMessageW.Call(sw.hList, lbAddString, 0, uintptr(unsafe.Pointer(text)))
 		procSendMessageW.Call(sw.hList, lbSetItemData, uintptr(i), uintptr(it.ID))
+	}
+}
+
+func (sw *searchWindow) showSearchStatus(message string) {
+	if sw.hEmpty == 0 {
+		return
+	}
+	text, _ := syscall.UTF16PtrFromString(message)
+	procSetWindowTextW.Call(sw.hEmpty, uintptr(unsafe.Pointer(text)))
+	if sw.hList != 0 {
+		procShowWindow.Call(sw.hList, swHide)
+	}
+	procShowWindow.Call(sw.hEmpty, swShow)
+}
+
+func (sw *searchWindow) hideSearchStatus() {
+	if sw.hEmpty != 0 {
+		procShowWindow.Call(sw.hEmpty, swHide)
+	}
+	if sw.hList != 0 {
+		procShowWindow.Call(sw.hList, swShow)
 	}
 }
 
@@ -604,6 +900,7 @@ func (sw *searchWindow) onDestroy() {
 	sw.pendingResults = nil
 	sw.mu.Unlock()
 
+	sw.releaseModernTheme()
 	sw.clearActiveWindow()
 	procPostQuitMessage.Call(0)
 }

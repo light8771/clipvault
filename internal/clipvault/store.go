@@ -70,9 +70,12 @@ type SearchOptions struct {
 	DateFrom         string // YYYY-MM-DD, inclusive lower bound on created_at (UTC date)
 	DateTo           string // YYYY-MM-DD, inclusive upper bound on created_at (UTC date)
 	SensitiveOnly    bool   // filter to sensitive items only
-	IncludeSensitive bool   // include sensitive items in results (default true)
+	IncludeSensitive bool   // include sensitive items in results (default false)
 	GroupID          int64  // filter by group id (0 = no group filter)
+	SkipTotal        bool   // skip total count when the caller only needs the current page
 }
+
+const maxSearchTerms = 8
 
 // StoreOptions holds parameters for opening an encrypted DuckDB store.
 type StoreOptions struct {
@@ -286,10 +289,13 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	var conds []string
 	var args []any
 
-	if q := strings.TrimSpace(opts.Query); q != "" {
-		like := "%" + escapeLike(q) + "%"
-		conds = append(conds, `(text LIKE ? ESCAPE '\' OR format LIKE ? ESCAPE '\' OR sha256 LIKE ? ESCAPE '\')`)
-		args = append(args, like, like, like)
+	for _, term := range splitSearchTerms(opts.Query) {
+		like := "%" + escapeLike(term) + "%"
+		// Each term may match the visible text, type, native format, metadata,
+		// or an assigned group. Terms are ANDed together so a broad query remains
+		// useful instead of returning every record that contains any one word.
+		conds = append(conds, `(text ILIKE ? ESCAPE '\' OR kind ILIKE ? ESCAPE '\' OR format ILIKE ? ESCAPE '\' OR sha256 ILIKE ? ESCAPE '\' OR meta_json ILIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM item_groups ig JOIN groups g ON g.id = ig.group_id WHERE ig.item_id = clipboard_items.id AND g.name ILIKE ? ESCAPE '\'))`)
+		args = append(args, like, like, like, like, like, like)
 	}
 	if opts.StarredOnly {
 		conds = append(conds, "starred = true")
@@ -321,10 +327,13 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		where = " WHERE " + strings.Join(conds, " AND ")
 	}
 
-	// Count total matching rows
 	var total int
-	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clipboard_items"+where, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	if !opts.SkipTotal {
+		// Web pagination needs this value, but a type-ahead consumer does not.
+		// Skipping it avoids a second full scan for wildcard searches.
+		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clipboard_items"+where, args...).Scan(&total); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	// Fetch page
@@ -352,6 +361,14 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		items = append(items, item)
 	}
 	return items, total, rows.Err()
+}
+
+func splitSearchTerms(query string) []string {
+	terms := strings.Fields(query)
+	if len(terms) > maxSearchTerms {
+		return terms[:maxSearchTerms]
+	}
+	return terms
 }
 
 // GetByID 返回指定 ID 的单条记录。
