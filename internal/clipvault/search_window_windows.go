@@ -42,6 +42,10 @@ const (
 	wmActivate = 0x0006
 	wmKeydown  = 0x0100
 	wmChar     = 0x0102
+	wmTimer    = 0x0113
+	wmApp      = 0x8000
+
+	wmSearchResult = wmApp + 1
 
 	waInactive = 0
 
@@ -74,6 +78,9 @@ const (
 
 	idcSearchEdit = 2001
 	idcSearchList = 2002
+
+	searchDebounceTimerID = 1
+	searchDebounceDelay   = 120
 )
 
 var (
@@ -93,6 +100,8 @@ var (
 	procReleaseCapture      = user32.NewProc("ReleaseCapture")
 	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
 	procBringWindowToTop    = user32.NewProc("BringWindowToTop")
+	procSetTimer            = user32.NewProc("SetTimer")
+	procKillTimer           = user32.NewProc("KillTimer")
 )
 
 const (
@@ -106,21 +115,30 @@ type searchWindow struct {
 	searchURL string
 	logger    *DailyLogger
 
-	hwnd     uintptr
-	hEdit    uintptr
-	hList    uintptr
-	oldEdit  uintptr // 原始 edit 控件 wndproc
-	debounce uint32  // 简易防抖计数（用 PostMessage 自定义 WM_TIMER 替代）
-	timerId  uint32
-	items    []StoredItem // 当前 listbox 对应的搜索结果
+	hwnd    uintptr
+	hEdit   uintptr
+	hList   uintptr
+	oldEdit uintptr      // 原始 edit 控件 wndproc
+	items   []StoredItem // 当前 listbox 对应的搜索结果
 
-	mu      sync.Mutex
-	visible bool
+	mu             sync.Mutex
+	closed         bool
+	searchSequence uint64
+	searchCancel   context.CancelFunc
+	pendingResults map[uint64]searchResult
+}
+
+type searchResult struct {
+	items []StoredItem
+	err   error
 }
 
 var (
-	activeSearchWindow *searchWindow
-	searchWindowMu     sync.Mutex
+	activeSearchWindow     *searchWindow
+	searchWindowMu         sync.Mutex
+	searchWindowClassOnce  sync.Once
+	searchWindowClassErr   error
+	searchWindowWndProcPtr = syscall.NewCallback(searchWindowWndProc)
 )
 
 // ShowSearchWindow 在新线程上启动搜索弹窗。如果已有弹窗则将其前置。
@@ -128,17 +146,16 @@ func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger) {
 	searchWindowMu.Lock()
 	if activeSearchWindow != nil {
 		// 已存在：仅前置并聚焦
-		if activeSearchWindow.hwnd != 0 {
-			procSetForegroundWindow.Call(activeSearchWindow.hwnd)
-			procBringWindowToTop.Call(activeSearchWindow.hwnd)
-			if activeSearchWindow.hEdit != 0 {
-				procSetFocus.Call(activeSearchWindow.hEdit)
-			}
-		}
+		activeSearchWindow.focus()
 		searchWindowMu.Unlock()
 		return
 	}
-	sw := &searchWindow{store: store, searchURL: searchURL, logger: logger}
+	sw := &searchWindow{
+		store:          store,
+		searchURL:      searchURL,
+		logger:         logger,
+		pendingResults: make(map[uint64]searchResult),
+	}
 	activeSearchWindow = sw
 	searchWindowMu.Unlock()
 
@@ -157,13 +174,12 @@ func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger) {
 func (sw *searchWindow) run() {
 	instance, _, _ := procGetModuleHandleW.Call(0)
 	className, _ := syscall.UTF16PtrFromString("ClipVaultSearchWindow")
-	wc := wndClassEx{
-		Size:      uint32(unsafe.Sizeof(wndClassEx{})),
-		WndProc:   syscall.NewCallback(sw.wndProc),
-		Instance:  instance,
-		ClassName: className,
+	if err := registerSearchWindowClass(instance, className); err != nil {
+		if sw.logger != nil {
+			sw.logger.Warn("search_window_class_register_failed", map[string]any{"error": err.Error()})
+		}
+		return
 	}
-	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
 	title, _ := syscall.UTF16PtrFromString("ClipVault 快速搜索")
 	cx := 620
@@ -184,7 +200,9 @@ func (sw *searchWindow) run() {
 	if hwnd == 0 {
 		return
 	}
+	sw.mu.Lock()
 	sw.hwnd = hwnd
+	sw.mu.Unlock()
 
 	// 子控件
 	editCls, _ := syscall.UTF16PtrFromString("EDIT")
@@ -217,7 +235,7 @@ func (sw *searchWindow) run() {
 		hwnd, uintptr(idcSearchList), instance, 0,
 	)
 
-	// 子类化 edit 控件以拦截 Up/Down/Return
+	// 子类化 edit 控件以拦截 Up/Down/Return/Esc
 	if sw.hEdit != 0 {
 		orig, _, _ := procGetWindowLongPtrW.Call(sw.hEdit, gwlpWndProc)
 		sw.oldEdit = orig
@@ -226,6 +244,8 @@ func (sw *searchWindow) run() {
 
 	procShowWindow.Call(hwnd, swShow)
 	procUpdateWindow.Call(hwnd)
+	procSetForegroundWindow.Call(hwnd)
+	procBringWindowToTop.Call(hwnd)
 	if sw.hEdit != 0 {
 		procSetFocus.Call(sw.hEdit)
 	}
@@ -246,6 +266,37 @@ func (sw *searchWindow) run() {
 	}
 }
 
+func registerSearchWindowClass(instance uintptr, className *uint16) error {
+	searchWindowClassOnce.Do(func() {
+		wc := wndClassEx{
+			Size:      uint32(unsafe.Sizeof(wndClassEx{})),
+			WndProc:   searchWindowWndProcPtr,
+			Instance:  instance,
+			ClassName: className,
+		}
+		atom, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+		if atom == 0 {
+			if err != syscall.Errno(0) {
+				searchWindowClassErr = fmt.Errorf("RegisterClassExW: %w", err)
+			} else {
+				searchWindowClassErr = fmt.Errorf("RegisterClassExW failed")
+			}
+		}
+	})
+	return searchWindowClassErr
+}
+
+func searchWindowWndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
+	searchWindowMu.Lock()
+	sw := activeSearchWindow
+	searchWindowMu.Unlock()
+	if sw == nil {
+		ret, _, _ := procDefWindowProcW.Call(hwnd, uintptr(message), wParam, lParam)
+		return ret
+	}
+	return sw.wndProc(hwnd, message, wParam, lParam)
+}
+
 // wndProc 搜索窗口的主窗口过程
 func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
@@ -256,6 +307,15 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 		if uint16(loword(wParam)) == waInactive {
 			sw.close()
 		}
+		return 0
+	case wmTimer:
+		if wParam == searchDebounceTimerID {
+			procKillTimer.Call(hwnd, searchDebounceTimerID)
+			sw.startSearch(sw.getEdit_text())
+		}
+		return 0
+	case wmSearchResult:
+		sw.handleSearchResult(uint64(wParam))
 		return 0
 	case wmCommand:
 		ctlID := uint16(loword(wParam))
@@ -276,6 +336,9 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 		return 0
 	case wmClose:
 		sw.close()
+		return 0
+	case wmDestroy:
+		sw.onDestroy()
 		return 0
 	}
 	ret, _, _ := procDefWindowProcW.Call(hwnd, uintptr(message), wParam, lParam)
@@ -331,8 +394,9 @@ func (sw *searchWindow) moveListSelection(delta int) {
 }
 
 func (sw *searchWindow) onEditChange() {
-	q := sw.getEdit_text()
-	sw.runSearch(q)
+	if sw.hwnd != 0 {
+		procSetTimer.Call(sw.hwnd, searchDebounceTimerID, searchDebounceDelay, 0)
+	}
 }
 
 func (sw *searchWindow) getEdit_text() string {
@@ -349,24 +413,68 @@ func (sw *searchWindow) getEdit_text() string {
 	return syscall.UTF16ToString(buf)
 }
 
-func (sw *searchWindow) runSearch(q string) {
+func (sw *searchWindow) startSearch(q string) {
 	if sw.store == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	items, _, err := sw.store.Search(ctx, SearchOptions{
-		Query:            q,
-		Limit:            8,
-		IncludeSensitive: false,
-	})
-	if err != nil {
+
+	sw.mu.Lock()
+	if sw.closed || sw.hwnd == 0 {
+		sw.mu.Unlock()
+		return
+	}
+	if sw.searchCancel != nil {
+		sw.searchCancel()
+	}
+	sw.searchSequence++
+	sequence := sw.searchSequence
+	hwnd := sw.hwnd
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	sw.searchCancel = cancel
+	sw.mu.Unlock()
+
+	go func() {
+		items, _, err := sw.store.Search(ctx, SearchOptions{
+			Query:            q,
+			Limit:            8,
+			IncludeSensitive: false,
+		})
+		if ctx.Err() != nil {
+			return
+		}
+
+		sw.mu.Lock()
+		if sw.closed || sw.searchSequence != sequence || sw.hwnd != hwnd {
+			sw.mu.Unlock()
+			return
+		}
+		sw.pendingResults[sequence] = searchResult{items: items, err: err}
+		sw.mu.Unlock()
+
+		if ok, _, _ := procPostMessageW.Call(hwnd, wmSearchResult, uintptr(sequence), 0); ok == 0 {
+			sw.mu.Lock()
+			delete(sw.pendingResults, sequence)
+			sw.mu.Unlock()
+		}
+	}()
+}
+
+func (sw *searchWindow) handleSearchResult(sequence uint64) {
+	sw.mu.Lock()
+	result, ok := sw.pendingResults[sequence]
+	delete(sw.pendingResults, sequence)
+	current := !sw.closed && sw.searchSequence == sequence
+	sw.mu.Unlock()
+	if !ok || !current {
+		return
+	}
+	if result.err != nil {
 		if sw.logger != nil {
-			sw.logger.Warn("search_window_query_failed", map[string]any{"error": err.Error()})
+			sw.logger.Warn("search_window_query_failed", map[string]any{"error": result.err.Error()})
 		}
 		return
 	}
-	sw.refreshList(items)
+	sw.refreshList(result.items)
 }
 
 func (sw *searchWindow) refreshList(items []StoredItem) {
@@ -458,15 +566,66 @@ func urlQueryEscape(s string) string {
 }
 
 func (sw *searchWindow) close() {
-	if sw.hwnd == 0 {
+	sw.mu.Lock()
+	if sw.closed || sw.hwnd == 0 {
+		sw.mu.Unlock()
 		return
 	}
-	procDestroyWindow.Call(sw.hwnd)
+	sw.closed = true
+	hwnd := sw.hwnd
+	sw.hwnd = 0
+	if sw.searchCancel != nil {
+		sw.searchCancel()
+		sw.searchCancel = nil
+	}
+	sw.pendingResults = nil
+	sw.mu.Unlock()
+
+	procKillTimer.Call(hwnd, searchDebounceTimerID)
+	procShowWindow.Call(hwnd, swHide)
+	destroyed, _, _ := procDestroyWindow.Call(hwnd)
+	// 退出本线程消息循环
+	if destroyed == 0 {
+		sw.clearActiveWindow()
+		procPostQuitMessage.Call(0)
+	}
+}
+
+func (sw *searchWindow) onDestroy() {
+	sw.mu.Lock()
+	sw.closed = true
 	sw.hwnd = 0
 	sw.hEdit = 0
 	sw.hList = 0
-	// 退出本线程消息循环
+	if sw.searchCancel != nil {
+		sw.searchCancel()
+		sw.searchCancel = nil
+	}
+	sw.pendingResults = nil
+	sw.mu.Unlock()
+
+	sw.clearActiveWindow()
 	procPostQuitMessage.Call(0)
+}
+
+func (sw *searchWindow) focus() {
+	sw.mu.Lock()
+	hwnd := sw.hwnd
+	closed := sw.closed
+	sw.mu.Unlock()
+	if hwnd == 0 || closed {
+		return
+	}
+	procSetForegroundWindow.Call(hwnd)
+	procBringWindowToTop.Call(hwnd)
+}
+
+func (sw *searchWindow) clearActiveWindow() {
+	searchWindowMu.Lock()
+	if activeSearchWindow == sw {
+		activeSearchWindow = nil
+	}
+	searchWindowMu.Unlock()
 }
 
 func loword(w uintptr) uint16 { return uint16(w & 0xFFFF) }
