@@ -108,7 +108,6 @@
   LOCK_FORM.addEventListener('submit', async (e) => {
     e.preventDefault();
     const pwd = LOCK_INPUT.value;
-    if (!pwd) return;
     LOCK_ERR.classList.add('hidden');
     try {
       const res = await fetch('/api/auth/login', {
@@ -192,7 +191,6 @@
   SECONDARY_FORM.addEventListener('submit', async (e) => {
     e.preventDefault();
     const pwd = SECONDARY_INPUT.value;
-    if (!pwd) return;
     SECONDARY_ERR.classList.add('hidden');
     try {
       const res = await fetch('/api/auth/secondary', {
@@ -250,7 +248,7 @@
               ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
               <label class="field-label" for="pwdDlgNew">新密码</label>
               <input type="password" id="pwdDlgNew" class="lock-input" autocomplete="new-password" aria-describedby="pwdDlgHint">
-              <p class="field-hint" id="pwdDlgHint">至少 8 位，包含大小写字母、数字或特殊字符中的至少两种</p>
+              <p class="field-hint" id="pwdDlgHint">密码可自由设置，请确认两次输入一致</p>
               <label class="field-label" for="pwdDlgConfirm">确认新密码</label>
               <input type="password" id="pwdDlgConfirm" class="lock-input" autocomplete="new-password">`}
               <label class="password-show"><input type="checkbox" id="pwdDlgShow"> 显示密码</label>
@@ -304,9 +302,7 @@
       const confirmPwd = confirmInput ? confirmInput.value : '';
       errEl.classList.add('hidden');
 
-      if (!isRemove && !newPwd) { errEl.textContent = '新密码不能为空'; errEl.classList.remove('hidden'); return; }
       if (!isRemove && newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
-      if ((isChange || isRemove) && !oldPwd) { errEl.textContent = '请输入当前密码'; errEl.classList.remove('hidden'); return; }
 
       try {
         const res = await fetch('/api/auth/password', {
@@ -321,8 +317,7 @@
           await checkAuthStatus();
           updatePwdStatusUI();
         } else {
-          const errMap = { too_short: '密码至少 8 位', too_weak: '密码需包含大小写字母、数字、特殊字符中的至少两种' };
-          errEl.textContent = errMap[d.error] || d.error || '操作失败';
+          errEl.textContent = d.error || '操作失败';
           errEl.classList.remove('hidden');
         }
       } catch (_) {
@@ -398,7 +393,7 @@
             <form id="recDialogForm" class="lock-form">
               <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
               ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
-              <input type="password" id="recDlgNew" class="lock-input" placeholder="新恢复密码（至少8位）" autocomplete="new-password">
+              <input type="password" id="recDlgNew" class="lock-input" placeholder="新恢复密码" autocomplete="new-password">
               <input type="password" id="recDlgConfirm" class="lock-input" placeholder="确认新恢复密码" autocomplete="new-password">
               <button type="submit" class="lock-btn">确定</button>
             </form>
@@ -428,10 +423,7 @@
       const confirmPwd = confirmInput.value;
       errEl.classList.add('hidden');
 
-      if (!newPwd) { errEl.textContent = '新密码不能为空'; errEl.classList.remove('hidden'); return; }
-      if (newPwd.length < 8) { errEl.textContent = '密码至少 8 位'; errEl.classList.remove('hidden'); return; }
       if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
-      if (isChange && !oldPwd) { errEl.textContent = '请输入当前恢复密码'; errEl.classList.remove('hidden'); return; }
 
       try {
         const ok = await requestSecondaryAuth();
@@ -1532,8 +1524,19 @@
     root.style.setProperty('--accent-dim', hexToRgba(colors.accent, .1));
     root.style.setProperty('--accent-glow', hexToRgba(colors.accent, .16));
     root.style.setProperty('--accent-border', hexToRgba(colors.accent, .3));
+	root.style.setProperty('--font-scale', `${Math.max(100, Math.min(150, Number(normalized.fontScale) || 100)) / 100}`);
     root.style.setProperty('--shadow-md', `0 4px 16px ${hexToRgba(colors.p, .1)}, 0 2px 6px rgba(0,0,0,.05)`);
     root.style.setProperty('--shadow-lg', `0 8px 32px ${hexToRgba(colors.p, .15)}, 0 3px 10px rgba(0,0,0,.08)`);
+  }
+
+  async function loadPublicAppearance() {
+    try {
+      const appearance = await fetch('/api/appearance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+      if (!appearance) return;
+      applyTheme(appearance.theme);
+      applyBrand(appearance.brand);
+      applyBackground(appearance.background);
+    } catch (_) {}
   }
 
   function brandAssetURL(kind, version) {
@@ -1772,16 +1775,12 @@
       toast('背景文件不能超过 10 MB', 'err');
       return;
     }
-    if (!['image/png', 'image/jpeg', 'video/mp4', 'video/webm'].includes(file.type)) {
-      toast('背景仅支持 PNG、JPEG、MP4、WebM', 'err');
-      return;
-    }
     const complete = await reserveAssetOperation('background');
     try {
-      let res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+	  let res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       if (res.status === 403) {
         if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+		res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       }
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -1830,6 +1829,7 @@
       mode: document.getElementById('cfg-themeMode')?.value || 'system',
       primary: document.getElementById('cfg-themePrimary')?.value || '#14B8A6',
       accent: document.getElementById('cfg-themeAccent')?.value || '#F97316',
+	  fontScale: Number(document.getElementById('cfg-themeFontScale')?.value) || 100,
     };
   }
 
@@ -1846,8 +1846,14 @@
     const accent = document.getElementById('cfg-themeAccent');
     if (primary) primary.value = validHex(value.primary, '#14B8A6');
     if (accent) accent.value = validHex(value.accent, '#F97316');
+	const fontScale = document.getElementById('cfg-themeFontScale');
+	const fontScaleOutput = document.getElementById('cfg-themeFontScaleOutput');
+	if (fontScale) fontScale.value = Math.max(100, Math.min(150, Number(value.fontScale) || 100));
+	if (fontScaleOutput) fontScaleOutput.value = `${fontScale?.value || 100}%`;
     document.getElementById('customThemeColors')?.classList.toggle('hidden', value.preset !== 'custom');
-    applyTheme(value.preset === 'custom' ? themeFromForm() : { preset: value.preset || 'mint', mode: value.mode || 'system' });
+    applyTheme(value.preset === 'custom'
+      ? themeFromForm()
+      : { preset: value.preset || 'mint', mode: value.mode || 'system', fontScale: Number(value.fontScale) || 100 });
   }
 
   async function loadTheme() {
@@ -2367,6 +2373,9 @@
 		applyBackground(backgroundFromForm());
 	  });
 	});
+	document.getElementById('cfg-backgroundFit')?.addEventListener('change', () => {
+	  applyBackground(backgroundFromForm());
+	});
     document.querySelectorAll('.theme-preset').forEach(button => {
       button.addEventListener('click', () => {
         const preset = button.dataset.themePreset;
@@ -2387,6 +2396,12 @@
       control.addEventListener('input', () => applyTheme(themeFromForm()));
       control.addEventListener('change', () => applyTheme(themeFromForm()));
     });
+	const fontScale = document.getElementById('cfg-themeFontScale');
+	fontScale?.addEventListener('input', () => {
+	  const output = document.getElementById('cfg-themeFontScaleOutput');
+	  if (output) output.value = `${fontScale.value}%`;
+	  applyTheme(themeFromForm());
+	});
     settingsEl.addEventListener('input', (e) => {
       if (e.target === listenAddrEl || e.target?.type === 'file') return;
       clearTimeout(saveTimer);
@@ -3193,6 +3208,7 @@
 
   // ── Boot ─────────────────────────────────────────────────
   (async function boot() {
+	await loadPublicAppearance();
     const ok = await checkAuthStatus();
     if (ok) {
       init();

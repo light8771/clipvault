@@ -82,6 +82,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
 	mux.HandleFunc("GET /api/csrf", s.handleCSRF)
+	mux.HandleFunc("GET /api/appearance", s.handlePublicAppearance)
 	mux.HandleFunc("GET /api/license/status", s.handleLicenseStatus)
 	mux.HandleFunc("GET /api/license/machine", s.handleLicenseMachine)
 	mux.HandleFunc("POST /api/license/activate", s.handleLicenseActivate)
@@ -292,8 +293,8 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 		http.Error(w, "invalid background media", http.StatusBadRequest)
 		return
 	}
-	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
-	if !isBackgroundContentType(contentType) || !isValidBackgroundMedia(data, contentType) {
+	contentType := detectBackgroundContentType(data)
+	if contentType == "" {
 		http.Error(w, "unsupported background media", http.StatusBadRequest)
 		return
 	}
@@ -448,16 +449,28 @@ func isValidBrandImage(data []byte, contentType string) bool {
 }
 
 func isValidBackgroundMedia(data []byte, contentType string) bool {
-	switch contentType {
-	case "image/png", "image/jpeg":
-		return isValidBrandImage(data, contentType)
-	case "video/mp4":
-		return len(data) >= 12 && bytes.Equal(data[4:8], []byte("ftyp"))
-	case "video/webm":
-		return len(data) >= 4 && bytes.Equal(data[:4], []byte{0x1A, 0x45, 0xDF, 0xA3})
-	default:
-		return false
+	return detectBackgroundContentType(data) == contentType
+}
+
+// detectBackgroundContentType trusts the media bytes rather than a browser's
+// optional MIME hint. Some Windows file pickers report PNG files as generic
+// application/octet-stream even when the file itself is valid.
+func detectBackgroundContentType(data []byte) string {
+	if config, format, err := image.DecodeConfig(bytes.NewReader(data)); err == nil && config.Width > 0 && config.Height > 0 && config.Width <= 4096 && config.Height <= 4096 {
+		switch format {
+		case "png":
+			return "image/png"
+		case "jpeg":
+			return "image/jpeg"
+		}
 	}
+	if len(data) >= 12 && bytes.Equal(data[4:8], []byte("ftyp")) {
+		return "video/mp4"
+	}
+	if len(data) >= 4 && bytes.Equal(data[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) {
+		return "video/webm"
+	}
+	return ""
 }
 
 func isValidICO(data []byte) bool {
@@ -763,6 +776,17 @@ func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		cfg.Sensitive.CustomPatterns = masked
 	}
 	s.writeJSON(w, stripSecrets(cfg))
+}
+
+// handlePublicAppearance exposes only visual settings required before a
+// lock-screen session has been authenticated.
+func (s *SearchServer) handlePublicAppearance(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgMgr.Get()
+	s.writeJSON(w, map[string]any{
+		"brand":      cfg.Brand,
+		"background": cfg.Background,
+		"theme":      cfg.Theme,
+	})
 }
 
 // stripSecrets clears password hashes before returning configuration to the client.
@@ -1758,19 +1782,6 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		}
 		s.logger.Info("auth_password_removed", map[string]any{"type": req.Type})
 		s.writeJSON(w, map[string]any{"ok": true})
-		return
-	}
-
-	if req.NewPassword == "" {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "新密码不能为空"})
-		return
-	}
-	if err := CheckPasswordStrength(req.NewPassword); err != nil {
-		if rpErr, ok := err.(*RecoveryPasswordError); ok {
-			s.writeJSON(w, map[string]any{"ok": false, "error": rpErr.Code})
-		} else {
-			s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-		}
 		return
 	}
 

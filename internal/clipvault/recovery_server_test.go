@@ -35,7 +35,7 @@ func TestRecoveryPageIsChineseAndExplainsCredentials(t *testing.T) {
 	}
 }
 
-func TestRecoveryHandlerRequiresPasswordInChinese(t *testing.T) {
+func TestRecoveryHandlerAcceptsEmptyPassword(t *testing.T) {
 	rs := NewRecoveryServer(t.TempDir())
 	req := httptest.NewRequest("POST", "/api/recovery/recover", strings.NewReader(`{"password":""}`))
 	recorder := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestRecoveryHandlerRequiresPasswordInChinese(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.OK || response.Error != "请输入数据恢复密码" {
+	if response.OK || response.Error != "恢复失败：密码不正确，或恢复文件已经损坏" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }

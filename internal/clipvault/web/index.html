@@ -353,6 +353,13 @@
                 <label><input type="color" id="cfg-themeAccent" value="#F97316"><span>辅助色</span></label>
               </div>
             </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-themeFontScale">字体大小</label>
+                <p class="field-hint">拖动滑块即可放大界面字体，范围为 100% 到 150%</p>
+              </div>
+              <label class="background-range theme-font-scale" for="cfg-themeFontScale"><span><output id="cfg-themeFontScaleOutput">100%</output></span><input type="range" id="cfg-themeFontScale" min="100" max="150" step="5" value="100"></label>
+            </div>
           </div>
         </section>
 
@@ -610,7 +617,7 @@
             <div class="field-row">
               <div class="field-info">
                 <label class="field-label">数据恢复密码</label>
-                <p class="field-hint">换电脑、重装系统或 DPAPI 失效时，用此密码恢复加密数据库。至少 8 位，需包含大小写字母、数字或特殊字符中的两种。</p>
+                <p class="field-hint">换电脑、重装系统或 DPAPI 失效时，用此密码恢复加密数据库。密码可自由设置，请确认两次输入一致。</p>
               </div>
               <div class="pwd-actions" id="recoveryPwdActions">
                 <span class="pwd-status" id="recoveryPwdStatus">未设置</span>

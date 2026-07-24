@@ -5,10 +5,11 @@ import "testing"
 func TestNormalizeTheme(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Theme = ThemeConfig{
-		Preset:  "custom",
-		Mode:    "dark",
-		Primary: "#123456",
-		Accent:  "#abcdef",
+		Preset:    "custom",
+		Mode:      "dark",
+		Primary:   "#123456",
+		Accent:    "#abcdef",
+		FontScale: 125,
 	}
 	normalizeConfig(&cfg)
 
@@ -17,6 +18,9 @@ func TestNormalizeTheme(t *testing.T) {
 	}
 	if cfg.Theme.Primary != "#123456" || cfg.Theme.Accent != "#abcdef" {
 		t.Fatalf("custom colors were not retained: %#v", cfg.Theme)
+	}
+	if cfg.Theme.FontScale != 125 {
+		t.Fatalf("custom font scale was not retained: %#v", cfg.Theme)
 	}
 
 	cfg.Theme = ThemeConfig{Preset: "unknown", Mode: "unknown"}
@@ -30,6 +34,15 @@ func TestNormalizeTheme(t *testing.T) {
 	if cfg.Theme.Primary != "#14B8A6" || cfg.Theme.Accent != "#F97316" {
 		t.Fatalf("invalid custom colors did not fall back to defaults: %#v", cfg.Theme)
 	}
+	if cfg.Theme.FontScale != 100 {
+		t.Fatalf("missing font scale did not fall back to default: %#v", cfg.Theme)
+	}
+
+	cfg.Theme.FontScale = 200
+	normalizeConfig(&cfg)
+	if cfg.Theme.FontScale != 150 {
+		t.Fatalf("font scale was not clamped: %#v", cfg.Theme)
+	}
 }
 
 func TestThemeConfigPersists(t *testing.T) {
@@ -41,10 +54,11 @@ func TestThemeConfigPersists(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.Theme = ThemeConfig{
-		Preset:  "custom",
-		Mode:    "light",
-		Primary: "#2563EB",
-		Accent:  "#F59E0B",
+		Preset:    "custom",
+		Mode:      "light",
+		Primary:   "#2563EB",
+		Accent:    "#F59E0B",
+		FontScale: 135,
 	}
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -71,7 +85,7 @@ func TestThemeConfigManagerUpdate(t *testing.T) {
 		t.Fatalf("new config manager: %v", err)
 	}
 
-	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B"}
+	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 135}
 	var notified ThemeConfig
 	manager.OnChange(func(cfg Config) error {
 		notified = cfg.Theme

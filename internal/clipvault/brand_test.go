@@ -314,6 +314,72 @@ func TestBackgroundMediaValidation(t *testing.T) {
 	}
 }
 
+func TestBackgroundPNGUploadAcceptsGenericMIMEType(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
+	var pngData bytes.Buffer
+	if err := png.Encode(&pngData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode PNG: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/api/background/media", bytes.NewReader(pngData.Bytes()))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	result := httptest.NewRecorder()
+	server.handleBackgroundMediaUpload(result, req)
+	if result.Code != http.StatusOK {
+		t.Fatalf("generic MIME PNG upload status = %d, want %d: %s", result.Code, http.StatusOK, result.Body.String())
+	}
+	if got := manager.Get().Background.ContentType; got != "image/png" {
+		t.Fatalf("detected background type = %q, want image/png", got)
+	}
+}
+
+func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	cfg := manager.Get()
+	cfg.Brand.Title = "Locked ClipVault"
+	cfg.Theme.FontScale = 130
+	cfg.Security.LockPasswordHash = "must-not-leak"
+	if err := manager.Update(cfg); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+	server := &SearchServer{cfgMgr: manager}
+	result := httptest.NewRecorder()
+	server.handlePublicAppearance(result, httptest.NewRequest(http.MethodGet, "/api/appearance", nil))
+	if result.Code != http.StatusOK {
+		t.Fatalf("appearance status = %d", result.Code)
+	}
+	if bytes.Contains(result.Body.Bytes(), []byte("must-not-leak")) || bytes.Contains(result.Body.Bytes(), []byte("security")) {
+		t.Fatalf("public appearance exposes sensitive configuration: %s", result.Body.String())
+	}
+	var appearance struct {
+		Brand BrandConfig `json:"brand"`
+		Theme ThemeConfig `json:"theme"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &appearance); err != nil {
+		t.Fatal(err)
+	}
+	if appearance.Brand.Title != cfg.Brand.Title || appearance.Theme.FontScale != 130 {
+		t.Fatalf("appearance = %#v", appearance)
+	}
+}
+
 func TestNormalizeBackground(t *testing.T) {
 	background := BackgroundConfig{
 		ContentType: "video/mp4", Version: 5, Opacity: 0, Overlay: 100, Blur: 60,
@@ -375,6 +441,12 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new config manager: %v", err)
 	}
+	cfg := manager.Get()
+	cfg.Brand.Title = "Locked ClipVault"
+	cfg.Theme.FontScale = 130
+	if err := manager.Update(cfg); err != nil {
+		t.Fatalf("update visual config: %v", err)
+	}
 	logger, err := NewDailyLogger(t.TempDir())
 	if err != nil {
 		t.Fatalf("new logger: %v", err)
@@ -405,6 +477,20 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	}
 	if indexRes.StatusCode != http.StatusOK || !bytes.Contains(indexData, []byte("cfg-brandTitle")) {
 		t.Fatalf("embedded index response = status %d, has brand controls = %t", indexRes.StatusCode, bytes.Contains(indexData, []byte("cfg-brandTitle")))
+	}
+
+	appearanceRes, err := client.Get(url + "api/appearance")
+	if err != nil {
+		t.Fatalf("get public appearance: %v", err)
+	}
+	var appearance struct {
+		Brand BrandConfig `json:"brand"`
+		Theme ThemeConfig `json:"theme"`
+	}
+	appearanceDecodeErr := json.NewDecoder(appearanceRes.Body).Decode(&appearance)
+	appearanceRes.Body.Close()
+	if appearanceRes.StatusCode != http.StatusOK || appearanceDecodeErr != nil || appearance.Brand.Title != cfg.Brand.Title || appearance.Theme.FontScale != cfg.Theme.FontScale {
+		t.Fatalf("public appearance = status %d, value %#v, error %v", appearanceRes.StatusCode, appearance, appearanceDecodeErr)
 	}
 
 	styleRes, err := client.Get(url + "style.css")

@@ -37,6 +37,7 @@
   --background-scale: 1;
   --background-position: 50% 50%;
 	--background-fit: cover;
+	--font-scale: 1;
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   color-scheme: light dark;
@@ -71,22 +72,24 @@ body {
   min-height: 100dvh;
   position: relative;
   isolation: isolate;
+	zoom: var(--font-scale);
 }
 
 body.has-background { background: transparent; }
 .background-media-layer,
 .background-shield { position: fixed; inset: 0; pointer-events: none; }
-.background-media-layer { z-index: -2; overflow: hidden; background: var(--bg); }
+.background-media-layer { z-index: 0; overflow: hidden; background: var(--bg); }
 .background-media-layer img,
 .background-media-layer video {
-  width: 100%; height: 100%; object-fit: var(--background-fit); object-position: var(--background-position);
+  display: block; width: 100%; height: 100%; object-fit: var(--background-fit); object-position: var(--background-position);
   opacity: var(--background-opacity); filter: var(--background-filter);
-  transform: scale(var(--background-scale)); transform-origin: center;
+  transform: scale(var(--background-scale)); transform-origin: var(--background-position);
   transition: opacity .16s ease, filter .16s ease, transform .16s ease;
 }
 .background-media-layer img:not([src]),
 .background-media-layer video:not([src]) { display: none; }
-.background-shield { z-index: -1; background: var(--bg); opacity: var(--background-overlay); }
+.background-shield { z-index: 1; background: var(--bg); opacity: var(--background-overlay); }
+body > :not(.background-media-layer):not(.background-shield) { position: relative; z-index: 2; }
 
 /* ── Navbar ────────────────────────────────────────────────── */
 .navbar {
@@ -772,13 +775,13 @@ article[data-starred="1"]:hover {
   box-shadow: 0 0 0 4px rgba(255,255,255,.38);
 }
 .tk.show     { transform: translateY(0) scale(1); opacity: 1; }
-.tk.ok       { color: #065f46; background: #ecfdf5; border-color: #34d399; }
+.tk.ok       { color: var(--on-p); background: var(--p); border-color: var(--p2); }
 .tk.err      { color: #991b1b; background: #fef2f2; border-color: #f87171; }
-.tk.ok::before  { background: var(--p); }
+.tk.ok::before  { background: var(--on-p); }
 .tk.err::before { background: var(--danger); }
 
 @media (prefers-color-scheme: dark) {
-  .tk.ok  { color: #a7f3d0; background: #063c34; border-color: #10b981; }
+  .tk.ok  { color: var(--on-p); background: var(--p); border-color: var(--p2); }
   .tk.err { color: #fecaca; background: #4c1115; border-color: #ef4444; }
 }
 
@@ -1039,7 +1042,7 @@ article[data-starred="1"]:hover {
 .background-select select { width: 100%; min-height: 28px; }
 .background-range span { display: flex; justify-content: space-between; gap: 8px; }
 .background-range output { color: var(--tx); font-variant-numeric: tabular-nums; }
-.background-range input[type=range] { width: 100%; accent-color: var(--p); }
+.background-range input[type=range] { width: 100%; accent-color: var(--accent); }
 
 @media (max-width: 720px) {
   .theme-presets { justify-content: flex-start; max-width: none; }

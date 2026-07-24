@@ -73,6 +73,13 @@ func TestRecoveryPasswordLifecycle(t *testing.T) {
 	}
 	t.Logf("[OK] new password works after change")
 
+	if err := ChangeRecoveryPassword(dir, dbKey, newPassword, ""); err != nil {
+		t.Fatalf("ChangeRecoveryPassword to empty password: %v", err)
+	}
+	if err := VerifyRecoveryPassword(dir, ""); err != nil {
+		t.Fatalf("empty password verification: %v", err)
+	}
+
 	// Change with wrong old password should fail
 	if err := ChangeRecoveryPassword(dir, dbKey, "wrongold", "anotherNew1Pass"); err == nil {
 		t.Fatal("change with wrong old password should fail")
@@ -98,31 +105,6 @@ func TestRecoveryPasswordLifecycle(t *testing.T) {
 		t.Fatal("state.HasRecovery should be false after remove")
 	}
 	t.Logf("[OK] state file has HasRecovery=false after remove")
-}
-
-func TestPasswordStrength(t *testing.T) {
-	tests := []struct {
-		password string
-		wantErr  bool
-	}{
-		{"short", true},        // too short
-		{"alllowercase", true}, // only lowercase (1 category)
-		{"ALLUPPERCASE", true}, // only uppercase (1 category)
-		{"12345678", true},     // only digits (1 category)
-		{"abcdefgh1", false},   // lowercase + digit (2 categories)
-		{"ABCdefgh", false},    // uppercase + lowercase (2 categories)
-		{"Abc12345", false},    // uppercase + lowercase + digit (3 categories)
-		{"Abc123!@#", false},   // all 4 categories
-		{"Pass1", true},        // too short even with multiple categories
-		{"", true},             // empty
-	}
-
-	for _, tt := range tests {
-		err := CheckPasswordStrength(tt.password)
-		if (err != nil) != tt.wantErr {
-			t.Errorf("CheckPasswordStrength(%q) = %v, wantErr=%v", tt.password, err, tt.wantErr)
-		}
-	}
 }
 
 func TestRecoveryFileDoesNotLeakPassword(t *testing.T) {

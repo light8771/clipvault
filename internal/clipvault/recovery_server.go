@@ -288,11 +288,6 @@ async function doRecover() {
   var input = document.getElementById('password');
   var button = document.getElementById('recoverBtn');
   var password = input.value;
-  if (!password) {
-    showMsg('请输入数据恢复密码。', 'error');
-    input.focus();
-    return;
-  }
   setBusy(button, true, '正在验证并恢复…', '验证密码并恢复数据');
   showMsg('正在验证恢复密码，请稍候。', 'info');
   try {
@@ -549,10 +544,6 @@ func (rs *RecoveryServer) handleRecover(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeRecoveryJSON(w, false, "请求格式无效")
-		return
-	}
-	if req.Password == "" {
-		writeRecoveryJSON(w, false, "请输入数据恢复密码")
 		return
 	}
 	if err := RecoverWithPassword(rs.dataDir, req.Password); err != nil {
