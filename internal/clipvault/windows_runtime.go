@@ -48,6 +48,9 @@ const (
 	nifMessage = 0x00000001
 	nifIcon    = 0x00000002
 	nifTip     = 0x00000004
+	nifInfo    = 0x00000010
+
+	niifInfo = 0x00000001
 
 	notifyIconVersion4 = 4
 
@@ -222,7 +225,10 @@ func (r *WindowsRuntime) Run() error {
 	}
 	r.registerHotkey()
 	r.registerSearchHotkey()
-	r.state.OnPauseChange(func(bool) { r.updateTrayIcon() })
+	r.state.OnPauseChange(func(paused bool) {
+		r.updateTrayIcon()
+		r.showPauseNotification(paused)
+	})
 	go r.recorder.ProcessClipboardUpdate()
 
 	var m msg
@@ -335,6 +341,27 @@ func (r *WindowsRuntime) updateTrayIcon() {
 		return
 	}
 	nid := r.notifyIconData()
+	procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+}
+
+func (r *WindowsRuntime) showPauseNotification(paused bool) {
+	if r.hwnd == 0 || !r.cfgMgr.Get().Notifications.PauseResume {
+		return
+	}
+
+	message := "剪贴板录制已恢复"
+	if paused {
+		message = "剪贴板录制已暂停"
+	}
+	nid := notifyIconData{
+		Size:      uint32(unsafe.Sizeof(notifyIconData{})),
+		Hwnd:      r.hwnd,
+		ID:        idTrayIcon,
+		Flags:     nifInfo,
+		InfoFlags: niifInfo,
+	}
+	copy(nid.InfoTitle[:], syscall.StringToUTF16("ClipVault"))
+	copy(nid.Info[:], syscall.StringToUTF16(message))
 	procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
 }
 

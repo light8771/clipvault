@@ -70,6 +70,7 @@ func (s *SearchServer) Start() (string, error) {
 	// 公开端点（不需要锁屏认证）
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /style.css", s.handleStatic)
+	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
 	mux.HandleFunc("GET /api/csrf", s.handleCSRF)
 	mux.HandleFunc("GET /api/license/status", s.handleLicenseStatus)
@@ -494,17 +495,28 @@ func (s *SearchServer) handleSensitiveRules(w http.ResponseWriter, r *http.Reque
 // handlePutConfig 接收设置页面提交的配置并持久化，立即通知各组件。
 // 注意：search.listenAddr 变更需重启应用后生效。
 func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
-	var cfg Config
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	var cfg Config
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	curCfg := s.cfgMgr.Get()
+	// Preserve this newly introduced setting when an older client saves a
+	// configuration payload that does not include it.
+	if !pauseResumeNotificationProvided(body) {
+		cfg.Notifications = curCfg.Notifications
 	}
 	listenHost, _, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		http.Error(w, "invalid search.listenAddr: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	curCfg := s.cfgMgr.Get()
 	if !isLoopbackHost(listenHost) && (!s.auth.HasLockPassword(curCfg) || !s.auth.HasSecondaryPassword(curCfg)) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)

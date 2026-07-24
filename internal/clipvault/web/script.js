@@ -1424,6 +1424,141 @@
   // ── Settings ──────────────────────────────────────────────
   let currentCfg = null;
 
+  const THEME_PALETTES = {
+    mint: {
+      light: { p: '#14B8A6', p2: '#0D9488', accent: '#F97316', bg: '#F0FDFB', bg2: '#E6F9F5', card: '#FFFFFF', border: 'rgba(20,184,166,.18)', nav: 'rgba(240,253,251,.88)', tx: '#0F2825', sub: '#3A6863', muted: '#5C8C87' },
+      dark:  { p: '#2DD4BF', p2: '#14B8A6', accent: '#FB923C', bg: '#070C14', bg2: '#0C1520', card: '#101820', border: 'rgba(45,212,191,.14)', nav: 'rgba(7,12,20,.88)', tx: '#E8F6F3', sub: '#9AD3CC', muted: '#70AAA4' },
+    },
+    ocean: {
+      light: { p: '#0284C7', p2: '#0369A1', accent: '#2563EB', bg: '#F0F9FF', bg2: '#E0F2FE', card: '#FFFFFF', border: 'rgba(2,132,199,.18)', nav: 'rgba(240,249,255,.88)', tx: '#102A43', sub: '#3D5A75', muted: '#6B849C' },
+      dark:  { p: '#38BDF8', p2: '#0EA5E9', accent: '#60A5FA', bg: '#07111F', bg2: '#0B1B30', card: '#102038', border: 'rgba(56,189,248,.16)', nav: 'rgba(7,17,31,.88)', tx: '#E8F4FF', sub: '#A7C7E7', muted: '#7FA5CB' },
+    },
+    sunrise: {
+      light: { p: '#EA580C', p2: '#C2410C', accent: '#D97706', bg: '#FFF7ED', bg2: '#FFEDD5', card: '#FFFFFF', border: 'rgba(234,88,12,.18)', nav: 'rgba(255,247,237,.88)', tx: '#342012', sub: '#72513B', muted: '#99735B' },
+      dark:  { p: '#FB923C', p2: '#F97316', accent: '#FBBF24', bg: '#16100B', bg2: '#24170E', card: '#2B1C10', border: 'rgba(251,146,60,.16)', nav: 'rgba(22,16,11,.88)', tx: '#FFF2E5', sub: '#E6B58A', muted: '#B98D6B' },
+    },
+    graphite: {
+      light: { p: '#475569', p2: '#334155', accent: '#0F766E', bg: '#F8FAFC', bg2: '#EEF2F6', card: '#FFFFFF', border: 'rgba(71,85,105,.18)', nav: 'rgba(248,250,252,.88)', tx: '#1E293B', sub: '#475569', muted: '#748196' },
+      dark:  { p: '#94A3B8', p2: '#64748B', accent: '#2DD4BF', bg: '#0B1018', bg2: '#151D28', card: '#182230', border: 'rgba(148,163,184,.16)', nav: 'rgba(11,16,24,.88)', tx: '#EDF2F7', sub: '#B5C0CF', muted: '#8A9AAD' },
+    },
+  };
+
+  const { validHex, hexToRgba, blendHex, ensureContrastOnSurfaces, textColorFor } = window.ClipVaultTheme;
+
+  function resolvedThemeMode(theme) {
+    if (theme && theme.mode === 'light') return 'light';
+    if (theme && theme.mode === 'dark') return 'dark';
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function readablePalette(palette, mode) {
+    const isDark = mode === 'dark';
+    const surfaces = [palette.card, palette.bg, palette.bg2];
+    const primary = ensureContrastOnSurfaces(palette.p, surfaces, 4.5, [.12]);
+    const primaryHover = ensureContrastOnSurfaces(palette.p2, surfaces, 4.5, [.12]);
+    const accent = ensureContrastOnSurfaces(palette.accent, surfaces, 4.5, [.1, .16]);
+    return {
+      ...palette,
+      p: primary,
+      p2: primaryHover,
+      accent,
+      border: hexToRgba(primary, isDark ? .18 : .2),
+    };
+  }
+
+  function customPalette(theme, mode) {
+    const isDark = mode === 'dark';
+    const neutral = THEME_PALETTES.graphite[mode];
+    const surfaces = [neutral.card, neutral.bg, neutral.bg2];
+    const primary = ensureContrastOnSurfaces(validHex(theme.primary, '#14B8A6'), surfaces, 4.5, [.12]);
+    const accent = ensureContrastOnSurfaces(validHex(theme.accent, '#F97316'), surfaces, 4.5, [.1, .16]);
+    // Keep neutral surfaces fixed for each mode. A user-provided background
+    // cannot guarantee text contrast, so custom skins only alter brand colors.
+    return {
+      ...neutral,
+      p: primary,
+      p2: ensureContrastOnSurfaces(blendHex(primary, isDark ? '#FFFFFF' : '#000000', .12), surfaces, 4.5, [.12]),
+      accent,
+      border: hexToRgba(primary, isDark ? .18 : .2),
+    };
+  }
+
+  function applyTheme(theme) {
+    const normalized = theme || { preset: 'mint', mode: 'system' };
+    const mode = resolvedThemeMode(normalized);
+    const preset = THEME_PALETTES[normalized.preset];
+    const palette = normalized.preset === 'custom'
+      ? customPalette(normalized, mode)
+      : (preset || THEME_PALETTES.mint)[mode];
+    const colors = normalized.preset === 'custom' ? palette : readablePalette(palette, mode);
+    const root = document.documentElement;
+    root.dataset.themeMode = mode;
+    root.style.setProperty('--p', colors.p);
+    root.style.setProperty('--p2', colors.p2);
+    root.style.setProperty('--on-p', textColorFor(colors.p));
+    root.style.setProperty('--on-p2', textColorFor(colors.p2));
+    root.style.setProperty('--accent', colors.accent);
+    root.style.setProperty('--bg', colors.bg);
+    root.style.setProperty('--bg2', colors.bg2);
+    root.style.setProperty('--card', colors.card);
+    root.style.setProperty('--card-border', colors.border);
+    root.style.setProperty('--nav-bg', colors.nav);
+    root.style.setProperty('--tx', colors.tx);
+    root.style.setProperty('--sub', colors.sub);
+    root.style.setProperty('--muted', colors.muted);
+    root.style.setProperty('--p-dim', hexToRgba(colors.p, .12));
+    root.style.setProperty('--p-glow', hexToRgba(colors.p, .18));
+    root.style.setProperty('--p-border', hexToRgba(colors.p, .22));
+    root.style.setProperty('--accent-dim', hexToRgba(colors.accent, .1));
+    root.style.setProperty('--accent-glow', hexToRgba(colors.accent, .16));
+    root.style.setProperty('--accent-border', hexToRgba(colors.accent, .3));
+    root.style.setProperty('--shadow-md', `0 4px 16px ${hexToRgba(colors.p, .1)}, 0 2px 6px rgba(0,0,0,.05)`);
+    root.style.setProperty('--shadow-lg', `0 8px 32px ${hexToRgba(colors.p, .15)}, 0 3px 10px rgba(0,0,0,.08)`);
+  }
+
+  function themeFromForm() {
+    const selected = document.querySelector('.theme-preset.active');
+    return {
+      preset: selected ? selected.dataset.themePreset : (currentCfg?.theme?.preset || 'mint'),
+      mode: document.getElementById('cfg-themeMode')?.value || 'system',
+      primary: document.getElementById('cfg-themePrimary')?.value || '#14B8A6',
+      accent: document.getElementById('cfg-themeAccent')?.value || '#F97316',
+    };
+  }
+
+  function applyThemeFormState(theme) {
+    const value = theme || { preset: 'mint', mode: 'system' };
+    document.querySelectorAll('.theme-preset').forEach(button => {
+      const selected = button.dataset.themePreset === value.preset;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-checked', selected ? 'true' : 'false');
+    });
+    const mode = document.getElementById('cfg-themeMode');
+    if (mode) mode.value = value.mode || 'system';
+    const primary = document.getElementById('cfg-themePrimary');
+    const accent = document.getElementById('cfg-themeAccent');
+    if (primary) primary.value = validHex(value.primary, '#14B8A6');
+    if (accent) accent.value = validHex(value.accent, '#F97316');
+    document.getElementById('customThemeColors')?.classList.toggle('hidden', value.preset !== 'custom');
+    applyTheme(value.preset === 'custom' ? themeFromForm() : { preset: value.preset || 'mint', mode: value.mode || 'system' });
+  }
+
+  async function loadTheme() {
+    try {
+      const cfg = await fetch('/api/config').then(r => r.json());
+      currentCfg = cfg;
+      applyTheme(cfg.theme);
+    } catch (_) {
+      applyTheme();
+    }
+  }
+
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (currentCfg?.theme?.mode === 'system') applyTheme(currentCfg.theme);
+    });
+  }
+
   async function loadSettings() {
     try {
       const cfg = await fetch('/api/config').then(r => r.json());
@@ -1455,6 +1590,7 @@
   }
 
   function applyConfigToForm(cfg) {
+    applyThemeFormState(cfg.theme);
     document.getElementById('cfg-maxTextChars').value = cfg.maxTextChars ?? 0;
     document.getElementById('cfg-maxFileDropPaths').value = cfg.maxFileDropPaths ?? 0;
 
@@ -1482,6 +1618,11 @@
       cb.checked = (smods & parseInt(cb.value)) !== 0;
     });
     if (shkKey) shkKey.value = vkToDisplay(shk.key);
+
+    const pauseResumeNotifications = document.getElementById('cfg-pauseResumeNotifications');
+    if (pauseResumeNotifications) {
+      pauseResumeNotifications.checked = !cfg.notifications || cfg.notifications.pauseResume !== false;
+    }
 
     // 安全超时配置
     const lockTimeoutEl = document.getElementById('cfg-lockSessionTimeout');
@@ -1670,6 +1811,7 @@
     }
     return {
       ...currentCfg,
+      theme: themeFromForm(),
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
       maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
       sensitive: { customPatterns: patterns },
@@ -1691,6 +1833,10 @@
         enabled:   shkEnabled,
         modifiers: shkMods,
         key:       shkKeyChar,
+      },
+      notifications: {
+        ...currentCfg.notifications,
+        pauseResume: document.getElementById('cfg-pauseResumeNotifications')?.checked || false,
       },
       backup: {
         ...currentCfg.backup,
@@ -1853,6 +1999,26 @@
     const settingsEl = document.getElementById('viewSettings');
     if (!settingsEl) return;
     const listenAddrEl = document.getElementById('cfg-listenAddr');
+    document.querySelectorAll('.theme-preset').forEach(button => {
+      button.addEventListener('click', () => {
+        const preset = button.dataset.themePreset;
+        document.querySelectorAll('.theme-preset').forEach(item => {
+          const selected = item === button;
+          item.classList.toggle('active', selected);
+          item.setAttribute('aria-checked', selected ? 'true' : 'false');
+        });
+        document.getElementById('customThemeColors')?.classList.toggle('hidden', preset !== 'custom');
+        applyTheme(themeFromForm());
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => saveConfig({ silent: true }), 150);
+      });
+    });
+    ['cfg-themeMode', 'cfg-themePrimary', 'cfg-themeAccent'].forEach(id => {
+      const control = document.getElementById(id);
+      if (!control) return;
+      control.addEventListener('input', () => applyTheme(themeFromForm()));
+      control.addEventListener('change', () => applyTheme(themeFromForm()));
+    });
     settingsEl.addEventListener('input', (e) => {
       if (e.target === listenAddrEl) return;
       clearTimeout(saveTimer);
@@ -2598,6 +2764,7 @@
   });
 
   async function init() {
+    await loadTheme();
     await loadLicenseStatus();
     // 支持 URL 参数快速跳转：
     //   ?q=<text>      直接以文本搜索

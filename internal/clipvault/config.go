@@ -107,15 +107,26 @@ func StartupErrorLogFile() string {
 
 // Config 是应用的完整配置结构，通过 Web 界面修改，存储在数据库中。
 type Config struct {
-	MaxTextChars     int             `json:"maxTextChars"`
-	MaxFileDropPaths int             `json:"maxFileDropPaths"`
-	Search           SearchConfig    `json:"search"`
-	Sensitive        SensitiveConfig `json:"sensitive"`
-	Autostart        AutostartConfig `json:"autostart"`
-	Security         SecurityConfig  `json:"security"`
-	Hotkey           HotkeyConfig    `json:"hotkey"`
-	SearchHotkey     HotkeyConfig    `json:"searchHotkey"`
-	Backup           BackupConfig    `json:"backup"`
+	MaxTextChars     int                `json:"maxTextChars"`
+	MaxFileDropPaths int                `json:"maxFileDropPaths"`
+	Theme            ThemeConfig        `json:"theme"`
+	Search           SearchConfig       `json:"search"`
+	Sensitive        SensitiveConfig    `json:"sensitive"`
+	Autostart        AutostartConfig    `json:"autostart"`
+	Notifications    NotificationConfig `json:"notifications"`
+	Security         SecurityConfig     `json:"security"`
+	Hotkey           HotkeyConfig       `json:"hotkey"`
+	SearchHotkey     HotkeyConfig       `json:"searchHotkey"`
+	Backup           BackupConfig       `json:"backup"`
+}
+
+// ThemeConfig stores the selected UI skin. Custom primary and accent colors
+// are used only when Preset is "custom" and are normalized before persistence.
+type ThemeConfig struct {
+	Preset  string `json:"preset"`
+	Mode    string `json:"mode"`
+	Primary string `json:"primary"`
+	Accent  string `json:"accent"`
 }
 
 type SearchConfig struct {
@@ -131,6 +142,11 @@ type SensitiveConfig struct {
 type AutostartConfig struct {
 	Enabled bool   `json:"enabled"`
 	AppName string `json:"appName"`
+}
+
+// NotificationConfig controls local Windows notifications.
+type NotificationConfig struct {
+	PauseResume bool `json:"pauseResume"`
 }
 
 // HotkeyConfig 全局快捷键配置，用于暂停/恢复录制。
@@ -184,6 +200,10 @@ type EmailBackupConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
+		Theme: ThemeConfig{
+			Preset: "mint",
+			Mode:   "system",
+		},
 		MaxTextChars:     0, // 0 表示不限制
 		MaxFileDropPaths: 0, // 0 表示不限制
 		Search: SearchConfig{
@@ -196,6 +216,9 @@ func DefaultConfig() Config {
 		Autostart: AutostartConfig{
 			Enabled: false,
 			AppName: "ClipVault",
+		},
+		Notifications: NotificationConfig{
+			PauseResume: true,
 		},
 		Security: SecurityConfig{
 			LockPasswordHash:      "",
@@ -257,6 +280,7 @@ func (e Environment) LogDirectory() string {
 // MaxTextChars == 0 和 MaxFileDropPaths == 0 均为合法值（表示不限制），不做替换。
 func normalizeConfig(cfg *Config) {
 	def := DefaultConfig()
+	normalizeTheme(&cfg.Theme, def.Theme)
 	if cfg.Search.ListenAddr == "" {
 		cfg.Search.ListenAddr = def.Search.ListenAddr
 	}
@@ -276,4 +300,40 @@ func normalizeConfig(cfg *Config) {
 	}
 	// 邮件会离开本机，始终要求使用加密导出格式，不允许明文 JSON。
 	cfg.Backup.EmailBackup.Format = "cvexport"
+}
+
+func normalizeTheme(theme *ThemeConfig, def ThemeConfig) {
+	switch theme.Preset {
+	case "mint", "ocean", "sunrise", "graphite", "custom":
+	default:
+		theme.Preset = def.Preset
+	}
+	switch theme.Mode {
+	case "system", "light", "dark":
+	default:
+		theme.Mode = def.Mode
+	}
+	if theme.Preset != "custom" {
+		theme.Primary = ""
+		theme.Accent = ""
+		return
+	}
+	if !isHexColor(theme.Primary) {
+		theme.Primary = "#14B8A6"
+	}
+	if !isHexColor(theme.Accent) {
+		theme.Accent = "#F97316"
+	}
+}
+
+func isHexColor(value string) bool {
+	if len(value) != 7 || value[0] != '#' {
+		return false
+	}
+	for _, c := range value[1:] {
+		if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
