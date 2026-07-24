@@ -74,6 +74,7 @@ assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.primary/);
 assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.accent/);
 assert.match(script, /--on-p/, 'the primary foreground token must be set at runtime');
 assert.match(stylesheet, /color:\s*var\(--on-p\)/, 'solid primary controls must use the calculated foreground');
+assert.match(stylesheet, /\.background-range input\[type=range\]\s*\{[^}]*accent-color:\s*var\(--p\)/, 'background adjustment sliders must use the theme primary color');
 
 const basePairs = selectedColors.length * surfaces.length;
 const palettePairs = selectedColors.length * paletteSurfaces.length * 3;

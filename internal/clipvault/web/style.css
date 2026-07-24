@@ -1042,7 +1042,7 @@ article[data-starred="1"]:hover {
 .background-select select { width: 100%; min-height: 28px; }
 .background-range span { display: flex; justify-content: space-between; gap: 8px; }
 .background-range output { color: var(--tx); font-variant-numeric: tabular-nums; }
-.background-range input[type=range] { width: 100%; accent-color: var(--accent); }
+.background-range input[type=range] { width: 100%; accent-color: var(--p); }
 
 @media (max-width: 720px) {
   .theme-presets { justify-content: flex-start; max-width: none; }
