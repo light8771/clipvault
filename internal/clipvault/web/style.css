@@ -823,6 +823,8 @@ article[data-starred="1"]:hover {
 .settings-sidebar {
   position: sticky;
   top: 70px;
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
   padding-top: 4px;
 }
 

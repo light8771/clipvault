@@ -797,8 +797,9 @@ func formatSuggestion(it StoredItem) string {
 	if kind == "" {
 		kind = "text"
 	}
+	displayKind := quickSearchKindLabel(kind)
 	if text == "" {
-		text = "[" + kind + "]"
+		text = "[" + displayKind + "]"
 	}
 	// 截断
 	maxRunes := 80
@@ -806,7 +807,26 @@ func formatSuggestion(it StoredItem) string {
 	if len(runes) > maxRunes {
 		text = string(runes[:maxRunes]) + "…"
 	}
-	return fmt.Sprintf("%s  %s  %s", ts, kind, text)
+	return fmt.Sprintf("%s  %s  %s", ts, displayKind, text)
+}
+
+func quickSearchKindLabel(kind string) string {
+	switch kind {
+	case "text":
+		return "文本"
+	case "image":
+		return "图片"
+	case "video":
+		return "视频"
+	case "archive":
+		return "压缩包"
+	case "office":
+		return "Office"
+	case "files":
+		return "其他文件"
+	default:
+		return kind
+	}
 }
 
 // confirmSelection 当用户按下回车或双击列表项时触发。

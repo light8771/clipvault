@@ -48,7 +48,7 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 
 	items := []ClipboardItem{
 		{
-			Kind:     "file",
+			Kind:     "files",
 			Format:   "CF_HDROP",
 			Text:     "C:\\work\\release\\notes.txt",
 			ByteLen:  26,
@@ -86,12 +86,12 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 		query string
 		want  string
 	}{
-		{query: "RELEASE", want: "file"},
-		{query: "file", want: "file"},
-		{query: "hdrop", want: "file"},
-		{query: "a1b2", want: "file"},
-		{query: "explorer", want: "file"},
-		{query: "release file", want: "file"},
+		{query: "RELEASE", want: "files"},
+		{query: "file", want: "files"},
+		{query: "hdrop", want: "files"},
+		{query: "a1b2", want: "files"},
+		{query: "explorer", want: "files"},
+		{query: "release file", want: "files"},
 		{query: "🚀", want: "text"},
 	}
 	for _, tt := range tests {

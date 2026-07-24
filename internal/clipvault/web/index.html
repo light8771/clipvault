@@ -217,6 +217,10 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>导出</span>
           </button>
+        <button class="snav-item" id="snav-import" onclick="snavTo('s-import','snav-import')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>导入</span>
+          </button>
         <div class="snav-sep"></div>
         <button class="snav-item" id="snav-backup" onclick="snavTo('s-backup','snav-backup')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
@@ -701,12 +705,28 @@
                 </button>
               </div>
             </div>
-            <!-- 导入 -->
-            <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+          </div>
+        </section>
+
+        <div class="ssec-sep"></div>
+
+        <!-- 导入 -->
+        <section class="ssec" id="s-import">
+          <div class="ssec-head">
+            <div class="ssec-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div>
+              <h2 class="ssec-title">导入</h2>
+              <p class="ssec-desc">从导出文件或定时备份恢复剪贴板数据</p>
+            </div>
+          </div>
+          <div class="ssec-body">
+            <div class="export-group">
               <div class="export-item">
                 <div>
                   <div class="export-title">导入数据</div>
-                  <div class="export-desc">导入 JSON、Excel 或加密 .cvexport 文件</div>
+                  <div class="export-desc">支持 JSON、Excel 和加密 .cvexport；目录备份与邮件备份文件可直接导入</div>
                 </div>
                 <button class="btn-export" onclick="showImportDialog()">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -717,6 +737,7 @@
           </div>
         </section>
 
+        <div class="ssec-sep"></div>
 
       <!-- 备份设置 -->
       <section class="ssec" id="s-backup">
