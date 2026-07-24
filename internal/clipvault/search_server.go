@@ -1,15 +1,19 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"embed"
-	"encoding/csv"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"io/fs"
 	"mime"
@@ -19,6 +23,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"clipboard_ext/internal/licensing"
@@ -40,6 +45,7 @@ type SearchServer struct {
 	backup    *BackupService
 	csrfToken string
 	license   *licensing.Manager
+	assetMu   sync.Mutex
 }
 
 type freshSecondaryContextKey struct{}
@@ -69,6 +75,9 @@ func (s *SearchServer) Start() (string, error) {
 
 	// 公开端点（不需要锁屏认证）
 	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
+	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
+	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
 	mux.HandleFunc("GET /style.css", s.handleStatic)
 	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
@@ -82,6 +91,12 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/auth/secondary", s.handleAuthSecondary)
 	mux.HandleFunc("POST /api/auth/password", s.requireAuth(s.handleAuthSetPassword))
 	mux.HandleFunc("POST /api/restart", s.requireAuth(s.handleRestart))
+	mux.HandleFunc("PUT /api/brand/logo", s.requireSecondary(s.handleBrandLogoUpload))
+	mux.HandleFunc("DELETE /api/brand/logo", s.requireSecondary(s.handleBrandLogoReset))
+	mux.HandleFunc("PUT /api/brand/favicon", s.requireSecondary(s.handleBrandFaviconUpload))
+	mux.HandleFunc("DELETE /api/brand/favicon", s.requireSecondary(s.handleBrandFaviconReset))
+	mux.HandleFunc("PUT /api/background/media", s.requireSecondary(s.handleBackgroundMediaUpload))
+	mux.HandleFunc("DELETE /api/background/media", s.requireSecondary(s.handleBackgroundMediaReset))
 
 	// 需要锁屏认证的端点
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
@@ -203,15 +218,297 @@ func (s *SearchServer) handleRestart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *SearchServer) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/favicon.ico" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 	s.serveFile(w, "web/index.html", "text/html; charset=utf-8")
+}
+
+const maxBrandAssetBytes = 10 << 20
+
+func (s *SearchServer) handleBrandLogo(w http.ResponseWriter, r *http.Request) {
+	s.serveBrandAsset(w, r, "logo")
+}
+
+func (s *SearchServer) handleBrandFavicon(w http.ResponseWriter, r *http.Request) {
+	s.serveBrandAsset(w, r, "favicon")
+}
+
+func (s *SearchServer) handleBackgroundMedia(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgMgr.Get().Background
+	if !isBackgroundContentType(cfg.ContentType) || !assetVersionMatches(r, cfg.Version) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	fileName := assetFileName(backgroundMediaAsset, cfg.Version)
+	file, err := os.Open(filepath.Join(s.env.DataDir, fileName))
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", cfg.ContentType)
+	w.Header().Set("Cache-Control", assetCacheControl(r))
+	http.ServeContent(w, r, fileName, time.Time{}, file)
+}
+
+func (s *SearchServer) serveBrandAsset(w http.ResponseWriter, r *http.Request, kind string) {
+	cfg := s.cfgMgr.Get().Brand
+	contentType := cfg.LogoContentType
+	assetKind := brandLogoAsset
+	version := cfg.LogoVersion
+	if kind == "favicon" {
+		contentType = cfg.FaviconContentType
+		assetKind = brandFaviconAsset
+		version = cfg.FaviconVersion
+	}
+	if !isBrandContentType(contentType, kind) || !assetVersionMatches(r, version) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(s.env.DataDir, assetFileName(assetKind, version)))
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", assetCacheControl(r))
+	_, _ = w.Write(data)
+}
+
+func (s *SearchServer) handleBrandLogoUpload(w http.ResponseWriter, r *http.Request) {
+	s.handleBrandAssetUpload(w, r, "logo")
+}
+
+func (s *SearchServer) handleBrandFaviconUpload(w http.ResponseWriter, r *http.Request) {
+	s.handleBrandAssetUpload(w, r, "favicon")
+}
+
+func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil || len(data) == 0 {
+		http.Error(w, "invalid background media", http.StatusBadRequest)
+		return
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	if !isBackgroundContentType(contentType) || !isValidBackgroundMedia(data, contentType) {
+		http.Error(w, "unsupported background media", http.StatusBadRequest)
+		return
+	}
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
+	cfg := s.cfgMgr.Get()
+	previousVersion := cfg.Background.Version
+	version := nextAssetVersion(previousVersion)
+	fileName := assetFileName(backgroundMediaAsset, version)
+	if err := writeBrandAsset(filepath.Join(s.env.DataDir, fileName), data); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	cfg.Background.ContentType = contentType
+	cfg.Background.Version = version
+	hotkeyError, err := s.updateAssetConfig(cfg)
+	if err != nil {
+		_ = os.Remove(filepath.Join(s.env.DataDir, fileName))
+		s.writeError(w, err)
+		return
+	}
+	if previousVersion > 0 {
+		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(backgroundMediaAsset, previousVersion)))
+	}
+	s.writeJSON(w, map[string]any{"ok": true, "background": s.cfgMgr.Get().Background, "hotkeyError": hotkeyError})
+}
+
+func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Request, kind string) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil || len(data) == 0 {
+		http.Error(w, "invalid image", http.StatusBadRequest)
+		return
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	if contentType == "image/vnd.microsoft.icon" {
+		contentType = "image/x-icon"
+	}
+	if !isBrandContentType(contentType, kind) || !isValidBrandImage(data, contentType) {
+		http.Error(w, "unsupported image", http.StatusBadRequest)
+		return
+	}
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
+	cfg := s.cfgMgr.Get()
+	assetKind := brandLogoAsset
+	previousVersion := cfg.Brand.LogoVersion
+	if kind == "favicon" {
+		assetKind = brandFaviconAsset
+		previousVersion = cfg.Brand.FaviconVersion
+	}
+	version := nextAssetVersion(previousVersion)
+	fileName := assetFileName(assetKind, version)
+	if err := writeBrandAsset(filepath.Join(s.env.DataDir, fileName), data); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if kind == "favicon" {
+		cfg.Brand.FaviconContentType = contentType
+		cfg.Brand.FaviconVersion = version
+	} else {
+		cfg.Brand.LogoContentType = contentType
+		cfg.Brand.LogoVersion = version
+	}
+	hotkeyError, err := s.updateAssetConfig(cfg)
+	if err != nil {
+		_ = os.Remove(filepath.Join(s.env.DataDir, fileName))
+		s.writeError(w, err)
+		return
+	}
+	if previousVersion > 0 {
+		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(assetKind, previousVersion)))
+	}
+	s.writeJSON(w, map[string]any{"ok": true, "brand": s.cfgMgr.Get().Brand, "hotkeyError": hotkeyError})
+}
+
+func (s *SearchServer) handleBrandLogoReset(w http.ResponseWriter, r *http.Request) {
+	s.handleBrandAssetReset(w, "logo")
+}
+
+func (s *SearchServer) handleBrandFaviconReset(w http.ResponseWriter, r *http.Request) {
+	s.handleBrandAssetReset(w, "favicon")
+}
+
+func (s *SearchServer) handleBackgroundMediaReset(w http.ResponseWriter, r *http.Request) {
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
+	cfg := s.cfgMgr.Get()
+	previousVersion := cfg.Background.Version
+	cfg.Background.ContentType = ""
+	cfg.Background.Version = 0
+	hotkeyError, err := s.updateAssetConfig(cfg)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if previousVersion > 0 {
+		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(backgroundMediaAsset, previousVersion)))
+	}
+	s.writeJSON(w, map[string]any{"ok": true, "background": s.cfgMgr.Get().Background, "hotkeyError": hotkeyError})
+}
+
+func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string) {
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
+	cfg := s.cfgMgr.Get()
+	assetKind := brandLogoAsset
+	previousVersion := cfg.Brand.LogoVersion
+	if kind == "favicon" {
+		assetKind = brandFaviconAsset
+		previousVersion = cfg.Brand.FaviconVersion
+		cfg.Brand.FaviconContentType = ""
+		cfg.Brand.FaviconVersion = 0
+	} else {
+		cfg.Brand.LogoContentType = ""
+		cfg.Brand.LogoVersion = 0
+	}
+	hotkeyError, err := s.updateAssetConfig(cfg)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if previousVersion > 0 {
+		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(assetKind, previousVersion)))
+	}
+	s.writeJSON(w, map[string]any{"ok": true, "brand": s.cfgMgr.Get().Brand, "hotkeyError": hotkeyError})
+}
+
+// updateAssetConfig keeps the new asset when persistence succeeds but Windows
+// cannot immediately re-register a hotkey.
+func (s *SearchServer) updateAssetConfig(cfg Config) (string, error) {
+	err := s.cfgMgr.Update(cfg)
+	if err == nil {
+		return "", nil
+	}
+	var hotkeyError *HotkeyError
+	if errors.As(err, &hotkeyError) {
+		return hotkeyError.Error(), nil
+	}
+	return "", err
+}
+
+func isValidBrandImage(data []byte, contentType string) bool {
+	if contentType == "image/x-icon" {
+		return isValidICO(data)
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 4096 || config.Height > 4096 {
+		return false
+	}
+	return (contentType == "image/png" && format == "png") || (contentType == "image/jpeg" && format == "jpeg")
+}
+
+func isValidBackgroundMedia(data []byte, contentType string) bool {
+	switch contentType {
+	case "image/png", "image/jpeg":
+		return isValidBrandImage(data, contentType)
+	case "video/mp4":
+		return len(data) >= 12 && bytes.Equal(data[4:8], []byte("ftyp"))
+	case "video/webm":
+		return len(data) >= 4 && bytes.Equal(data[:4], []byte{0x1A, 0x45, 0xDF, 0xA3})
+	default:
+		return false
+	}
+}
+
+func isValidICO(data []byte) bool {
+	if len(data) < 22 || !bytes.Equal(data[:4], []byte{0, 0, 1, 0}) {
+		return false
+	}
+	count := int(binary.LittleEndian.Uint16(data[4:6]))
+	if count == 0 || len(data) < 6+count*16 {
+		return false
+	}
+	for index := 0; index < count; index++ {
+		entry := data[6+index*16 : 22+index*16]
+		size := int(binary.LittleEndian.Uint32(entry[8:12]))
+		offset := int(binary.LittleEndian.Uint32(entry[12:16]))
+		if size > 0 && offset >= 6+count*16 && offset <= len(data)-size {
+			return true
+		}
+	}
+	return false
+}
+
+func writeBrandAsset(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(path), ".brand-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, path)
+}
+
+func nextAssetVersion(previousVersion int64) int64 {
+	next := time.Now().UnixNano()
+	if next <= previousVersion {
+		return previousVersion + 1
+	}
+	return next
 }
 
 func (s *SearchServer) handleCSRF(w http.ResponseWriter, r *http.Request) {
@@ -468,11 +765,10 @@ func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, stripSecrets(cfg))
 }
 
-// stripSecrets 清除配置中的密码哈希和盐，避免向前端响应泄露。
+// stripSecrets clears password hashes before returning configuration to the client.
 func stripSecrets(cfg Config) Config {
 	cfg.Security.LockPasswordHash = ""
 	cfg.Security.SecondaryPasswordHash = ""
-	cfg.Security.PasswordSalt = ""
 	// 备份相关敏感密码用占位符标记，前端回传时保留原值
 	if cfg.Backup.DirBackup.Password != "" {
 		cfg.Backup.DirBackup.Password = "__set__"
@@ -506,12 +802,10 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
 	curCfg := s.cfgMgr.Get()
-	// Preserve this newly introduced setting when an older client saves a
-	// configuration payload that does not include it.
-	if !pauseResumeNotificationProvided(body) {
-		cfg.Notifications = curCfg.Notifications
-	}
+	preserveAssetMetadata(&cfg, curCfg)
 	listenHost, _, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		http.Error(w, "invalid search.listenAddr: "+err.Error(), http.StatusBadRequest)
@@ -548,15 +842,16 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	// 保留当前密码哈希和盐，不被前端回传的空值覆盖
+	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
+		http.Error(w, "invalid sensitive rule: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	// 保留当前密码哈希，不被前端回传的空值覆盖
 	if cfg.Security.LockPasswordHash == "" {
 		cfg.Security.LockPasswordHash = curCfg.Security.LockPasswordHash
 	}
 	if cfg.Security.SecondaryPasswordHash == "" {
 		cfg.Security.SecondaryPasswordHash = curCfg.Security.SecondaryPasswordHash
-	}
-	if cfg.Security.PasswordSalt == "" {
-		cfg.Security.PasswordSalt = curCfg.Security.PasswordSalt
 	}
 	// 保留备份相关敏感密码，不被前端回传的占位符或空值覆盖
 	if cfg.Backup.DirBackup.Password == "" || cfg.Backup.DirBackup.Password == "__set__" {
@@ -582,71 +877,34 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get())})
 }
 
-// handleExportData 导出所有剪切板记录，支持 format=json（默认）、format=csv、format=cvexport。
+// Asset bytes and their metadata are owned by the dedicated media endpoints.
+// General settings updates may change the visible title and visual controls,
+// but never select an arbitrary asset file or version.
+func preserveAssetMetadata(cfg *Config, current Config) {
+	cfg.Brand.LogoContentType = current.Brand.LogoContentType
+	cfg.Brand.LogoVersion = current.Brand.LogoVersion
+	cfg.Brand.FaviconContentType = current.Brand.FaviconContentType
+	cfg.Brand.FaviconVersion = current.Brand.FaviconVersion
+	cfg.Background.ContentType = current.Background.ContentType
+	cfg.Background.Version = current.Background.Version
+}
+
+// handleExportData exports complete data as JSON, XLSX, or encrypted cvexport.
 func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
-	if format != "csv" && format != "cvexport" {
-		format = "json"
-	}
 
 	switch format {
-	case "csv":
-		items, err := s.store.ExportAll(r.Context())
+	case "xlsx":
+		data, err := s.store.ExportXLSX(r.Context())
 		if err != nil {
 			s.writeError(w, err)
 			return
 		}
-		// Build item -> groups map for CSV
-		itemGroupsMap := make(map[int64][]int64)
-		for _, item := range items {
-			gids, _ := s.store.GetItemGroups(r.Context(), item.ID)
-			itemGroupsMap[item.ID] = gids
-		}
-		groups, _ := s.store.ListGroups(r.Context())
-		groupNameMap := make(map[int64]string)
-		for _, g := range groups {
-			groupNameMap[g.ID] = g.Name
-		}
-
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.csv"`)
-		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive", "groupIds", "groupNames"})
-		for _, item := range items {
-			starred := "false"
-			if item.Starred {
-				starred = "true"
-			}
-			sensitive := "false"
-			if item.Sensitive {
-				sensitive = "true"
-			}
-			gids := itemGroupsMap[item.ID]
-			gidStrs := make([]string, len(gids))
-			nameStrs := make([]string, len(gids))
-			for i, gid := range gids {
-				gidStrs[i] = strconv.FormatInt(gid, 10)
-				nameStrs[i] = groupNameMap[gid]
-			}
-			_ = cw.Write([]string{
-				strconv.FormatInt(item.ID, 10),
-				item.CreatedAt.Format(time.RFC3339),
-				csvSafe(item.Kind),
-				csvSafe(item.Format),
-				csvSafe(item.Text),
-				strconv.Itoa(item.ByteLen),
-				strconv.Itoa(item.CharLen),
-				item.SHA256,
-				csvSafe(item.MetaJSON),
-				starred,
-				sensitive,
-				strings.Join(gidStrs, ";"),
-				csvSafe(strings.Join(nameStrs, ";")),
-			})
-		}
-		cw.Flush()
-		s.logger.Info("data_exported", map[string]any{"format": "csv", "total": len(items)})
-	default: // json
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.xlsx"`)
+		_, _ = w.Write(data)
+		s.logger.Info("data_exported", map[string]any{"format": "xlsx"})
+	case "json":
 		export, err := s.store.ExportFullForJSON(r.Context())
 		if err != nil {
 			s.writeError(w, err)
@@ -690,56 +948,87 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.cvexport"`)
 		_, _ = w.Write(encData)
 		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "total": len(export.Items)})
+	default:
+		http.Error(w, "unsupported export format", http.StatusBadRequest)
 	}
 }
 
-// csvSafe prefixes cell values that start with =, +, -, or @ with a single quote
-// to prevent CSV formula injection.
-func csvSafe(s string) string {
-	if len(s) == 0 {
-		return s
-	}
-	switch s[0] {
-	case '=', '+', '-', '@':
-		return "'" + s
-	}
-	return s
-}
-
-// handleImportData receives a JSON export file (or encrypted .cvexport file) and imports it.
+// handleImportData imports a JSON, XLSX, or encrypted .cvexport export file.
 func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) {
 	// Limit upload to 100MB
 	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		s.writeImportError(w, fmt.Errorf("read body: %w", err))
 		return
 	}
 
-	// Check if this is an encrypted .cvexport file
-	var jsonData []byte
-	if IsCVExport(data) {
+	format := r.Header.Get("X-ClipVault-Import-Format")
+	if format == "" {
+		s.writeImportError(w, errors.New("import format is required"))
+		return
+	}
+	if format != "json" && format != "xlsx" && format != "cvexport" {
+		s.writeImportError(w, errors.New("unsupported import format"))
+		return
+	}
+
+	var importErr error
+	isCVExport := IsCVExport(data)
+	if isCVExport && format != "cvexport" {
+		s.writeImportError(w, errors.New("import format does not match encrypted export"))
+		return
+	}
+
+	switch format {
+	case "cvexport":
+		if !isCVExport {
+			s.writeImportError(w, errors.New("invalid encrypted export"))
+			return
+		}
 		password := r.Header.Get("X-ClipVault-Import-Password")
 		if password == "" {
-			http.Error(w, "password is required to decrypt .cvexport file", http.StatusBadRequest)
+			s.writeImportError(w, errors.New("password is required to decrypt .cvexport file"))
 			return
 		}
-		jsonData, err = DecryptExport(data, password)
-		if err != nil {
-			s.writeError(w, fmt.Errorf("decrypt cvexport: %w", err))
+		data, importErr = DecryptExport(data, password)
+		if importErr != nil {
+			importErr = fmt.Errorf("decrypt cvexport: %w", importErr)
+			s.writeImportError(w, importErr)
+			s.logger.Error("import_failed", importErr, map[string]any{"format": format})
 			return
 		}
-	} else {
-		jsonData = data
+		importErr = s.store.ImportFullJSON(r.Context(), data)
+	case "xlsx":
+		importErr = s.store.ImportXLSX(r.Context(), data)
+	case "json":
+		importErr = s.store.ImportFullJSON(r.Context(), data)
 	}
-
-	if err := s.store.ImportFullJSON(r.Context(), jsonData); err != nil {
-		s.writeError(w, err)
-		s.logger.Error("import_failed", err, nil)
+	if importErr != nil {
+		s.writeImportError(w, importErr)
+		s.logger.Error("import_failed", importErr, map[string]any{"format": format})
 		return
 	}
-	s.logger.Info("data_imported", nil)
-	s.writeJSON(w, map[string]any{"ok": true})
+
+	response := map[string]any{"ok": true}
+	if err := s.cfgMgr.Reload(); err != nil {
+		var hotkeyError *HotkeyError
+		if errors.As(err, &hotkeyError) {
+			response["hotkeyError"] = hotkeyError.Error()
+			s.logger.Warn("import_runtime_refresh_failed", map[string]any{"format": format, "error": hotkeyError.Error()})
+		} else {
+			response["runtimeError"] = err.Error()
+			s.logger.Warn("import_runtime_refresh_failed", map[string]any{"format": format, "error": err.Error()})
+		}
+	}
+	s.logger.Info("data_imported", map[string]any{"format": format})
+	s.writeJSON(w, response)
+}
+
+func (s *SearchServer) writeImportError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
 }
 
 // ── Recovery password management ──────────────────────────────
@@ -1110,6 +1399,10 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.store.AddItemToGroup(r.Context(), req.ItemID, req.GroupID); err != nil {
+		if errors.Is(err, errItemOrGroupNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		s.writeError(w, err)
 		return
 	}
@@ -1309,9 +1602,6 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.writePasswordFailure(w, "密码错误", s.auth.RecordFailedAttempt())
 		return
 	}
-	if err := s.migratePasswordHash("lock", req.Password); err != nil {
-		s.logger.Warn("password_hash_migration_failed", map[string]any{"type": "lock", "error": err.Error()})
-	}
 	s.auth.ResetRateLimit()
 	token, err := s.auth.CreateSession(cfg.Security.LockSessionTimeout)
 	if err != nil {
@@ -1368,9 +1658,6 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
 		s.writePasswordFailure(w, "二次密码错误", s.auth.RecordFailedAttempt())
 		return
-	}
-	if err := s.migratePasswordHash("secondary", req.Password); err != nil {
-		s.logger.Warn("password_hash_migration_failed", map[string]any{"type": "secondary", "error": err.Error()})
 	}
 	s.auth.ResetRateLimit()
 	s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
@@ -1460,9 +1747,6 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		} else {
 			cfg.Security.SecondaryPasswordHash = ""
 		}
-		if !isLegacyPasswordHash(cfg.Security.LockPasswordHash) && !isLegacyPasswordHash(cfg.Security.SecondaryPasswordHash) {
-			cfg.Security.PasswordSalt = ""
-		}
 		if err := s.cfgMgr.Update(cfg); err != nil {
 			s.writeError(w, err)
 			return
@@ -1500,10 +1784,6 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	} else {
 		cfg.Security.SecondaryPasswordHash = hash
 	}
-	if !isLegacyPasswordHash(cfg.Security.LockPasswordHash) && !isLegacyPasswordHash(cfg.Security.SecondaryPasswordHash) {
-		cfg.Security.PasswordSalt = ""
-	}
-
 	if err := s.cfgMgr.Update(cfg); err != nil {
 		s.writeError(w, err)
 		return
@@ -1520,30 +1800,4 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 
 	s.logger.Info("auth_password_set", map[string]any{"type": req.Type, "action": req.Action})
 	s.writeJSON(w, map[string]any{"ok": true})
-}
-
-func (s *SearchServer) migratePasswordHash(passwordType, password string) error {
-	cfg := s.cfgMgr.Get()
-	var current string
-	if passwordType == "lock" {
-		current = cfg.Security.LockPasswordHash
-	} else {
-		current = cfg.Security.SecondaryPasswordHash
-	}
-	if !isLegacyPasswordHash(current) {
-		return nil
-	}
-	hash, err := newPasswordHash(password)
-	if err != nil {
-		return err
-	}
-	if passwordType == "lock" {
-		cfg.Security.LockPasswordHash = hash
-	} else {
-		cfg.Security.SecondaryPasswordHash = hash
-	}
-	if !isLegacyPasswordHash(cfg.Security.LockPasswordHash) && !isLegacyPasswordHash(cfg.Security.SecondaryPasswordHash) {
-		cfg.Security.PasswordSalt = ""
-	}
-	return s.cfgMgr.Update(cfg)
 }

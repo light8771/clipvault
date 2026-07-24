@@ -21,6 +21,13 @@ type Store struct {
 	dbKey []byte
 }
 
+var errItemOrGroupNotFound = errors.New("item or group not found")
+
+type storeQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 type ClipboardItem struct {
 	Kind      string
 	Format    string
@@ -41,9 +48,10 @@ type Group struct {
 
 // StoredGroup 是从数据库读取的分组记录。
 type StoredGroup struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	ParentID int64  `json:"parentId"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	ParentID  int64     `json:"parentId"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type StoredItem struct {
@@ -417,7 +425,16 @@ func (s *Store) Star(ctx context.Context, id int64, starred bool) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id int64) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM clipboard_items WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_groups WHERE item_id = ?`, id); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM clipboard_items WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
@@ -428,22 +445,41 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	if n == 0 {
 		return fmt.Errorf("item %d not found", id)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) ClearAll(ctx context.Context) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM clipboard_items`)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_groups`); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM clipboard_items`)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // GetConfig 从 settings 表读取配置，不存在时返回默认配置。
 func (s *Store) GetConfig() (Config, error) {
+	return getConfig(context.Background(), s.db)
+}
+
+func getConfig(ctx context.Context, queryer storeQueryer) (Config, error) {
 	cfg := DefaultConfig()
 	var jsonStr string
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'config'`).Scan(&jsonStr)
+	err := queryer.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = 'config'`).Scan(&jsonStr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return cfg, nil
 	}
@@ -460,6 +496,9 @@ func (s *Store) GetConfig() (Config, error) {
 // SaveConfig 将配置持久化到 settings 表。
 func (s *Store) SaveConfig(cfg Config) error {
 	normalizeConfig(&cfg)
+	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
+		return fmt.Errorf("invalid sensitive rule: %w", err)
+	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
@@ -474,7 +513,11 @@ func (s *Store) SaveConfig(cfg Config) error {
 
 // ExportAll 返回所有剪切板记录（不限数量），按 id 正序排列，用于数据导出。
 func (s *Store) ExportAll(ctx context.Context) ([]StoredItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive
+	return exportAll(ctx, s.db)
+}
+
+func exportAll(ctx context.Context, queryer storeQueryer) ([]StoredItem, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive
 		FROM clipboard_items ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
@@ -496,7 +539,7 @@ func (s *Store) ExportAll(ctx context.Context) ([]StoredItem, error) {
 	return items, rows.Err()
 }
 
-// ExportData is the complete JSON export structure.
+// ExportData is the complete portable export structure.
 type ExportData struct {
 	ExportVersion int             `json:"exportVersion"`
 	App           string          `json:"app"`
@@ -506,6 +549,42 @@ type ExportData struct {
 	Items         []StoredItem    `json:"items"`
 	Groups        []StoredGroup   `json:"groups"`
 	ItemGroups    []ItemGroupLink `json:"itemGroups"`
+	Settings      ExportSettings  `json:"settings"`
+}
+
+// ExportSettings contains the portable settings required to restore the
+// exported data's behavior. Credentials and machine-local settings stay out
+// of data exports.
+type ExportSettings struct {
+	Sensitive SensitiveConfig `json:"sensitive"`
+}
+
+// UnmarshalJSON requires every portable settings field in the v3 contract.
+// A missing sensitive rule set must not silently clear the destination rules.
+func (settings *ExportSettings) UnmarshalJSON(data []byte) error {
+	type exportSettings ExportSettings
+	var decoded exportSettings
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	rawSensitive, ok := fields["sensitive"]
+	if !ok || string(rawSensitive) == "null" {
+		return errors.New("settings.sensitive is required")
+	}
+	var sensitiveFields map[string]json.RawMessage
+	if err := json.Unmarshal(rawSensitive, &sensitiveFields); err != nil {
+		return fmt.Errorf("settings.sensitive: %w", err)
+	}
+	rawPatterns, ok := sensitiveFields["customPatterns"]
+	if !ok || string(rawPatterns) == "null" {
+		return errors.New("settings.sensitive.customPatterns is required")
+	}
+	*settings = ExportSettings(decoded)
+	return nil
 }
 
 // ItemGroupLink is a single item-group association for export/import.
@@ -514,25 +593,30 @@ type ItemGroupLink struct {
 	GroupID int64 `json:"groupId"`
 }
 
-// ExportFullForJSON exports clipboard data, groups, and item-group links.
-// Runtime configuration is intentionally excluded from data import/export.
+// ExportFullForJSON exports clipboard data, group hierarchy, and portable
+// sensitive-data rules.
 func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
-	items, err := s.ExportAll(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin export transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	items, err := exportAll(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("export items: %w", err)
 	}
 
-	groups, err := s.ListGroups(ctx)
+	groups, err := listGroups(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("export groups: %w", err)
 	}
 
 	// Export item_groups
-	rows, err := s.db.QueryContext(ctx, `SELECT item_id, group_id FROM item_groups ORDER BY item_id ASC`)
+	rows, err := tx.QueryContext(ctx, `SELECT item_id, group_id FROM item_groups ORDER BY item_id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("export item_groups: %w", err)
 	}
-	defer rows.Close()
 	var links []ItemGroupLink
 	for rows.Next() {
 		var l ItemGroupLink
@@ -544,9 +628,25 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close item_groups export: %w", err)
+	}
+	cfg, err := getConfig(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("export settings: %w", err)
+	}
+	if items == nil {
+		items = []StoredItem{}
+	}
+	if groups == nil {
+		groups = []StoredGroup{}
+	}
+	if links == nil {
+		links = []ItemGroupLink{}
+	}
 
-	return &ExportData{
-		ExportVersion: 2,
+	export := &ExportData{
+		ExportVersion: 3,
 		App:           "ClipVault",
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
 		SourceEngine:  "duckdb",
@@ -554,13 +654,28 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 		Items:         items,
 		Groups:        groups,
 		ItemGroups:    links,
-	}, nil
+		Settings: ExportSettings{Sensitive: SensitiveConfig{
+			CustomPatterns: append([]string{}, cfg.Sensitive.CustomPatterns...),
+		}},
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit export transaction: %w", err)
+	}
+	return export, nil
 }
 
-// ImportFullJSON imports clipboard data and groups into the database.
-// It remaps IDs to avoid conflicts and uses a transaction for atomicity.
-// Any config field in older export files is ignored.
+// ImportFullJSON imports clipboard data, group hierarchy, and portable
+// sensitive-data rules in one transaction.
 func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
+	var envelope struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return fmt.Errorf("parse export JSON: %w", err)
+	}
+	if len(envelope.Settings) == 0 || string(envelope.Settings) == "null" {
+		return errors.New("settings is required")
+	}
 	var export ExportData
 	if err := json.Unmarshal(data, &export); err != nil {
 		return fmt.Errorf("parse export JSON: %w", err)
@@ -568,26 +683,66 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 	if export.App != "ClipVault" {
 		return fmt.Errorf("not a ClipVault export (app=%q)", export.App)
 	}
+	if export.ExportVersion != 3 {
+		return fmt.Errorf("unsupported export version %d", export.ExportVersion)
+	}
+	return s.importExportData(ctx, export)
+}
 
+// importExportData imports a validated complete export in one transaction.
+// JSON and XLSX both use this path so their restore behavior cannot diverge.
+func (s *Store) importExportData(ctx context.Context, export ExportData) error {
+	if err := validateExportData(export); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Import groups with ID remapping
+	cfg, err := getConfig(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("load settings: %w", err)
+	}
+	cfg.Sensitive = export.Settings.Sensitive
+	normalizeConfig(&cfg)
+	settings, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode settings: %w", err)
+	}
+
+	// Import groups with ID remapping. Parent groups are inserted first even
+	// when a workbook happens to list children before parents.
 	groupIDMap := make(map[int64]int64) // oldID -> newID
-	for _, g := range export.Groups {
-		var newID int64
-		parentID := groupIDMap[g.ParentID] // 0 if not found (top-level)
-		err := tx.QueryRowContext(ctx,
-			`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
-			g.Name, parentID, time.Now().UTC().Format(time.RFC3339Nano),
-		).Scan(&newID)
-		if err != nil {
-			return fmt.Errorf("import group %d: %w", g.ID, err)
+	pendingGroups := append([]StoredGroup(nil), export.Groups...)
+	for len(pendingGroups) > 0 {
+		next := pendingGroups[:0]
+		progressed := false
+		for _, g := range pendingGroups {
+			parentID, ready := groupIDMap[g.ParentID]
+			if g.ParentID == 0 {
+				ready = true
+			}
+			if !ready {
+				next = append(next, g)
+				continue
+			}
+			var newID int64
+			err := tx.QueryRowContext(ctx,
+				`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
+				g.Name, parentID, g.CreatedAt.UTC().Format(time.RFC3339Nano),
+			).Scan(&newID)
+			if err != nil {
+				return fmt.Errorf("import group %d: %w", g.ID, err)
+			}
+			groupIDMap[g.ID] = newID
+			progressed = true
 		}
-		groupIDMap[g.ID] = newID
+		if !progressed {
+			return errors.New("import groups: cyclic parent hierarchy")
+		}
+		pendingGroups = next
 	}
 
 	// Import items with ID remapping
@@ -611,20 +766,69 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 
 	// Import item_groups with remapped IDs
 	for _, link := range export.ItemGroups {
-		newItemID, ok1 := itemIDMap[link.ItemID]
-		newGroupID, ok2 := groupIDMap[link.GroupID]
-		if !ok1 || !ok2 {
-			continue // skip orphaned links
-		}
+		newItemID := itemIDMap[link.ItemID]
+		newGroupID := groupIDMap[link.GroupID]
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+			`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?)`,
 			newItemID, newGroupID,
 		); err != nil {
 			return fmt.Errorf("import item_group: %w", err)
 		}
 	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO settings (key, value) VALUES ('config', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(settings)); err != nil {
+		return fmt.Errorf("import settings: %w", err)
+	}
 
 	return tx.Commit()
+}
+
+func validateExportData(export ExportData) error {
+	if err := validateSensitiveRules(export.Settings.Sensitive); err != nil {
+		return fmt.Errorf("invalid sensitive rule: %w", err)
+	}
+	itemIDs := make(map[int64]struct{}, len(export.Items))
+	for _, item := range export.Items {
+		if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
+			return fmt.Errorf("invalid item %d", item.ID)
+		}
+		if _, exists := itemIDs[item.ID]; exists {
+			return fmt.Errorf("duplicate item ID %d", item.ID)
+		}
+		itemIDs[item.ID] = struct{}{}
+	}
+	groupIDs := make(map[int64]struct{}, len(export.Groups))
+	for _, group := range export.Groups {
+		if group.ID <= 0 || group.ParentID < 0 || group.CreatedAt.IsZero() {
+			return fmt.Errorf("invalid group %d", group.ID)
+		}
+		if _, exists := groupIDs[group.ID]; exists {
+			return fmt.Errorf("duplicate group ID %d", group.ID)
+		}
+		groupIDs[group.ID] = struct{}{}
+	}
+	for _, group := range export.Groups {
+		if group.ParentID != 0 {
+			if _, exists := groupIDs[group.ParentID]; !exists {
+				return fmt.Errorf("group %d references missing parent %d", group.ID, group.ParentID)
+			}
+		}
+	}
+	links := make(map[ItemGroupLink]struct{}, len(export.ItemGroups))
+	for _, link := range export.ItemGroups {
+		if _, exists := itemIDs[link.ItemID]; !exists {
+			return fmt.Errorf("item-group link references missing item %d", link.ItemID)
+		}
+		if _, exists := groupIDs[link.GroupID]; !exists {
+			return fmt.Errorf("item-group link references missing group %d", link.GroupID)
+		}
+		if _, exists := links[link]; exists {
+			return fmt.Errorf("duplicate item-group link %d:%d", link.ItemID, link.GroupID)
+		}
+		links[link] = struct{}{}
+	}
+	return nil
 }
 
 func escapeLike(s string) string {
@@ -638,7 +842,11 @@ func escapeLike(s string) string {
 
 // ListGroups 返回所有分组，按 id 排序。
 func (s *Store) ListGroups(ctx context.Context) ([]StoredGroup, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, parent_id FROM groups ORDER BY id ASC`)
+	return listGroups(ctx, s.db)
+}
+
+func listGroups(ctx context.Context, queryer storeQueryer) ([]StoredGroup, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT id, name, parent_id, created_at FROM groups ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -646,8 +854,13 @@ func (s *Store) ListGroups(ctx context.Context) ([]StoredGroup, error) {
 	var groups []StoredGroup
 	for rows.Next() {
 		var g StoredGroup
-		if err := rows.Scan(&g.ID, &g.Name, &g.ParentID); err != nil {
+		var createdAt string
+		if err := rows.Scan(&g.ID, &g.Name, &g.ParentID, &createdAt); err != nil {
 			return nil, err
+		}
+		g.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse group %d created_at: %w", g.ID, err)
 		}
 		groups = append(groups, g)
 	}
@@ -656,14 +869,15 @@ func (s *Store) ListGroups(ctx context.Context) ([]StoredGroup, error) {
 
 // CreateGroup 创建一个新分组。
 func (s *Store) CreateGroup(ctx context.Context, name string, parentID int64) (StoredGroup, error) {
+	now := time.Now().UTC()
 	var id int64
 	err := s.db.QueryRowContext(ctx,
 		`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
-		name, parentID, time.Now().UTC().Format(time.RFC3339Nano)).Scan(&id)
+		name, parentID, now.Format(time.RFC3339Nano)).Scan(&id)
 	if err != nil {
 		return StoredGroup{}, err
 	}
-	return StoredGroup{ID: id, Name: name, ParentID: parentID}, nil
+	return StoredGroup{ID: id, Name: name, ParentID: parentID, CreatedAt: now}, nil
 }
 
 // UpdateGroup 更新分组名称和父分组。
@@ -751,9 +965,36 @@ func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 
 // AddItemToGroup 将条目加入分组。
 func (s *Store) AddItemToGroup(ctx context.Context, itemID, groupID int64) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, itemID, groupID)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `INSERT INTO item_groups (item_id, group_id)
+		SELECT items.id, groups.id
+		FROM clipboard_items AS items, groups
+		WHERE items.id = ? AND groups.id = ?
+		ON CONFLICT DO NOTHING`, itemID, groupID)
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted == 0 {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+			SELECT 1 FROM item_groups WHERE item_id = ? AND group_id = ?
+		)`, itemID, groupID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("%w: item %d or group %d", errItemOrGroupNotFound, itemID, groupID)
+		}
+	}
+	return tx.Commit()
 }
 
 // RemoveItemFromGroup 将条目从分组移除。
@@ -765,7 +1006,7 @@ func (s *Store) RemoveItemFromGroup(ctx context.Context, itemID, groupID int64) 
 
 // GetItemGroups 返回条目所属的所有分组 id。
 func (s *Store) GetItemGroups(ctx context.Context, itemID int64) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT group_id FROM item_groups WHERE item_id = ?`, itemID)
+	rows, err := s.db.QueryContext(ctx, `SELECT group_id FROM item_groups WHERE item_id = ? ORDER BY group_id ASC`, itemID)
 	if err != nil {
 		return nil, err
 	}

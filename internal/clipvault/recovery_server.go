@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -21,6 +23,7 @@ const recoveryHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>恢复数据 · ClipVault</title>
+<link id="appearanceFavicon" rel="icon" href="/appearance/favicon">
 <style>
 :root {
   --primary:#14b8a6;
@@ -64,11 +67,17 @@ body{
     var(--bg);
   -webkit-font-smoothing:antialiased;
 }
+.appearance-background,.appearance-overlay{position:fixed;inset:0;pointer-events:none}
+.appearance-background{z-index:0;overflow:hidden;background:var(--bg)}
+.appearance-background img,.appearance-background video{display:none;width:100%;height:100%;object-fit:cover;transform-origin:center center}
+.appearance-overlay{z-index:0;background:transparent}
+.page{position:relative;z-index:1}
 button,input{font:inherit}
 button{cursor:pointer}
 .page{width:min(940px,calc(100% - 32px));margin:0 auto;padding:28px 0 44px}
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
-.brand{font-size:17px;font-weight:750;letter-spacing:-.35px}
+.brand{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:750;letter-spacing:-.35px}
+.brand img{width:28px;height:28px;object-fit:contain;border-radius:7px}
 .local-badge{padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--sub);font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .shell{display:grid;grid-template-columns:minmax(0,.88fr) minmax(360px,1.12fr);overflow:hidden;border:1px solid var(--border);border-radius:20px;background:var(--surface);box-shadow:var(--shadow)}
 .intro{padding:48px 42px;background:linear-gradient(145deg,var(--primary-soft),transparent 70%);border-right:1px solid var(--border)}
@@ -127,9 +136,14 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 </style>
 </head>
 <body>
+<div class="appearance-background" aria-hidden="true">
+  <img id="appearanceBackgroundImage" alt="">
+  <video id="appearanceBackgroundVideo" muted loop playsinline></video>
+</div>
+<div id="appearanceOverlay" class="appearance-overlay" aria-hidden="true"></div>
 <main class="page">
   <header class="topbar">
-    <div class="brand">ClipVault</div>
+    <div class="brand"><img id="recoveryBrandLogo" hidden alt=""><span id="recoveryBrandName">ClipVault</span></div>
     <div class="local-badge">仅在本机处理</div>
   </header>
 
@@ -181,6 +195,50 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 <script>
 var recoveryToken = location.hash.length > 1 ? location.hash.substring(1) : '';
 if (recoveryToken) history.replaceState(null, '', location.pathname);
+
+function applyRecoveryAppearance(appearance) {
+  var brand = appearance.brand || {};
+  var title = String(brand.title || 'ClipVault').trim() || 'ClipVault';
+  document.title = '恢复数据 · ' + title;
+  document.getElementById('recoveryBrandName').textContent = title;
+  var logo = document.getElementById('recoveryBrandLogo');
+  if (Number(brand.logoVersion) > 0) {
+    logo.src = '/appearance/logo?v=' + encodeURIComponent(brand.logoVersion);
+    logo.hidden = false;
+  } else {
+    logo.removeAttribute('src');
+    logo.hidden = true;
+  }
+  var favicon = document.getElementById('appearanceFavicon');
+  favicon.href = Number(brand.faviconVersion) > 0
+    ? '/appearance/favicon?v=' + encodeURIComponent(brand.faviconVersion)
+    : '/appearance/favicon';
+
+  var background = appearance.background || {};
+  if (!background.contentType || Number(background.version) <= 0) return;
+  var image = document.getElementById('appearanceBackgroundImage');
+  var video = document.getElementById('appearanceBackgroundVideo');
+  var media = background.contentType.indexOf('video/') === 0 ? video : image;
+  var other = media === video ? image : video;
+  other.removeAttribute('src');
+  other.style.display = 'none';
+  if (other === video) other.pause();
+  media.src = '/appearance/background?v=' + encodeURIComponent(background.version);
+  media.style.display = 'block';
+  media.style.opacity = String(Math.max(0, Math.min(100, Number(background.opacity) || 0)) / 100);
+  media.style.filter = 'blur(' + Math.max(0, Number(background.blur) || 0) + 'px) brightness(' + (Math.max(40, Number(background.brightness) || 100) / 100) + ') contrast(' + (Math.max(40, Number(background.contrast) || 100) / 100) + ') saturate(' + (Math.max(0, Number(background.saturation) || 100) / 100) + ')';
+  media.style.transform = 'scale(' + (Math.max(25, Math.min(200, Number(background.scale) || 100)) / 100) + ')';
+  media.style.objectFit = ['cover', 'contain', 'fill'].indexOf(background.fit) >= 0 ? background.fit : 'cover';
+  media.style.objectPosition = (Math.max(0, Math.min(100, Number(background.positionX) || 50))) + '% ' + (Math.max(0, Math.min(100, Number(background.positionY) || 50))) + '%';
+  document.getElementById('appearanceOverlay').style.background = 'rgba(5, 15, 18, ' + (Math.max(0, Math.min(90, Number(background.overlay) || 0)) / 100) + ')';
+  if (media === video) media.play().catch(function() {});
+}
+
+fetch('/appearance').then(function(resp) {
+  return resp.ok ? resp.json() : null;
+}).then(function(appearance) {
+  if (appearance) applyRecoveryAppearance(appearance);
+}).catch(function() {});
 
 function secureHeaders(extra) {
   var headers = extra || {};
@@ -324,6 +382,10 @@ func (rs *RecoveryServer) Start() (string, error) {
 	rs.token = token
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", rs.handleIndex)
+	mux.HandleFunc("GET /appearance", rs.handleAppearance)
+	mux.HandleFunc("GET /appearance/logo", rs.handleAppearanceLogo)
+	mux.HandleFunc("GET /appearance/favicon", rs.handleAppearanceFavicon)
+	mux.HandleFunc("GET /appearance/background", rs.handleAppearanceBackground)
 	mux.HandleFunc("POST /api/recovery/recover", rs.handleRecover)
 	mux.HandleFunc("POST /api/recovery/new", rs.handleNew)
 
@@ -381,7 +443,7 @@ func (rs *RecoveryServer) finish(success bool) {
 
 func (rs *RecoveryServer) secureHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -409,6 +471,76 @@ func (rs *RecoveryServer) secureHTTP(next http.Handler) http.Handler {
 func (rs *RecoveryServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(recoveryHTML))
+}
+
+func (rs *RecoveryServer) handleAppearance(w http.ResponseWriter, r *http.Request) {
+	appearance, err := ReadRecoveryAppearance(rs.dataDir)
+	if err != nil {
+		appearance = defaultRecoveryAppearance()
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(appearance)
+}
+
+func (rs *RecoveryServer) handleAppearanceLogo(w http.ResponseWriter, r *http.Request) {
+	rs.serveAppearanceAsset(w, r, "logo")
+}
+
+func (rs *RecoveryServer) handleAppearanceFavicon(w http.ResponseWriter, r *http.Request) {
+	rs.serveAppearanceAsset(w, r, "favicon")
+}
+
+func (rs *RecoveryServer) handleAppearanceBackground(w http.ResponseWriter, r *http.Request) {
+	rs.serveAppearanceAsset(w, r, "background")
+}
+
+func (rs *RecoveryServer) serveAppearanceAsset(w http.ResponseWriter, r *http.Request, kind string) {
+	appearance, err := ReadRecoveryAppearance(rs.dataDir)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	contentType, fileName := "", ""
+	version := int64(0)
+	switch kind {
+	case "logo":
+		contentType, fileName = appearance.Brand.LogoContentType, brandLogoAsset
+		version = appearance.Brand.LogoVersion
+		if !isBrandContentType(contentType, kind) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	case "favicon":
+		contentType, fileName = appearance.Brand.FaviconContentType, brandFaviconAsset
+		version = appearance.Brand.FaviconVersion
+		if !isBrandContentType(contentType, kind) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	case "background":
+		contentType, fileName = appearance.Background.ContentType, backgroundMediaAsset
+		version = appearance.Background.Version
+		if !isBackgroundContentType(contentType) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if !assetVersionMatches(r, version) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	fileName = assetFileName(fileName, version)
+	file, err := os.Open(filepath.Join(rs.dataDir, fileName))
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", contentType)
+	http.ServeContent(w, r, fileName, time.Time{}, file)
 }
 
 func (rs *RecoveryServer) handleRecover(w http.ResponseWriter, r *http.Request) {

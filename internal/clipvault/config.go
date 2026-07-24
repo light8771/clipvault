@@ -3,6 +3,7 @@ package clipvault
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const appDirName = "ClipVault"
@@ -109,6 +110,8 @@ func StartupErrorLogFile() string {
 type Config struct {
 	MaxTextChars     int                `json:"maxTextChars"`
 	MaxFileDropPaths int                `json:"maxFileDropPaths"`
+	Brand            BrandConfig        `json:"brand"`
+	Background       BackgroundConfig   `json:"background"`
 	Theme            ThemeConfig        `json:"theme"`
 	Search           SearchConfig       `json:"search"`
 	Sensitive        SensitiveConfig    `json:"sensitive"`
@@ -118,6 +121,33 @@ type Config struct {
 	Hotkey           HotkeyConfig       `json:"hotkey"`
 	SearchHotkey     HotkeyConfig       `json:"searchHotkey"`
 	Backup           BackupConfig       `json:"backup"`
+}
+
+// BrandConfig stores the visible site identity. Image content itself is kept
+// as validated files in the application data directory.
+type BrandConfig struct {
+	Title              string `json:"title"`
+	LogoContentType    string `json:"logoContentType"`
+	LogoVersion        int64  `json:"logoVersion,string"`
+	FaviconContentType string `json:"faviconContentType"`
+	FaviconVersion     int64  `json:"faviconVersion,string"`
+}
+
+// BackgroundConfig stores the selected background media and its visual controls.
+// The media bytes are kept as a validated file in the application data directory.
+type BackgroundConfig struct {
+	ContentType string `json:"contentType"`
+	Version     int64  `json:"version,string"`
+	Fit         string `json:"fit"`
+	Opacity     int    `json:"opacity"`
+	Overlay     int    `json:"overlay"`
+	Blur        int    `json:"blur"`
+	Brightness  int    `json:"brightness"`
+	Contrast    int    `json:"contrast"`
+	Saturation  int    `json:"saturation"`
+	Scale       int    `json:"scale"`
+	PositionX   int    `json:"positionX"`
+	PositionY   int    `json:"positionY"`
 }
 
 // ThemeConfig stores the selected UI skin. Custom primary and accent colors
@@ -146,7 +176,11 @@ type AutostartConfig struct {
 
 // NotificationConfig controls local Windows notifications.
 type NotificationConfig struct {
-	PauseResume bool `json:"pauseResume"`
+	PauseResume bool   `json:"pauseResume"`
+	PauseTitle  string `json:"pauseTitle"`
+	PauseBody   string `json:"pauseBody"`
+	ResumeTitle string `json:"resumeTitle"`
+	ResumeBody  string `json:"resumeBody"`
 }
 
 // HotkeyConfig 全局快捷键配置，用于暂停/恢复录制。
@@ -159,12 +193,10 @@ type HotkeyConfig struct {
 	Key       int  `json:"key"`
 }
 
-// SecurityConfig 存储锁屏密码和二次密码的哈希值及盐。
-// 密码以 SHA-256(salt + password) 形式存储，不保存明文。
+// SecurityConfig stores scrypt password hashes for lock and secondary authentication.
 type SecurityConfig struct {
 	LockPasswordHash      string `json:"lockPasswordHash"`
 	SecondaryPasswordHash string `json:"secondaryPasswordHash"`
-	PasswordSalt          string `json:"passwordSalt"`
 	LockSessionTimeout    int    `json:"lockSessionTimeout"`   // 锁屏会话超时(分钟)，0=浏览器会话cookie，N=N分钟
 	SecondaryAuthTimeout  int    `json:"secondaryAuthTimeout"` // 二次认证缓存时长(分钟)，0=每次都校验，N=N分钟内免重复
 }
@@ -200,6 +232,20 @@ type EmailBackupConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
+		Brand: BrandConfig{
+			Title: "ClipVault",
+		},
+		Background: BackgroundConfig{
+			Fit:        "cover",
+			Opacity:    58,
+			Overlay:    64,
+			Brightness: 100,
+			Contrast:   100,
+			Saturation: 100,
+			Scale:      100,
+			PositionX:  50,
+			PositionY:  50,
+		},
 		Theme: ThemeConfig{
 			Preset: "mint",
 			Mode:   "system",
@@ -219,11 +265,14 @@ func DefaultConfig() Config {
 		},
 		Notifications: NotificationConfig{
 			PauseResume: true,
+			PauseTitle:  "ClipVault",
+			PauseBody:   "剪贴板录制已暂停",
+			ResumeTitle: "ClipVault",
+			ResumeBody:  "剪贴板录制已恢复",
 		},
 		Security: SecurityConfig{
 			LockPasswordHash:      "",
 			SecondaryPasswordHash: "",
-			PasswordSalt:          "",
 			LockSessionTimeout:    0,
 			SecondaryAuthTimeout:  0,
 		},
@@ -280,7 +329,10 @@ func (e Environment) LogDirectory() string {
 // MaxTextChars == 0 和 MaxFileDropPaths == 0 均为合法值（表示不限制），不做替换。
 func normalizeConfig(cfg *Config) {
 	def := DefaultConfig()
+	normalizeBrand(&cfg.Brand, def.Brand)
+	normalizeBackground(&cfg.Background, def.Background)
 	normalizeTheme(&cfg.Theme, def.Theme)
+	normalizeNotifications(&cfg.Notifications)
 	if cfg.Search.ListenAddr == "" {
 		cfg.Search.ListenAddr = def.Search.ListenAddr
 	}
@@ -300,6 +352,74 @@ func normalizeConfig(cfg *Config) {
 	}
 	// 邮件会离开本机，始终要求使用加密导出格式，不允许明文 JSON。
 	cfg.Backup.EmailBackup.Format = "cvexport"
+}
+
+func normalizeNotifications(notifications *NotificationConfig) {
+	notifications.PauseTitle = truncateRunes(strings.TrimSpace(notifications.PauseTitle), 60)
+	notifications.PauseBody = truncateRunes(strings.TrimSpace(notifications.PauseBody), 240)
+	notifications.ResumeTitle = truncateRunes(strings.TrimSpace(notifications.ResumeTitle), 60)
+	notifications.ResumeBody = truncateRunes(strings.TrimSpace(notifications.ResumeBody), 240)
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return value
+}
+
+func normalizeBrand(brand *BrandConfig, def BrandConfig) {
+	brand.Title = strings.TrimSpace(brand.Title)
+	if brand.Title == "" {
+		brand.Title = def.Title
+	}
+	if title := []rune(brand.Title); len(title) > 60 {
+		brand.Title = string(title[:60])
+	}
+	if !isBrandContentType(brand.LogoContentType, "logo") || brand.LogoVersion <= 0 {
+		brand.LogoContentType = ""
+		brand.LogoVersion = 0
+	}
+	if !isBrandContentType(brand.FaviconContentType, "favicon") || brand.FaviconVersion <= 0 {
+		brand.FaviconContentType = ""
+		brand.FaviconVersion = 0
+	}
+}
+
+func normalizeBackground(background *BackgroundConfig, def BackgroundConfig) {
+	if *background == (BackgroundConfig{}) {
+		*background = def
+		return
+	}
+	if !isBackgroundContentType(background.ContentType) || background.Version <= 0 {
+		background.ContentType = ""
+		background.Version = 0
+	}
+	background.Opacity = clampInt(background.Opacity, 0, 100)
+	background.Overlay = clampInt(background.Overlay, 0, 90)
+	background.Blur = clampInt(background.Blur, 0, 32)
+	background.Brightness = clampInt(background.Brightness, 40, 160)
+	background.Contrast = clampInt(background.Contrast, 40, 160)
+	background.Saturation = clampInt(background.Saturation, 0, 200)
+	background.Scale = clampInt(background.Scale, 25, 200)
+	background.PositionX = clampInt(background.PositionX, 0, 100)
+	background.PositionY = clampInt(background.PositionY, 0, 100)
+	switch background.Fit {
+	case "cover", "contain", "fill":
+	default:
+		background.Fit = def.Fit
+	}
+}
+
+func clampInt(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func normalizeTheme(theme *ThemeConfig, def ThemeConfig) {

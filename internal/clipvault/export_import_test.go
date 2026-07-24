@@ -1,10 +1,17 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/xuri/excelize/v2"
 )
 
 func TestExportImportRoundtrip(t *testing.T) {
@@ -27,6 +34,11 @@ func TestExportImportRoundtrip(t *testing.T) {
 		if err := store.Save(ctx, item); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
+	}
+	sourceConfig := DefaultConfig()
+	sourceConfig.Sensitive.CustomPatterns = []string{"(?i)api[_-]?key", "^\\d{6}$"}
+	if err := store.SaveConfig(sourceConfig); err != nil {
+		t.Fatalf("SaveConfig source: %v", err)
 	}
 
 	// Create groups
@@ -71,8 +83,11 @@ func TestExportImportRoundtrip(t *testing.T) {
 	if export.App != "ClipVault" {
 		t.Fatalf("export app: %q", export.App)
 	}
-	if export.ExportVersion != 2 {
+	if export.ExportVersion != 3 {
 		t.Fatalf("export version: %d", export.ExportVersion)
+	}
+	if !sameStrings(export.Settings.Sensitive.CustomPatterns, sourceConfig.Sensitive.CustomPatterns) {
+		t.Fatalf("export sensitive settings = %#v", export.Settings.Sensitive)
 	}
 	t.Logf("[OK] export: %d items, %d groups, %d links", len(export.Items), len(export.Groups), len(export.ItemGroups))
 
@@ -94,21 +109,9 @@ func TestExportImportRoundtrip(t *testing.T) {
 	cfgBefore.Search.ListenAddr = "127.0.0.1:19999"
 	cfgBefore.Backup.EmailBackup.SMTPPass = "keep-smtp-pass"
 	cfgBefore.Backup.EmailBackup.Password = "keep-export-pass"
+	cfgBefore.Sensitive.CustomPatterns = []string{"target-only"}
 	if err := store2.SaveConfig(cfgBefore); err != nil {
 		t.Fatalf("SaveConfig before import: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatalf("Unmarshal payload: %v", err)
-	}
-	cfgFromImport := DefaultConfig()
-	cfgFromImport.Search.ListenAddr = "0.0.0.0:18765"
-	cfgFromImport.Backup.EmailBackup.SMTPPass = "clobbered"
-	cfgFromImport.Backup.EmailBackup.Password = "clobbered"
-	payload["config"] = cfgFromImport
-	data, err = json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("Marshal payload with config: %v", err)
 	}
 
 	if err := store2.ImportFullJSON(ctx, data); err != nil {
@@ -133,6 +136,17 @@ func TestExportImportRoundtrip(t *testing.T) {
 	if len(importedGroups) != 2 {
 		t.Fatalf("imported groups: expected 2, got %d", len(importedGroups))
 	}
+	importedGroupIDs := make(map[string]int64, len(importedGroups))
+	var importedChild StoredGroup
+	for _, group := range importedGroups {
+		importedGroupIDs[group.Name] = group.ID
+		if group.Name == "Group B" {
+			importedChild = group
+		}
+	}
+	if importedChild.ParentID != importedGroupIDs["Group A"] {
+		t.Fatalf("imported Group B parent = %d, want Group A", importedChild.ParentID)
+	}
 	t.Logf("[OK] imported %d groups", len(importedGroups))
 
 	// Verify item-group associations
@@ -154,7 +168,7 @@ func TestExportImportRoundtrip(t *testing.T) {
 	}
 	t.Logf("[OK] sensitive flag preserved")
 
-	// Verify config embedded in data imports is ignored.
+	// Verify only portable sensitive settings are restored.
 	cfgAfter, err := store2.GetConfig()
 	if err != nil {
 		t.Fatalf("GetConfig after import: %v", err)
@@ -168,27 +182,679 @@ func TestExportImportRoundtrip(t *testing.T) {
 	if cfgAfter.Backup.EmailBackup.Password != cfgBefore.Backup.EmailBackup.Password {
 		t.Fatal("import changed email backup export password")
 	}
-	t.Logf("[OK] config embedded in import payload was ignored")
+	if !sameStrings(cfgAfter.Sensitive.CustomPatterns, sourceConfig.Sensitive.CustomPatterns) {
+		t.Fatalf("imported sensitive settings = %#v", cfgAfter.Sensitive)
+	}
+	t.Logf("[OK] sensitive settings restored without importing credentials")
 }
 
-func TestCSVSafe(t *testing.T) {
-	tests := []struct {
-		input  string
-		expect string
-	}{
-		{"=SUM(A1)", "'=SUM(A1)"},
-		{"+123", "'+123"},
-		{"-456", "'-456"},
-		{"@cmd", "'@cmd"},
-		{"normal text", "normal text"},
-		{"", ""},
-		{"hello", "hello"},
+func TestXLSXRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		got := csvSafe(tt.input)
-		if got != tt.expect {
-			t.Errorf("csvSafe(%q) = %q, want %q", tt.input, got, tt.expect)
+	defer source.Close()
+	if err := source.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "=SUM(A1)\nnext line", ByteLen: 18, CharLen: 18, SHA256: "abc", MetaJSON: "{\"source\":\"xlsx\"}", Sensitive: true}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.Sensitive.CustomPatterns = []string{"(?i)secret"}
+	if err := source.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := source.CreateGroup(ctx, "Parent", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := source.CreateGroup(ctx, "Child", parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.CreateGroup(ctx, "Empty", 0); err != nil {
+		t.Fatal(err)
+	}
+	items, err := source.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.AddItemToGroup(ctx, items[0].ID, child.ID); err != nil {
+		t.Fatal(err)
+	}
+	data, err := source.ExportXLSX(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	if err := target.ImportXLSX(ctx, data); err != nil {
+		t.Fatalf("ImportXLSX: %v", err)
+	}
+	imported, total, err := target.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+	if err != nil || total != 1 || imported[0].Text != "=SUM(A1)\nnext line" || !imported[0].Sensitive {
+		t.Fatalf("imported records = %#v, total=%d, err=%v", imported, total, err)
+	}
+	groups, err := target.ListGroups(ctx)
+	if err != nil || len(groups) != 3 || groups[1].ParentID != groups[0].ID {
+		t.Fatalf("imported groups = %#v, err=%v", groups, err)
+	}
+	cfg, err = target.GetConfig()
+	if err != nil || !sameStrings(cfg.Sensitive.CustomPatterns, []string{"(?i)secret"}) {
+		t.Fatalf("imported sensitive settings = %#v, err=%v", cfg.Sensitive, err)
+	}
+}
+
+func TestImportXLSXRejectsInvalidWorkbookAtomically(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.ImportXLSX(context.Background(), []byte("not an xlsx")); err == nil {
+		t.Fatal("ImportXLSX accepted invalid data")
+	}
+	_, total, err := store.Search(context.Background(), SearchOptions{Limit: 10, IncludeSensitive: true})
+	if err != nil || total != 0 {
+		t.Fatalf("invalid XLSX changed database: total=%d err=%v", total, err)
+	}
+}
+
+func TestImportFullJSONRequiresSensitiveRules(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	data := []byte(`{"exportVersion":3,"app":"ClipVault"}`)
+	err = store.ImportFullJSON(context.Background(), data)
+	if err == nil || !strings.Contains(err.Error(), "settings is required") {
+		t.Fatalf("missing settings import error = %v", err)
+	}
+	_, total, err := store.Search(context.Background(), SearchOptions{Limit: 10, IncludeSensitive: true})
+	if err != nil || total != 0 {
+		t.Fatalf("missing settings import changed database: total=%d err=%v", total, err)
+	}
+}
+
+func TestImportRejectsInvalidSensitiveRulesAtomically(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	config := DefaultConfig()
+	config.Sensitive.CustomPatterns = []string{"^before-import$"}
+	if err := store.SaveConfig(config); err != nil {
+		t.Fatal(err)
+	}
+	export := ExportData{
+		ExportVersion: 3,
+		App:           "ClipVault",
+		Settings:      ExportSettings{Sensitive: SensitiveConfig{CustomPatterns: []string{"[invalid"}}},
+	}
+	jsonData, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xlsxData, err := encodeExportXLSX(&export)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, importData := range map[string]func() error{
+		"JSON": func() error { return store.ImportFullJSON(ctx, jsonData) },
+		"XLSX": func() error { return store.ImportXLSX(ctx, xlsxData) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := importData(); err == nil || !strings.Contains(err.Error(), "invalid sensitive rule") {
+				t.Fatalf("import error = %v", err)
+			}
+			current, err := store.GetConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !sameStrings(current.Sensitive.CustomPatterns, config.Sensitive.CustomPatterns) {
+				t.Fatalf("invalid import changed sensitive settings: %#v", current.Sensitive)
+			}
+		})
+	}
+}
+
+func TestImportRejectsDuplicateItemGroupLinksAtomically(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	export := ExportData{
+		ExportVersion: 3,
+		App:           "ClipVault",
+		Items: []StoredItem{{
+			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: "hash", MetaJSON: "{}",
+		}},
+		Groups:     []StoredGroup{{ID: 1, Name: "group", CreatedAt: now}},
+		ItemGroups: []ItemGroupLink{{ItemID: 1, GroupID: 1}, {ItemID: 1, GroupID: 1}},
+		Settings:   ExportSettings{Sensitive: SensitiveConfig{CustomPatterns: []string{}}},
+	}
+	jsonData, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xlsxData, err := encodeExportXLSX(&export)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, importData := range map[string]func() error{
+		"JSON": func() error { return store.ImportFullJSON(ctx, jsonData) },
+		"XLSX": func() error { return store.ImportXLSX(ctx, xlsxData) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := importData(); err == nil || !strings.Contains(err.Error(), "duplicate item-group link") {
+				t.Fatalf("import error = %v", err)
+			}
+			_, total, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+			if err != nil || total != 0 {
+				t.Fatalf("invalid import changed records: total=%d, err=%v", total, err)
+			}
+			groups, err := store.ListGroups(ctx)
+			if err != nil || len(groups) != 0 {
+				t.Fatalf("invalid import changed groups: %#v, err=%v", groups, err)
+			}
+		})
+	}
+}
+
+func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
+	now := time.Now().UTC()
+	export := &ExportData{Items: []StoredItem{{
+		ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "safe", ByteLen: 4, CharLen: 4, SHA256: "abc", MetaJSON: "{}",
+	}}}
+	data, err := encodeExportXLSX(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetCellFormula(xlsxRecordsSheet, "E2", "=1+1"); err != nil {
+		t.Fatal(err)
+	}
+	formulaData, err := book.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.ImportXLSX(context.Background(), formulaData.Bytes()); err == nil || !strings.Contains(err.Error(), "not a formula") {
+		t.Fatalf("formula workbook error = %v", err)
+	}
+	if _, total, err := store.Search(context.Background(), SearchOptions{Limit: 10, IncludeSensitive: true}); err != nil || total != 0 {
+		t.Fatalf("formula workbook changed database: total=%d, err=%v", total, err)
+	}
+
+	book, err = excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetCellStr(xlsxRecordsSheet, "L2", "unexpected"); err != nil {
+		t.Fatal(err)
+	}
+	extraColumnData, err := book.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ImportXLSX(context.Background(), extraColumnData.Bytes()); err == nil || !strings.Contains(err.Error(), "unexpected column") {
+		t.Fatalf("extra column workbook error = %v", err)
+	}
+
+	book, err = excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetCellFormula(xlsxRecordsSheet, "L2", `=""`); err != nil {
+		t.Fatal(err)
+	}
+	blankFormulaData, err := book.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ImportXLSX(context.Background(), blankFormulaData.Bytes()); err == nil || !strings.Contains(err.Error(), "unexpected column") {
+		t.Fatalf("blank formula workbook error = %v", err)
+	}
+
+	book, err = excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cell := range []string{"B2", "C2", "D2", "E2", "F2", "G2", "H2", "I2", "J2", "K2"} {
+		if err := book.SetCellStr(xlsxRecordsSheet, cell, ""); err != nil {
+			t.Fatal(err)
 		}
+	}
+	missingColumnData, err := book.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ImportXLSX(context.Background(), missingColumnData.Bytes()); err == nil || !strings.Contains(err.Error(), "createdAt") {
+		t.Fatalf("missing column workbook error = %v", err)
+	}
+
+	export.Items[0].Text = strings.Repeat("x", xlsxCellTextLimit+1)
+	if _, err := encodeExportXLSX(export); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized cell error = %v", err)
+	}
+}
+
+func TestXLSXExportEndpoint(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{store: store, logger: logger}
+	result := httptest.NewRecorder()
+	server.handleExportData(result, httptest.NewRequest(http.MethodGet, "/api/export/data?format=xlsx", nil))
+	if result.Code != http.StatusOK {
+		t.Fatalf("XLSX export status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := result.Header().Get("Content-Type"); got != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+		t.Fatalf("XLSX content type = %q", got)
+	}
+	book, err := excelize.OpenReader(bytes.NewReader(result.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("XLSX export is not a workbook: %v", err)
+	}
+	defer book.Close()
+	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet}) {
+		t.Fatalf("XLSX sheets = %#v", book.GetSheetList())
+	}
+	invalidFormat := httptest.NewRecorder()
+	server.handleExportData(invalidFormat, httptest.NewRequest(http.MethodGet, "/api/export/data?format=invalid", nil))
+	if invalidFormat.Code != http.StatusBadRequest {
+		t.Fatalf("invalid export format status = %d", invalidFormat.Code)
+	}
+	missingFormat := httptest.NewRecorder()
+	server.handleExportData(missingFormat, httptest.NewRequest(http.MethodGet, "/api/export/data", nil))
+	if missingFormat.Code != http.StatusBadRequest {
+		t.Fatalf("missing export format status = %d", missingFormat.Code)
+	}
+}
+
+func TestImportDataReloadsSensitiveSettings(t *testing.T) {
+	ctx := context.Background()
+	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	sourceConfig := DefaultConfig()
+	sourceConfig.Sensitive.CustomPatterns = []string{"(?i)secret", "^token$"}
+	if err := source.SaveConfig(sourceConfig); err != nil {
+		t.Fatal(err)
+	}
+	export, err := source.ExportFullForJSON(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	manager, err := NewConfigManager(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request.Header.Set("X-ClipVault-Import-Format", "json")
+	result := httptest.NewRecorder()
+	server.handleImportData(result, request)
+	if result.Code != http.StatusOK {
+		t.Fatalf("JSON import status = %d, body = %s", result.Code, result.Body.String())
+	}
+	if !sameStrings(manager.Get().Sensitive.CustomPatterns, sourceConfig.Sensitive.CustomPatterns) {
+		t.Fatalf("reloaded sensitive settings = %#v", manager.Get().Sensitive)
+	}
+}
+
+func TestImportDataSucceedsWhenRuntimeRefreshFails(t *testing.T) {
+	ctx := context.Background()
+	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	if err := source.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "imported", ByteLen: 8, CharLen: 8, SHA256: "imported", MetaJSON: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	export, err := source.ExportFullForJSON(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, listenerErr := range map[string]error{
+		"hotkey":  &HotkeyError{Msg: "hotkey registration failed"},
+		"runtime": errors.New("runtime refresh failed"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			target, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer target.Close()
+			manager, err := NewConfigManager(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.OnChange(func(Config) error { return listenerErr })
+			logger, err := NewDailyLogger(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer logger.Close()
+			server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
+			request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+			request.Header.Set("X-ClipVault-Import-Format", "json")
+			result := httptest.NewRecorder()
+			server.handleImportData(result, request)
+			if result.Code != http.StatusOK {
+				t.Fatalf("import status = %d, body = %s", result.Code, result.Body.String())
+			}
+			var response struct {
+				OK           bool   `json:"ok"`
+				HotkeyError  string `json:"hotkeyError"`
+				RuntimeError string `json:"runtimeError"`
+			}
+			if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if !response.OK {
+				t.Fatalf("response = %#v", response)
+			}
+			if name == "hotkey" && response.HotkeyError != listenerErr.Error() {
+				t.Fatalf("hotkey error = %q", response.HotkeyError)
+			}
+			if name == "runtime" && response.RuntimeError != listenerErr.Error() {
+				t.Fatalf("runtime error = %q", response.RuntimeError)
+			}
+			_, total, err := target.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+			if err != nil || total != 1 {
+				t.Fatalf("committed import total = %d, err = %v", total, err)
+			}
+		})
+	}
+}
+
+func TestImportXLSXReloadsSensitiveSettings(t *testing.T) {
+	ctx := context.Background()
+	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	sourceConfig := DefaultConfig()
+	sourceConfig.Sensitive.CustomPatterns = []string{"(?i)secret", "^token$"}
+	if err := source.SaveConfig(sourceConfig); err != nil {
+		t.Fatal(err)
+	}
+	data, err := source.ExportXLSX(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	manager, err := NewConfigManager(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request.Header.Set("X-ClipVault-Import-Format", "xlsx")
+	result := httptest.NewRecorder()
+	server.handleImportData(result, request)
+	if result.Code != http.StatusOK {
+		t.Fatalf("XLSX import status = %d, body = %s", result.Code, result.Body.String())
+	}
+	if !sameStrings(manager.Get().Sensitive.CustomPatterns, sourceConfig.Sensitive.CustomPatterns) {
+		t.Fatalf("reloaded XLSX sensitive settings = %#v", manager.Get().Sensitive)
+	}
+}
+
+func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
+	ctx := context.Background()
+	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	sourceConfig := DefaultConfig()
+	sourceConfig.Sensitive.CustomPatterns = []string{"(?i)secret", "^token$"}
+	if err := source.SaveConfig(sourceConfig); err != nil {
+		t.Fatal(err)
+	}
+	export, err := source.ExportFullForJSON(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := EncryptExportJSON(export, "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	manager, err := NewConfigManager(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request.Header.Set("X-ClipVault-Import-Format", "cvexport")
+	request.Header.Set("X-ClipVault-Import-Password", "test-password")
+	result := httptest.NewRecorder()
+	server.handleImportData(result, request)
+	if result.Code != http.StatusOK {
+		t.Fatalf("cvexport import status = %d, body = %s", result.Code, result.Body.String())
+	}
+	if !sameStrings(manager.Get().Sensitive.CustomPatterns, sourceConfig.Sensitive.CustomPatterns) {
+		t.Fatalf("reloaded cvexport sensitive settings = %#v", manager.Get().Sensitive)
+	}
+}
+
+func TestCVExportCarriesSensitiveSettings(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cfg := DefaultConfig()
+	cfg.Sensitive.CustomPatterns = []string{"(?i)private", "^\\d{6}$"}
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	export, err := store.ExportFullForJSON(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := EncryptExportJSON(export, "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decrypted, err := DecryptExport(encrypted, "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ExportData
+	if err := json.Unmarshal(decrypted, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if !sameStrings(restored.Settings.Sensitive.CustomPatterns, cfg.Sensitive.CustomPatterns) {
+		t.Fatalf("cvexport sensitive settings = %#v", restored.Settings.Sensitive)
+	}
+}
+
+func TestEmptyExportUsesArrays(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	export, err := store.ExportFullForJSON(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"items":[]`, `"groups":[]`, `"itemGroups":[]`, `"customPatterns":[]`} {
+		if !bytes.Contains(data, []byte(field)) {
+			t.Fatalf("empty export is missing %s: %s", field, data)
+		}
+	}
+}
+
+func TestImportDataRejectsInvalidCVExport(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{store: store, logger: logger}
+	data, err := EncryptExport([]byte(`{}`), "correct-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request.Header.Set("X-ClipVault-Import-Format", "cvexport")
+	request.Header.Set("X-ClipVault-Import-Password", "wrong-password")
+	result := httptest.NewRecorder()
+	server.handleImportData(result, request)
+	if result.Code != http.StatusBadRequest {
+		t.Fatalf("invalid cvexport status = %d, body = %s", result.Code, result.Body.String())
+	}
+	var response struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid cvexport response is not JSON: %v", err)
+	}
+	if response.OK || !strings.Contains(response.Error, "decrypt cvexport") {
+		t.Fatalf("invalid cvexport response = %#v", response)
+	}
+}
+
+func TestImportDataRejectsMismatchedCVExportFormat(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	data, err := EncryptExport([]byte(`{}`), "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &SearchServer{store: store, logger: logger}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request.Header.Set("X-ClipVault-Import-Format", "json")
+	request.Header.Set("X-ClipVault-Import-Password", "test-password")
+	result := httptest.NewRecorder()
+	server.handleImportData(result, request)
+	if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "format does not match") {
+		t.Fatalf("mismatched cvexport response: status=%d, body=%s", result.Code, result.Body.String())
+	}
+}
+
+func TestImportDataRequiresFormat(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{store: store, logger: logger}
+	result := httptest.NewRecorder()
+	server.handleImportData(result, httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader([]byte(`{}`))))
+	if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "format is required") {
+		t.Fatalf("missing import format response: status=%d, body=%s", result.Code, result.Body.String())
 	}
 }
 

@@ -76,6 +76,15 @@ func Run(env Environment) error {
 	}
 
 	cfg := cfgMgr.Get()
+	if err := WriteRecoveryAppearance(env.DataDir, cfg); err != nil {
+		logger.Warn("recovery_appearance_sync_failed", map[string]any{"error": err.Error()})
+	}
+	cfgMgr.OnChange(func(newCfg Config) error {
+		if err := WriteRecoveryAppearance(env.DataDir, newCfg); err != nil {
+			logger.Warn("recovery_appearance_sync_failed", map[string]any{"error": err.Error()})
+		}
+		return nil
+	})
 	receiptPath := filepath.Join(env.DataDir, "license", "clipvault.lic")
 	licenseMgr := licensing.NewManager(receiptPath, licensing.BuiltinTrustedKeys())
 	licenseCtx := licenseMgr.Load()

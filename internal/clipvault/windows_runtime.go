@@ -349,9 +349,27 @@ func (r *WindowsRuntime) showPauseNotification(paused bool) {
 		return
 	}
 
-	message := "剪贴板录制已恢复"
+	notifications := r.cfgMgr.Get().Notifications
+	title := notifications.ResumeTitle
+	message := notifications.ResumeBody
 	if paused {
-		message = "剪贴板录制已暂停"
+		title = notifications.PauseTitle
+		message = notifications.PauseBody
+	}
+	defaults := DefaultConfig().Notifications
+	if title == "" {
+		if paused {
+			title = defaults.PauseTitle
+		} else {
+			title = defaults.ResumeTitle
+		}
+	}
+	if message == "" {
+		if paused {
+			message = defaults.PauseBody
+		} else {
+			message = defaults.ResumeBody
+		}
 	}
 	nid := notifyIconData{
 		Size:      uint32(unsafe.Sizeof(notifyIconData{})),
@@ -360,9 +378,27 @@ func (r *WindowsRuntime) showPauseNotification(paused bool) {
 		Flags:     nifInfo,
 		InfoFlags: niifInfo,
 	}
-	copy(nid.InfoTitle[:], syscall.StringToUTF16("ClipVault"))
-	copy(nid.Info[:], syscall.StringToUTF16(message))
+	copyUTF16NULTerminated(nid.InfoTitle[:], title)
+	copyUTF16NULTerminated(nid.Info[:], message)
 	procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+}
+
+// copyUTF16NULTerminated reserves the final code unit for the terminator
+// required by NOTIFYICONDATA. It also avoids leaving a dangling high surrogate
+// when a title or body is truncated at the native buffer boundary.
+func copyUTF16NULTerminated(dst []uint16, value string) {
+	if len(dst) == 0 {
+		return
+	}
+	encoded := syscall.StringToUTF16(value)
+	limit := len(dst) - 1
+	if len(encoded) > limit {
+		encoded = encoded[:limit]
+		if len(encoded) > 0 && encoded[len(encoded)-1] >= 0xD800 && encoded[len(encoded)-1] <= 0xDBFF {
+			encoded = encoded[:len(encoded)-1]
+		}
+	}
+	copy(dst, encoded)
 }
 
 func (r *WindowsRuntime) notifyIconData() notifyIconData {

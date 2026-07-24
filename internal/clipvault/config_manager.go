@@ -47,6 +47,24 @@ func (cm *ConfigManager) Update(cfg Config) error {
 	return nil
 }
 
+// Reload refreshes the cached configuration after a transactional data import.
+func (cm *ConfigManager) Reload() error {
+	cfg, err := cm.store.GetConfig()
+	if err != nil {
+		return err
+	}
+	cm.mu.Lock()
+	cm.cfg = cfg
+	listeners := append([]func(Config) error{}, cm.onChange...)
+	cm.mu.Unlock()
+	for _, fn := range listeners {
+		if err := fn(cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // OnChange 注册一个配置变更监听器，在 Update 成功后被同步调用。
 func (cm *ConfigManager) OnChange(fn func(Config) error) {
 	cm.mu.Lock()

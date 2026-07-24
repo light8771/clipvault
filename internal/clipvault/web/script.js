@@ -1423,6 +1423,26 @@
 
   // ── Settings ──────────────────────────────────────────────
   let currentCfg = null;
+  let configRevision = 0;
+  let configRequestSequence = 0;
+  const assetOperationTail = { logo: Promise.resolve(), favicon: Promise.resolve(), background: Promise.resolve() };
+
+  function replaceCurrentConfig(config) {
+    configRevision++;
+    currentCfg = config;
+  }
+
+  function updateCurrentConfig(update) {
+    replaceCurrentConfig({ ...currentCfg, ...update });
+  }
+
+  async function reserveAssetOperation(kind) {
+    const previous = assetOperationTail[kind];
+    let complete;
+    assetOperationTail[kind] = new Promise(resolve => { complete = resolve; });
+    await previous;
+    return complete;
+  }
 
   const THEME_PALETTES = {
     mint: {
@@ -1516,6 +1536,293 @@
     root.style.setProperty('--shadow-lg', `0 8px 32px ${hexToRgba(colors.p, .15)}, 0 3px 10px rgba(0,0,0,.08)`);
   }
 
+  function brandAssetURL(kind, version) {
+    return Number(version) > 0 ? `/brand/${kind}?v=${encodeURIComponent(version)}` : '';
+  }
+
+  function applyBrand(brand) {
+    const value = brand || {};
+    const title = String(value.title || 'ClipVault').trim() || 'ClipVault';
+    document.title = title;
+    const name = document.getElementById('brandName');
+    if (name) name.textContent = title;
+
+    const logoURL = brandAssetURL('logo', value.logoVersion);
+    const logo = document.getElementById('brandLogo');
+    const defaultLogo = document.getElementById('brandDefaultLogo');
+    if (logo) {
+      if (logoURL) {
+        logo.src = logoURL;
+        logo.classList.remove('hidden');
+        defaultLogo?.classList.add('hidden');
+      } else {
+        logo.removeAttribute('src');
+        logo.classList.add('hidden');
+        defaultLogo?.classList.remove('hidden');
+      }
+    }
+
+    const lockTitle = document.getElementById('lockTitle');
+    if (lockTitle) lockTitle.textContent = `${title} 锁屏`;
+    const lockLogo = document.getElementById('lockBrandLogo');
+    const lockDefaultLogo = document.getElementById('lockDefaultLogo');
+    if (lockLogo) {
+      if (logoURL) {
+        lockLogo.src = logoURL;
+        lockLogo.classList.remove('hidden');
+        lockDefaultLogo?.classList.add('hidden');
+      } else {
+        lockLogo.removeAttribute('src');
+        lockLogo.classList.add('hidden');
+        lockDefaultLogo?.classList.remove('hidden');
+      }
+    }
+
+    const favicon = document.getElementById('brandFavicon');
+    if (favicon) favicon.href = Number(value.faviconVersion) > 0
+      ? `/favicon.ico?v=${encodeURIComponent(value.faviconVersion)}`
+      : '/favicon.ico';
+    const logoPreview = document.getElementById('brandLogoPreview');
+    const faviconPreview = document.getElementById('brandFaviconPreview');
+    if (logoPreview) {
+      if (logoURL) logoPreview.src = logoURL;
+      else logoPreview.removeAttribute('src');
+    }
+    const faviconURL = Number(value.faviconVersion) > 0 ? `/favicon.ico?v=${encodeURIComponent(value.faviconVersion)}` : '';
+    if (faviconPreview) {
+      if (faviconURL) faviconPreview.src = faviconURL;
+      else faviconPreview.removeAttribute('src');
+    }
+  }
+
+  function applyBrandFormState(brand) {
+    const title = document.getElementById('cfg-brandTitle');
+    if (title) title.value = brand?.title || 'ClipVault';
+    applyBrand(brand);
+  }
+
+  async function saveBrandAsset(kind, file) {
+    if (!file) return;
+    const limits = { logo: 10 * 1024 * 1024, favicon: 10 * 1024 * 1024 };
+    if (file.size > limits[kind]) {
+      toast('文件不能超过 10 MB', 'err');
+      return;
+    }
+    const accepted = kind === 'logo' ? ['image/png', 'image/jpeg'] : ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon'];
+    if (!accepted.includes(file.type)) {
+      toast(kind === 'logo' ? 'Logo 仅支持 PNG、JPEG' : 'favicon 仅支持 PNG、ICO', 'err');
+      return;
+    }
+    const complete = await reserveAssetOperation(kind);
+    try {
+      let res = await secondaryFetch(`/api/brand/${kind}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (res.status === 403) {
+        if (!await requestSecondaryAuth()) return;
+        res = await secondaryFetch(`/api/brand/${kind}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        });
+      }
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      updateCurrentConfig({ brand: data.brand });
+      applyBrandFormState(data.brand);
+      if (data.hotkeyError) {
+        toast(data.hotkeyError, 'err');
+        return;
+      }
+      toast(kind === 'logo' ? 'Logo 已更新' : 'favicon 已更新');
+    } catch (error) {
+      toast('上传失败: ' + (error.message || error), 'err');
+    } finally {
+      complete();
+    }
+  }
+
+  async function resetBrandAsset(kind) {
+    const complete = await reserveAssetOperation(kind);
+    try {
+      let res = await secondaryFetch(`/api/brand/${kind}`, { method: 'DELETE' });
+      if (res.status === 403) {
+        if (!await requestSecondaryAuth()) return;
+        res = await secondaryFetch(`/api/brand/${kind}`, { method: 'DELETE' });
+      }
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      updateCurrentConfig({ brand: data.brand });
+      applyBrandFormState(data.brand);
+      if (data.hotkeyError) {
+        toast(data.hotkeyError, 'err');
+        return;
+      }
+      toast(kind === 'logo' ? '已还原默认 Logo' : '已还原默认 favicon');
+    } catch (error) {
+      toast('还原失败: ' + (error.message || error), 'err');
+    } finally {
+      complete();
+    }
+  }
+
+  const BACKGROUND_DEFAULTS = {
+    opacity: 58, overlay: 64, blur: 0, brightness: 100, contrast: 100,
+    saturation: 100, scale: 100, positionX: 50, positionY: 50, fit: 'cover',
+  };
+
+  function backgroundValue(background) {
+    return { ...BACKGROUND_DEFAULTS, ...(background || {}) };
+  }
+
+  function backgroundMediaURL(version) {
+    return Number(version) > 0 ? `/background/media?v=${encodeURIComponent(version)}` : '';
+  }
+
+  function updateBackgroundOutputs(value) {
+    const units = {
+      'cfg-backgroundOpacity': '%', 'cfg-backgroundOverlay': '%', 'cfg-backgroundBlur': 'px',
+      'cfg-backgroundBrightness': '%', 'cfg-backgroundContrast': '%', 'cfg-backgroundSaturation': '%',
+      'cfg-backgroundScale': '%', 'cfg-backgroundPositionX': '%', 'cfg-backgroundPositionY': '%',
+    };
+    Object.entries(units).forEach(([id, unit]) => {
+      const output = document.querySelector(`[data-background-output="${id}"]`);
+      const input = document.getElementById(id);
+      if (output && input) output.value = `${input.value}${unit}`;
+    });
+  }
+
+  function applyBackground(background) {
+    const value = backgroundValue(background);
+    const contentType = String(value.contentType || '');
+    const url = backgroundMediaURL(value.version);
+    const isImage = contentType.startsWith('image/');
+    const isVideo = contentType.startsWith('video/');
+    const active = !!url && (isImage || isVideo);
+    const root = document.documentElement;
+    root.style.setProperty('--background-opacity', `${Math.max(0, Math.min(100, Number(value.opacity))) / 100}`);
+    root.style.setProperty('--background-overlay', `${Math.max(0, Math.min(90, Number(value.overlay))) / 100}`);
+    root.style.setProperty('--background-filter', `blur(${Math.max(0, Number(value.blur))}px) brightness(${Math.max(40, Number(value.brightness))}%) contrast(${Math.max(40, Number(value.contrast))}%) saturate(${Math.max(0, Number(value.saturation))}%)`);
+    root.style.setProperty('--background-scale', `${Math.max(25, Math.min(200, Number(value.scale))) / 100}`);
+    root.style.setProperty('--background-position', `${Math.max(0, Math.min(100, Number(value.positionX)))}% ${Math.max(0, Math.min(100, Number(value.positionY)))}%`);
+	root.style.setProperty('--background-fit', ['cover', 'contain', 'fill'].includes(value.fit) ? value.fit : 'cover');
+
+    const layer = document.getElementById('backgroundMediaLayer');
+    const shield = document.getElementById('backgroundShield');
+    const image = document.getElementById('backgroundImage');
+    const video = document.getElementById('backgroundVideo');
+    document.body.classList.toggle('has-background', active);
+    layer?.classList.toggle('hidden', !active);
+    shield?.classList.toggle('hidden', !active);
+    if (isImage && image) {
+      image.src = url;
+      video?.pause();
+      video?.removeAttribute('src');
+      video?.load();
+    } else if (isVideo && video) {
+      image?.removeAttribute('src');
+      video.src = url;
+      video.play().catch(() => {});
+    } else {
+      image?.removeAttribute('src');
+      video?.pause();
+      video?.removeAttribute('src');
+      video?.load();
+    }
+  }
+
+  function backgroundFromForm() {
+    const value = backgroundValue(currentCfg?.background);
+    const controls = {
+      opacity: 'cfg-backgroundOpacity', overlay: 'cfg-backgroundOverlay', blur: 'cfg-backgroundBlur',
+      brightness: 'cfg-backgroundBrightness', contrast: 'cfg-backgroundContrast', saturation: 'cfg-backgroundSaturation',
+      scale: 'cfg-backgroundScale', positionX: 'cfg-backgroundPositionX', positionY: 'cfg-backgroundPositionY',
+    };
+    Object.entries(controls).forEach(([key, id]) => {
+      const input = document.getElementById(id);
+      if (input) value[key] = Number(input.value);
+    });
+	const fit = document.getElementById('cfg-backgroundFit');
+	if (fit) value.fit = fit.value;
+    return value;
+  }
+
+  function applyBackgroundFormState(background) {
+    const value = backgroundValue(background);
+    const controls = {
+      opacity: 'cfg-backgroundOpacity', overlay: 'cfg-backgroundOverlay', blur: 'cfg-backgroundBlur',
+      brightness: 'cfg-backgroundBrightness', contrast: 'cfg-backgroundContrast', saturation: 'cfg-backgroundSaturation',
+      scale: 'cfg-backgroundScale', positionX: 'cfg-backgroundPositionX', positionY: 'cfg-backgroundPositionY',
+    };
+    Object.entries(controls).forEach(([key, id]) => {
+      const input = document.getElementById(id);
+      if (input) input.value = value[key];
+    });
+	const fit = document.getElementById('cfg-backgroundFit');
+	if (fit) fit.value = value.fit;
+    updateBackgroundOutputs(value);
+    applyBackground(value);
+  }
+
+  async function saveBackgroundMedia(file) {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast('背景文件不能超过 10 MB', 'err');
+      return;
+    }
+    if (!['image/png', 'image/jpeg', 'video/mp4', 'video/webm'].includes(file.type)) {
+      toast('背景仅支持 PNG、JPEG、MP4、WebM', 'err');
+      return;
+    }
+    const complete = await reserveAssetOperation('background');
+    try {
+      let res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      if (res.status === 403) {
+        if (!await requestSecondaryAuth()) return;
+        res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      }
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      updateCurrentConfig({ background: data.background });
+      applyBackgroundFormState(data.background);
+      if (data.hotkeyError) {
+        toast(data.hotkeyError, 'err');
+        return;
+      }
+      toast('背景已更新');
+    } catch (error) {
+      toast('背景上传失败: ' + (error.message || error), 'err');
+    } finally {
+      complete();
+    }
+  }
+
+  async function resetBackgroundMedia() {
+    const complete = await reserveAssetOperation('background');
+    try {
+      let res = await secondaryFetch('/api/background/media', { method: 'DELETE' });
+      if (res.status === 403) {
+        if (!await requestSecondaryAuth()) return;
+        res = await secondaryFetch('/api/background/media', { method: 'DELETE' });
+      }
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      updateCurrentConfig({ background: data.background });
+      applyBackgroundFormState(data.background);
+      if (data.hotkeyError) {
+        toast(data.hotkeyError, 'err');
+        return;
+      }
+      toast('背景已移除');
+    } catch (error) {
+      toast('移除背景失败: ' + (error.message || error), 'err');
+    } finally {
+      complete();
+    }
+  }
+
   function themeFromForm() {
     const selected = document.querySelector('.theme-preset.active');
     return {
@@ -1544,12 +1851,20 @@
   }
 
   async function loadTheme() {
+    const request = ++configRequestSequence;
+    const revision = configRevision;
     try {
       const cfg = await fetch('/api/config').then(r => r.json());
-      currentCfg = cfg;
+      if (request !== configRequestSequence || revision !== configRevision) return;
+      replaceCurrentConfig(cfg);
       applyTheme(cfg.theme);
+	  applyBrand(cfg.brand);
+	  applyBackground(cfg.background);
     } catch (_) {
+      if (request !== configRequestSequence || revision !== configRevision) return;
       applyTheme();
+	  applyBrand();
+	  applyBackground();
     }
   }
 
@@ -1560,11 +1875,18 @@
   }
 
   async function loadSettings() {
+    const request = ++configRequestSequence;
+    const revision = configRevision;
     try {
       const cfg = await fetch('/api/config').then(r => r.json());
-      currentCfg = cfg;
+      if (request !== configRequestSequence || revision !== configRevision) return;
+      replaceCurrentConfig(cfg);
       applyConfigToForm(cfg);
-    } catch (_) { toast('加载配置失败', 'err'); }
+    } catch (_) {
+      if (request === configRequestSequence && revision === configRevision) {
+        toast('加载配置失败', 'err');
+      }
+    }
     loadRecoveryStatus();
   }
 
@@ -1590,6 +1912,8 @@
   }
 
   function applyConfigToForm(cfg) {
+    applyBrandFormState(cfg.brand);
+	applyBackgroundFormState(cfg.background);
     applyThemeFormState(cfg.theme);
     document.getElementById('cfg-maxTextChars').value = cfg.maxTextChars ?? 0;
     document.getElementById('cfg-maxFileDropPaths').value = cfg.maxFileDropPaths ?? 0;
@@ -1621,8 +1945,19 @@
 
     const pauseResumeNotifications = document.getElementById('cfg-pauseResumeNotifications');
     if (pauseResumeNotifications) {
-      pauseResumeNotifications.checked = !cfg.notifications || cfg.notifications.pauseResume !== false;
+      pauseResumeNotifications.checked = cfg.notifications.pauseResume;
     }
+    const notifications = cfg.notifications;
+    const notificationFields = {
+      'cfg-pauseNotificationTitle': notifications.pauseTitle || '',
+      'cfg-pauseNotificationBody': notifications.pauseBody || '',
+      'cfg-resumeNotificationTitle': notifications.resumeTitle || '',
+      'cfg-resumeNotificationBody': notifications.resumeBody || '',
+    };
+    Object.entries(notificationFields).forEach(([id, value]) => {
+      const field = document.getElementById(id);
+      if (field) field.value = value;
+    });
 
     // 安全超时配置
     const lockTimeoutEl = document.getElementById('cfg-lockSessionTimeout');
@@ -1811,6 +2146,11 @@
     }
     return {
       ...currentCfg,
+      brand: {
+        ...currentCfg.brand,
+        title: document.getElementById('cfg-brandTitle')?.value.trim() || 'ClipVault',
+      },
+	  background: backgroundFromForm(),
       theme: themeFromForm(),
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
       maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
@@ -1837,6 +2177,10 @@
       notifications: {
         ...currentCfg.notifications,
         pauseResume: document.getElementById('cfg-pauseResumeNotifications')?.checked || false,
+        pauseTitle: document.getElementById('cfg-pauseNotificationTitle')?.value.trim() || '',
+        pauseBody: document.getElementById('cfg-pauseNotificationBody')?.value.trim() || '',
+        resumeTitle: document.getElementById('cfg-resumeNotificationTitle')?.value.trim() || '',
+        resumeBody: document.getElementById('cfg-resumeNotificationBody')?.value.trim() || '',
       },
       backup: {
         ...currentCfg.backup,
@@ -1915,7 +2259,7 @@
         throw new Error(message);
       }
       const d = await res.json();
-      currentCfg = d.config;
+      replaceCurrentConfig(d.config);
       if (d.hotkeyError) {
         toast(d.hotkeyError, 'err');
       } else if (opts.silent !== true) {
@@ -1999,6 +2343,30 @@
     const settingsEl = document.getElementById('viewSettings');
     if (!settingsEl) return;
     const listenAddrEl = document.getElementById('cfg-listenAddr');
+    const brandTitleEl = document.getElementById('cfg-brandTitle');
+    brandTitleEl?.addEventListener('input', () => applyBrand({ ...currentCfg?.brand, title: brandTitleEl.value }));
+    ['logo', 'favicon'].forEach(kind => {
+      const fileInput = document.getElementById(`cfg-brand${kind === 'logo' ? 'Logo' : 'Favicon'}File`);
+      document.getElementById(`brand${kind === 'logo' ? 'Logo' : 'Favicon'}UploadBtn`)?.addEventListener('click', () => fileInput?.click());
+      document.getElementById(`brand${kind === 'logo' ? 'Logo' : 'Favicon'}ResetBtn`)?.addEventListener('click', () => resetBrandAsset(kind));
+      fileInput?.addEventListener('change', () => {
+        saveBrandAsset(kind, fileInput.files?.[0]);
+        fileInput.value = '';
+      });
+    });
+	const backgroundFileInput = document.getElementById('cfg-backgroundMediaFile');
+	document.getElementById('backgroundMediaUploadBtn')?.addEventListener('click', () => backgroundFileInput?.click());
+	document.getElementById('backgroundMediaResetBtn')?.addEventListener('click', resetBackgroundMedia);
+	backgroundFileInput?.addEventListener('change', () => {
+	  saveBackgroundMedia(backgroundFileInput.files?.[0]);
+	  backgroundFileInput.value = '';
+	});
+	document.querySelectorAll('[id^="cfg-background"][type="range"]').forEach(control => {
+	  control.addEventListener('input', () => {
+		updateBackgroundOutputs(backgroundFromForm());
+		applyBackground(backgroundFromForm());
+	  });
+	});
     document.querySelectorAll('.theme-preset').forEach(button => {
       button.addEventListener('click', () => {
         const preset = button.dataset.themePreset;
@@ -2020,12 +2388,12 @@
       control.addEventListener('change', () => applyTheme(themeFromForm()));
     });
     settingsEl.addEventListener('input', (e) => {
-      if (e.target === listenAddrEl) return;
+      if (e.target === listenAddrEl || e.target?.type === 'file') return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => saveConfig({ silent: true }), 800);
     });
     settingsEl.addEventListener('change', (e) => {
-      if (e.target === listenAddrEl) return;
+      if (e.target === listenAddrEl || e.target?.type === 'file') return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
     });
@@ -2103,9 +2471,9 @@
   }
 
   window.doExport = async function(type) {
-    const baseUrl = '/api/export/data?format=' + (type === 'data-csv' ? 'csv' : 'json');
-    const fallback = type === 'data-csv' ? 'clipvault-data.csv' : 'clipvault-data.json';
-    const label = '剪切板记录（' + (type === 'data-csv' ? 'CSV' : 'JSON') + '）';
+    const baseUrl = '/api/export/data?format=' + (type === 'data-xlsx' ? 'xlsx' : 'json');
+    const fallback = type === 'data-xlsx' ? 'clipvault-data.xlsx' : 'clipvault-data.json';
+    const label = '剪切板记录（' + (type === 'data-xlsx' ? 'Excel' : 'JSON') + '）';
     if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
     const ok = await authedDownload(baseUrl, fallback);
     if (ok) toast('已导出 ' + label);
@@ -2182,9 +2550,9 @@
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
             <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;line-height:1.6">
-              选择 JSON 或加密 .cvexport 文件导入。如果是加密文件，需要输入密码。
+              选择 JSON、Excel 或加密 .cvexport 文件导入。如果是加密文件，需要输入密码。
             </p>
-            <input type="file" id="importFile" accept=".json,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--text-secondary)">
+            <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--text-secondary)">
             <input type="password" id="importPwd" class="lock-input" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off" style="margin-bottom:12px">
             <button class="lock-btn" onclick="doImport()">开始导入</button>
             <p class="lock-err hidden" id="importErr" style="margin-top:12px"></p>
@@ -2213,7 +2581,15 @@
     }
 
     const file = fileInput.files[0];
-    const isCvexport = file.name.endsWith('.cvexport');
+	const extension = file.name.toLowerCase().split('.').pop();
+	const formats = { json: 'json', xlsx: 'xlsx', cvexport: 'cvexport' };
+	const format = formats[extension];
+	if (!format) {
+	  errEl.textContent = '仅支持 JSON、Excel 或 .cvexport 文件';
+	  errEl.classList.remove('hidden');
+	  return;
+	}
+	const isCvexport = format === 'cvexport';
     const pwd = pwdInput.value;
 
     if (isCvexport && !pwd) {
@@ -2225,9 +2601,11 @@
     try {
       const ok = await requestSecondaryAuth();
       if (!ok) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
-      const res = await secondaryFetch('/api/import/data', {
+		const headers = { 'X-ClipVault-Import-Format': format };
+		if (pwd) headers['X-ClipVault-Import-Password'] = pwd;
+		const res = await secondaryFetch('/api/import/data', {
         method: 'POST',
-        headers: pwd ? { 'X-ClipVault-Import-Password': pwd } : {},
+		headers,
         body: file,
       });
       if (res.status === 403) {
@@ -2235,18 +2613,18 @@
         if (!ok2) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
         const res2 = await secondaryFetch('/api/import/data', {
           method: 'POST',
-          headers: pwd ? { 'X-ClipVault-Import-Password': pwd } : {},
+			headers,
           body: file,
         });
-        const d2 = await res2.json();
-        if (d2.ok) { closeImportDialog(); toast('导入成功'); }
+        const d2 = await readImportResponse(res2);
+        if (d2.ok) { closeImportDialog(); notifyImportSuccess(d2); }
         else { errEl.textContent = d2.error || '导入失败'; errEl.classList.remove('hidden'); }
         return;
       }
-      const d = await res.json();
+      const d = await readImportResponse(res);
       if (d.ok) {
         closeImportDialog();
-        toast('导入成功');
+        notifyImportSuccess(d);
       } else {
         errEl.textContent = d.error || '导入失败';
         errEl.classList.remove('hidden');
@@ -2254,6 +2632,27 @@
     } catch (e) {
       errEl.textContent = '网络错误: ' + e.message;
       errEl.classList.remove('hidden');
+    }
+  }
+
+  function notifyImportSuccess(data) {
+    if (data.hotkeyError) {
+      toast('导入成功，' + data.hotkeyError, 'err');
+      return;
+    }
+    if (data.runtimeError) {
+      toast('导入成功，但部分运行时设置需重启后生效：' + data.runtimeError, 'err');
+      return;
+    }
+    toast('导入成功');
+  }
+
+  async function readImportResponse(res) {
+    const body = await res.text();
+    try {
+      return JSON.parse(body);
+    } catch (_) {
+      return { ok: false, error: body.trim() || `\u5bfc\u5165\u8bf7\u6c42\u5931\u8d25 (${res.status})` };
     }
   }
   window.doImport = doImport;

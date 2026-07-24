@@ -54,7 +54,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 授权 | 查看授权状态与机器码、复制购买信息、粘贴激活码并即时激活 |
 | 过滤 | 自定义正则过滤规则，支持增删，匹配内容不记录 |
 | 分组 | 创建/编辑/删除分组，支持嵌套，可将记录加入分组 |
-| 导出 | 导出全部记录（JSON / CSV / 加密 .cvexport）、导入数据（JSON / .cvexport） |
+| 导出 | 导出全部记录（JSON / Excel / 加密 .cvexport）、导入数据（JSON / Excel / .cvexport） |
 | 备份 | 定时目录备份（间隔/目录/格式/加密密码）、定时邮件备份（SMTP 配置/间隔/格式/加密密码）、立即备份/发送、测试邮件、备份状态查看 |
 
 > 过滤规则和文字限制**即时生效**；监听地址变更需**重启应用**后生效。
@@ -234,9 +234,11 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/clear` | POST | 二次 | 清除全部记录 |
 | `GET /api/config` | GET | 锁屏 | 获取配置 |
 | `PUT /api/config` | PUT | 二次 | 保存配置 |
-| `GET /api/export/data?format=json` | GET | 二次 | 导出记录（json/csv） |
+| `GET /api/export/data?format=json` | GET | 二次 | 导出记录（json/xlsx） |
 | `POST /api/export/data?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
-| `POST /api/import/data` | POST | 二次 | 导入数据（JSON 或 .cvexport） |
+| `POST /api/import/data` | POST | 二次 | 导入数据（JSON / Excel / .cvexport；必须设置 `X-ClipVault-Import-Format`） |
+
+Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveRules` 四个工作表，完整保存记录、敏感标记、分组及父子层级、记录分组关系和敏感规则；不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 | `GET /api/recovery/status` | GET | 二次 | 查询恢复密码状态 |
 | `POST /api/recovery/set` | POST | 二次 | 设置恢复密码 |
 | `POST /api/recovery/change` | POST | 二次 | 修改恢复密码 |

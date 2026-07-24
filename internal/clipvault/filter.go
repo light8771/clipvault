@@ -32,6 +32,11 @@ func NewFilterEngine(cfg SensitiveConfig) (*FilterEngine, error) {
 	return engine, nil
 }
 
+func validateSensitiveRules(cfg SensitiveConfig) error {
+	_, err := NewFilterEngine(cfg)
+	return err
+}
+
 // CheckText 检查文本是否匹配任意敏感规则。
 // 匹配到规则则标记为敏感；无规则或不匹配时返回非敏感。
 func (e *FilterEngine) CheckText(text string) FilterDecision {

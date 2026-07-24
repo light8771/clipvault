@@ -2,7 +2,6 @@ package clipvault
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
@@ -61,12 +60,6 @@ func NewAuthManager() *AuthManager {
 	}
 }
 
-// hashPasswordLegacy 验证旧版本保存的 SHA-256(salt + password) 哈希。
-func hashPasswordLegacy(salt, password string) string {
-	h := sha256.Sum256([]byte(salt + password))
-	return hex.EncodeToString(h[:])
-}
-
 func newPasswordHash(password string) (string, error) {
 	salt := make([]byte, authPasswordSalt)
 	if _, err := rand.Read(salt); err != nil {
@@ -79,14 +72,7 @@ func newPasswordHash(password string) (string, error) {
 	return fmt.Sprintf("%sn=%d$r=%d$p=%d$%s$%s", authHashPrefix, authScryptN, authScryptR, authScryptP, hex.EncodeToString(salt), hex.EncodeToString(derived)), nil
 }
 
-func verifyPasswordHash(encoded, legacySalt, password string) bool {
-	if encoded == "" {
-		return true
-	}
-	if !strings.HasPrefix(encoded, authHashPrefix) {
-		expected := hashPasswordLegacy(legacySalt, password)
-		return subtle.ConstantTimeCompare([]byte(expected), []byte(encoded)) == 1
-	}
+func verifyPasswordHash(encoded, password string) bool {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 8 || parts[1] != "scrypt" || parts[2] != "v=1" {
 		return false
@@ -117,10 +103,6 @@ func verifyPasswordHash(encoded, legacySalt, password string) bool {
 	return err == nil && subtle.ConstantTimeCompare(actual, expected) == 1
 }
 
-func isLegacyPasswordHash(encoded string) bool {
-	return encoded != "" && !strings.HasPrefix(encoded, authHashPrefix)
-}
-
 // generateToken 生成一个随机的会话令牌。
 func generateToken() (string, error) {
 	b := make([]byte, sessionTokenBytes)
@@ -135,7 +117,7 @@ func (am *AuthManager) VerifyLockPassword(cfg Config, password string) bool {
 	if cfg.Security.LockPasswordHash == "" {
 		return true
 	}
-	return verifyPasswordHash(cfg.Security.LockPasswordHash, cfg.Security.PasswordSalt, password)
+	return verifyPasswordHash(cfg.Security.LockPasswordHash, password)
 }
 
 // VerifySecondaryPassword 验证二次密码。
@@ -143,7 +125,7 @@ func (am *AuthManager) VerifySecondaryPassword(cfg Config, password string) bool
 	if cfg.Security.SecondaryPasswordHash == "" {
 		return true
 	}
-	return verifyPasswordHash(cfg.Security.SecondaryPasswordHash, cfg.Security.PasswordSalt, password)
+	return verifyPasswordHash(cfg.Security.SecondaryPasswordHash, password)
 }
 
 // HasLockPassword 检查是否已设置锁屏密码。

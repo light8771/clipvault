@@ -145,3 +145,61 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 		t.Fatalf("quick search got %d results and total %d, want one result with no total", len(quickResults), total)
 	}
 }
+
+func TestItemGroupReferentialIntegrity(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: "record", MetaJSON: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.ExportAll(ctx)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("export items = %#v, err = %v", items, err)
+	}
+	group, err := store.CreateGroup(ctx, "group", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddItemToGroup(ctx, 999, group.ID); err == nil {
+		t.Fatal("accepted an item-group link for a missing item")
+	}
+	if err := store.AddItemToGroup(ctx, items[0].ID, 999); err == nil {
+		t.Fatal("accepted an item-group link for a missing group")
+	}
+	if err := store.AddItemToGroup(ctx, items[0].ID, group.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddItemToGroup(ctx, items[0].ID, group.ID); err != nil {
+		t.Fatalf("duplicate item-group link should be idempotent: %v", err)
+	}
+	if err := store.Delete(ctx, items[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	export, err := store.ExportFullForJSON(ctx)
+	if err != nil || len(export.ItemGroups) != 0 {
+		t.Fatalf("delete left item-group links: %#v, err = %v", export.ItemGroups, err)
+	}
+
+	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "second", ByteLen: 6, CharLen: 6, SHA256: "second", MetaJSON: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = store.ExportAll(ctx)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("export items = %#v, err = %v", items, err)
+	}
+	if err := store.AddItemToGroup(ctx, items[0].ID, group.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClearAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	export, err = store.ExportFullForJSON(ctx)
+	if err != nil || len(export.Items) != 0 || len(export.ItemGroups) != 0 {
+		t.Fatalf("clear left exported data: %#v, err = %v", export, err)
+	}
+}

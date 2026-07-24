@@ -11,28 +11,17 @@ func TestPasswordHashRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if isLegacyPasswordHash(hash) {
-		t.Fatal("new password hash was classified as legacy")
-	}
-	if !verifyPasswordHash(hash, "", "Correct Horse Battery Staple 42!") {
+	if !verifyPasswordHash(hash, "Correct Horse Battery Staple 42!") {
 		t.Fatal("new password hash did not verify")
 	}
-	if verifyPasswordHash(hash, "", "wrong password") {
+	if verifyPasswordHash(hash, "wrong password") {
 		t.Fatal("wrong password verified")
 	}
 }
 
-func TestLegacyPasswordHashCompatibility(t *testing.T) {
-	salt := "00112233445566778899aabbccddeeff"
-	hash := hashPasswordLegacy(salt, "LegacyPassword1!")
-	if !isLegacyPasswordHash(hash) {
-		t.Fatal("legacy password hash was not detected")
-	}
-	if !verifyPasswordHash(hash, salt, "LegacyPassword1!") {
-		t.Fatal("legacy password hash did not verify")
-	}
-	if verifyPasswordHash(hash, salt, "wrong password") {
-		t.Fatal("wrong legacy password verified")
+func TestPasswordHashRejectsUnsupportedFormat(t *testing.T) {
+	if verifyPasswordHash("0000000000000000000000000000000000000000000000000000000000000000", "password") {
+		t.Fatal("non-scrypt password hash was accepted")
 	}
 }
 
