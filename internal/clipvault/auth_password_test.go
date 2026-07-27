@@ -79,6 +79,113 @@ func TestGetSessionReturnsSnapshot(t *testing.T) {
 	}
 }
 
+func TestRefreshSessionExpiryUpdatesExpiry(t *testing.T) {
+	auth := NewAuthManager()
+	token, err := auth.CreateSession(0) // 浏览器会话 -> maxSessionLifetime
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := auth.GetSession(token)
+	if sess == nil {
+		t.Fatal("session missing")
+	}
+	oldExpiry := sess.ExpiresAt
+
+	// 改成 1 分钟：过期时间应被重置为约 now+1min，远小于旧的 24h
+	if !auth.RefreshSessionExpiry(token, 1) {
+		t.Fatal("RefreshSessionExpiry returned false for existing session")
+	}
+	refreshed := auth.GetSession(token)
+	if refreshed == nil {
+		t.Fatal("session disappeared after refresh")
+	}
+	if !refreshed.ExpiresAt.Before(oldExpiry) {
+		t.Fatalf("expiry not shortened: old=%v new=%v", oldExpiry, refreshed.ExpiresAt)
+	}
+	want := time.Now().Add(time.Minute)
+	lo, hi := want.Add(-5*time.Second), want.Add(5*time.Second)
+	if refreshed.ExpiresAt.Before(lo) || refreshed.ExpiresAt.After(hi) {
+		t.Fatalf("expiry not ~now+1min: %v (want near %v)", refreshed.ExpiresAt, want)
+	}
+
+	// 改回 0：过期时间应恢复为约 now+maxSessionLifetime
+	if !auth.RefreshSessionExpiry(token, 0) {
+		t.Fatal("RefreshSessionExpiry returned false on second call")
+	}
+	zeroRefreshed := auth.GetSession(token)
+	if zeroRefreshed == nil {
+		t.Fatal("session disappeared after second refresh")
+	}
+	wantZero := time.Now().Add(maxSessionLifetime)
+	loZ, hiZ := wantZero.Add(-5*time.Second), wantZero.Add(5*time.Second)
+	if zeroRefreshed.ExpiresAt.Before(loZ) || zeroRefreshed.ExpiresAt.After(hiZ) {
+		t.Fatalf("expiry not ~now+maxSessionLifetime: %v (want near %v)", zeroRefreshed.ExpiresAt, wantZero)
+	}
+}
+
+func TestRefreshSessionExpiryMissingSession(t *testing.T) {
+	auth := NewAuthManager()
+	if auth.RefreshSessionExpiry("nonexistent", 1) {
+		t.Fatal("RefreshSessionExpiry returned true for missing session")
+	}
+}
+
+func TestRefreshSecondaryExpiryUpdatesCache(t *testing.T) {
+	auth := NewAuthManager()
+	token, err := auth.CreateSession(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.GrantSecondaryAuth(token, 10) // 初始缓存 10 分钟
+	if !auth.HasSecondaryAuth(token) {
+		t.Fatal("secondary auth not granted")
+	}
+
+	// 改成 1 分钟：缓存到期应被重置为约 now+1min
+	if !auth.RefreshSecondaryExpiry(token, 1) {
+		t.Fatal("RefreshSecondaryExpiry returned false for existing session")
+	}
+	sess := auth.GetSession(token)
+	if sess == nil || !sess.SecondaryAuth {
+		t.Fatalf("secondary auth lost after refresh: %+v", sess)
+	}
+	want := time.Now().Add(time.Minute)
+	lo, hi := want.Add(-5*time.Second), want.Add(5*time.Second)
+	if sess.SecondaryExpiry.Before(lo) || sess.SecondaryExpiry.After(hi) {
+		t.Fatalf("secondary expiry not ~now+1min: %v (want near %v)", sess.SecondaryExpiry, want)
+	}
+
+	// 改成 0：应立即撤销二次认证缓存
+	if !auth.RefreshSecondaryExpiry(token, 0) {
+		t.Fatal("RefreshSecondaryExpiry returned false on revoke")
+	}
+	if auth.HasSecondaryAuth(token) {
+		t.Fatal("secondary auth not revoked after timeout set to 0")
+	}
+}
+
+func TestRefreshSecondaryExpiryWithoutExistingCache(t *testing.T) {
+	auth := NewAuthManager()
+	token, err := auth.CreateSession(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 未通过二次认证时刷新：不应授予缓存，但会话存在应返回 true
+	if !auth.RefreshSecondaryExpiry(token, 5) {
+		t.Fatal("RefreshSecondaryExpiry returned false for existing session without cache")
+	}
+	if auth.HasSecondaryAuth(token) {
+		t.Fatal("refresh granted secondary auth without prior verification")
+	}
+}
+
+func TestRefreshSecondaryExpiryMissingSession(t *testing.T) {
+	auth := NewAuthManager()
+	if auth.RefreshSecondaryExpiry("nonexistent", 1) {
+		t.Fatal("RefreshSecondaryExpiry returned true for missing session")
+	}
+}
+
 func TestAuthManagerConcurrentSessionAccess(t *testing.T) {
 	auth := NewAuthManager()
 	token, err := auth.CreateSession(10)

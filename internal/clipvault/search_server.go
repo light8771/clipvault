@@ -897,6 +897,16 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
+	// 超时设置变更后立即对当前会话生效，避免要等到下次登录/验证才应用。
+	token := GetSessionToken(r)
+	if curCfg.Security.LockSessionTimeout != cfg.Security.LockSessionTimeout {
+		if s.auth.RefreshSessionExpiry(token, cfg.Security.LockSessionTimeout) {
+			SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
+		}
+	}
+	if curCfg.Security.SecondaryAuthTimeout != cfg.Security.SecondaryAuthTimeout {
+		s.auth.RefreshSecondaryExpiry(token, cfg.Security.SecondaryAuthTimeout)
+	}
 	s.logger.Info("config_updated", nil)
 	s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get())})
 }
@@ -1068,6 +1078,10 @@ func (s *SearchServer) handleRecoverySet(w http.ResponseWriter, r *http.Request)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if HasRecoveryPassword(s.env.DataDir) {
+		s.writeJSON(w, map[string]any{"ok": false, "error": "恢复密码已设置，请使用修改功能"})
 		return
 	}
 	if err := SetRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.Password); err != nil {

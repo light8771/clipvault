@@ -153,11 +153,12 @@ type BackgroundConfig struct {
 // ThemeConfig stores the selected UI skin. Custom primary and accent colors
 // are used only when Preset is "custom" and are normalized before persistence.
 type ThemeConfig struct {
-	Preset    string `json:"preset"`
-	Mode      string `json:"mode"`
-	Primary   string `json:"primary"`
-	Accent    string `json:"accent"`
-	FontScale int    `json:"fontScale"`
+	Preset         string `json:"preset"`
+	Mode           string `json:"mode"`
+	Primary        string `json:"primary"`
+	Accent         string `json:"accent"`
+	FontScale      int    `json:"fontScale"`
+	SurfaceOpacity int    `json:"surfaceOpacity"`
 }
 
 type SearchConfig struct {
@@ -248,9 +249,10 @@ func DefaultConfig() Config {
 			PositionY:  50,
 		},
 		Theme: ThemeConfig{
-			Preset:    "mint",
-			Mode:      "system",
-			FontScale: 100,
+			Preset:         "mint",
+			Mode:           "system",
+			FontScale:      100,
+			SurfaceOpacity: 100,
 		},
 		MaxTextChars:     0, // 0 表示不限制
 		MaxFileDropPaths: 0, // 0 表示不限制
@@ -436,6 +438,7 @@ func normalizeTheme(theme *ThemeConfig, def ThemeConfig) {
 		theme.Mode = def.Mode
 	}
 	theme.FontScale = clampInt(theme.FontScale, 100, 150)
+	theme.SurfaceOpacity = clampInt(theme.SurfaceOpacity, 0, 100)
 	if theme.Preset != "custom" {
 		theme.Primary = ""
 		theme.Accent = ""

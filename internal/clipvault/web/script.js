@@ -1438,20 +1438,20 @@
 
   const THEME_PALETTES = {
     mint: {
-      light: { p: '#14B8A6', p2: '#0D9488', accent: '#F97316', bg: '#F0FDFB', bg2: '#E6F9F5', card: '#FFFFFF', border: 'rgba(20,184,166,.18)', nav: 'rgba(240,253,251,.88)', tx: '#0F2825', sub: '#3A6863', muted: '#5C8C87' },
-      dark:  { p: '#2DD4BF', p2: '#14B8A6', accent: '#FB923C', bg: '#070C14', bg2: '#0C1520', card: '#101820', border: 'rgba(45,212,191,.14)', nav: 'rgba(7,12,20,.88)', tx: '#E8F6F3', sub: '#9AD3CC', muted: '#70AAA4' },
+      light: { p: '#14B8A6', p2: '#0D9488', accent: '#F97316', bg: '#F0FDFB', bg2: '#E6F9F5', card: '#FFFFFF', border: 'rgba(20,184,166,.18)', tx: '#0F2825', sub: '#3A6863', muted: '#5C8C87' },
+      dark:  { p: '#2DD4BF', p2: '#14B8A6', accent: '#FB923C', bg: '#070C14', bg2: '#0C1520', card: '#101820', border: 'rgba(45,212,191,.14)', tx: '#E8F6F3', sub: '#9AD3CC', muted: '#70AAA4' },
     },
     ocean: {
-      light: { p: '#0284C7', p2: '#0369A1', accent: '#2563EB', bg: '#F0F9FF', bg2: '#E0F2FE', card: '#FFFFFF', border: 'rgba(2,132,199,.18)', nav: 'rgba(240,249,255,.88)', tx: '#102A43', sub: '#3D5A75', muted: '#6B849C' },
-      dark:  { p: '#38BDF8', p2: '#0EA5E9', accent: '#60A5FA', bg: '#07111F', bg2: '#0B1B30', card: '#102038', border: 'rgba(56,189,248,.16)', nav: 'rgba(7,17,31,.88)', tx: '#E8F4FF', sub: '#A7C7E7', muted: '#7FA5CB' },
+      light: { p: '#0284C7', p2: '#0369A1', accent: '#2563EB', bg: '#F0F9FF', bg2: '#E0F2FE', card: '#FFFFFF', border: 'rgba(2,132,199,.18)', tx: '#102A43', sub: '#3D5A75', muted: '#6B849C' },
+      dark:  { p: '#38BDF8', p2: '#0EA5E9', accent: '#60A5FA', bg: '#07111F', bg2: '#0B1B30', card: '#102038', border: 'rgba(56,189,248,.16)', tx: '#E8F4FF', sub: '#A7C7E7', muted: '#7FA5CB' },
     },
     sunrise: {
-      light: { p: '#EA580C', p2: '#C2410C', accent: '#D97706', bg: '#FFF7ED', bg2: '#FFEDD5', card: '#FFFFFF', border: 'rgba(234,88,12,.18)', nav: 'rgba(255,247,237,.88)', tx: '#342012', sub: '#72513B', muted: '#99735B' },
-      dark:  { p: '#FB923C', p2: '#F97316', accent: '#FBBF24', bg: '#16100B', bg2: '#24170E', card: '#2B1C10', border: 'rgba(251,146,60,.16)', nav: 'rgba(22,16,11,.88)', tx: '#FFF2E5', sub: '#E6B58A', muted: '#B98D6B' },
+      light: { p: '#EA580C', p2: '#C2410C', accent: '#D97706', bg: '#FFF7ED', bg2: '#FFEDD5', card: '#FFFFFF', border: 'rgba(234,88,12,.18)', tx: '#342012', sub: '#72513B', muted: '#99735B' },
+      dark:  { p: '#FB923C', p2: '#F97316', accent: '#FBBF24', bg: '#16100B', bg2: '#24170E', card: '#2B1C10', border: 'rgba(251,146,60,.16)', tx: '#FFF2E5', sub: '#E6B58A', muted: '#B98D6B' },
     },
     graphite: {
-      light: { p: '#475569', p2: '#334155', accent: '#0F766E', bg: '#F8FAFC', bg2: '#EEF2F6', card: '#FFFFFF', border: 'rgba(71,85,105,.18)', nav: 'rgba(248,250,252,.88)', tx: '#1E293B', sub: '#475569', muted: '#748196' },
-      dark:  { p: '#94A3B8', p2: '#64748B', accent: '#2DD4BF', bg: '#0B1018', bg2: '#151D28', card: '#182230', border: 'rgba(148,163,184,.16)', nav: 'rgba(11,16,24,.88)', tx: '#EDF2F7', sub: '#B5C0CF', muted: '#8A9AAD' },
+      light: { p: '#475569', p2: '#334155', accent: '#0F766E', bg: '#F8FAFC', bg2: '#EEF2F6', card: '#FFFFFF', border: 'rgba(71,85,105,.18)', tx: '#1E293B', sub: '#475569', muted: '#748196' },
+      dark:  { p: '#94A3B8', p2: '#64748B', accent: '#2DD4BF', bg: '#0B1018', bg2: '#151D28', card: '#182230', border: 'rgba(148,163,184,.16)', tx: '#EDF2F7', sub: '#B5C0CF', muted: '#8A9AAD' },
     },
   };
 
@@ -1514,7 +1514,10 @@
     root.style.setProperty('--bg2', colors.bg2);
     root.style.setProperty('--card', colors.card);
     root.style.setProperty('--card-border', colors.border);
-    root.style.setProperty('--nav-bg', colors.nav);
+    const surfaceOpacity = Number(normalized.surfaceOpacity);
+    const surfaceAlpha = (Number.isFinite(surfaceOpacity) ? Math.max(0, Math.min(100, surfaceOpacity)) : 100) / 100;
+    root.style.setProperty('--card-rgba', hexToRgba(colors.card, surfaceAlpha));
+    root.style.setProperty('--nav-bg', hexToRgba(colors.bg, surfaceAlpha));
     root.style.setProperty('--tx', colors.tx);
     root.style.setProperty('--sub', colors.sub);
     root.style.setProperty('--muted', colors.muted);
@@ -1830,6 +1833,7 @@
       primary: document.getElementById('cfg-themePrimary')?.value || '#14B8A6',
       accent: document.getElementById('cfg-themeAccent')?.value || '#F97316',
 	  fontScale: Number(document.getElementById('cfg-themeFontScale')?.value) || 100,
+	  surfaceOpacity: Number(document.getElementById('cfg-themeSurfaceOpacity')?.value),
     };
   }
 
@@ -1850,10 +1854,16 @@
 	const fontScaleOutput = document.getElementById('cfg-themeFontScaleOutput');
 	if (fontScale) fontScale.value = Math.max(100, Math.min(150, Number(value.fontScale) || 100));
 	if (fontScaleOutput) fontScaleOutput.value = `${fontScale?.value || 100}%`;
+	const surfaceOpacityEl = document.getElementById('cfg-themeSurfaceOpacity');
+	const surfaceOpacityOutput = document.getElementById('cfg-themeSurfaceOpacityOutput');
+	const surfaceOpacityRaw = Number(value.surfaceOpacity);
+	const surfaceOpacityValue = Number.isFinite(surfaceOpacityRaw) ? Math.max(0, Math.min(100, surfaceOpacityRaw)) : 100;
+	if (surfaceOpacityEl) surfaceOpacityEl.value = surfaceOpacityValue;
+	if (surfaceOpacityOutput) surfaceOpacityOutput.value = `${surfaceOpacityValue}%`;
     document.getElementById('customThemeColors')?.classList.toggle('hidden', value.preset !== 'custom');
     applyTheme(value.preset === 'custom'
       ? themeFromForm()
-      : { preset: value.preset || 'mint', mode: value.mode || 'system', fontScale: Number(value.fontScale) || 100 });
+      : { preset: value.preset || 'mint', mode: value.mode || 'system', fontScale: Number(value.fontScale) || 100, surfaceOpacity: surfaceOpacityValue });
   }
 
   async function loadTheme() {
@@ -2400,6 +2410,12 @@
 	fontScale?.addEventListener('input', () => {
 	  const output = document.getElementById('cfg-themeFontScaleOutput');
 	  if (output) output.value = `${fontScale.value}%`;
+	  applyTheme(themeFromForm());
+	});
+	const surfaceOpacityControl = document.getElementById('cfg-themeSurfaceOpacity');
+	surfaceOpacityControl?.addEventListener('input', () => {
+	  const output = document.getElementById('cfg-themeSurfaceOpacityOutput');
+	  if (output) output.value = `${surfaceOpacityControl.value}%`;
 	  applyTheme(themeFromForm());
 	});
     settingsEl.addEventListener('input', (e) => {

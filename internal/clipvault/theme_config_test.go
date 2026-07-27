@@ -5,11 +5,12 @@ import "testing"
 func TestNormalizeTheme(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Theme = ThemeConfig{
-		Preset:    "custom",
-		Mode:      "dark",
-		Primary:   "#123456",
-		Accent:    "#abcdef",
-		FontScale: 125,
+		Preset:         "custom",
+		Mode:           "dark",
+		Primary:        "#123456",
+		Accent:         "#abcdef",
+		FontScale:      125,
+		SurfaceOpacity: 80,
 	}
 	normalizeConfig(&cfg)
 
@@ -22,11 +23,17 @@ func TestNormalizeTheme(t *testing.T) {
 	if cfg.Theme.FontScale != 125 {
 		t.Fatalf("custom font scale was not retained: %#v", cfg.Theme)
 	}
+	if cfg.Theme.SurfaceOpacity != 80 {
+		t.Fatalf("custom surface opacity was not retained: %#v", cfg.Theme)
+	}
 
 	cfg.Theme = ThemeConfig{Preset: "unknown", Mode: "unknown"}
 	normalizeConfig(&cfg)
 	if cfg.Theme.Preset != "mint" || cfg.Theme.Mode != "system" {
 		t.Fatalf("invalid theme did not fall back to defaults: %#v", cfg.Theme)
+	}
+	if cfg.Theme.SurfaceOpacity != 100 {
+		t.Fatalf("missing surface opacity did not fall back to default: %#v", cfg.Theme)
 	}
 
 	cfg.Theme = ThemeConfig{Preset: "custom", Mode: "light", Primary: "invalid", Accent: "#12345"}
@@ -37,11 +44,32 @@ func TestNormalizeTheme(t *testing.T) {
 	if cfg.Theme.FontScale != 100 {
 		t.Fatalf("missing font scale did not fall back to default: %#v", cfg.Theme)
 	}
+	if cfg.Theme.SurfaceOpacity != 100 {
+		t.Fatalf("missing surface opacity did not fall back to default: %#v", cfg.Theme)
+	}
 
 	cfg.Theme.FontScale = 200
 	normalizeConfig(&cfg)
 	if cfg.Theme.FontScale != 150 {
 		t.Fatalf("font scale was not clamped: %#v", cfg.Theme)
+	}
+
+	cfg.Theme.SurfaceOpacity = 200
+	normalizeConfig(&cfg)
+	if cfg.Theme.SurfaceOpacity != 100 {
+		t.Fatalf("surface opacity was not clamped to max: %#v", cfg.Theme)
+	}
+
+	cfg.Theme.SurfaceOpacity = -10
+	normalizeConfig(&cfg)
+	if cfg.Theme.SurfaceOpacity != 0 {
+		t.Fatalf("surface opacity was not clamped to min: %#v", cfg.Theme)
+	}
+
+	cfg.Theme.SurfaceOpacity = 0
+	normalizeConfig(&cfg)
+	if cfg.Theme.SurfaceOpacity != 0 {
+		t.Fatalf("explicit zero surface opacity was not retained: %#v", cfg.Theme)
 	}
 }
 
@@ -54,11 +82,12 @@ func TestThemeConfigPersists(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.Theme = ThemeConfig{
-		Preset:    "custom",
-		Mode:      "light",
-		Primary:   "#2563EB",
-		Accent:    "#F59E0B",
-		FontScale: 135,
+		Preset:         "custom",
+		Mode:           "light",
+		Primary:        "#2563EB",
+		Accent:         "#F59E0B",
+		FontScale:      135,
+		SurfaceOpacity: 72,
 	}
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -85,7 +114,7 @@ func TestThemeConfigManagerUpdate(t *testing.T) {
 		t.Fatalf("new config manager: %v", err)
 	}
 
-	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 135}
+	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 135, SurfaceOpacity: 72}
 	var notified ThemeConfig
 	manager.OnChange(func(cfg Config) error {
 		notified = cfg.Theme

@@ -178,6 +178,47 @@ func (am *AuthManager) GetSession(token string) *Session {
 	return &snapshot
 }
 
+// RefreshSessionExpiry 按 timeoutMin 重置当前会话的过期时间，用于 lockSessionTimeout
+// 配置变更后让新超时立即对当前会话生效。timeoutMin 语义与 CreateSession 一致：
+// 0 表示浏览器会话（内部按 maxSessionLifetime 管理），N 表示 N 分钟。
+// 返回会话是否存在；不存在则不做任何操作。
+func (am *AuthManager) RefreshSessionExpiry(token string, timeoutMin int) bool {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	sess, ok := am.sessions[token]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	expiry := now.Add(maxSessionLifetime)
+	if timeoutMin > 0 {
+		expiry = now.Add(time.Duration(timeoutMin) * time.Minute)
+	}
+	sess.ExpiresAt = expiry
+	return true
+}
+
+// RefreshSecondaryExpiry 按 timeoutMin 重置当前会话的二次认证缓存，用于
+// secondaryAuthTimeout 配置变更后让新超时立即对当前会话生效。语义与
+// GrantSecondaryAuth 一致：<=0 撤销缓存（每次操作都需要验证），N 重置为 now+Nmin。
+// 仅当会话已通过二次认证时才调整缓存到期时间；会话不存在则不做任何操作。
+func (am *AuthManager) RefreshSecondaryExpiry(token string, timeoutMin int) bool {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	sess, ok := am.sessions[token]
+	if !ok {
+		return false
+	}
+	if timeoutMin <= 0 {
+		sess.SecondaryAuth = false
+		return true
+	}
+	if sess.SecondaryAuth {
+		sess.SecondaryExpiry = time.Now().Add(time.Duration(timeoutMin) * time.Minute)
+	}
+	return true
+}
+
 // GrantSecondaryAuth 为会话授予二次认证权限。
 // timeoutMin 为缓存分钟数：0 表示不缓存（仅使用一次性 token），N 表示 N 分钟内免重复验证。
 func (am *AuthManager) GrantSecondaryAuth(token string, timeoutMin int) {
