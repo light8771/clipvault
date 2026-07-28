@@ -23,6 +23,8 @@ type Store struct {
 
 var errItemOrGroupNotFound = errors.New("item or group not found")
 
+const emailBackupHistoryTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 type storeQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -52,6 +54,15 @@ type StoredGroup struct {
 	Name      string    `json:"name"`
 	ParentID  int64     `json:"parentId"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+// EmailBackupHistory is an immutable record of a successfully sent backup email.
+type EmailBackupHistory struct {
+	SentAt time.Time `json:"sentAt"`
+	Mode   string    `json:"mode"`
+	From   string    `json:"from"`
+	To     string    `json:"to"`
+	Format string    `json:"format"`
 }
 
 type StoredItem struct {
@@ -243,6 +254,16 @@ func (s *Store) migrate() error {
 			PRIMARY KEY (item_id, group_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_item_groups_group ON item_groups(group_id)`,
+		`CREATE SEQUENCE IF NOT EXISTS seq_email_backup_history START 1`,
+		`CREATE TABLE IF NOT EXISTS email_backup_history (
+			id INTEGER PRIMARY KEY DEFAULT nextval('seq_email_backup_history'),
+			sent_at TEXT NOT NULL,
+			mode TEXT NOT NULL,
+			from_address TEXT NOT NULL,
+			to_address TEXT NOT NULL,
+			format TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_email_backup_history_sent_at ON email_backup_history(sent_at DESC)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -280,6 +301,43 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		item.Sensitive,
 	)
 	return err
+}
+
+// AddEmailBackupHistory records a successful backup email. History is append-only.
+func (s *Store) AddEmailBackupHistory(ctx context.Context, record EmailBackupHistory) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO email_backup_history
+		(sent_at, mode, from_address, to_address, format) VALUES (?, ?, ?, ?, ?)`,
+		record.SentAt.UTC().Format(emailBackupHistoryTimeLayout), record.Mode, record.From, record.To, record.Format)
+	return err
+}
+
+// ListEmailBackupHistory returns the most recent successful backup emails.
+func (s *Store) ListEmailBackupHistory(ctx context.Context, limit int) ([]EmailBackupHistory, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT sent_at, mode, from_address, to_address, format
+		FROM email_backup_history ORDER BY sent_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	history := make([]EmailBackupHistory, 0)
+	for rows.Next() {
+		var record EmailBackupHistory
+		var sentAt string
+		if err := rows.Scan(&sentAt, &record.Mode, &record.From, &record.To, &record.Format); err != nil {
+			return nil, err
+		}
+		var err error
+		record.SentAt, err = time.Parse(emailBackupHistoryTimeLayout, sentAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse email backup history timestamp: %w", err)
+		}
+		history = append(history, record)
+	}
+	return history, rows.Err()
 }
 
 func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, int, error) {

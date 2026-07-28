@@ -19,6 +19,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,8 @@ import (
 
 	"clipboard_ext/internal/licensing"
 )
+
+const maxBackupIntervalHours = 720
 
 //go:embed web/*
 var webFS embed.FS
@@ -139,6 +142,7 @@ func (s *SearchServer) Start() (string, error) {
 
 	// 备份管理端点（需二次认证）
 	mux.HandleFunc("GET /api/backup/status", s.requireAuth(s.handleBackupStatus))
+	mux.HandleFunc("GET /api/backup/email/history", s.requireSecondary(s.handleEmailBackupHistory))
 	mux.HandleFunc("POST /api/backup/dir/now", s.requireSecondary(s.handleBackupDirNow))
 	mux.HandleFunc("POST /api/backup/email/now", s.requireSecondary(s.handleBackupEmailNow))
 	mux.HandleFunc("POST /api/backup/email/test", s.requireSecondary(s.handleBackupEmailTest))
@@ -806,6 +810,21 @@ func stripSecrets(cfg Config) Config {
 	return cfg
 }
 
+// resolveSecretField 解析前端回传的敏感密码字段。
+//   - "" / "__set__"：保留当前值（前端未修改或占位符回传）
+//   - "__clear__"：用户主动清除，置空
+//   - 其他值：作为新密码写入
+func resolveSecretField(newVal, curVal string) string {
+	switch newVal {
+	case "", "__set__":
+		return curVal
+	case "__clear__":
+		return ""
+	default:
+		return newVal
+	}
+}
+
 // handleSensitiveRules 返回真实的敏感过滤规则，需要二次认证。
 func (s *SearchServer) handleSensitiveRules(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.Get()
@@ -877,15 +896,24 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	if cfg.Security.SecondaryPasswordHash == "" {
 		cfg.Security.SecondaryPasswordHash = curCfg.Security.SecondaryPasswordHash
 	}
-	// 保留备份相关敏感密码，不被前端回传的占位符或空值覆盖
-	if cfg.Backup.DirBackup.Password == "" || cfg.Backup.DirBackup.Password == "__set__" {
-		cfg.Backup.DirBackup.Password = curCfg.Backup.DirBackup.Password
+	// 保留备份相关敏感密码，不被前端回传的占位符或空值覆盖。
+	cfg.Backup.DirBackup.Password = resolveSecretField(cfg.Backup.DirBackup.Password, curCfg.Backup.DirBackup.Password)
+	cfg.Backup.EmailBackup.SMTPPass = resolveSecretField(cfg.Backup.EmailBackup.SMTPPass, curCfg.Backup.EmailBackup.SMTPPass)
+	cfg.Backup.EmailBackup.Password = resolveSecretField(cfg.Backup.EmailBackup.Password, curCfg.Backup.EmailBackup.Password)
+	// 启用定时备份时校验配置完整性，避免启用后无法实际执行备份。
+	if cfg.Backup.DirBackup.Enabled {
+		if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			s.writeJSON(w, map[string]any{"ok": false, "error": "目录备份配置不完整：" + msg})
+			return
+		}
 	}
-	if cfg.Backup.EmailBackup.SMTPPass == "" || cfg.Backup.EmailBackup.SMTPPass == "__set__" {
-		cfg.Backup.EmailBackup.SMTPPass = curCfg.Backup.EmailBackup.SMTPPass
-	}
-	if cfg.Backup.EmailBackup.Password == "" || cfg.Backup.EmailBackup.Password == "__set__" {
-		cfg.Backup.EmailBackup.Password = curCfg.Backup.EmailBackup.Password
+	if cfg.Backup.EmailBackup.Enabled {
+		if msg := validateEmailBackupEnabled(cfg.Backup.EmailBackup); msg != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			s.writeJSON(w, map[string]any{"ok": false, "error": "邮件备份配置不完整：" + msg})
+			return
+		}
 	}
 	if err := s.cfgMgr.Update(cfg); err != nil {
 		var hkErr *HotkeyError
@@ -1164,6 +1192,79 @@ func (s *SearchServer) handleBackupStatus(w http.ResponseWriter, r *http.Request
 		}
 	}
 	s.writeJSON(w, resp)
+}
+
+// handleEmailBackupHistory returns a read-only list of recently sent backup emails.
+func (s *SearchServer) handleEmailBackupHistory(w http.ResponseWriter, r *http.Request) {
+	history, err := s.store.ListEmailBackupHistory(r.Context(), 100)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"history": history})
+}
+
+// validateDirBackupEnabled 校验已启用的目录备份配置是否完整。
+// 返回非空字符串描述缺失项，空字符串表示通过。
+// 仅 cvexport 格式需要加密密码；json/xlsx 为明文导出，无需密码。
+func validateDirBackupEnabled(db DirBackupConfig) string {
+	var missing []string
+	if db.Interval < 1 || db.Interval > maxBackupIntervalHours {
+		missing = append(missing, "备份间隔")
+	}
+	if strings.TrimSpace(db.Dir) == "" {
+		missing = append(missing, "目标目录")
+	}
+	if !isBackupFormat(db.Format) {
+		missing = append(missing, "备份格式")
+	} else if db.Format == "cvexport" && db.Password == "" {
+		missing = append(missing, "加密密码")
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return strings.Join(missing, "、")
+}
+
+// validateEmailBackupEnabled 校验已启用的邮件备份配置是否完整。
+// 返回非空字符串描述缺失项，空字符串表示通过。
+// 仅 cvexport 格式需要加密密码；json/xlsx 为明文导出，无需密码。
+func validateEmailBackupEnabled(eb EmailBackupConfig) string {
+	var missing []string
+	if eb.Interval < 1 || eb.Interval > maxBackupIntervalHours {
+		missing = append(missing, "备份间隔")
+	}
+	if strings.TrimSpace(eb.SMTPHost) == "" {
+		missing = append(missing, "SMTP 服务器")
+	}
+	if eb.SMTPPort <= 0 || eb.SMTPPort > 65535 {
+		missing = append(missing, "SMTP 端口")
+	}
+	// 认证信息可以同时省略，以支持仅对受信任网络开放的 SMTP relay。
+	// 但不能只填用户名或密码，否则发送端的认证行为与配置不一致。
+	hasSMTPUser := strings.TrimSpace(eb.SMTPUser) != ""
+	hasSMTPPass := eb.SMTPPass != ""
+	if hasSMTPUser != hasSMTPPass {
+		missing = append(missing, "SMTP 用户名和密码需同时填写")
+	}
+	from, err := mail.ParseAddress(eb.From)
+	if err != nil || from.Address == "" {
+		missing = append(missing, "发件人邮箱")
+	}
+	to, err := mail.ParseAddress(eb.To)
+	if err != nil || to.Address == "" {
+		missing = append(missing, "收件人邮箱")
+	}
+	if !isBackupFormat(eb.Format) {
+		missing = append(missing, "备份格式")
+	} else if eb.Format == "cvexport" && eb.Password == "" {
+		missing = append(missing, "加密密码")
+	}
+	missing = append(missing, emailTemplateErrors(eb)...)
+	if len(missing) == 0 {
+		return ""
+	}
+	return strings.Join(missing, "、")
 }
 
 // handleBackupDirNow 立即执行一次目录备份。

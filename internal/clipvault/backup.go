@@ -8,9 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,6 +27,11 @@ import (
 )
 
 var errBackupLicenseRequired = errors.New("需要先激活 ClipVault 才能使用备份功能")
+
+const (
+	emailBackupModeAutomatic = "automatic"
+	emailBackupModeManual    = "manual"
+)
 
 // BackupStatus 记录最近一次备份的状态。
 type BackupStatus struct {
@@ -38,9 +48,10 @@ type BackupService struct {
 	logger  *DailyLogger
 	license *licensing.Manager
 
-	mu         sync.Mutex
-	dirTimer   *time.Timer
-	emailTimer *time.Timer
+	mu          sync.Mutex
+	dirTimer    *time.Timer
+	emailTimer  *time.Timer
+	startupOnce sync.Once
 
 	statusMu    sync.RWMutex
 	dirStatus   BackupStatus
@@ -66,6 +77,37 @@ func NewBackupService(cfgMgr *ConfigManager, store *Store, logger *DailyLogger, 
 func (bs *BackupService) Start() {
 	cfg := bs.cfgMgr.Get()
 	bs.Reload(cfg)
+	bs.startupOnce.Do(func() {
+		go bs.runStartupBackups(cfg)
+	})
+}
+
+func (bs *BackupService) runStartupBackups(cfg Config) {
+	runStartupBackups(cfg,
+		func(c Config) error {
+			err := bs.doDirBackup(c)
+			if err != nil {
+				bs.logger.Error("dir_backup_startup_failed", err, nil)
+			}
+			return err
+		},
+		func(c Config) error {
+			err := bs.doEmailBackup(c, emailBackupModeAutomatic)
+			if err != nil {
+				bs.logger.Error("email_backup_startup_failed", err, nil)
+			}
+			return err
+		},
+	)
+}
+
+func runStartupBackups(cfg Config, runDir, runEmail func(Config) error) {
+	if cfg.Backup.DirBackup.Enabled && cfg.Backup.DirBackup.RunOnStartup {
+		_ = runDir(cfg)
+	}
+	if cfg.Backup.EmailBackup.Enabled && cfg.Backup.EmailBackup.RunOnStartup {
+		_ = runEmail(cfg)
+	}
 }
 
 // Reload 根据新配置重置定时器。
@@ -136,7 +178,7 @@ func (bs *BackupService) RunEmailBackup() error {
 		return errBackupLicenseRequired
 	}
 	cfg := bs.cfgMgr.Get()
-	return bs.doEmailBackup(cfg)
+	return bs.doEmailBackup(cfg, emailBackupModeManual)
 }
 
 // SendTestEmail 发送一封测试邮件（不包含备份数据）。
@@ -149,11 +191,11 @@ func (bs *BackupService) SendTestEmail() error {
 	if eb.SMTPHost == "" || eb.From == "" || eb.To == "" || eb.SMTPPort < 1 {
 		return fmt.Errorf("SMTP 配置不完整")
 	}
-
-	subject := "ClipVault 测试邮件"
-	body := "这是一封来自 ClipVault 的测试邮件，用于验证 SMTP 配置是否正确。"
-
-	msg := buildSimpleMIME(eb.From, eb.To, subject, body)
+	if errors := emailTemplateErrors(eb); len(errors) > 0 {
+		return fmt.Errorf("邮件模板配置不完整: %s", strings.Join(errors, "、"))
+	}
+	subject, body, htmlBody := renderEmailTemplate(eb, "测试邮件（无附件）", "测试", time.Now())
+	msg := buildTemplateMIME(eb.From, eb.To, subject, body, htmlBody)
 
 	return sendSMTPMessage(eb, msg)
 }
@@ -179,7 +221,7 @@ func (bs *BackupService) emailBackupTick() {
 	if !cfg.Backup.EmailBackup.Enabled {
 		return
 	}
-	if err := bs.doEmailBackup(cfg); err != nil {
+	if err := bs.doEmailBackup(cfg, emailBackupModeAutomatic); err != nil {
 		bs.logger.Error("email_backup_failed", err, nil)
 	}
 	bs.mu.Lock()
@@ -194,20 +236,21 @@ func (bs *BackupService) doDirBackup(cfg Config) error {
 	if bs.license != nil && !bs.license.CanUsePaidFeatures() {
 		return errBackupLicenseRequired
 	}
-	data, ext, err := bs.exportBackupData(cfg.Backup.DirBackup.Format, cfg.Backup.DirBackup.Password)
+	db := cfg.Backup.DirBackup
+	data, ext, err := bs.exportBackupData(db.Format, db.Password)
 	if err != nil {
 		bs.setDirStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
 		return err
 	}
 
-	if err := os.MkdirAll(cfg.Backup.DirBackup.Dir, 0755); err != nil {
+	if err := os.MkdirAll(db.Dir, 0755); err != nil {
 		err = fmt.Errorf("创建目录失败: %w", err)
 		bs.setDirStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
 		return err
 	}
 
 	filename := fmt.Sprintf("clipvault-backup-%s.%s", time.Now().Format("20060102-150405"), ext)
-	fullPath := filepath.Join(cfg.Backup.DirBackup.Dir, filename)
+	fullPath := filepath.Join(db.Dir, filename)
 
 	if err := os.WriteFile(fullPath, data, 0644); err != nil {
 		err = fmt.Errorf("写入文件失败: %w", err)
@@ -220,35 +263,49 @@ func (bs *BackupService) doDirBackup(cfg Config) error {
 	return nil
 }
 
-func (bs *BackupService) doEmailBackup(cfg Config) error {
+func (bs *BackupService) doEmailBackup(cfg Config, mode string) error {
 	if bs.license != nil && !bs.license.CanUsePaidFeatures() {
 		return errBackupLicenseRequired
 	}
-	if cfg.Backup.EmailBackup.Format != "cvexport" {
-		return fmt.Errorf("邮件备份必须使用加密格式")
+	eb := cfg.Backup.EmailBackup
+	if errors := emailTemplateErrors(eb); len(errors) > 0 {
+		err := fmt.Errorf("邮件模板配置不完整: %s", strings.Join(errors, "、"))
+		bs.setEmailStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
+		return err
 	}
-	data, ext, err := bs.exportBackupData(cfg.Backup.EmailBackup.Format, cfg.Backup.EmailBackup.Password)
+	data, ext, err := bs.exportBackupData(eb.Format, eb.Password)
 	if err != nil {
 		bs.setEmailStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
 		return err
 	}
 
-	eb := cfg.Backup.EmailBackup
-	filename := fmt.Sprintf("clipvault-backup-%s.%s", time.Now().Format("20060102-150405"), ext)
-	subject := fmt.Sprintf("ClipVault 备份 %s", time.Now().Format("2006-01-02 15:04:05"))
-	body := "ClipVault 自动备份文件，请查收附件。"
+	now := time.Now()
+	filename := fmt.Sprintf("clipvault-backup-%s.%s", now.Format("20060102-150405"), ext)
+	subject, body, htmlBody := renderEmailTemplate(eb, filename, ext, now)
 
 	contentType := "application/json"
-	if ext == "cvexport" {
+	switch ext {
+	case "cvexport":
 		contentType = "application/octet-stream"
+	case "xlsx":
+		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	}
 
-	msg := buildMIMEWithAttachment(eb.From, eb.To, subject, body, filename, contentType, data)
+	msg := buildMIMEWithAttachment(eb.From, eb.To, subject, body, htmlBody, filename, contentType, data)
 
 	if err := sendSMTPMessage(eb, msg); err != nil {
 		err = fmt.Errorf("发送邮件失败: %w", err)
 		bs.setEmailStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
 		return err
+	}
+	if err := bs.store.AddEmailBackupHistory(context.Background(), EmailBackupHistory{
+		SentAt: now,
+		Mode:   mode,
+		From:   eb.From,
+		To:     eb.To,
+		Format: ext,
+	}); err != nil {
+		bs.logger.Error("email_backup_history_record_failed", err, nil)
 	}
 
 	bs.setEmailStatus(BackupStatus{LastTime: time.Now(), LastOK: true, BackupFile: filename})
@@ -339,70 +396,148 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 
 // exportBackupData 导出数据并根据格式返回字节和扩展名。
 func (bs *BackupService) exportBackupData(format, password string) ([]byte, string, error) {
-	export, err := bs.store.ExportFullForJSON(context.Background())
-	if err != nil {
-		return nil, "", fmt.Errorf("导出数据失败: %w", err)
-	}
-
-	if format == "cvexport" {
+	switch format {
+	case "xlsx":
+		data, err := bs.store.ExportXLSX(context.Background())
+		if err != nil {
+			return nil, "", fmt.Errorf("Excel 导出失败: %w", err)
+		}
+		return data, "xlsx", nil
+	case "cvexport":
 		if password == "" {
 			return nil, "", fmt.Errorf("cvexport 格式需要加密密码")
+		}
+		export, err := bs.store.ExportFullForJSON(context.Background())
+		if err != nil {
+			return nil, "", fmt.Errorf("导出数据失败: %w", err)
 		}
 		encData, err := EncryptExportJSON(export, password)
 		if err != nil {
 			return nil, "", fmt.Errorf("加密失败: %w", err)
 		}
 		return encData, "cvexport", nil
-	}
-
-	jsonData, err := json.MarshalIndent(export, "", "  ")
-	if err != nil {
-		return nil, "", fmt.Errorf("JSON 编码失败: %w", err)
-	}
-	return jsonData, "json", nil
-}
-
-// buildSimpleMIME 构建一个纯文本 MIME 邮件。
-func buildSimpleMIME(from, to, subject, body string) []byte {
-	headers := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n",
-		from, to, subject)
-	return []byte(headers + body)
-}
-
-// buildMIMEWithAttachment 构建一个带附件的 MIME 邮件。
-func buildMIMEWithAttachment(from, to, subject, body, filename, contentType string, attachment []byte) []byte {
-	boundary := "----ClipVaultBackupBoundary"
-	var buf bytes.Buffer
-
-	fmt.Fprintf(&buf, "From: %s\r\n", from)
-	fmt.Fprintf(&buf, "To: %s\r\n", to)
-	fmt.Fprintf(&buf, "Subject: %s\r\n", subject)
-	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary)
-
-	// Text part
-	fmt.Fprintf(&buf, "--%s\r\n", boundary)
-	fmt.Fprintf(&buf, "Content-Type: text/plain; charset=UTF-8\r\n")
-	fmt.Fprintf(&buf, "Content-Transfer-Encoding: 8bit\r\n\r\n")
-	fmt.Fprintf(&buf, "%s\r\n\r\n", body)
-
-	// Attachment part
-	encoded := base64.StdEncoding.EncodeToString(attachment)
-	fmt.Fprintf(&buf, "--%s\r\n", boundary)
-	fmt.Fprintf(&buf, "Content-Type: %s\r\n", contentType)
-	fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
-	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename)
-
-	// Base64 line wrapping (76 chars per line)
-	for i := 0; i < len(encoded); i += 76 {
-		end := i + 76
-		if end > len(encoded) {
-			end = len(encoded)
+	case "json":
+		export, err := bs.store.ExportFullForJSON(context.Background())
+		if err != nil {
+			return nil, "", fmt.Errorf("导出数据失败: %w", err)
 		}
-		buf.WriteString(encoded[i:end])
-		buf.WriteString("\r\n")
+		jsonData, err := json.MarshalIndent(export, "", "  ")
+		if err != nil {
+			return nil, "", fmt.Errorf("JSON 编码失败: %w", err)
+		}
+		return jsonData, "json", nil
+	default:
+		return nil, "", fmt.Errorf("不支持的备份格式: %s", format)
+	}
+}
+
+func renderEmailTemplate(cfg EmailBackupConfig, filename, format string, now time.Time) (string, string, string) {
+	replacer := strings.NewReplacer(
+		"{time}", now.Format("2006-01-02 15:04:05"),
+		"{filename}", filename,
+		"{format}", format,
+	)
+	subject := replacer.Replace(cfg.Subject)
+	body := replacer.Replace(cfg.Body)
+	return subject, body, renderEmailHTML(subject, body, cfg.Style, cfg.AccentColor)
+}
+
+func renderEmailHTML(subject, body, style, accentColor string) string {
+	escapedSubject := html.EscapeString(subject)
+	escapedBody := strings.ReplaceAll(html.EscapeString(normalizeEmailNewlines(body)), "\n", "<br>\n")
+	switch style {
+	case "plain":
+		return fmt.Sprintf("<!doctype html><html><body style=\"margin:0;padding:24px;color:#1f2937;font:15px/1.7 Arial,sans-serif\"><strong style=\"font-size:18px\">%s</strong><div style=\"margin-top:16px\">%s</div></body></html>", escapedSubject, escapedBody)
+	case "accent":
+		return fmt.Sprintf("<!doctype html><html><body style=\"margin:0;padding:24px;background:#f3f4f6;font:15px/1.7 Arial,sans-serif\"><div style=\"max-width:640px;margin:auto;background:#ffffff;border-top:5px solid %s;padding:28px;color:#1f2937\"><strong style=\"font-size:18px;color:%s\">%s</strong><div style=\"margin-top:16px\">%s</div></div></body></html>", accentColor, accentColor, escapedSubject, escapedBody)
+	case "card":
+		return fmt.Sprintf("<!doctype html><html><body style=\"margin:0;padding:24px;background:#f3f4f6;font:15px/1.7 Arial,sans-serif\"><div style=\"max-width:640px;margin:auto;background:#ffffff;border:1px solid #e5e7eb;padding:28px;color:#1f2937\"><strong style=\"font-size:18px\">%s</strong><div style=\"width:36px;height:3px;margin:14px 0;background:%s\"></div><div>%s</div></div></body></html>", escapedSubject, accentColor, escapedBody)
+	default:
+		return ""
+	}
+}
+
+func normalizeEmailNewlines(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	return strings.ReplaceAll(value, "\r", "\n")
+}
+
+type emailAttachment struct {
+	filename    string
+	contentType string
+	data        []byte
+}
+
+func buildTemplateMIME(from, to, subject, body, htmlBody string) []byte {
+	return buildMIME(from, to, subject, body, htmlBody, nil)
+}
+
+func buildMIMEWithAttachment(from, to, subject, body, htmlBody, filename, contentType string, attachment []byte) []byte {
+	return buildMIME(from, to, subject, body, htmlBody, &emailAttachment{
+		filename: filename, contentType: contentType, data: attachment,
+	})
+}
+
+func buildMIME(from, to, subject, body, htmlBody string, attachment *emailAttachment) []byte {
+	var buf bytes.Buffer
+	if attachment == nil {
+		alternativeBody, boundary := buildAlternativeBody(body, htmlBody)
+		writeMIMEHeaders(&buf, from, to, subject, mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": boundary}))
+		buf.Write(alternativeBody)
+		return buf.Bytes()
 	}
 
-	fmt.Fprintf(&buf, "--%s--\r\n", boundary)
+	var mixedBody bytes.Buffer
+	mixed := multipart.NewWriter(&mixedBody)
+	writeAlternativePart(mixed, body, htmlBody)
+	writeAttachmentPart(mixed, *attachment)
+	_ = mixed.Close()
+	writeMIMEHeaders(&buf, from, to, subject, mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": mixed.Boundary()}))
+	buf.Write(mixedBody.Bytes())
 	return buf.Bytes()
+}
+
+func writeMIMEHeaders(buf *bytes.Buffer, from, to, subject, contentType string) {
+	fmt.Fprintf(buf, "From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: %s\r\n\r\n",
+		from, to, mime.QEncoding.Encode("UTF-8", subject), contentType)
+}
+
+func buildAlternativeBody(body, htmlBody string) ([]byte, string) {
+	var buf bytes.Buffer
+	alternative := multipart.NewWriter(&buf)
+	writeTextPart(alternative, "text/plain; charset=UTF-8", body)
+	writeTextPart(alternative, "text/html; charset=UTF-8", htmlBody)
+	_ = alternative.Close()
+	return buf.Bytes(), alternative.Boundary()
+}
+
+func writeAlternativePart(parent *multipart.Writer, body, htmlBody string) {
+	alternativeBody, boundary := buildAlternativeBody(body, htmlBody)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": boundary}))
+	part, _ := parent.CreatePart(header)
+	_, _ = part.Write(alternativeBody)
+}
+
+func writeTextPart(parent *multipart.Writer, contentType, content string) {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", contentType)
+	header.Set("Content-Transfer-Encoding", "quoted-printable")
+	part, _ := parent.CreatePart(header)
+	encoded := quotedprintable.NewWriter(part)
+	_, _ = encoded.Write([]byte(normalizeEmailNewlines(content)))
+	_ = encoded.Close()
+}
+
+func writeAttachmentPart(parent *multipart.Writer, attachment emailAttachment) {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", attachment.contentType)
+	header.Set("Content-Transfer-Encoding", "base64")
+	header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": attachment.filename}))
+	part, _ := parent.CreatePart(header)
+	encoded := base64.StdEncoding.EncodeToString(attachment.data)
+	for i := 0; i < len(encoded); i += 76 {
+		end := min(i+76, len(encoded))
+		_, _ = fmt.Fprint(part, encoded[i:end]+"\r\n")
+	}
 }

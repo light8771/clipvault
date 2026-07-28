@@ -474,13 +474,13 @@
             </button>
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
-            <p style="margin-bottom:16px;color:var(--text-secondary);line-height:1.6;font-size:14px">
+            <p style="margin-bottom:16px;color:var(--sub);line-height:1.6;font-size:14px">
               删除恢复密码后，如果 DPAPI 失效（换电脑、重装系统等），将无法恢复加密数据库中的数据。
               确定要删除吗？
             </p>
             <div style="display:flex;gap:12px">
-              <button class="lock-btn" style="flex:1;background:var(--danger,#e94560)" onclick="doRecoveryRemove()">确认删除</button>
-              <button class="lock-btn" style="flex:1;background:var(--surface-3,#30475e)" onclick="closeRecRemoveDialog()">取消</button>
+              <button class="lock-btn" style="flex:1;background:var(--danger)" onclick="doRecoveryRemove()">确认删除</button>
+              <button class="lock-btn" style="flex:1;background:var(--card)" onclick="closeRecRemoveDialog()">取消</button>
             </div>
           </div>
         </div>
@@ -2006,19 +2006,27 @@
     const db = bk.dirBackup || {};
     const eb = bk.emailBackup || {};
     const dirEnabled = document.getElementById('cfg-dirBackupEnabled');
+    const dirRunOnStartup = document.getElementById('cfg-dirBackupRunOnStartup');
     const dirInterval = document.getElementById('cfg-dirBackupInterval');
     const dirDir = document.getElementById('cfg-dirBackupDir');
     const dirFormat = document.getElementById('cfg-dirBackupFormat');
     const dirPwd = document.getElementById('cfg-dirBackupPwd');
     const dirPwdRow = document.getElementById('cfg-dirBackupPwdRow');
+    const dirPwdClearRow = document.getElementById('cfg-dirBackupPwdClearRow');
+    const dirPwdClear = document.getElementById('cfg-dirBackupPwdClear');
     if (dirEnabled) dirEnabled.checked = !!db.enabled;
+    if (dirRunOnStartup) dirRunOnStartup.checked = !!db.runOnStartup;
     if (dirInterval) dirInterval.value = db.interval || 24;
     if (dirDir) dirDir.value = db.dir || '';
-    if (dirFormat) dirFormat.value = db.format || 'json';
+    if (dirFormat) dirFormat.value = db.format || 'cvexport';
     if (dirPwd) dirPwd.value = '';
+    if (dirPwdClear) dirPwdClear.checked = false;
+    const dirHasPwd = db.password === '__set__';
+    if (dirPwdClearRow) dirPwdClearRow.style.display = dirHasPwd ? '' : 'none';
     if (dirPwdRow) dirPwdRow.style.display = (db.format === 'cvexport') ? '' : 'none';
 
     const emailEnabled = document.getElementById('cfg-emailBackupEnabled');
+    const emailRunOnStartup = document.getElementById('cfg-emailBackupRunOnStartup');
     const emailInterval = document.getElementById('cfg-emailBackupInterval');
     const emailHost = document.getElementById('cfg-emailBackupSMTPHost');
     const emailPort = document.getElementById('cfg-emailBackupSMTPPort');
@@ -2029,7 +2037,14 @@
     const emailFormat = document.getElementById('cfg-emailBackupFormat');
     const emailPwd = document.getElementById('cfg-emailBackupPwd');
     const emailPwdRow = document.getElementById('cfg-emailBackupPwdRow');
+    const emailPwdClearRow = document.getElementById('cfg-emailBackupPwdClearRow');
+    const emailPwdClear = document.getElementById('cfg-emailBackupPwdClear');
+    const emailSubject = document.getElementById('cfg-emailBackupSubject');
+    const emailBody = document.getElementById('cfg-emailBackupBody');
+    const emailStyle = document.getElementById('cfg-emailBackupStyle');
+    const emailAccentColor = document.getElementById('cfg-emailBackupAccentColor');
     if (emailEnabled) emailEnabled.checked = !!eb.enabled;
+    if (emailRunOnStartup) emailRunOnStartup.checked = !!eb.runOnStartup;
     if (emailInterval) emailInterval.value = eb.interval || 24;
     if (emailHost) emailHost.value = eb.smtpHost || '';
     if (emailPort) emailPort.value = eb.smtpPort || 587;
@@ -2037,8 +2052,15 @@
     if (emailPass) emailPass.value = '';
     if (emailFrom) emailFrom.value = eb.from || '';
     if (emailTo) emailTo.value = eb.to || '';
-    if (emailFormat) emailFormat.value = eb.format || 'json';
+    if (emailFormat) emailFormat.value = eb.format || 'cvexport';
+    if (emailSubject) emailSubject.value = eb.subject || '';
+    if (emailBody) emailBody.value = eb.body || '';
+    if (emailStyle) emailStyle.value = eb.style || 'card';
+    if (emailAccentColor) emailAccentColor.value = eb.accentColor || '#16A34A';
     if (emailPwd) emailPwd.value = '';
+    if (emailPwdClear) emailPwdClear.checked = false;
+    const emailHasPwd = eb.password === '__set__';
+    if (emailPwdClearRow) emailPwdClearRow.style.display = emailHasPwd ? '' : 'none';
     if (emailPwdRow) emailPwdRow.style.display = (eb.format === 'cvexport') ? '' : 'none';
 
     // 加载备份状态
@@ -2109,6 +2131,8 @@
   const RESTART_CANCEL   = document.getElementById('restartCancelBtn');
   const RESTART_CONFIRM_BTN = document.getElementById('restartConfirmBtn');
   let saveTimer = 0;
+  let saveInFlight = false;
+  let saveQueued = false;
 
   // VK 码与显示文本互转：Space(0x20) 显示为 "Space"，避免空格字符在输入框中不可见
   function vkToDisplay(vk) {
@@ -2202,31 +2226,53 @@
         ...currentCfg.backup,
         dirBackup: {
           ...currentCfg.backup?.dirBackup,
-          enabled:  document.getElementById('cfg-dirBackupEnabled')?.checked || false,
-          interval: parseInt(document.getElementById('cfg-dirBackupInterval')?.value) || 24,
-          dir:      document.getElementById('cfg-dirBackupDir')?.value.trim() || '',
-          format:   document.getElementById('cfg-dirBackupFormat')?.value || 'json',
-          password: document.getElementById('cfg-dirBackupPwd')?.value || '',
+          enabled:      document.getElementById('cfg-dirBackupEnabled')?.checked || false,
+          runOnStartup: document.getElementById('cfg-dirBackupRunOnStartup')?.checked || false,
+          interval:     parseInt(document.getElementById('cfg-dirBackupInterval')?.value) || 24,
+          dir:          document.getElementById('cfg-dirBackupDir')?.value.trim() || '',
+          format:       document.getElementById('cfg-dirBackupFormat')?.value || 'cvexport',
+          password:     backupPwdValue('cfg-dirBackupPwd', 'cfg-dirBackupPwdClear'),
         },
         emailBackup: {
           ...currentCfg.backup?.emailBackup,
-          enabled:   document.getElementById('cfg-emailBackupEnabled')?.checked || false,
-          interval:  parseInt(document.getElementById('cfg-emailBackupInterval')?.value) || 24,
-          smtpHost:  document.getElementById('cfg-emailBackupSMTPHost')?.value.trim() || '',
-          smtpPort:  parseInt(document.getElementById('cfg-emailBackupSMTPPort')?.value) || 587,
-          smtpUser:  document.getElementById('cfg-emailBackupSMTPUser')?.value.trim() || '',
-          smtpPass:  document.getElementById('cfg-emailBackupSMTPPass')?.value || '',
-          from:      document.getElementById('cfg-emailBackupFrom')?.value.trim() || '',
-          to:        document.getElementById('cfg-emailBackupTo')?.value.trim() || '',
-          format:    document.getElementById('cfg-emailBackupFormat')?.value || 'cvexport',
-          password:  document.getElementById('cfg-emailBackupPwd')?.value || '',
+          enabled:      document.getElementById('cfg-emailBackupEnabled')?.checked || false,
+          runOnStartup: document.getElementById('cfg-emailBackupRunOnStartup')?.checked || false,
+          interval:     parseInt(document.getElementById('cfg-emailBackupInterval')?.value) || 24,
+          smtpHost:     document.getElementById('cfg-emailBackupSMTPHost')?.value.trim() || '',
+          smtpPort:     parseInt(document.getElementById('cfg-emailBackupSMTPPort')?.value) || 587,
+          smtpUser:     document.getElementById('cfg-emailBackupSMTPUser')?.value.trim() || '',
+          smtpPass:     smtpPasswordValue(),
+          from:         document.getElementById('cfg-emailBackupFrom')?.value.trim() || '',
+          to:           document.getElementById('cfg-emailBackupTo')?.value.trim() || '',
+          format:       document.getElementById('cfg-emailBackupFormat')?.value || 'cvexport',
+          password:     backupPwdValue('cfg-emailBackupPwd', 'cfg-emailBackupPwdClear'),
+          subject:      document.getElementById('cfg-emailBackupSubject')?.value || '',
+          body:         document.getElementById('cfg-emailBackupBody')?.value || '',
+          style:        document.getElementById('cfg-emailBackupStyle')?.value || '',
+          accentColor:  document.getElementById('cfg-emailBackupAccentColor')?.value || '',
         },
       },
     };
   }
 
-  async function saveConfig(opts) {
-    opts = opts || {};
+  async function saveConfig() {
+    if (saveInFlight) {
+      saveQueued = true;
+      return;
+    }
+    saveInFlight = true;
+    try {
+      await saveConfigNow();
+    } finally {
+      saveInFlight = false;
+      if (saveQueued) {
+        saveQueued = false;
+        await saveConfig();
+      }
+    }
+  }
+
+  async function saveConfigNow() {
     const newCfg = collectConfig();
     if (!newCfg) return;
 
@@ -2234,6 +2280,22 @@
     for (const p of newCfg.sensitive.customPatterns) {
       try { new RegExp(p); } catch (_) {
         toast(`正则无效：${p}`, 'err');
+        return;
+      }
+    }
+
+    // 启用定时备份时，先在前端校验配置完整性，避免发送必然失败请求造成"切格式不生效"的错觉。
+    if (newCfg.backup?.dirBackup?.enabled) {
+      const missing = validateDirBackupConfig();
+      if (missing.length) {
+        toast('目录备份配置不完整：' + missing.join('、'), 'err');
+        return;
+      }
+    }
+    if (newCfg.backup?.emailBackup?.enabled) {
+      const missing = validateEmailBackupConfig();
+      if (missing.length) {
+        toast('邮件备份配置不完整：' + missing.join('、'), 'err');
         return;
       }
     }
@@ -2277,18 +2339,18 @@
       const d = await res.json();
       replaceCurrentConfig(d.config);
       if (d.hotkeyError) {
-        toast(d.hotkeyError, 'err');
-      } else if (opts.silent !== true) {
+        toast('设置已保存，但' + d.hotkeyError, 'err');
+      } else {
         toast('设置已保存');
       }
 
-      if (addrChanged && !opts.skipRestart) {
+      if (addrChanged) {
         showRestartConfirm();
       }
     } catch (e) {
       if (e.message && e.message.includes('secondary_required')) {
         const ok = await requestSecondaryAuth();
-        if (ok) { await saveConfig(opts); return; }
+        if (ok) { await saveConfigNow(); return; }
         toast('需要二次验证才能保存配置', 'err');
       } else {
         toast('保存失败：' + (e.message || e), 'err');
@@ -2397,7 +2459,7 @@
         document.getElementById('customThemeColors')?.classList.toggle('hidden', preset !== 'custom');
         applyTheme(themeFromForm());
         clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveConfig({ silent: true }), 150);
+        saveTimer = setTimeout(() => saveConfig(), 150);
       });
     });
     ['cfg-themeMode', 'cfg-themePrimary', 'cfg-themeAccent'].forEach(id => {
@@ -2421,19 +2483,19 @@
     settingsEl.addEventListener('input', (e) => {
       if (e.target === listenAddrEl || e.target?.type === 'file') return;
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => saveConfig({ silent: true }), 800);
+      saveTimer = setTimeout(() => saveConfig(), 800);
     });
     settingsEl.addEventListener('change', (e) => {
       if (e.target === listenAddrEl || e.target?.type === 'file') return;
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
+      saveTimer = setTimeout(() => saveConfig(), 300);
     });
     // 监听地址失焦时立即保存（触发重启确认）
     if (listenAddrEl) {
       listenAddrEl.addEventListener('input', updateListenAddressWarning);
       listenAddrEl.addEventListener('blur', () => {
         clearTimeout(saveTimer);
-        saveConfig({ silent: true });
+        saveConfig();
       });
     }
     // 过滤规则增删也触发保存
@@ -2441,7 +2503,7 @@
     if (addBtn) {
       addBtn.addEventListener('click', () => {
         clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveConfig({ silent: true }), 300);
+        saveTimer = setTimeout(() => saveConfig(), 300);
       });
     }
     // 备份格式切换时显示/隐藏加密密码行
@@ -2457,8 +2519,132 @@
       emailFmt.addEventListener('change', () => {
         const row = document.getElementById('cfg-emailBackupPwdRow');
         if (row) row.style.display = (emailFmt.value === 'cvexport') ? '' : 'none';
+        if (emailFmt.value === 'cvexport') {
+          delete emailFmt.dataset.plainConfirmed;
+          return;
+        }
+        if ((currentCfg?.backup?.emailBackup?.format || 'cvexport') !== 'cvexport') {
+          emailFmt.dataset.plainConfirmed = 'true';
+          return;
+        }
+        if (emailFmt.dataset.plainConfirmed === 'true') return;
+        const confirmed = window.confirm(
+          '明文邮件附件会以可读形式保存在收件箱、邮件服务器和可能的转发副本中。确认使用未加密的备份格式吗？'
+        );
+        if (confirmed) {
+          emailFmt.dataset.plainConfirmed = 'true';
+          return;
+        }
+        emailFmt.value = currentCfg?.backup?.emailBackup?.format || 'cvexport';
+        if (row) row.style.display = (emailFmt.value === 'cvexport') ? '' : 'none';
       });
     }
+
+    const dirEnabledEl = document.getElementById('cfg-dirBackupEnabled');
+    if (dirEnabledEl) {
+      dirEnabledEl.addEventListener('click', (e) => {
+        if (!dirEnabledEl.checked) return;
+        const missing = validateDirBackupConfig();
+        if (missing.length) {
+          e.preventDefault();
+          toast('启用目录备份前请先完善配置：' + missing.join('、'), 'err');
+        }
+      });
+    }
+    const emailEnabledEl = document.getElementById('cfg-emailBackupEnabled');
+    if (emailEnabledEl) {
+      emailEnabledEl.addEventListener('click', (e) => {
+        if (!emailEnabledEl.checked) return;
+        const missing = validateEmailBackupConfig();
+        if (missing.length) {
+          e.preventDefault();
+          toast('启用邮件备份前请先完善配置：' + missing.join('、'), 'err');
+        }
+      });
+    }
+  }
+
+  // 根据密码输入框和"清除密码"复选框状态返回要提交的密码值。
+  // - 输入框有值：返回该值（设置/修改密码，优先级最高）。
+  // - 输入框为空 + 复选框勾选：返回 "__clear__" 告知服务端清除已保存的密码。
+  // - 输入框为空且未勾选清除：返回 ""，服务端保留原密码。
+  function backupPwdValue(pwdId, clearId) {
+    const pwd = document.getElementById(pwdId)?.value || '';
+    if (pwd) return pwd;
+    const clearEl = document.getElementById(clearId);
+    if (clearEl && clearEl.checked) return '__clear__';
+    return '';
+  }
+
+  // SMTP 用户名和密码同时留空时，明确清除已保存的密码并使用无认证 relay。
+  // 填写用户名但留空密码时保留已保存的密码，随后由校验判断是否完整。
+  function smtpPasswordValue() {
+    const user = (document.getElementById('cfg-emailBackupSMTPUser')?.value || '').trim();
+    const password = document.getElementById('cfg-emailBackupSMTPPass')?.value || '';
+    if (password) return password;
+    if (!user) return '__clear__';
+    return '';
+  }
+
+  // 校验目录备份配置是否完整，返回缺失项列表（空数组表示通过）。
+  // 仅 cvexport 格式需要加密密码；json/xlsx 为明文导出，无需密码。
+  function validateDirBackupConfig() {
+    const missing = [];
+    const interval = parseInt(document.getElementById('cfg-dirBackupInterval')?.value) || 0;
+    const dir = (document.getElementById('cfg-dirBackupDir')?.value || '').trim();
+    const format = document.getElementById('cfg-dirBackupFormat')?.value || 'cvexport';
+    const pwd = document.getElementById('cfg-dirBackupPwd')?.value || '';
+    const clearChecked = document.getElementById('cfg-dirBackupPwdClear')?.checked || false;
+    const hasExistingPwd = currentCfg?.backup?.dirBackup?.password === '__set__';
+    if (interval < 1 || interval > 720) missing.push('备份间隔');
+    if (!dir) missing.push('目标目录');
+    if (format === 'cvexport') {
+      // 有新输入用新密码；无新输入且勾选清除则为空；无新输入未勾选则依赖已存密码
+      const effectivePwd = pwd || (clearChecked ? '' : (hasExistingPwd ? '__set__' : ''));
+      if (!effectivePwd) missing.push('加密密码');
+    }
+    return missing;
+  }
+
+  // 校验邮件备份配置是否完整，返回缺失项列表（空数组表示通过）。
+  // 仅 cvexport 格式需要加密密码；json/xlsx 为明文导出，无需密码。
+  function validateEmailBackupConfig() {
+    const missing = [];
+    const interval = parseInt(document.getElementById('cfg-emailBackupInterval')?.value) || 0;
+    const host = (document.getElementById('cfg-emailBackupSMTPHost')?.value || '').trim();
+    const port = parseInt(document.getElementById('cfg-emailBackupSMTPPort')?.value) || 0;
+    const user = (document.getElementById('cfg-emailBackupSMTPUser')?.value || '').trim();
+    const pass = document.getElementById('cfg-emailBackupSMTPPass')?.value || '';
+    const from = (document.getElementById('cfg-emailBackupFrom')?.value || '').trim();
+    const to = (document.getElementById('cfg-emailBackupTo')?.value || '').trim();
+    const format = document.getElementById('cfg-emailBackupFormat')?.value || 'cvexport';
+    const pwd = document.getElementById('cfg-emailBackupPwd')?.value || '';
+    const clearChecked = document.getElementById('cfg-emailBackupPwdClear')?.checked || false;
+    const subject = document.getElementById('cfg-emailBackupSubject')?.value || '';
+    const body = document.getElementById('cfg-emailBackupBody')?.value || '';
+    const style = document.getElementById('cfg-emailBackupStyle')?.value || '';
+    const accentColor = document.getElementById('cfg-emailBackupAccentColor')?.value || '';
+    const eb = currentCfg?.backup?.emailBackup || {};
+    const hasExistingSmtpPass = eb.smtpPass === '__set__';
+    const hasExistingPwd = eb.password === '__set__';
+    if (interval < 1 || interval > 720) missing.push('备份间隔');
+    if (!host) missing.push('SMTP 服务器');
+    if (port <= 0 || port > 65535) missing.push('SMTP 端口');
+    const effectiveSmtpPass = pass || (user && hasExistingSmtpPass ? '__set__' : '');
+    if (Boolean(user) !== Boolean(effectiveSmtpPass)) {
+      missing.push('SMTP 用户名和密码需同时填写');
+    }
+    if (!from || !document.getElementById('cfg-emailBackupFrom')?.validity.valid) missing.push('发件人邮箱');
+    if (!to || !document.getElementById('cfg-emailBackupTo')?.validity.valid) missing.push('收件人邮箱');
+    if (!subject.trim() || /[\r\n]/.test(subject) || Array.from(subject).length > 200) missing.push('邮件标题');
+    if (Array.from(body).length > 5000) missing.push('邮件正文');
+    if (!['plain', 'card', 'accent'].includes(style)) missing.push('邮件样式');
+    if (!/^#[0-9A-Fa-f]{6}$/.test(accentColor)) missing.push('邮件主色');
+    if (format === 'cvexport') {
+      const effectivePwd = pwd || (clearChecked ? '' : (hasExistingPwd ? '__set__' : ''));
+      if (!effectivePwd) missing.push('加密密码');
+    }
+    return missing;
   }
 
   // expose for inline handlers
@@ -2522,7 +2708,7 @@
             </button>
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
-            <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+            <p style="margin-bottom:16px;color:var(--sub);font-size:13px;line-height:1.6">
               输入密码加密导出文件。导入时需要相同的密码才能解密。
             </p>
             <form id="cvexportForm" class="lock-form">
@@ -2580,10 +2766,10 @@
             </button>
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
-            <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+            <p style="margin-bottom:12px;color:var(--sub);font-size:13px;line-height:1.6">
               选择 JSON、Excel 或加密 .cvexport 文件导入。如果是加密文件，需要输入密码。
             </p>
-            <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--text-secondary)">
+            <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--sub)">
             <input type="password" id="importPwd" class="lock-input" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off" style="margin-bottom:12px">
             <button class="lock-btn" onclick="doImport()">开始导入</button>
             <p class="lock-err hidden" id="importErr" style="margin-top:12px"></p>
@@ -2751,6 +2937,50 @@
         }
       }
     } catch (_) {}
+  }
+
+  window.showEmailBackupHistory = async function() {
+    const ok = await requestSecondaryAuth();
+    if (!ok) { toast('需要二次验证才能查看发送历史', 'err'); return; }
+    try {
+      const res = await secondaryFetch('/api/backup/email/history');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '读取发送历史失败');
+      renderEmailBackupHistory(data.history || []);
+    } catch (e) {
+      toast('读取发送历史失败：' + (e.message || e), 'err');
+    }
+  };
+
+  function renderEmailBackupHistory(history) {
+    document.getElementById('emailBackupHistoryOverlay')?.remove();
+    const rows = history.map(record => {
+      const mode = record.mode === 'manual' ? '手动' : '自动';
+      const format = { cvexport: '加密 cvexport', json: 'JSON', xlsx: 'Excel' }[record.format] || record.format;
+      const time = new Date(record.sentAt).toLocaleString('zh-CN');
+      return `<tr><td>${esc(mode)}</td><td>${esc(record.from)}</td><td>${esc(record.to)}</td><td>${esc(time)}</td><td>${esc(format)}</td></tr>`;
+    }).join('');
+    const content = rows || '<tr><td colspan="5" class="backup-history-empty">暂无成功发送的邮件备份记录</td></tr>';
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'emailBackupHistoryOverlay';
+    overlay.innerHTML = `
+      <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="emailBackupHistoryTitle" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <span class="modal-title" id="emailBackupHistoryTitle">邮件备份发送历史</span>
+          <button class="modal-close" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <div class="modal-body backup-history-body">
+          <table class="backup-history-table">
+            <thead><tr><th>方式</th><th>发件账号</th><th>收件账号</th><th>发送时间</th><th>文件类型</th></tr></thead>
+            <tbody>${content}</tbody>
+          </table>
+        </div>
+      </div>`;
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('.modal-close').addEventListener('click', close);
+    document.body.appendChild(overlay);
   }
 
   // ── Group functions ─────────────────────────────────────────────────────

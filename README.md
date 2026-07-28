@@ -14,7 +14,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **恢复密码**：可设置恢复密码备份数据库密钥，DPAPI 失效时（换电脑、重装系统）可恢复数据
 - **锁屏密码 & 二次密码**：Web 界面访问密码 + 敏感操作二次验证
 - **加密导出包**：支持 `.cvexport` 加密格式，用密码加密导出数据，安全传输或备份
-- **定时备份**：目录备份支持 JSON 或加密 `.cvexport`；邮件备份强制使用加密 `.cvexport`，SMTP 强制 TLS
+- **定时备份**：目录和邮件备份支持 JSON、Excel 或加密 `.cvexport`；可在应用服务启动后自动执行一次，SMTP 强制 TLS
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
 - **便携模式**：exe 同目录放置 `portable.flag` 文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`；便携模式写入 exe 同目录
@@ -55,7 +55,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 过滤 | 自定义正则过滤规则，支持增删，匹配内容不记录 |
 | 分组 | 创建/编辑/删除分组，支持嵌套，可将记录加入分组 |
 | 导出 | 导出全部记录（JSON / Excel / 加密 .cvexport）、导入数据（JSON / Excel / .cvexport） |
-| 备份 | 定时目录备份（间隔/目录/格式/加密密码）、定时邮件备份（SMTP 配置/间隔/格式/加密密码）、立即备份/发送、测试邮件、备份状态查看 |
+| 备份 | 目录和邮件定时备份（可选启动后自动执行）、SMTP 与安全邮件模板、立即备份/发送、测试邮件、最近备份状态；邮件发送历史以只读弹窗展示最近 100 条成功记录（自动/手动、收发账号、时间、文件类型） |
 
 > 过滤规则和文字限制**即时生效**；监听地址变更需**重启应用**后生效。
 
@@ -244,6 +244,7 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
 | `POST /api/recovery/change` | POST | 二次 | 修改恢复密码 |
 | `POST /api/recovery/remove` | POST | 二次 | 删除恢复密码 |
 | `GET /api/backup/status` | GET | 锁屏 | 查看备份配置与最近状态 |
+| `GET /api/backup/email/history` | GET | 二次 | 只读查看最近 100 条成功发送的邮件备份历史 |
 | `POST /api/backup/dir/now` | POST | 二次 | 立即执行目录备份 |
 | `POST /api/backup/email/now` | POST | 二次 | 立即发送备份邮件 |
 | `POST /api/backup/email/test` | POST | 二次 | 发送测试邮件 |
@@ -292,6 +293,7 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
   "backup": {
     "dirBackup": {
       "enabled": false,
+      "runOnStartup": false,
       "interval": 24,
       "dir": "",
       "format": "cvexport",
@@ -299,6 +301,7 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
     },
     "emailBackup": {
       "enabled": false,
+      "runOnStartup": false,
       "interval": 24,
       "smtpHost": "",
       "smtpPort": 587,
@@ -307,7 +310,11 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
       "from": "",
       "to": "",
       "format": "cvexport",
-      "password": ""
+      "password": "",
+      "subject": "ClipVault 备份 - {time}",
+      "body": "已生成 {format} 备份文件：{filename}",
+      "style": "card",
+      "accentColor": "#16A34A"
     }
   }
 }
@@ -323,20 +330,28 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |
 | `security.secondaryAuthTimeout` | 二次认证缓存时长（分钟），0 = 每次都校验 |
 | `backup.dirBackup.enabled` | 是否启用定时目录备份 |
+| `backup.dirBackup.runOnStartup` | 应用服务启动后是否自动执行一次目录备份 |
 | `backup.dirBackup.interval` | 目录备份间隔（小时） |
 | `backup.dirBackup.dir` | 备份文件保存目录 |
-| `backup.dirBackup.format` | 备份格式：`json` 或 `cvexport`（加密） |
+| `backup.dirBackup.format` | 备份格式：`json`（明文）/ `xlsx`（明文 Excel）/ `cvexport`（加密） |
 | `backup.dirBackup.password` | cvexport 格式的加密密码 |
 | `backup.emailBackup.enabled` | 是否启用定时邮件备份 |
+| `backup.emailBackup.runOnStartup` | 应用服务启动后是否自动执行一次邮件备份 |
 | `backup.emailBackup.interval` | 邮件备份间隔（小时） |
 | `backup.emailBackup.smtpHost` | SMTP 服务器地址 |
 | `backup.emailBackup.smtpPort` | SMTP 端口（通常 587 或 465） |
-| `backup.emailBackup.smtpUser` | SMTP 用户名 |
-| `backup.emailBackup.smtpPass` | SMTP 密码或授权码 |
+| `backup.emailBackup.smtpUser` | SMTP 用户名；QQ 等邮箱服务使用完整发件人邮箱，可信内网 relay 可与密码同时留空 |
+| `backup.emailBackup.smtpPass` | SMTP 密码或授权码；与用户名同时填写或同时留空 |
 | `backup.emailBackup.from` | 发件人邮箱 |
 | `backup.emailBackup.to` | 收件人邮箱 |
-| `backup.emailBackup.format` | 固定为加密 `cvexport`；旧配置会自动归一化 |
+| `backup.emailBackup.format` | 备份格式：`json`（明文）/ `xlsx`（明文 Excel）/ `cvexport`（加密） |
 | `backup.emailBackup.password` | cvexport 格式的加密密码 |
+| `backup.emailBackup.subject` | 邮件标题，支持 `{time}`、`{filename}`、`{format}` |
+| `backup.emailBackup.body` | 邮件正文，支持 `{time}`、`{filename}`、`{format}` |
+| `backup.emailBackup.style` | 邮件样式：`plain` / `card` / `accent` |
+| `backup.emailBackup.accentColor` | 邮件主色，格式为 `#RRGGBB` |
+
+邮件备份使用加密连接：端口 `465` 使用 TLS，其他端口必须支持 STARTTLS，应用拒绝明文 SMTP。邮件标题和正文只接受纯文本模板，支持 `{time}`、`{filename}`、`{format}`，服务端会转义 HTML 并生成受控样式。仅成功提交的备份邮件会写入发送历史；测试邮件不会写入，历史没有删除接口。
 
 ## 项目结构
 

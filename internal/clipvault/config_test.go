@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -208,5 +209,372 @@ func TestInvalidSensitiveRulesAreRejectedBeforeConfigPersistence(t *testing.T) {
 	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("invalid sensitive rule status = %d, body=%s", result.Code, result.Body.String())
+	}
+}
+
+func TestValidateDirBackupEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     DirBackupConfig
+		wantErr bool
+	}{
+		{name: "complete cvexport", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "cvexport", Password: "pw"}},
+		{name: "complete json no password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "json"}},
+		{name: "complete xlsx no password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "xlsx"}},
+		{name: "missing format", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: ""}, wantErr: true},
+		{name: "unknown format", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "csv"}, wantErr: true},
+		{name: "missing dir", cfg: DirBackupConfig{Interval: 24, Format: "json"}, wantErr: true},
+		{name: "missing interval", cfg: DirBackupConfig{Dir: `D:\bak`, Format: "json"}, wantErr: true},
+		{name: "interval above maximum", cfg: DirBackupConfig{Interval: 721, Dir: `D:\bak`, Format: "json"}, wantErr: true},
+		{name: "cvexport missing password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "cvexport"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateDirBackupEnabled(tc.cfg)
+			if tc.wantErr && got == "" {
+				t.Fatal("expected validation error, got empty")
+			}
+			if !tc.wantErr && got != "" {
+				t.Fatalf("expected no error, got %q", got)
+			}
+		})
+	}
+}
+
+func TestValidateEmailBackupEnabled(t *testing.T) {
+	complete := EmailBackupConfig{
+		Interval: 24, SMTPHost: "smtp.example.com", SMTPPort: 587,
+		SMTPUser: "user@example.com", SMTPPass: "pass", From: "a@x.com", To: "b@x.com",
+		Format: "cvexport", Password: "pw", Subject: "备份 {time}", Body: "文件 {filename}", Style: "card", AccentColor: "#16A34A",
+	}
+	tests := []struct {
+		name    string
+		cfg     EmailBackupConfig
+		wantErr bool
+	}{
+		{name: "complete", cfg: complete},
+		{name: "missing host", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPHost = ""; return c }(complete), wantErr: true},
+		{name: "missing port", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPPort = 0; return c }(complete), wantErr: true},
+		{name: "invalid port", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPPort = 70000; return c }(complete), wantErr: true},
+		{name: "interval above maximum", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Interval = 721; return c }(complete), wantErr: true},
+		{name: "unauthenticated relay", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPUser = ""; c.SMTPPass = ""; return c }(complete)},
+		{name: "username without password", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPPass = ""; return c }(complete), wantErr: true},
+		{name: "password without username", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPUser = ""; return c }(complete), wantErr: true},
+		{name: "missing from", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.From = ""; return c }(complete), wantErr: true},
+		{name: "missing to", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.To = ""; return c }(complete), wantErr: true},
+		{name: "invalid from", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.From = "not-an-email"; return c }(complete), wantErr: true},
+		{name: "invalid to", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.To = "not-an-email"; return c }(complete), wantErr: true},
+		{name: "empty subject", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Subject = ""; return c }(complete), wantErr: true},
+		{name: "subject with newline", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Subject = "a\nb"; return c }(complete), wantErr: true},
+		{name: "subject too long", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Subject = strings.Repeat("a", 201); return c }(complete), wantErr: true},
+		{name: "body too long", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Body = strings.Repeat("a", 5001); return c }(complete), wantErr: true},
+		{name: "invalid style", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Style = "custom"; return c }(complete), wantErr: true},
+		{name: "invalid accent color", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.AccentColor = "green"; return c }(complete), wantErr: true},
+		{name: "missing export password", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Password = ""; return c }(complete), wantErr: true},
+		{name: "unknown format", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "csv"; return c }(complete), wantErr: true},
+		{name: "json no password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "json"; c.Password = ""; return c }(complete)},
+		{name: "xlsx no password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "xlsx"; c.Password = ""; return c }(complete)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateEmailBackupEnabled(tc.cfg)
+			if tc.wantErr && got == "" {
+				t.Fatal("expected validation error, got empty")
+			}
+			if !tc.wantErr && got != "" {
+				t.Fatalf("expected no error, got %q", got)
+			}
+		})
+	}
+}
+
+func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer logger.Close()
+	server := &SearchServer{cfgMgr: manager, logger: logger}
+
+	// 启用目录备份但缺少目标目录和加密密码
+	incomplete := manager.Get()
+	incomplete.Backup.DirBackup.Enabled = true
+	incomplete.Backup.DirBackup.Interval = 24
+	incomplete.Backup.DirBackup.Format = "cvexport"
+	incomplete.Backup.DirBackup.Dir = ""
+	body, err := json.Marshal(incomplete)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	result := httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusBadRequest {
+		t.Fatalf("incomplete dir backup status = %d, body=%s", result.Code, result.Body.String())
+	}
+
+	// 启用邮件备份但缺少 SMTP 配置
+	incomplete = manager.Get()
+	incomplete.Backup.EmailBackup.Enabled = true
+	incomplete.Backup.EmailBackup.Interval = 24
+	incomplete.Backup.EmailBackup.SMTPHost = ""
+	body, err = json.Marshal(incomplete)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusBadRequest {
+		t.Fatalf("incomplete email backup status = %d, body=%s", result.Code, result.Body.String())
+	}
+
+	// 邮件字段齐全但认证信息不成对时，后端也必须拒绝启用。
+	incomplete = manager.Get()
+	incomplete.Backup.EmailBackup = EmailBackupConfig{
+		Enabled: true, Interval: 24, SMTPHost: "smtp.example.com", SMTPPort: 587,
+		SMTPUser: "user@example.com", From: "from@example.com", To: "to@example.com", Format: "json",
+	}
+	body, err = json.Marshal(incomplete)
+	if err != nil {
+		t.Fatalf("marshal incomplete SMTP authentication: %v", err)
+	}
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusBadRequest {
+		t.Fatalf("incomplete SMTP authentication status = %d, body=%s", result.Code, result.Body.String())
+	}
+}
+
+func TestPutConfigAcceptsCompleteBackupWhenEnabled(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer logger.Close()
+	server := &SearchServer{cfgMgr: manager, logger: logger}
+
+	complete := manager.Get()
+	complete.Backup.DirBackup.Enabled = true
+	complete.Backup.DirBackup.Interval = 24
+	complete.Backup.DirBackup.Dir = t.TempDir()
+	complete.Backup.DirBackup.Format = "cvexport"
+	complete.Backup.DirBackup.Password = "export-pw"
+	complete.Backup.EmailBackup.Enabled = true
+	complete.Backup.EmailBackup.Interval = 24
+	complete.Backup.EmailBackup.SMTPHost = "smtp.example.com"
+	complete.Backup.EmailBackup.SMTPPort = 587
+	complete.Backup.EmailBackup.SMTPUser = "user@example.com"
+	complete.Backup.EmailBackup.SMTPPass = "smtp-pw"
+	complete.Backup.EmailBackup.From = "a@x.com"
+	complete.Backup.EmailBackup.To = "b@x.com"
+	complete.Backup.EmailBackup.Format = "cvexport"
+	complete.Backup.EmailBackup.Password = "export-pw"
+	invalidTemplate := complete
+	invalidTemplate.Backup.EmailBackup.Style = "custom"
+	body, err := json.Marshal(invalidTemplate)
+	if err != nil {
+		t.Fatalf("marshal invalid email template: %v", err)
+	}
+	result := httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusBadRequest {
+		t.Fatalf("invalid email template status = %d, body=%s", result.Code, result.Body.String())
+	}
+	body, err = json.Marshal(complete)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("complete backup status = %d, body=%s", result.Code, result.Body.String())
+	}
+
+	// 已认证的 SMTP 配置可以切换为无认证 relay，并清除已保存的密码。
+	noAuthRelay := manager.Get()
+	noAuthRelay.Backup.EmailBackup.SMTPUser = ""
+	noAuthRelay.Backup.EmailBackup.SMTPPass = "__clear__"
+	body, err = json.Marshal(noAuthRelay)
+	if err != nil {
+		t.Fatalf("marshal unauthenticated relay: %v", err)
+	}
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("unauthenticated relay status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := manager.Get().Backup.EmailBackup.SMTPPass; got != "" {
+		t.Fatalf("unauthenticated relay SMTP password = %q, want empty", got)
+	}
+}
+
+// TestPutConfigClearsBackupPassword 验证 "__clear__" 哨兵能清除已保存的加密密码，
+// 而 "__set__" / 空值保留原密码。
+func TestPutConfigClearsBackupPassword(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer logger.Close()
+	server := &SearchServer{cfgMgr: manager, logger: logger}
+
+	// 1) 先保存一份带密码的目录备份配置（cvexport + password）
+	seed := manager.Get()
+	seed.Backup.DirBackup.Enabled = true
+	seed.Backup.DirBackup.Interval = 24
+	seed.Backup.DirBackup.Dir = t.TempDir()
+	seed.Backup.DirBackup.Format = "cvexport"
+	seed.Backup.DirBackup.Password = "secret-pw"
+	body, err := json.Marshal(seed)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	result := httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("seed save status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := manager.Get().Backup.DirBackup.Password; got != "secret-pw" {
+		t.Fatalf("seed password = %q, want %q", got, "secret-pw")
+	}
+
+	// 2) 发送 "__set__" 应保留原密码
+	keep := manager.Get()
+	keep.Backup.DirBackup.Password = "__set__"
+	body, _ = json.Marshal(keep)
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("keep save status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := manager.Get().Backup.DirBackup.Password; got != "secret-pw" {
+		t.Fatalf("after __set__ password = %q, want %q", got, "secret-pw")
+	}
+
+	// 3) 发送空字符串也应保留原密码
+	keep = manager.Get()
+	keep.Backup.DirBackup.Password = ""
+	body, _ = json.Marshal(keep)
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("empty save status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := manager.Get().Backup.DirBackup.Password; got != "secret-pw" {
+		t.Fatalf("after empty password = %q, want %q", got, "secret-pw")
+	}
+
+	// 4) 发送 "__clear__" 应清除密码；切到 json 格式以避免校验报错
+	clear := manager.Get()
+	clear.Backup.DirBackup.Format = "json"
+	clear.Backup.DirBackup.Password = "__clear__"
+	body, _ = json.Marshal(clear)
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("clear save status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := manager.Get().Backup.DirBackup.Password; got != "" {
+		t.Fatalf("after __clear__ password = %q, want empty", got)
+	}
+
+	// 5) cvexport 启用时发送 "__clear__" 应被校验拦截（加密格式不能没有密码）
+	reject := manager.Get()
+	reject.Backup.DirBackup.Format = "cvexport"
+	reject.Backup.DirBackup.Enabled = true
+	reject.Backup.DirBackup.Password = "__clear__"
+	body, _ = json.Marshal(reject)
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusBadRequest {
+		t.Fatalf("cvexport clear should be rejected, status = %d, body=%s", result.Code, result.Body.String())
+	}
+
+	// 6) 新密码值应直接替换旧密码
+	replace := manager.Get()
+	replace.Backup.DirBackup.Format = "cvexport"
+	replace.Backup.DirBackup.Enabled = true
+	replace.Backup.DirBackup.Password = "brand-new-pw"
+	body, _ = json.Marshal(replace)
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusOK {
+		t.Fatalf("replace save status = %d, body=%s", result.Code, result.Body.String())
+	}
+	if got := manager.Get().Backup.DirBackup.Password; got != "brand-new-pw" {
+		t.Fatalf("after replace password = %q, want %q", got, "brand-new-pw")
+	}
+}
+
+func TestIsBackupFormat(t *testing.T) {
+	for _, format := range []string{"cvexport", "json", "xlsx"} {
+		if !isBackupFormat(format) {
+			t.Fatalf("isBackupFormat(%q) = false, want true", format)
+		}
+	}
+	for _, format := range []string{"", "csv", "excel"} {
+		if isBackupFormat(format) {
+			t.Fatalf("isBackupFormat(%q) = true, want false", format)
+		}
+	}
+}
+
+func TestBackupTemplateDefaults(t *testing.T) {
+	backup := DefaultConfig().Backup.EmailBackup
+	if backup.RunOnStartup {
+		t.Fatal("email startup backup must be disabled by default")
+	}
+	if errors := emailTemplateErrors(backup); len(errors) > 0 {
+		t.Fatalf("default email template errors = %v", errors)
+	}
+	if DefaultConfig().Backup.DirBackup.RunOnStartup {
+		t.Fatal("directory startup backup must be disabled by default")
+	}
+}
+
+func TestResolveSecretField(t *testing.T) {
+	tests := []struct {
+		name, newVal, curVal, want string
+	}{
+		{"empty keeps current", "", "secret", "secret"},
+		{"set sentinel keeps current", "__set__", "secret", "secret"},
+		{"clear sentinel empties", "__clear__", "secret", ""},
+		{"clear on empty stays empty", "__clear__", "", ""},
+		{"new value replaces", "new-pw", "old-pw", "new-pw"},
+		{"set on empty stays empty", "__set__", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveSecretField(tc.newVal, tc.curVal)
+			if got != tc.want {
+				t.Fatalf("resolveSecretField(%q, %q) = %q, want %q", tc.newVal, tc.curVal, got, tc.want)
+			}
+		})
 	}
 }

@@ -298,7 +298,7 @@
               </div>
             </div>
             <div class="background-adjustments" id="backgroundAdjustments">
-			  <label class="background-select" for="cfg-backgroundFit"><span>适配方式</span><select id="cfg-backgroundFit"><option value="cover">裁切填满</option><option value="contain">完整显示</option><option value="fill">拉伸填满</option></select></label>
+			  <label class="background-select" for="cfg-backgroundFit"><span>适配方式</span><select id="cfg-backgroundFit" class="field-input"><option value="cover">裁切填满</option><option value="contain">完整显示</option><option value="fill">拉伸填满</option></select></label>
               <label class="background-range" for="cfg-backgroundOpacity"><span>媒体透明度 <output data-background-output="cfg-backgroundOpacity"></output></span><input type="range" id="cfg-backgroundOpacity" min="0" max="100" step="1"></label>
               <label class="background-range" for="cfg-backgroundOverlay"><span>内容遮罩 <output data-background-output="cfg-backgroundOverlay"></output></span><input type="range" id="cfg-backgroundOverlay" min="0" max="90" step="1"></label>
               <label class="background-range" for="cfg-backgroundBlur"><span>模糊 <output data-background-output="cfg-backgroundBlur"></output></span><input type="range" id="cfg-backgroundBlur" min="0" max="32" step="1"></label>
@@ -779,6 +779,16 @@
           </div>
           <div class="field-row">
             <div class="field-info">
+              <label class="field-label">启动后自动备份</label>
+              <p class="field-hint">应用服务启动后立即在后台执行一次目录备份</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-dirBackupRunOnStartup">
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
               <label class="field-label" for="cfg-dirBackupInterval">备份间隔（小时）</label>
               <p class="field-hint">每隔多少小时执行一次备份</p>
             </div>
@@ -794,11 +804,12 @@
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-dirBackupFormat">备份格式</label>
-              <p class="field-hint">JSON 明文或加密 .cvexport 格式</p>
+              <p class="field-hint">JSON/Excel 明文，或加密 .cvexport 格式</p>
             </div>
             <select id="cfg-dirBackupFormat" class="field-input" style="width:150px">
               <option value="cvexport">加密（推荐）</option>
               <option value="json">JSON（明文）</option>
+              <option value="xlsx">Excel（明文）</option>
             </select>
           </div>
           <div class="field-row" id="cfg-dirBackupPwdRow" style="display:none">
@@ -807,6 +818,16 @@
               <p class="field-hint">cvexport 格式的加密密码，留空则保留原密码</p>
             </div>
             <input type="password" id="cfg-dirBackupPwd" class="field-input" style="width:200px" placeholder="加密密码" autocomplete="new-password">
+          </div>
+          <div class="field-row" id="cfg-dirBackupPwdClearRow" style="display:none">
+            <div class="field-info">
+              <label class="field-label">已保存加密密码</label>
+              <p class="field-hint"><span id="cfg-dirBackupPwdStatus">已设置</span>，勾选后保存可清除</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-dirBackupPwdClear">
+              <span>清除</span>
+            </label>
           </div>
           <div class="field-row">
             <div class="field-info">
@@ -842,6 +863,16 @@
           </div>
           <div class="field-row">
             <div class="field-info">
+              <label class="field-label">启动后自动备份</label>
+              <p class="field-hint">应用服务启动后立即在后台发送一次邮件备份</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-emailBackupRunOnStartup">
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
               <label class="field-label" for="cfg-emailBackupInterval">备份间隔（小时）</label>
               <p class="field-hint">每隔多少小时执行一次邮件备份</p>
             </div>
@@ -864,14 +895,14 @@
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupSMTPUser">SMTP 用户名</label>
-              <p class="field-hint">通常为发件人邮箱地址</p>
+              <p class="field-hint">QQ 等邮箱服务必须填写完整发件人邮箱；可信内网 relay 可与密码同时留空</p>
             </div>
             <input type="text" id="cfg-emailBackupSMTPUser" class="field-input" style="width:200px" placeholder="user@example.com">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupSMTPPass">SMTP 密码</label>
-              <p class="field-hint">SMTP 授权码或密码，留空则保留原密码</p>
+              <p class="field-hint">SMTP 授权码或密码；用户名和密码必须同时填写或同时留空</p>
             </div>
             <input type="password" id="cfg-emailBackupSMTPPass" class="field-input" style="width:200px" placeholder="SMTP 密码" autocomplete="new-password">
           </div>
@@ -891,11 +922,45 @@
           </div>
           <div class="field-row">
             <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupSubject">邮件标题</label>
+              <p class="field-hint">可用 {time}、{filename}、{format}</p>
+            </div>
+            <input type="text" id="cfg-emailBackupSubject" class="field-input" style="width:280px" maxlength="200">
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupBody">邮件正文</label>
+              <p class="field-hint">纯文本安全渲染，支持换行及 {time}、{filename}、{format}</p>
+            </div>
+            <textarea id="cfg-emailBackupBody" class="field-input" style="width:280px;height:96px;resize:vertical" maxlength="5000"></textarea>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupStyle">邮件样式</label>
+              <p class="field-hint">使用邮箱兼容的受控版式</p>
+            </div>
+            <select id="cfg-emailBackupStyle" class="field-input" style="width:150px">
+              <option value="plain">简洁</option>
+              <option value="card">卡片</option>
+              <option value="accent">强调</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupAccentColor">邮件主色</label>
+              <p class="field-hint">用于卡片和强调样式</p>
+            </div>
+            <input type="color" id="cfg-emailBackupAccentColor" value="#16A34A" style="width:46px;height:32px;padding:2px">
+          </div>
+          <div class="field-row">
+            <div class="field-info">
               <label class="field-label" for="cfg-emailBackupFormat">备份格式</label>
-              <p class="field-hint">邮件备份必须使用加密 .cvexport 格式</p>
+              <p class="field-hint">推荐加密 .cvexport；JSON/Excel 附件会以明文保存在邮件系统中</p>
             </div>
             <select id="cfg-emailBackupFormat" class="field-input" style="width:150px">
-              <option value="cvexport">加密（必选）</option>
+              <option value="cvexport">加密（推荐）</option>
+              <option value="json">JSON（明文）</option>
+              <option value="xlsx">Excel（明文）</option>
             </select>
           </div>
           <div class="field-row" id="cfg-emailBackupPwdRow" style="display:none">
@@ -904,6 +969,16 @@
               <p class="field-hint">cvexport 格式的加密密码，留空则保留原密码</p>
             </div>
             <input type="password" id="cfg-emailBackupPwd" class="field-input" style="width:200px" placeholder="加密密码" autocomplete="new-password">
+          </div>
+          <div class="field-row" id="cfg-emailBackupPwdClearRow" style="display:none">
+            <div class="field-info">
+              <label class="field-label">已保存加密密码</label>
+              <p class="field-hint"><span id="cfg-emailBackupPwdStatus">已设置</span>，勾选后保存可清除</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-emailBackupPwdClear">
+              <span>清除</span>
+            </label>
           </div>
           <div class="field-row">
             <div class="field-info">
@@ -927,9 +1002,19 @@
           </div>
           <div class="field-row" id="cfg-emailBackupStatusRow" style="display:none">
             <div class="field-info">
-              <label class="field-label">最近邮件备份状态</label>
+              <label class="field-label">最近备份状态</label>
               <p class="field-hint" id="cfg-emailBackupStatusText">-</p>
             </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">发送历史</label>
+              <p class="field-hint">只读查看最近 100 条成功发送的备份记录</p>
+            </div>
+            <button class="btn-export" type="button" onclick="showEmailBackupHistory()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-8"/></svg>
+              查看历史
+            </button>
           </div>
         </div>
       </section>
@@ -1019,7 +1104,7 @@
         <span class="modal-title">重启确认</span>
       </div>
       <div class="modal-body" style="height:auto;padding:24px">
-        <p style="margin:0 0 16px;color:var(--t2)">监听地址已修改，需要重启服务才能生效。是否立即重启？</p>
+        <p style="margin:0 0 16px;color:var(--sub)">监听地址已修改，需要重启服务才能生效。是否立即重启？</p>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn-cancel" id="restartCancelBtn">稍后</button>
           <button class="lock-btn" id="restartConfirmBtn" style="width:auto;padding:8px 20px">立即重启</button>

@@ -211,25 +211,31 @@ type BackupConfig struct {
 
 // DirBackupConfig 定时备份到指定目录。
 type DirBackupConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Interval int    `json:"interval"` // 备份间隔(小时)
-	Dir      string `json:"dir"`      // 目标目录路径
-	Format   string `json:"format"`   // "json" 或 "cvexport"
-	Password string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+	Enabled      bool   `json:"enabled"`
+	RunOnStartup bool   `json:"runOnStartup"`
+	Interval     int    `json:"interval"` // 备份间隔(小时)
+	Dir          string `json:"dir"`      // 目标目录路径
+	Format       string `json:"format"`   // "json" / "xlsx" / "cvexport"
+	Password     string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
 }
 
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。
 type EmailBackupConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Interval int    `json:"interval"` // 备份间隔(小时)
-	SMTPHost string `json:"smtpHost"` // SMTP 服务器地址
-	SMTPPort int    `json:"smtpPort"` // SMTP 端口
-	SMTPUser string `json:"smtpUser"` // SMTP 用户名
-	SMTPPass string `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
-	From     string `json:"from"`     // 发件人邮箱
-	To       string `json:"to"`       // 收件人邮箱
-	Format   string `json:"format"`   // "json" 或 "cvexport"
-	Password string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+	Enabled      bool   `json:"enabled"`
+	RunOnStartup bool   `json:"runOnStartup"`
+	Interval     int    `json:"interval"` // 备份间隔(小时)
+	SMTPHost     string `json:"smtpHost"` // SMTP 服务器地址
+	SMTPPort     int    `json:"smtpPort"` // SMTP 端口
+	SMTPUser     string `json:"smtpUser"` // SMTP 用户名
+	SMTPPass     string `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
+	From         string `json:"from"`     // 发件人邮箱
+	To           string `json:"to"`       // 收件人邮箱
+	Format       string `json:"format"`   // "json" / "xlsx" / "cvexport"
+	Password     string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+	Subject      string `json:"subject"`
+	Body         string `json:"body"`
+	Style        string `json:"style"`
+	AccentColor  string `json:"accentColor"`
 }
 
 func DefaultConfig() Config {
@@ -296,9 +302,13 @@ func DefaultConfig() Config {
 				Format:   "cvexport",
 			},
 			EmailBackup: EmailBackupConfig{
-				Interval: 24,
-				SMTPPort: 587,
-				Format:   "cvexport",
+				Interval:    24,
+				SMTPPort:    587,
+				Format:      "cvexport",
+				Subject:     "ClipVault 备份 - {time}",
+				Body:        "已生成 {format} 备份文件：{filename}",
+				Style:       "card",
+				AccentColor: "#16A34A",
 			},
 		},
 	}
@@ -351,11 +361,45 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Backup.DirBackup.Format == "" {
 		cfg.Backup.DirBackup.Format = def.Backup.DirBackup.Format
-	} else if cfg.Backup.DirBackup.Format != "cvexport" {
-		cfg.Backup.DirBackup.Format = "json"
 	}
-	// 邮件会离开本机，始终要求使用加密导出格式，不允许明文 JSON。
-	cfg.Backup.EmailBackup.Format = "cvexport"
+	if cfg.Backup.EmailBackup.Format == "" {
+		cfg.Backup.EmailBackup.Format = def.Backup.EmailBackup.Format
+	}
+}
+
+func isBackupFormat(format string) bool {
+	switch format {
+	case "cvexport", "xlsx", "json":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEmailTemplateStyle(style string) bool {
+	switch style {
+	case "plain", "card", "accent":
+		return true
+	default:
+		return false
+	}
+}
+
+func emailTemplateErrors(backup EmailBackupConfig) []string {
+	var errors []string
+	if subject := strings.TrimSpace(backup.Subject); subject == "" || len([]rune(backup.Subject)) > 200 || strings.ContainsAny(backup.Subject, "\r\n") {
+		errors = append(errors, "邮件标题")
+	}
+	if len([]rune(backup.Body)) > 5000 {
+		errors = append(errors, "邮件正文")
+	}
+	if !isEmailTemplateStyle(backup.Style) {
+		errors = append(errors, "邮件样式")
+	}
+	if !isHexColor(backup.AccentColor) {
+		errors = append(errors, "邮件主色")
+	}
+	return errors
 }
 
 func normalizeNotifications(notifications *NotificationConfig) {
