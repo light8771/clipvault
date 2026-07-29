@@ -65,6 +65,12 @@ func run(args []string) error {
 }
 
 func search(env clipvault.Environment, args []string) error {
+	instanceLock, err := clipvault.AcquireInstanceLock()
+	if err != nil {
+		return fmt.Errorf("cannot search while ClipVault is running or opening its data store: %w", err)
+	}
+	defer instanceLock.Close()
+
 	store, err := clipvault.OpenStore(clipvault.StoreOptions{DataDir: env.DataDir})
 	if err != nil {
 		return err

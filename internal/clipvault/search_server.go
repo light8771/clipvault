@@ -19,7 +19,6 @@ import (
 	"mime"
 	"net"
 	"net/http"
-	"net/mail"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -111,6 +110,10 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("POST /api/clear", s.requireSecondary(s.handleClear))
 	mux.HandleFunc("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.HandleFunc("PUT /api/config", s.requireSecondary(s.handlePutConfig))
+	mux.HandleFunc("GET /api/storage/status", s.requireAuth(s.handleStorageStatus))
+	mux.HandleFunc("POST /api/storage/relocate", s.requireSecondary(s.handleStorageRelocate))
+	mux.HandleFunc("POST /api/storage/open", s.requireAuth(s.handleStorageOpen))
+	mux.HandleFunc("GET /api/diagnostics/export", s.requireSecondary(s.handleDiagnosticExport))
 	mux.HandleFunc("GET /api/sensitive/rules", s.requireSecondary(s.handleSensitiveRules))
 	mux.HandleFunc("GET /api/search/sensitive", s.requireSecondary(s.handleSensitiveSearch))
 	mux.HandleFunc("GET /api/items/sensitive", s.requireSecondary(s.handleSensitiveItem))
@@ -220,6 +223,92 @@ func (s *SearchServer) handleRestart(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 	}()
+}
+
+func (s *SearchServer) handleStorageStatus(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, s.env.StorageStatus())
+}
+
+func (s *SearchServer) handleStorageRelocate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DataDir string `json:"dataDir"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		s.writeJSON(w, map[string]any{"ok": false, "error": "数据目录请求无效"})
+		return
+	}
+	if err := ScheduleDataDirectoryMove(s.env, req.DataDir); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.logger.Info("storage_relocation_scheduled", nil)
+	s.writeJSON(w, map[string]any{"ok": true, "message": "数据目录迁移已准备完成，请退出应用后重新启动"})
+}
+
+// handleStorageOpen opens the current data directory in the system file explorer.
+func (s *SearchServer) handleStorageOpen(w http.ResponseWriter, r *http.Request) {
+	dir := strings.TrimSpace(s.env.DataDir)
+	if dir == "" {
+		s.writeError(w, fmt.Errorf("数据目录不可用"))
+		return
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		s.writeError(w, fmt.Errorf("数据目录不存在或不可访问: %s", dir))
+		return
+	}
+	if err := openDirectory(dir); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *SearchServer) handleDiagnosticExport(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	archive, err := os.CreateTemp("", "clipvault-logs-*.zip")
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	archivePath := archive.Name()
+	defer os.Remove(archivePath)
+	defer archive.Close()
+
+	if err := WriteDiagnosticArchive(archive, s.env, now); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if err := archive.Close(); err != nil {
+		s.writeError(w, err)
+		return
+	}
+
+	download, err := os.Open(archivePath)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	defer download.Close()
+	info, err := download.Stat()
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", diagnosticArchiveName(now)))
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	if _, err := io.Copy(w, download); err != nil {
+		s.logger.Warn("diagnostics_export_write_failed", map[string]any{"error": err.Error()})
+		return
+	}
+	s.logger.Info("diagnostics_exported", nil)
 }
 
 func (s *SearchServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -1234,27 +1323,7 @@ func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 	if eb.Interval < 1 || eb.Interval > maxBackupIntervalHours {
 		missing = append(missing, "备份间隔")
 	}
-	if strings.TrimSpace(eb.SMTPHost) == "" {
-		missing = append(missing, "SMTP 服务器")
-	}
-	if eb.SMTPPort <= 0 || eb.SMTPPort > 65535 {
-		missing = append(missing, "SMTP 端口")
-	}
-	// 认证信息可以同时省略，以支持仅对受信任网络开放的 SMTP relay。
-	// 但不能只填用户名或密码，否则发送端的认证行为与配置不一致。
-	hasSMTPUser := strings.TrimSpace(eb.SMTPUser) != ""
-	hasSMTPPass := eb.SMTPPass != ""
-	if hasSMTPUser != hasSMTPPass {
-		missing = append(missing, "SMTP 用户名和密码需同时填写")
-	}
-	from, err := mail.ParseAddress(eb.From)
-	if err != nil || from.Address == "" {
-		missing = append(missing, "发件人邮箱")
-	}
-	to, err := mail.ParseAddress(eb.To)
-	if err != nil || to.Address == "" {
-		missing = append(missing, "收件人邮箱")
-	}
+	missing = append(missing, smtpDeliveryErrors(eb)...)
 	if !isBackupFormat(eb.Format) {
 		missing = append(missing, "备份格式")
 	} else if eb.Format == "cvexport" && eb.Password == "" {
@@ -1291,11 +1360,6 @@ func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request
 func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
 		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
-		return
-	}
-	cfg := s.cfgMgr.Get()
-	if cfg.Backup.EmailBackup.SMTPHost == "" || cfg.Backup.EmailBackup.To == "" {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "SMTP 配置不完整"})
 		return
 	}
 	if err := s.backup.RunEmailBackup(); err != nil {

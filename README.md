@@ -16,8 +16,9 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **加密导出包**：支持 `.cvexport` 加密格式，用密码加密导出数据，安全传输或备份
 - **定时备份**：目录和邮件备份支持 JSON、Excel 或加密 `.cvexport`；可在应用服务启动后自动执行一次，SMTP 强制 TLS
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
-- **便携模式**：exe 同目录放置 `portable.flag` 文件即可切换为便携模式，数据存放在 exe 目录下
+- **便携模式**：exe 同目录放置 `portable.flag` 普通文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`；便携模式写入 exe 同目录
+- **诊断日志**：可导出最近 7 天、最多 8 MiB 的脱敏日志与运行环境信息，用于问题排查；不包含数据库、配置、密钥或剪贴板内容
 - **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用
 
 ### Web 界面（搜索 + 设置）
@@ -50,6 +51,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 |------|---------|
 | 基本 | 最大文字长度（0 = 不限）、最大文件路径数（0 = 不限） |
 | 服务 | Web 监听地址 |
+| 存储与诊断 | 查看并迁移数据库、密钥和应用数据（目标必须由用户提前创建、为空且可读写；诊断日志保留原位置）；导出最近 7 天、最多 8 MiB 的脱敏诊断日志 |
 | 安全 | 锁屏密码、二次密码、数据恢复密码（设置/修改/删除）、锁屏会话超时、二次认证缓存时长 |
 | 授权 | 查看授权状态与机器码、复制购买信息、粘贴激活码并即时激活 |
 | 过滤 | 自定义正则过滤规则，支持增删，匹配内容不记录 |
@@ -98,7 +100,7 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 `.\scripts\dev-run.ps1` 一条命令搞定全部：
 
 1. 检查 `signing/cv-dev.ed25519` 调试密钥对是否存在，不存在则自动生成（口令文件也不存在时自动生成随机口令）
-2. 用调试私钥给**当前机器**签发永久激活码，直接写入 receipt 文件（`%LOCALAPPDATA%\ClipVault\license\clipvault.lic`）
+2. 用调试私钥给**当前机器**签发永久激活码，直接写入当前数据目录的 receipt 文件（遵循 `CLIPVAULT_DATA_DIR`、`portable.flag` 与设置页的数据目录配置）
 3. 读调试公钥，通过 `-ldflags -X` 注入到 clipvault
 4. `go run` 启动 clipvault（带控制台窗口，便于看日志）
 
@@ -199,7 +201,7 @@ $env:CLIPVAULT_GARBLE_SEED = "请使用长期保存的随机 Garble seed"
 
 ### 便携模式
 
-在 exe 同目录下创建 `portable.flag` 空文件即可启用便携模式：
+在 exe 同目录下创建 `portable.flag` 空普通文件即可启用便携模式：
 
 ```powershell
 New-Item -ItemType File "portable.flag"
@@ -211,9 +213,16 @@ New-Item -ItemType File "portable.flag"
 ### 数据目录优先级
 
 1. `CLIPVAULT_DATA_DIR` 环境变量
-2. `portable.flag` 文件存在 → `exe目录\data\`
-3. `%LOCALAPPDATA%\ClipVault\`（默认）
-4. `%APPDATA%\ClipVault\`（降级）
+2. `portable.flag` 普通文件存在 → `exe目录\data\`
+3. 设置页已确认的自定义数据目录
+4. `%LOCALAPPDATA%\ClipVault\`（默认）
+5. `%APPDATA%\ClipVault\`（降级）
+
+`CLIPVAULT_DATA_DIR` 必须使用绝对路径，避免启动程序与维护脚本解析到不同目录。
+
+在设置页迁移数据目录时，目标目录必须由用户预先创建、保持为空，并同时通过读取、创建和删除文件及子目录的权限检测。迁移数据库、密钥和应用数据，诊断日志继续保留在原位置。自定义位置记录必须是绝对路径，且不接受符号链接或联接点。返回默认位置时，目录中仅有 ClipVault 自身的控制文件和日志也可使用。迁移任务在应用完全退出后的下一次启动前执行，避免复制运行中的数据库文件；程序不会自动创建或合并用户文件。
+
+使用 `scripts/Rebuild-ClipVaultDatabase.ps1` 维护便携包时，若脚本不在 exe 同级目录的 `scripts` 中，请显式传入绝对路径的 `-DataDir <exe目录>\data`，避免操作错误的数据目录。
 
 ## Web API
 
@@ -234,6 +243,9 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/clear` | POST | 二次 | 清除全部记录 |
 | `GET /api/config` | GET | 锁屏 | 获取配置 |
 | `PUT /api/config` | PUT | 二次 | 保存配置 |
+| `GET /api/storage/status` | GET | 锁屏 | 查看当前数据目录与是否允许迁移 |
+| `POST /api/storage/relocate` | POST | 二次 + CSRF | 校验并登记数据目录迁移，退出并重新启动后执行 |
+| `GET /api/diagnostics/export` | GET | 二次 | 导出最近 7 天的脱敏诊断日志 ZIP |
 | `GET /api/export/data?format=json` | GET | 二次 | 导出记录（json/xlsx） |
 | `POST /api/export/data?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
 | `POST /api/import/data` | POST | 二次 | 导入数据（JSON / Excel / .cvexport；必须设置 `X-ClipVault-Import-Format`） |
@@ -252,6 +264,8 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
 | `POST /api/groups` | POST | 锁屏 | 创建分组 |
 | `PUT /api/groups` | PUT | 锁屏 | 更新分组 |
 | `DELETE /api/groups` | DELETE | 锁屏 | 删除分组 |
+
+所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
 
 **`/api/search` 查询参数：**
 
@@ -340,7 +354,7 @@ Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveR
 | `backup.emailBackup.interval` | 邮件备份间隔（小时） |
 | `backup.emailBackup.smtpHost` | SMTP 服务器地址 |
 | `backup.emailBackup.smtpPort` | SMTP 端口（通常 587 或 465） |
-| `backup.emailBackup.smtpUser` | SMTP 用户名；QQ 等邮箱服务使用完整发件人邮箱，可信内网 relay 可与密码同时留空 |
+| `backup.emailBackup.smtpUser` | SMTP 用户名；填写时必须为完整邮箱，可信内网 relay 可与密码同时留空 |
 | `backup.emailBackup.smtpPass` | SMTP 密码或授权码；与用户名同时填写或同时留空 |
 | `backup.emailBackup.from` | 发件人邮箱 |
 | `backup.emailBackup.to` | 收件人邮箱 |

@@ -17,7 +17,6 @@ import (
 	"net/smtp"
 	"net/textproto"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,21 +40,31 @@ type BackupStatus struct {
 	BackupFile string
 }
 
-// BackupService 管理定时目录备份和邮件备份。
+// BackupService manages scheduled directory and email backups.
 type BackupService struct {
 	cfgMgr  *ConfigManager
 	store   *Store
 	logger  *DailyLogger
 	license *licensing.Manager
 
-	mu          sync.Mutex
-	dirTimer    *time.Timer
-	emailTimer  *time.Timer
-	startupOnce sync.Once
+	mu              sync.Mutex
+	execMu          sync.Mutex
+	dirTimer        *time.Timer
+	dirGeneration   uint64
+	dirState        backupTimerState
+	emailTimer      *time.Timer
+	emailGeneration uint64
+	emailState      backupTimerState
+	startupOnce     sync.Once
 
 	statusMu    sync.RWMutex
 	dirStatus   BackupStatus
 	emailStatus BackupStatus
+}
+
+type backupTimerState struct {
+	active   bool
+	interval int
 }
 
 // NewBackupService 创建备份服务，并注册配置变更监听。
@@ -110,31 +119,102 @@ func runStartupBackups(cfg Config, runDir, runEmail func(Config) error) {
 	}
 }
 
-// Reload 根据新配置重置定时器。
+// Reload updates backup timers when the schedule state actually changes.
 func (bs *BackupService) Reload(cfg Config) {
 	bs.mu.Lock()
 	defer bs.mu.Unlock()
 
-	if bs.dirTimer != nil {
-		bs.dirTimer.Stop()
-		bs.dirTimer = nil
-	}
-	if bs.emailTimer != nil {
-		bs.emailTimer.Stop()
-		bs.emailTimer = nil
-	}
-
 	licensed := bs.license == nil || bs.license.CanUsePaidFeatures()
-	if licensed && cfg.Backup.DirBackup.Enabled && cfg.Backup.DirBackup.Interval > 0 && cfg.Backup.DirBackup.Dir != "" {
-		interval := time.Duration(cfg.Backup.DirBackup.Interval) * time.Hour
-		bs.dirTimer = time.AfterFunc(interval, bs.dirBackupTick)
+
+	if state := dirBackupTimerState(cfg, licensed); state != bs.dirState {
+		bs.dirGeneration++
+		if bs.dirTimer != nil {
+			bs.dirTimer.Stop()
+			bs.dirTimer = nil
+		}
+		bs.dirState = state
+		if state.active {
+			bs.scheduleDirTimerLocked(state.interval, bs.dirGeneration)
+		}
 	}
 
-	if licensed && cfg.Backup.EmailBackup.Enabled && cfg.Backup.EmailBackup.Interval > 0 &&
-		cfg.Backup.EmailBackup.SMTPHost != "" && cfg.Backup.EmailBackup.To != "" {
-		interval := time.Duration(cfg.Backup.EmailBackup.Interval) * time.Hour
-		bs.emailTimer = time.AfterFunc(interval, bs.emailBackupTick)
+	if state := emailBackupTimerState(cfg, licensed); state != bs.emailState {
+		bs.emailGeneration++
+		if bs.emailTimer != nil {
+			bs.emailTimer.Stop()
+			bs.emailTimer = nil
+		}
+		bs.emailState = state
+		if state.active {
+			bs.scheduleEmailTimerLocked(state.interval, bs.emailGeneration)
+		}
 	}
+}
+
+func dirBackupTimerState(cfg Config, licensed bool) backupTimerState {
+	if !licensed || !dirBackupScheduleReady(cfg.Backup.DirBackup) {
+		return backupTimerState{}
+	}
+	return backupTimerState{active: true, interval: cfg.Backup.DirBackup.Interval}
+}
+
+func emailBackupTimerState(cfg Config, licensed bool) backupTimerState {
+	if !licensed || !emailBackupScheduleReady(cfg.Backup.EmailBackup) {
+		return backupTimerState{}
+	}
+	return backupTimerState{active: true, interval: cfg.Backup.EmailBackup.Interval}
+}
+
+func dirBackupScheduleReady(backup DirBackupConfig) bool {
+	return backup.Enabled && validateDirBackupEnabled(backup) == ""
+}
+
+func emailBackupScheduleReady(backup EmailBackupConfig) bool {
+	return backup.Enabled && validateEmailBackupEnabled(backup) == ""
+}
+
+func (bs *BackupService) scheduleDirTimerLocked(intervalHours int, generation uint64) {
+	interval := time.Duration(intervalHours) * time.Hour
+	bs.dirTimer = time.AfterFunc(interval, func() {
+		bs.dirBackupTick(generation)
+	})
+}
+
+func (bs *BackupService) scheduleEmailTimerLocked(intervalHours int, generation uint64) {
+	interval := time.Duration(intervalHours) * time.Hour
+	bs.emailTimer = time.AfterFunc(interval, func() {
+		bs.emailBackupTick(generation)
+	})
+}
+
+func (bs *BackupService) rearmDirTimer(cfg Config, generation uint64) {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	if generation != bs.dirGeneration || !dirBackupScheduleReady(cfg.Backup.DirBackup) {
+		return
+	}
+	bs.scheduleDirTimerLocked(cfg.Backup.DirBackup.Interval, generation)
+}
+
+func (bs *BackupService) rearmEmailTimer(cfg Config, generation uint64) {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	if generation != bs.emailGeneration || !emailBackupScheduleReady(cfg.Backup.EmailBackup) {
+		return
+	}
+	bs.scheduleEmailTimerLocked(cfg.Backup.EmailBackup.Interval, generation)
+}
+
+func (bs *BackupService) isCurrentDirTimer(generation uint64) bool {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	return generation == bs.dirGeneration
+}
+
+func (bs *BackupService) isCurrentEmailTimer(generation uint64) bool {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	return generation == bs.emailGeneration
 }
 
 // DirStatus 返回目录备份的最近状态。
@@ -188,8 +268,8 @@ func (bs *BackupService) SendTestEmail() error {
 	}
 	cfg := bs.cfgMgr.Get()
 	eb := cfg.Backup.EmailBackup
-	if eb.SMTPHost == "" || eb.From == "" || eb.To == "" || eb.SMTPPort < 1 {
-		return fmt.Errorf("SMTP 配置不完整")
+	if problems := smtpDeliveryErrors(eb); len(problems) > 0 {
+		return fmt.Errorf("SMTP 配置不完整: %s", strings.Join(problems, "、"))
 	}
 	if errors := emailTemplateErrors(eb); len(errors) > 0 {
 		return fmt.Errorf("邮件模板配置不完整: %s", strings.Join(errors, "、"))
@@ -200,39 +280,38 @@ func (bs *BackupService) SendTestEmail() error {
 	return sendSMTPMessage(eb, msg)
 }
 
-func (bs *BackupService) dirBackupTick() {
+func (bs *BackupService) dirBackupTick(generation uint64) {
+	if !bs.isCurrentDirTimer(generation) {
+		return
+	}
 	cfg := bs.cfgMgr.Get()
-	if !cfg.Backup.DirBackup.Enabled {
+	if !dirBackupScheduleReady(cfg.Backup.DirBackup) {
 		return
 	}
 	if err := bs.doDirBackup(cfg); err != nil {
 		bs.logger.Error("dir_backup_failed", err, nil)
 	}
-	bs.mu.Lock()
-	if cfg.Backup.DirBackup.Interval > 0 {
-		interval := time.Duration(cfg.Backup.DirBackup.Interval) * time.Hour
-		bs.dirTimer = time.AfterFunc(interval, bs.dirBackupTick)
-	}
-	bs.mu.Unlock()
+	bs.rearmDirTimer(cfg, generation)
 }
 
-func (bs *BackupService) emailBackupTick() {
+func (bs *BackupService) emailBackupTick(generation uint64) {
+	if !bs.isCurrentEmailTimer(generation) {
+		return
+	}
 	cfg := bs.cfgMgr.Get()
-	if !cfg.Backup.EmailBackup.Enabled {
+	if !emailBackupScheduleReady(cfg.Backup.EmailBackup) {
 		return
 	}
 	if err := bs.doEmailBackup(cfg, emailBackupModeAutomatic); err != nil {
 		bs.logger.Error("email_backup_failed", err, nil)
 	}
-	bs.mu.Lock()
-	if cfg.Backup.EmailBackup.Interval > 0 {
-		interval := time.Duration(cfg.Backup.EmailBackup.Interval) * time.Hour
-		bs.emailTimer = time.AfterFunc(interval, bs.emailBackupTick)
-	}
-	bs.mu.Unlock()
+	bs.rearmEmailTimer(cfg, generation)
 }
 
 func (bs *BackupService) doDirBackup(cfg Config) error {
+	bs.execMu.Lock()
+	defer bs.execMu.Unlock()
+
 	if bs.license != nil && !bs.license.CanUsePaidFeatures() {
 		return errBackupLicenseRequired
 	}
@@ -243,33 +322,58 @@ func (bs *BackupService) doDirBackup(cfg Config) error {
 		return err
 	}
 
-	if err := os.MkdirAll(db.Dir, 0755); err != nil {
-		err = fmt.Errorf("创建目录失败: %w", err)
-		bs.setDirStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
+	now := time.Now()
+	fullPath, err := writeBackupFile(db.Dir, now, ext, data)
+	if err != nil {
+		bs.setDirStatus(BackupStatus{LastTime: now, LastOK: false, LastError: err.Error()})
 		return err
 	}
 
-	filename := fmt.Sprintf("clipvault-backup-%s.%s", time.Now().Format("20060102-150405"), ext)
-	fullPath := filepath.Join(db.Dir, filename)
-
-	if err := os.WriteFile(fullPath, data, 0644); err != nil {
-		err = fmt.Errorf("写入文件失败: %w", err)
-		bs.setDirStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
-		return err
-	}
-
-	bs.setDirStatus(BackupStatus{LastTime: time.Now(), LastOK: true, BackupFile: fullPath})
+	bs.setDirStatus(BackupStatus{LastTime: now, LastOK: true, BackupFile: fullPath})
 	bs.logger.Info("dir_backup_ok", map[string]any{"file": fullPath, "size": len(data)})
 	return nil
 }
 
+func writeBackupFile(dir string, now time.Time, ext string, data []byte) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("创建目录失败: %w", err)
+	}
+	file, err := os.CreateTemp(dir, fmt.Sprintf("clipvault-backup-%s-*.%s", now.Format("20060102-150405"), ext))
+	if err != nil {
+		return "", fmt.Errorf("创建备份文件失败: %w", err)
+	}
+	path := file.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("写入文件失败: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("同步文件失败: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("关闭文件失败: %w", err)
+	}
+	success = true
+	return path, nil
+}
+
 func (bs *BackupService) doEmailBackup(cfg Config, mode string) error {
+	bs.execMu.Lock()
+	defer bs.execMu.Unlock()
+
 	if bs.license != nil && !bs.license.CanUsePaidFeatures() {
 		return errBackupLicenseRequired
 	}
 	eb := cfg.Backup.EmailBackup
-	if errors := emailTemplateErrors(eb); len(errors) > 0 {
-		err := fmt.Errorf("邮件模板配置不完整: %s", strings.Join(errors, "、"))
+	if problems := emailBackupSendErrors(eb); len(problems) > 0 {
+		err := fmt.Errorf("邮件备份配置不完整: %s", strings.Join(problems, "、"))
 		bs.setEmailStatus(BackupStatus{LastTime: time.Now(), LastOK: false, LastError: err.Error()})
 		return err
 	}
@@ -314,18 +418,13 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string) error {
 }
 
 func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
+	if problems := smtpDeliveryErrors(cfg); len(problems) > 0 {
+		return fmt.Errorf("SMTP 配置不完整: %s", strings.Join(problems, "、"))
+	}
 	host := strings.TrimSpace(cfg.SMTPHost)
-	if host == "" || cfg.SMTPPort < 1 || cfg.SMTPPort > 65535 {
-		return fmt.Errorf("SMTP 服务器或端口无效")
-	}
-	from, err := mail.ParseAddress(cfg.From)
-	if err != nil || from.Address == "" {
-		return fmt.Errorf("发件人邮箱无效")
-	}
-	to, err := mail.ParseAddress(cfg.To)
-	if err != nil || to.Address == "" {
-		return fmt.Errorf("收件人邮箱无效")
-	}
+	from, _ := mail.ParseAddress(strings.TrimSpace(cfg.From))
+	to, _ := mail.ParseAddress(strings.TrimSpace(cfg.To))
+	smtpUser := strings.TrimSpace(cfg.SMTPUser)
 
 	addr := net.JoinHostPort(host, strconv.Itoa(cfg.SMTPPort))
 	dialer := &net.Dialer{Timeout: 15 * time.Second}
@@ -363,11 +462,11 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 	}
 	defer client.Close()
 
-	if cfg.SMTPUser != "" {
+	if smtpUser != "" {
 		if ok, _ := client.Extension("AUTH"); !ok {
 			return fmt.Errorf("SMTP 服务器不支持身份认证")
 		}
-		if err := client.Auth(smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPass, host)); err != nil {
+		if err := client.Auth(smtp.PlainAuth("", smtpUser, cfg.SMTPPass, host)); err != nil {
 			return fmt.Errorf("SMTP 认证失败: %w", err)
 		}
 	}
@@ -388,9 +487,7 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("SMTP 邮件提交失败: %w", err)
 	}
-	if err := client.Quit(); err != nil {
-		return fmt.Errorf("SMTP 结束会话失败: %w", err)
-	}
+	_ = client.Quit()
 	return nil
 }
 

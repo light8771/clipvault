@@ -21,9 +21,20 @@ func Run(env Environment) error {
 	}
 	defer logger.Close()
 
-	if err := acquireSingleInstance(singleInstanceName()); err != nil {
+	instanceLock, err := AcquireInstanceLock()
+	if err != nil {
 		logger.Warn("single_instance_blocked", map[string]any{"error": err.Error()})
 		return err
+	}
+	defer instanceLock.Close()
+	preparedEnv, storageWarning, err := prepareEnvironmentForRun(env)
+	if err != nil {
+		logger.Error("storage_relocation_failed", err, nil)
+		return err
+	}
+	env = preparedEnv
+	if storageWarning != "" {
+		logger.Warn("storage_relocation_cleanup_pending", map[string]any{"warning": storageWarning})
 	}
 
 	// Determine startup mode via state file
@@ -110,7 +121,6 @@ func Run(env Environment) error {
 	state := NewRuntimeState(false)
 	recorder := NewRecorder(cfgMgr, store, state, logger, licenseMgr)
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
-	backup.Start()
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 	searchURL, err := searchServer.Start()
 	if err != nil {
@@ -120,6 +130,7 @@ func Run(env Environment) error {
 		fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
 	}
 
+	backup.Start()
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, store, searchURL, licenseMgr)
 
 	// 配置变更时重新注册全局快捷键

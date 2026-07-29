@@ -9,12 +9,20 @@ import (
 	"time"
 )
 
-func TestAcquireSingleInstanceRejectsDuplicate(t *testing.T) {
+func TestAcquireInstanceLockRejectsDuplicateAndReleases(t *testing.T) {
 	name := fmt.Sprintf("ClipVaultTest-%d", time.Now().UnixNano())
-	if err := acquireSingleInstance(name); err != nil {
+	first, err := acquireInstanceLock(name)
+	if err != nil {
 		t.Fatalf("first acquire failed: %v", err)
 	}
-	if err := acquireSingleInstance(name); err == nil || !strings.Contains(err.Error(), "already running") {
+	if _, err := acquireInstanceLock(name); err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Fatalf("duplicate acquire error = %v, want already running", err)
 	}
+	first.Close()
+
+	second, err := acquireInstanceLock(name)
+	if err != nil {
+		t.Fatalf("acquire after release failed: %v", err)
+	}
+	second.Close()
 }

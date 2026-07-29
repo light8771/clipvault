@@ -1,12 +1,13 @@
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-    [string]$DataDir = (Join-Path $env:LOCALAPPDATA 'ClipVault'),
+    [string]$DataDir,
     [switch]$SkipStop
 )
 
 $ErrorActionPreference = 'Stop'
 
-$resolvedDataDir = [System.IO.Path]::GetFullPath($DataDir)
+. (Join-Path $PSScriptRoot 'Resolve-ClipVaultDataDirectory.ps1')
+$resolvedDataDir = Resolve-ClipVaultDataDirectory $DataDir
 if (-not (Test-Path -LiteralPath $resolvedDataDir -PathType Container)) {
     throw "ClipVault data directory does not exist: $resolvedDataDir"
 }

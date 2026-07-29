@@ -522,10 +522,15 @@
   window.doRecoveryRemove = doRecoveryRemove;
 
   // ── View switch ───────────────────────────────────────────
+  let viewSwitchSequence = 0;
+
   window.switchView = async function(view) {
+    const request = ++viewSwitchSequence;
     const isHistory = view === 'history';
     if (!isHistory) {
+      setupAutoSave();
       const ok = await requestSecondaryAuth();
+      if (request !== viewSwitchSequence) return false;
       if (!ok) {
         document.getElementById('viewHistory').classList.remove('hidden');
         document.getElementById('viewSettings').classList.add('hidden');
@@ -534,12 +539,13 @@
         toast('已取消进入设置，需要二次密码验证', 'err');
         return false;
       }
+      await loadSettings();
+      if (request !== viewSwitchSequence) return false;
     }
     document.getElementById('viewHistory').classList.toggle('hidden', !isHistory);
     document.getElementById('viewSettings').classList.toggle('hidden', isHistory);
     document.getElementById('tabHistory').classList.toggle('active', isHistory);
     document.getElementById('tabSettings').classList.toggle('active', !isHistory);
-    if (!isHistory) { await loadSettings(); }
     return true;
   };
 
@@ -1895,16 +1901,197 @@
     const revision = configRevision;
     try {
       const cfg = await fetch('/api/config').then(r => r.json());
-      if (request !== configRequestSequence || revision !== configRevision) return;
-      replaceCurrentConfig(cfg);
-      applyConfigToForm(cfg);
+      if (request === configRequestSequence && revision === configRevision && !hasPendingConfigSave()) {
+        replaceCurrentConfig(cfg);
+        applyConfigToForm(cfg);
+      }
     } catch (_) {
-      if (request === configRequestSequence && revision === configRevision) {
+      if (request === configRequestSequence && revision === configRevision && !hasPendingConfigSave()) {
         toast('加载配置失败', 'err');
       }
     }
+    if (request !== configRequestSequence) return;
     loadRecoveryStatus();
+    loadStorageStatus();
   }
+
+  async function loadStorageStatus() {
+    const request = ++storageStatusRequestSequence;
+    const currentDir = document.getElementById('storageCurrentDir');
+    const hint = document.getElementById('storageCurrentHint');
+    const openBtn = document.getElementById('storageOpenDirBtn');
+    const button = document.getElementById('storageRelocateBtn');
+    if (!currentDir || !hint || !button) return;
+    try {
+      const res = await fetch('/api/storage/status');
+      if (!res.ok) throw new Error('status');
+      const status = await res.json();
+      if (request !== storageStatusRequestSequence || storageRelocationInFlight) return;
+      currentDir.textContent = status.dataDir || '-';
+      currentDir.title = status.dataDir || '';
+      if (openBtn) openBtn.disabled = !status.dataDir;
+      if (status.movable && !status.pending && !storageRelocationScheduled) {
+        hint.textContent = '数据目录迁移会保留数据库、密钥和应用数据；运行日志保留在原位置。目标目录必须预先创建、为空且可读写。';
+        button.disabled = false;
+      } else if (status.movable) {
+        hint.textContent = '数据目录迁移已准备完成，请退出应用后重新启动。';
+        button.disabled = true;
+      } else {
+        hint.textContent = status.reason || '当前运行模式不支持修改数据目录。';
+        button.disabled = true;
+      }
+    } catch (_) {
+      if (request !== storageStatusRequestSequence || storageRelocationInFlight) return;
+      hint.textContent = '无法读取存储状态。';
+      button.disabled = true;
+      if (openBtn) openBtn.disabled = true;
+    }
+  }
+
+  async function openDataDirectory() {
+    const btn = document.getElementById('storageOpenDirBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/storage/open', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(data.error || '无法打开数据目录', 'err'); return; }
+      toast('已在文件资源管理器中打开');
+    } catch (_) {
+      toast('无法打开数据目录', 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  window.openMigrateDialog = function() {
+    if (storageRelocationInFlight || storageRelocationScheduled) return;
+    const currentDirText = document.getElementById('storageCurrentDir')?.textContent || '-';
+    const html = `
+      <div class="modal-overlay" id="migrateOverlay">
+        <div class="modal-box secondary-box migrate-modal" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">迁移数据目录</span>
+            <button class="modal-close" onclick="closeMigrateDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <div class="migrate-notes">
+              <p>迁移将复制数据库、密钥和应用数据到新目录；运行日志保留在原位置。目标目录必须由你提前创建、为空且具备读写权限。迁移计划提交后，请从托盘退出应用并重新启动，程序才会在启动时迁移现有数据。</p>
+            </div>
+            <div class="migrate-field">
+              <label class="migrate-label">当前数据目录</label>
+              <code class="migrate-dir" id="migrateOldDir"></code>
+            </div>
+            <div class="migrate-field">
+              <label class="migrate-label" for="migrateNewDir">新数据目录</label>
+              <input type="text" id="migrateNewDir" class="field-input" autocomplete="off" placeholder="例如 D:\\ClipVaultData">
+            </div>
+            <div class="migrate-progress hidden" id="migrateProgress"></div>
+            <p class="lock-err hidden" id="migrateErr"></p>
+            <div class="migrate-actions">
+              <button type="button" class="btn-export" id="migrateCancelBtn">取消</button>
+              <button type="button" class="lock-btn" id="migrateExecBtn">执行迁移</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('migrateOverlay');
+    const execBtn = document.getElementById('migrateExecBtn');
+    const cancelBtn = document.getElementById('migrateCancelBtn');
+    const newDirInput = document.getElementById('migrateNewDir');
+    const errEl = document.getElementById('migrateErr');
+    const progressEl = document.getElementById('migrateProgress');
+    const oldDirEl = document.getElementById('migrateOldDir');
+    oldDirEl.textContent = currentDirText;
+
+    window.closeMigrateDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeMigrateDialog(); });
+    cancelBtn.addEventListener('click', closeMigrateDialog);
+    setTimeout(() => newDirInput.focus(), 50);
+
+    const steps = [
+      { label: '验证目标目录' },
+      { label: '提交迁移计划' },
+      { label: '完成' },
+    ];
+
+    function renderProgress(states) {
+      progressEl.classList.remove('hidden');
+      progressEl.innerHTML = steps.map((s, i) => {
+        const st = states[i] || 'pending';
+        const icon = st === 'done' ? '\u2713' : st === 'active' ? '\u25CF' : st === 'error' ? '\u2715' : '\u25CB';
+        return '<div class="migrate-step ms-' + st + '"><span class="ms-icon">' + icon + '</span><span class="ms-label">' + s.label + '</span></div>';
+      }).join('');
+    }
+
+    execBtn.addEventListener('click', async () => {
+      const target = newDirInput.value.trim();
+      errEl.classList.add('hidden');
+      if (!target) { errEl.textContent = '请输入已创建的新数据目录'; errEl.classList.remove('hidden'); return; }
+
+      execBtn.disabled = true;
+      newDirInput.disabled = true;
+      cancelBtn.disabled = true;
+      const states = ['active', 'pending', 'pending'];
+      renderProgress(states);
+
+      // Step 0: validate target
+      states[0] = 'done'; states[1] = 'active';
+      renderProgress(states);
+
+      // Step 1: submit (includes secondary auth + POST, retry on 403)
+      storageRelocationInFlight = true;
+      let scheduled = false;
+      try {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const ok = await requestSecondaryAuth(attempt > 0);
+          if (!ok) break;
+          const res = await secondaryFetch('/api/storage/relocate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataDir: target }),
+          });
+          if (res.status === 403) continue;
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || '数据目录迁移准备失败');
+          scheduled = true;
+          break;
+        }
+        if (!scheduled) throw new Error('需要二次验证才能迁移数据目录');
+
+        states[1] = 'done'; states[2] = 'active';
+        renderProgress(states);
+        states[2] = 'done';
+        renderProgress(states);
+
+        progressEl.insertAdjacentHTML('beforeend',
+          '<div class="migrate-success">\u2713 迁移计划已提交。请从托盘退出应用并重新启动，程序将在启动时迁移数据。</div>');
+        execBtn.textContent = '关闭';
+        execBtn.disabled = false;
+        execBtn.onclick = closeMigrateDialog;
+        cancelBtn.style.display = 'none';
+        storageRelocationScheduled = true;
+        newDirInput.value = '';
+      } catch (e) {
+        states[1] = 'error';
+        renderProgress(states);
+        errEl.textContent = '迁移准备失败：' + (e.message || e);
+        errEl.classList.remove('hidden');
+        execBtn.disabled = false;
+        newDirInput.disabled = false;
+        cancelBtn.disabled = false;
+      } finally {
+        storageRelocationInFlight = false;
+        void loadStorageStatus();
+      }
+    });
+  };
 
   function isLoopbackListenAddress(addr) {
     const value = String(addr || '').trim();
@@ -2108,6 +2295,7 @@
     const patterns = getPatterns();
     patterns.splice(idx, 1);
     renderPatterns(patterns);
+    scheduleConfigSave(300);
   };
 
   function getPatterns() {
@@ -2132,7 +2320,18 @@
   const RESTART_CONFIRM_BTN = document.getElementById('restartConfirmBtn');
   let saveTimer = 0;
   let saveInFlight = false;
-  let saveQueued = false;
+  let activeConfigSave = null;
+  let pendingConfigRevision = 0;
+  let savedConfigRevision = 0;
+  let storageRelocationInFlight = false;
+  let storageRelocationScheduled = false;
+  let storageStatusRequestSequence = 0;
+  let diagnosticsExportInFlight = false;
+  let autoSaveBound = false;
+
+  function hasPendingConfigSave() {
+    return pendingConfigRevision !== savedConfigRevision || saveInFlight;
+  }
 
   // VK 码与显示文本互转：Space(0x20) 显示为 "Space"，避免空格字符在输入框中不可见
   function vkToDisplay(vk) {
@@ -2255,32 +2454,61 @@
     };
   }
 
-  async function saveConfig() {
-    if (saveInFlight) {
-      saveQueued = true;
+  function scheduleConfigSave(delay) {
+    pendingConfigRevision++;
+    clearTimeout(saveTimer);
+    if (delay <= 0) {
+      saveTimer = 0;
+      void saveConfig();
       return;
     }
+    saveTimer = setTimeout(() => {
+      saveTimer = 0;
+      void saveConfig();
+    }, delay);
+  }
+
+  async function flushPendingConfigSave() {
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    while (hasPendingConfigSave()) {
+      if (!await saveConfig()) return false;
+    }
+    return true;
+  }
+
+  async function saveConfig() {
+    if (activeConfigSave) return activeConfigSave;
     saveInFlight = true;
-    try {
-      await saveConfigNow();
-    } finally {
-      saveInFlight = false;
-      if (saveQueued) {
-        saveQueued = false;
-        await saveConfig();
+    activeConfigSave = (async () => {
+      for (;;) {
+        const revision = pendingConfigRevision;
+        if (!await saveConfigNow()) return false;
+        if (revision === pendingConfigRevision) {
+          savedConfigRevision = revision;
+          return true;
+        }
+        clearTimeout(saveTimer);
+        saveTimer = 0;
       }
+    })();
+    try {
+      return await activeConfigSave;
+    } finally {
+      activeConfigSave = null;
+      saveInFlight = false;
     }
   }
 
   async function saveConfigNow() {
     const newCfg = collectConfig();
-    if (!newCfg) return;
+    if (!newCfg) return false;
 
     // 验证正则合法性
     for (const p of newCfg.sensitive.customPatterns) {
       try { new RegExp(p); } catch (_) {
         toast(`正则无效：${p}`, 'err');
-        return;
+        return false;
       }
     }
 
@@ -2289,14 +2517,14 @@
       const missing = validateDirBackupConfig();
       if (missing.length) {
         toast('目录备份配置不完整：' + missing.join('、'), 'err');
-        return;
+        return false;
       }
     }
     if (newCfg.backup?.emailBackup?.enabled) {
       const missing = validateEmailBackupConfig();
       if (missing.length) {
         toast('邮件备份配置不完整：' + missing.join('、'), 'err');
-        return;
+        return false;
       }
     }
 
@@ -2307,19 +2535,19 @@
     if (openingLAN) {
       if (!authState.hasLockPassword || !authState.hasSecondaryPassword) {
         toast('开放局域网监听前，请先设置锁屏密码和二次密码', 'err');
-        return;
+        return false;
       }
       const confirmed = window.confirm('安全警告：非回环地址会让同一网络中的设备访问 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？');
       if (!confirmed) {
         document.getElementById('cfg-listenAddr').value = currentCfg.search.listenAddr;
         updateListenAddressWarning();
         toast('已取消开放局域网监听');
-        return;
+        return false;
       }
       const verified = await requestSecondaryAuth(true);
       if (!verified) {
         toast('需要重新输入二次密码才能开放局域网监听', 'err');
-        return;
+        return false;
       }
     }
 
@@ -2347,14 +2575,16 @@
       if (addrChanged) {
         showRestartConfirm();
       }
+      return true;
     } catch (e) {
       if (e.message && e.message.includes('secondary_required')) {
         const ok = await requestSecondaryAuth();
-        if (ok) { await saveConfigNow(); return; }
+        if (ok) return await saveConfigNow();
         toast('需要二次验证才能保存配置', 'err');
       } else {
         toast('保存失败：' + (e.message || e), 'err');
       }
+      return false;
     }
   }
 
@@ -2420,6 +2650,8 @@
   function setupAutoSave() {
     const settingsEl = document.getElementById('viewSettings');
     if (!settingsEl) return;
+    if (autoSaveBound) return;
+    autoSaveBound = true;
     const listenAddrEl = document.getElementById('cfg-listenAddr');
     const brandTitleEl = document.getElementById('cfg-brandTitle');
     brandTitleEl?.addEventListener('input', () => applyBrand({ ...currentCfg?.brand, title: brandTitleEl.value }));
@@ -2458,8 +2690,7 @@
         });
         document.getElementById('customThemeColors')?.classList.toggle('hidden', preset !== 'custom');
         applyTheme(themeFromForm());
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveConfig(), 150);
+        scheduleConfigSave(150);
       });
     });
     ['cfg-themeMode', 'cfg-themePrimary', 'cfg-themeAccent'].forEach(id => {
@@ -2482,28 +2713,24 @@
 	});
     settingsEl.addEventListener('input', (e) => {
       if (e.target === listenAddrEl || e.target?.type === 'file') return;
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => saveConfig(), 800);
+      scheduleConfigSave(800);
     });
     settingsEl.addEventListener('change', (e) => {
       if (e.target === listenAddrEl || e.target?.type === 'file') return;
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => saveConfig(), 300);
+      scheduleConfigSave(300);
     });
     // 监听地址失焦时立即保存（触发重启确认）
     if (listenAddrEl) {
       listenAddrEl.addEventListener('input', updateListenAddressWarning);
       listenAddrEl.addEventListener('blur', () => {
-        clearTimeout(saveTimer);
-        saveConfig();
+        scheduleConfigSave(0);
       });
     }
     // 过滤规则增删也触发保存
     const addBtn = document.getElementById('addPatternBtn');
     if (addBtn) {
       addBtn.addEventListener('click', () => {
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveConfig(), 300);
+        scheduleConfigSave(300);
       });
     }
     // 备份格式切换时显示/隐藏加密密码行
@@ -2539,6 +2766,21 @@
         if (row) row.style.display = (emailFmt.value === 'cvexport') ? '' : 'none';
       });
     }
+    document.getElementById('storageOpenDirBtn')?.addEventListener('click', openDataDirectory);
+    document.getElementById('storageRelocateBtn')?.addEventListener('click', openMigrateDialog);
+    const diagnosticsButton = document.getElementById('diagnosticsExportBtn');
+    diagnosticsButton?.addEventListener('click', async () => {
+      if (diagnosticsExportInFlight) return;
+      diagnosticsExportInFlight = true;
+      diagnosticsButton.disabled = true;
+      try {
+        const ok = await authedDownload('/api/diagnostics/export', 'clipvault-diagnostics.zip');
+        if (ok) toast('运行日志已导出');
+      } finally {
+        diagnosticsExportInFlight = false;
+        diagnosticsButton.disabled = false;
+      }
+    });
 
     const dirEnabledEl = document.getElementById('cfg-dirBackupEnabled');
     if (dirEnabledEl) {
@@ -2633,6 +2875,9 @@
     const effectiveSmtpPass = pass || (user && hasExistingSmtpPass ? '__set__' : '');
     if (Boolean(user) !== Boolean(effectiveSmtpPass)) {
       missing.push('SMTP 用户名和密码需同时填写');
+    }
+    if (user && !document.getElementById('cfg-emailBackupSMTPUser')?.validity.valid) {
+      missing.push('SMTP 用户名必须为邮箱');
     }
     if (!from || !document.getElementById('cfg-emailBackupFrom')?.validity.valid) missing.push('发件人邮箱');
     if (!to || !document.getElementById('cfg-emailBackupTo')?.validity.valid) missing.push('收件人邮箱');
@@ -2767,7 +3012,7 @@
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
             <p style="margin-bottom:12px;color:var(--sub);font-size:13px;line-height:1.6">
-              选择 JSON、Excel 或加密 .cvexport 文件导入。如果是加密文件，需要输入密码。
+              选择 JSON、Excel 或加密 .cvexport 文件导入。导入为追加模式：不会清空现有数据，也不做去重，重复导入同一文件会产生重复记录。加密文件需输入密码。
             </p>
             <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--sub)">
             <input type="password" id="importPwd" class="lock-input" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off" style="margin-bottom:12px">
@@ -2876,6 +3121,7 @@
 
   // ── Backup actions ─────────────────────────────────────────
   async function backupAction(url, successMsg) {
+    if (!await flushPendingConfigSave()) return;
     const ok = await requestSecondaryAuth();
     if (!ok) { toast('需要二次验证', 'err'); return; }
     try {
@@ -3424,6 +3670,7 @@
   });
 
   async function init() {
+    setupAutoSave();
     await loadTheme();
     await loadLicenseStatus();
     // 支持 URL 参数快速跳转：
@@ -3438,7 +3685,6 @@
         // 清掉 URL 上的 locate 参数，避免刷新时重复定位
         try { history.replaceState(null, '', window.location.pathname); } catch (_) {}
         doLocate(id);
-        setupAutoSave();
         loadGroups();
         return;
       }
@@ -3448,7 +3694,6 @@
       try { history.replaceState(null, '', window.location.pathname); } catch (_) {}
     }
     search();
-    setupAutoSave();
     loadGroups();
   }
 

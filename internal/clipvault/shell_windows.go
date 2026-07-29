@@ -91,6 +91,26 @@ func openFolderAndSelectItem(path string) (retErr error) {
 	return nil
 }
 
+// openDirectory opens the directory itself in Windows Explorer.
+// ShellExecuteW returns a value greater than 32 on success.
+func openDirectory(path string) error {
+	path = strings.ReplaceAll(path, "/", "\\")
+	verbPtr, _ := syscall.UTF16PtrFromString("open")
+	pathPtr, _ := syscall.UTF16PtrFromString(path)
+	ret, _, _ := procShellExecuteW.Call(
+		0,
+		uintptr(unsafe.Pointer(verbPtr)),
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		0,
+		swShowNormal,
+	)
+	if ret <= 32 {
+		return fmt.Errorf("打开目录失败 (ShellExecuteW 返回 %d): %s", ret, path)
+	}
+	return nil
+}
+
 // computeChildPidl calculates the child PIDL by finding where the parent PIDL
 // ends within the full PIDL. Both PIDLs are contiguous ITEMIDLIST structures.
 // The child PIDL is the remaining bytes after the parent's items in the full PIDL.

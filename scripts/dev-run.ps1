@@ -67,11 +67,13 @@ if (-not $cc) {
 
 # Step 4: sign a perpetual license for the current machine and write it
 # directly to the receipt file, so clipvault starts fully activated.
-$localAppData = $env:LOCALAPPDATA
-if ([string]::IsNullOrWhiteSpace($localAppData)) {
-    $localAppData = [Environment]::GetFolderPath("LocalApplicationData")
+. (Join-Path $PSScriptRoot 'Resolve-ClipVaultDataDirectory.ps1')
+$dataDir = Resolve-ClipVaultDataDirectory
+$portableFlag = Join-Path $repoRoot 'portable.flag'
+if ((Test-Path -LiteralPath $portableFlag -PathType Leaf) -and [string]::IsNullOrWhiteSpace($env:CLIPVAULT_DATA_DIR)) {
+    $env:CLIPVAULT_DATA_DIR = $dataDir
 }
-$receiptPath = Join-Path $localAppData "ClipVault\license\clipvault.lic"
+$receiptPath = Join-Path $dataDir "license\clipvault.lic"
 
 Write-Host "Activating current machine for dev..."
 & go run ./cmd/dev-activate `

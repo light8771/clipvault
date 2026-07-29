@@ -1,6 +1,8 @@
 package clipvault
 
 import (
+	"fmt"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,14 +18,16 @@ type Environment struct {
 	DataDir  string
 	LogDir   string
 	Portable bool
+	Source   string
 }
 
 // NewEnvironment resolves the runtime environment with DataDir priority:
 // 1. dataDirOverride (from --data-dir flag)
 // 2. CLIPVAULT_DATA_DIR env var
 // 3. portable.flag in exe directory
-// 4. %LOCALAPPDATA%\ClipVault
-// 5. %APPDATA%\ClipVault fallback
+// 4. configured directory selected in settings
+// 5. %LOCALAPPDATA%\ClipVault
+// 6. %APPDATA%\ClipVault fallback
 func NewEnvironment() (Environment, error) {
 	return newEnvironment("")
 }
@@ -38,40 +42,59 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 
 	// 1. --data-dir override
 	if dataDirOverride != "" {
+		dataDir, err := resolveAbsoluteDataDirectory(dataDirOverride, "data directory override")
+		if err != nil {
+			return Environment{}, err
+		}
 		return Environment{
-			DataDir: dataDirOverride,
+			DataDir: dataDir,
 			LogDir:  logDir,
+			Source:  "command",
 		}, nil
 	}
 
 	// 2. CLIPVAULT_DATA_DIR env var
 	if envDir := os.Getenv("CLIPVAULT_DATA_DIR"); envDir != "" {
+		dataDir, err := resolveAbsoluteDataDirectory(envDir, "CLIPVAULT_DATA_DIR")
+		if err != nil {
+			return Environment{}, err
+		}
 		return Environment{
-			DataDir: envDir,
+			DataDir: dataDir,
 			LogDir:  logDir,
+			Source:  "environment",
 		}, nil
 	}
 
 	// 3. portable.flag in exe directory
 	portableFlag := filepath.Join(exeDir, "portable.flag")
-	if _, err := os.Stat(portableFlag); err == nil {
+	if isPortableFlag(portableFlag) {
 		return Environment{
 			DataDir:  filepath.Join(exeDir, "data"),
 			LogDir:   filepath.Join(exeDir, "logs"),
 			Portable: true,
+			Source:   "portable",
 		}, nil
 	}
 
-	// 4. %LOCALAPPDATA%\ClipVault
+	controlDir := environmentControlDir()
+	if configuredDir, err := configuredDataDirectory(controlDir); err != nil {
+		return Environment{}, err
+	} else if configuredDir != "" {
+		return Environment{DataDir: configuredDir, LogDir: logDir, Source: "configured"}, nil
+	}
+
+	// 5. %LOCALAPPDATA%\ClipVault
 	local := os.Getenv("LOCALAPPDATA")
 	if local != "" {
 		return Environment{
 			DataDir: filepath.Join(local, appDirName),
 			LogDir:  logDir,
+			Source:  "default",
 		}, nil
 	}
 
-	// 5. %APPDATA%\ClipVault fallback
+	// 6. %APPDATA%\ClipVault fallback
 	roaming := os.Getenv("APPDATA")
 	if roaming == "" {
 		home, err := os.UserHomeDir()
@@ -83,7 +106,24 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 	return Environment{
 		DataDir: filepath.Join(roaming, appDirName),
 		LogDir:  logDir,
+		Source:  "default",
 	}, nil
+}
+
+func resolveAbsoluteDataDirectory(value, source string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("%s must not be empty", source)
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("%s must be an absolute path", source)
+	}
+	return filepath.Clean(value), nil
+}
+
+func isPortableFlag(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func defaultLogDirectory(exeDir string) string {
@@ -399,6 +439,43 @@ func emailTemplateErrors(backup EmailBackupConfig) []string {
 	if !isHexColor(backup.AccentColor) {
 		errors = append(errors, "邮件主色")
 	}
+	return errors
+}
+
+func smtpDeliveryErrors(backup EmailBackupConfig) []string {
+	var errors []string
+	if strings.TrimSpace(backup.SMTPHost) == "" {
+		errors = append(errors, "SMTP 服务器")
+	}
+	if backup.SMTPPort < 1 || backup.SMTPPort > 65535 {
+		errors = append(errors, "SMTP 端口")
+	}
+	user := strings.TrimSpace(backup.SMTPUser)
+	pass := backup.SMTPPass
+	if (user == "") != (pass == "") {
+		errors = append(errors, "SMTP 用户名和密码需同时填写")
+	}
+	if user != "" {
+		if _, err := mail.ParseAddress(user); err != nil {
+			errors = append(errors, "SMTP 用户名必须为邮箱")
+		}
+	}
+	if from := strings.TrimSpace(backup.From); from == "" {
+		errors = append(errors, "发件人邮箱")
+	} else if _, err := mail.ParseAddress(from); err != nil {
+		errors = append(errors, "发件人邮箱")
+	}
+	if to := strings.TrimSpace(backup.To); to == "" {
+		errors = append(errors, "收件人邮箱")
+	} else if _, err := mail.ParseAddress(to); err != nil {
+		errors = append(errors, "收件人邮箱")
+	}
+	return errors
+}
+
+func emailBackupSendErrors(backup EmailBackupConfig) []string {
+	errors := smtpDeliveryErrors(backup)
+	errors = append(errors, emailTemplateErrors(backup)...)
 	return errors
 }
 

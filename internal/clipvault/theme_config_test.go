@@ -27,16 +27,16 @@ func TestNormalizeTheme(t *testing.T) {
 		t.Fatalf("custom surface opacity was not retained: %#v", cfg.Theme)
 	}
 
-	cfg.Theme = ThemeConfig{Preset: "unknown", Mode: "unknown"}
+	cfg.Theme = ThemeConfig{Preset: "unknown", Mode: "unknown", SurfaceOpacity: 100}
 	normalizeConfig(&cfg)
 	if cfg.Theme.Preset != "mint" || cfg.Theme.Mode != "system" {
 		t.Fatalf("invalid theme did not fall back to defaults: %#v", cfg.Theme)
 	}
 	if cfg.Theme.SurfaceOpacity != 100 {
-		t.Fatalf("missing surface opacity did not fall back to default: %#v", cfg.Theme)
+		t.Fatalf("surface opacity was not retained: %#v", cfg.Theme)
 	}
 
-	cfg.Theme = ThemeConfig{Preset: "custom", Mode: "light", Primary: "invalid", Accent: "#12345"}
+	cfg.Theme = ThemeConfig{Preset: "custom", Mode: "light", Primary: "invalid", Accent: "#12345", SurfaceOpacity: 100}
 	normalizeConfig(&cfg)
 	if cfg.Theme.Primary != "#14B8A6" || cfg.Theme.Accent != "#F97316" {
 		t.Fatalf("invalid custom colors did not fall back to defaults: %#v", cfg.Theme)
@@ -45,7 +45,7 @@ func TestNormalizeTheme(t *testing.T) {
 		t.Fatalf("missing font scale did not fall back to default: %#v", cfg.Theme)
 	}
 	if cfg.Theme.SurfaceOpacity != 100 {
-		t.Fatalf("missing surface opacity did not fall back to default: %#v", cfg.Theme)
+		t.Fatalf("surface opacity was not retained: %#v", cfg.Theme)
 	}
 
 	cfg.Theme.FontScale = 200

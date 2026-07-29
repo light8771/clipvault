@@ -260,6 +260,7 @@ func TestValidateEmailBackupEnabled(t *testing.T) {
 		{name: "unauthenticated relay", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPUser = ""; c.SMTPPass = ""; return c }(complete)},
 		{name: "username without password", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPPass = ""; return c }(complete), wantErr: true},
 		{name: "password without username", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPUser = ""; return c }(complete), wantErr: true},
+		{name: "username must be an email", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.SMTPUser = "clipvalue"; return c }(complete), wantErr: true},
 		{name: "missing from", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.From = ""; return c }(complete), wantErr: true},
 		{name: "missing to", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.To = ""; return c }(complete), wantErr: true},
 		{name: "invalid from", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.From = "not-an-email"; return c }(complete), wantErr: true},
@@ -350,6 +351,27 @@ func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
 	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("incomplete SMTP authentication status = %d, body=%s", result.Code, result.Body.String())
+	}
+
+	invalidUser := manager.Get()
+	invalidUser.Backup.EmailBackup = DefaultConfig().Backup.EmailBackup
+	invalidUser.Backup.EmailBackup.Enabled = true
+	invalidUser.Backup.EmailBackup.Interval = 24
+	invalidUser.Backup.EmailBackup.SMTPHost = "smtp.example.com"
+	invalidUser.Backup.EmailBackup.SMTPPort = 587
+	invalidUser.Backup.EmailBackup.SMTPUser = "clipvalue"
+	invalidUser.Backup.EmailBackup.SMTPPass = "smtp-password"
+	invalidUser.Backup.EmailBackup.From = "from@example.com"
+	invalidUser.Backup.EmailBackup.To = "to@example.com"
+	invalidUser.Backup.EmailBackup.Format = "json"
+	body, err = json.Marshal(invalidUser)
+	if err != nil {
+		t.Fatalf("marshal invalid SMTP username: %v", err)
+	}
+	result = httptest.NewRecorder()
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "SMTP 用户名必须为邮箱") {
+		t.Fatalf("invalid SMTP username status = %d, body=%s", result.Code, result.Body.String())
 	}
 }
 

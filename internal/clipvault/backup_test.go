@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -185,6 +186,179 @@ func TestRunStartupBackups(t *testing.T) {
 	if len(calls) != 0 {
 		t.Fatalf("disabled startup backup calls = %v", calls)
 	}
+}
+
+func TestSMTPDeliveryValidationRequiresEmailUsername(t *testing.T) {
+	cfg := EmailBackupConfig{
+		SMTPHost: "smtp.example.com",
+		SMTPPort: 587,
+		SMTPUser: "clipvalue",
+		SMTPPass: "smtp-password",
+		From:     "from@example.com",
+		To:       "to@example.com",
+	}
+	problems := smtpDeliveryErrors(cfg)
+	if !strings.Contains(strings.Join(problems, "、"), "SMTP 用户名必须为邮箱") {
+		t.Fatalf("SMTP username validation = %v", problems)
+	}
+	if err := sendSMTPMessage(cfg, nil); err == nil || !strings.Contains(err.Error(), "SMTP 用户名必须为邮箱") {
+		t.Fatalf("send validation error = %v", err)
+	}
+
+	cfg.SMTPUser = ""
+	cfg.SMTPPass = ""
+	if problems := smtpDeliveryErrors(cfg); len(problems) != 0 {
+		t.Fatalf("unauthenticated relay validation = %v", problems)
+	}
+}
+
+func TestBackupReloadIgnoresUnrelatedConfigChanges(t *testing.T) {
+	cfg := completeScheduledBackupConfig()
+	backup := &BackupService{}
+	backup.Reload(cfg)
+
+	backup.mu.Lock()
+	dirGeneration := backup.dirGeneration
+	emailGeneration := backup.emailGeneration
+	dirTimer := backup.dirTimer
+	emailTimer := backup.emailTimer
+	backup.mu.Unlock()
+
+	changed := cfg
+	changed.Brand.Title = "ClipVault Pro"
+	backup.Reload(changed)
+
+	backup.mu.Lock()
+	defer backup.mu.Unlock()
+	if backup.dirGeneration != dirGeneration || backup.emailGeneration != emailGeneration {
+		t.Fatalf("timer generations changed for unrelated config save: dir=%d->%d email=%d->%d", dirGeneration, backup.dirGeneration, emailGeneration, backup.emailGeneration)
+	}
+	if backup.dirTimer != dirTimer || backup.emailTimer != emailTimer {
+		t.Fatalf("timers were reset by unrelated config save: dir=%p/%p email=%p/%p", dirTimer, backup.dirTimer, emailTimer, backup.emailTimer)
+	}
+}
+
+func TestBackupReloadReschedulesOnlyChangedTarget(t *testing.T) {
+	cfg := completeScheduledBackupConfig()
+	backup := &BackupService{}
+	backup.Reload(cfg)
+
+	backup.mu.Lock()
+	dirGeneration := backup.dirGeneration
+	emailGeneration := backup.emailGeneration
+	dirTimer := backup.dirTimer
+	emailTimer := backup.emailTimer
+	backup.mu.Unlock()
+
+	changed := cfg
+	changed.Backup.DirBackup.Interval = 2
+	backup.Reload(changed)
+
+	backup.mu.Lock()
+	defer backup.mu.Unlock()
+	if backup.dirGeneration == dirGeneration {
+		t.Fatalf("dir timer generation did not change: %d", backup.dirGeneration)
+	}
+	if backup.emailGeneration != emailGeneration {
+		t.Fatalf("email timer generation changed unexpectedly: %d -> %d", emailGeneration, backup.emailGeneration)
+	}
+	if backup.dirTimer == nil || backup.emailTimer == nil {
+		t.Fatalf("timers not scheduled after reload: dir=%v email=%v", backup.dirTimer, backup.emailTimer)
+	}
+	if backup.emailTimer != emailTimer {
+		t.Fatalf("email timer was reset unexpectedly: %p -> %p", emailTimer, backup.emailTimer)
+	}
+	if backup.dirTimer == dirTimer {
+		t.Fatalf("dir timer was not replaced: %p", dirTimer)
+	}
+}
+
+func TestBackupReloadPreventsStaleTimerRearm(t *testing.T) {
+	cfg := completeScheduledBackupConfig()
+	backup := &BackupService{}
+	backup.Reload(cfg)
+
+	backup.mu.Lock()
+	dirGeneration := backup.dirGeneration
+	emailGeneration := backup.emailGeneration
+	dirTimer := backup.dirTimer
+	emailTimer := backup.emailTimer
+	backup.mu.Unlock()
+	if dirTimer == nil || emailTimer == nil {
+		t.Fatalf("timers were not scheduled: dir=%v email=%v", dirTimer, emailTimer)
+	}
+
+	disabled := cfg
+	disabled.Backup.DirBackup.Enabled = false
+	disabled.Backup.EmailBackup.Enabled = false
+	backup.Reload(disabled)
+
+	// A callback may already be running while Reload stops its timer. It must not
+	// re-arm the old schedule after the new configuration has taken effect.
+	backup.rearmDirTimer(cfg, dirGeneration)
+	backup.rearmEmailTimer(cfg, emailGeneration)
+	backup.dirBackupTick(dirGeneration)
+	backup.emailBackupTick(emailGeneration)
+
+	backup.mu.Lock()
+	defer backup.mu.Unlock()
+	if backup.dirGeneration == dirGeneration || backup.emailGeneration == emailGeneration {
+		t.Fatalf("timer generations were not advanced: dir=%d email=%d", backup.dirGeneration, backup.emailGeneration)
+	}
+	if backup.dirTimer != nil || backup.emailTimer != nil {
+		t.Fatalf("stale callbacks re-armed timers: dir=%v email=%v", backup.dirTimer, backup.emailTimer)
+	}
+}
+
+func TestWriteBackupFileUsesUniqueNames(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Unix(0, 0)
+	first, err := writeBackupFile(dir, now, "json", []byte("first"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := writeBackupFile(dir, now, "json", []byte("second"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("backup file names were reused")
+	}
+	if !strings.HasPrefix(first, dir) || !strings.HasPrefix(second, dir) {
+		t.Fatalf("backup files were not written inside the target directory: %q %q", first, second)
+	}
+	if data, err := os.ReadFile(first); err != nil || string(data) != "first" {
+		t.Fatalf("first backup file = %q, err=%v", data, err)
+	}
+	if data, err := os.ReadFile(second); err != nil || string(data) != "second" {
+		t.Fatalf("second backup file = %q, err=%v", data, err)
+	}
+}
+
+func completeScheduledBackupConfig() Config {
+	cfg := DefaultConfig()
+	cfg.Backup.DirBackup = DirBackupConfig{
+		Enabled:  true,
+		Interval: 1,
+		Dir:      `D:\backups`,
+		Format:   "json",
+	}
+	cfg.Backup.EmailBackup = EmailBackupConfig{
+		Enabled:     true,
+		Interval:    1,
+		SMTPHost:    "smtp.example.com",
+		SMTPPort:    587,
+		SMTPUser:    "user@example.com",
+		SMTPPass:    "smtp-password",
+		From:        "from@example.com",
+		To:          "to@example.com",
+		Format:      "json",
+		Subject:     "ClipVault 备份 - {time}",
+		Body:        "已生成 {format} 备份文件：{filename}",
+		Style:       "card",
+		AccentColor: "#16A34A",
+	}
+	return cfg
 }
 
 func TestRenderEmailTemplateEscapesContent(t *testing.T) {
