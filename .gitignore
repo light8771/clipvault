@@ -1,6 +1,7 @@
 # 构建产物
 bin/
 dist/
+build/
 *.exe
 
 # 截图（调试用临时文件）
@@ -10,12 +11,13 @@ screenshot*.png
 *.test
 *.out
 
-# IDE
+# IDE 与 AI 助手工作目录
 .idea/
 .vscode/
 *.swp
 *.swo
 .catpaw/
+.workbuddy/
 
 # Windows
 Thumbs.db
