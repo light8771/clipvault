@@ -623,7 +623,7 @@ func (s *SearchServer) handleCSRF(w http.ResponseWriter, r *http.Request) {
 
 func (s *SearchServer) handleLicenseStatus(w http.ResponseWriter, r *http.Request) {
 	if s.license == nil {
-		s.writeJSON(w, map[string]any{"licensed": true, "status": "disabled", "enforced": false})
+		s.writeJSON(w, map[string]any{"licensed": true, "status": "disabled", "enforced": false, "freeLimit": FreeTierVisibleLimit})
 		return
 	}
 	ctx := s.license.Context()
@@ -635,6 +635,7 @@ func (s *SearchServer) handleLicenseStatus(w http.ResponseWriter, r *http.Reques
 		"edition":     ctx.Edition,
 		"machineCode": ctx.MachineCode,
 		"version":     AppVersion,
+		"freeLimit":   FreeTierVisibleLimit,
 	})
 }
 
@@ -719,7 +720,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
-	items, total, err := s.store.Search(r.Context(), SearchOptions{
+	opts := SearchOptions{
 		Query:            r.URL.Query().Get("q"),
 		Limit:            limit,
 		Offset:           offset,
@@ -729,7 +730,17 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		DateTo:           r.URL.Query().Get("date_to"),
 		IncludeSensitive: true,
 		GroupID:          groupID,
-	})
+	}
+	resp := map[string]any{}
+	// 未激活（免费版）：读取窗口限制为最近 FreeTierVisibleLimit 条，
+	// 并额外返回全量总数 fullTotal 供前端 badge 展示（转化钩子）。
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		opts.RestrictToLatestN = FreeTierVisibleLimit
+		if ft, err := s.store.CountAll(r.Context()); err == nil {
+			resp["fullTotal"] = ft
+		}
+	}
+	items, total, err := s.store.Search(r.Context(), opts)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -744,14 +755,16 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	s.writeJSON(w, map[string]any{"items": items, "total": total})
+	resp["items"] = items
+	resp["total"] = total
+	s.writeJSON(w, resp)
 }
 
 // handleSensitiveSearch 仅返回敏感记录，需要二次认证。
 func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	items, total, err := s.store.Search(r.Context(), SearchOptions{
+	opts := SearchOptions{
 		Query:         r.URL.Query().Get("q"),
 		Limit:         limit,
 		Offset:        offset,
@@ -759,7 +772,11 @@ func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Requ
 		DateFrom:      r.URL.Query().Get("date_from"),
 		DateTo:        r.URL.Query().Get("date_to"),
 		SensitiveOnly: true,
-	})
+	}
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		opts.RestrictToLatestN = FreeTierVisibleLimit
+	}
+	items, total, err := s.store.Search(r.Context(), opts)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -797,6 +814,11 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 	pos, err := s.store.GetPositionByID(r.Context(), id)
 	if err != nil {
 		s.writeError(w, err)
+		return
+	}
+	// 未激活时，窗口外的记录无法定位（前端列表里根本看不到）
+	if s.license != nil && !s.license.CanUsePaidFeatures() && pos >= FreeTierVisibleLimit {
+		s.writeJSON(w, map[string]any{"error": "未激活仅可查看最近 " + strconv.Itoa(FreeTierVisibleLimit) + " 条记录，该记录不在可查看范围内"})
 		return
 	}
 	s.writeJSON(w, map[string]any{"position": pos})
@@ -1042,6 +1064,17 @@ func preserveAssetMetadata(cfg *Config, current Config) {
 
 // handleExportData exports complete data as JSON, XLSX, or encrypted cvexport.
 func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) {
+	// 导出是付费功能：未激活时禁止导出（数据出口付费墙）
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusPaymentRequired)
+		s.writeJSON(w, map[string]any{
+			"ok":      false,
+			"error":   "license_required",
+			"message": "导出为付费功能，激活后可导出全部数据",
+		})
+		return
+	}
 	format := r.URL.Query().Get("format")
 	scope := ExportScope{
 		Mode: r.URL.Query().Get("mode"),

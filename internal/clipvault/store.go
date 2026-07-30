@@ -26,6 +26,10 @@ var errItemOrGroupNotFound = errors.New("item or group not found")
 
 const emailBackupHistoryTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
+// FreeTierVisibleLimit 是未激活（免费版）可浏览/检索的最近记录条数。
+// 数据照常录制入库；未激活时所有读取入口（列表、搜索、弹窗）只作用于这个窗口。
+const FreeTierVisibleLimit = 100
+
 type storeQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -93,6 +97,9 @@ type SearchOptions struct {
 	IncludeSensitive bool   // include sensitive items in results (default false)
 	GroupID          int64  // filter by group id (0 = no group filter)
 	SkipTotal        bool   // skip total count when the caller only needs the current page
+	// RestrictToLatestN > 0 时，查询仅作用于按 id DESC 取最近 N 条的窗口。
+	// 未激活（免费版）由调用方填充 FreeTierVisibleLimit；0 表示不限制。
+	RestrictToLatestN int
 }
 
 const maxSearchTerms = 8
@@ -356,6 +363,13 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	var conds []string
 	var args []any
 
+	// 免费版窗口限制：未激活时只作用于最近 N 条记录（按 id DESC）。
+	// 窗口是全量最近 N 条，用户的其他过滤条件在窗口内进一步筛选。
+	if opts.RestrictToLatestN > 0 {
+		conds = append(conds, "id IN (SELECT id FROM clipboard_items ORDER BY id DESC LIMIT ?)")
+		args = append(args, opts.RestrictToLatestN)
+	}
+
 	for _, term := range splitSearchTerms(opts.Query) {
 		like := "%" + escapeLike(term) + "%"
 		// Each term may match the visible text, type, native format, metadata,
@@ -466,6 +480,14 @@ func (s *Store) GetPositionByID(ctx context.Context, id int64) (int, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// CountAll 返回 clipboard_items 表的总记录数（不含任何过滤条件）。
+// 未激活时用于前端 badge 显示全量数据总数（转化钩子）。
+func (s *Store) CountAll(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clipboard_items").Scan(&n)
+	return n, err
 }
 
 func (s *Store) Star(ctx context.Context, id int64, starred bool) error {

@@ -6,16 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sync"
-
-	"clipboard_ext/internal/licensing"
 )
 
 type Recorder struct {
-	cfgMgr  *ConfigManager
-	store   *Store
-	state   *RuntimeState
-	logger  *DailyLogger
-	license *licensing.Manager
+	cfgMgr *ConfigManager
+	store  *Store
+	state  *RuntimeState
+	logger *DailyLogger
 
 	mu       sync.Mutex
 	filter   *FilterEngine
@@ -33,15 +30,14 @@ type ClipboardSnapshot struct {
 	Meta    map[string]any
 }
 
-func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger, license *licensing.Manager) *Recorder {
+func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger) *Recorder {
 	filter, _ := NewFilterEngine(cfgMgr.Get().Sensitive)
 	r := &Recorder{
-		cfgMgr:  cfgMgr,
-		store:   store,
-		state:   state,
-		logger:  logger,
-		license: license,
-		filter:  filter,
+		cfgMgr: cfgMgr,
+		store:  store,
+		state:  state,
+		logger: logger,
+		filter: filter,
 	}
 	// 配置变更时重建 FilterEngine（立即生效）
 	cfgMgr.OnChange(func(cfg Config) error {
@@ -60,9 +56,6 @@ func (r *Recorder) ProcessClipboardUpdate() {
 	defer r.mu.Unlock()
 
 	if r.state.IsPaused() {
-		return
-	}
-	if r.license != nil && !r.license.CanUsePaidFeatures() {
 		return
 	}
 

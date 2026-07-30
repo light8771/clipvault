@@ -48,12 +48,12 @@
         TC   = document.getElementById('tc');
 
   let debounce = 0, arTimer = 0, currentKind = '';
-  let currentPage = 0, totalCount = 0;
+  let currentPage = 0, totalCount = 0, fullTotalCount = 0;
   let pendingLocateId = 0; // 定位后需要高亮的 item id
   let locateActive = false; // 定位进行中，阻止 resetSearch 干扰
   let filterDateFrom = '', filterDateTo = '';
   let currentGroupID = 0; // 0 = no group filter
-	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '' };
+	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '', freeLimit: 100 };
 	let fullMachineId = '';
   const items = new Map();
   const filePaths = new Map();
@@ -611,6 +611,11 @@
       banner.classList.toggle('hidden', d.licensed);
       activateBlock.classList.toggle('hidden', d.licensed);
       details.classList.toggle('hidden', !d.licensed);
+      if (!d.licensed) {
+        const limit = d.freeLimit || 100;
+        banner.querySelector('span').textContent =
+          '免费版运行中：持续记录剪贴板，可浏览最近 ' + limit + ' 条。激活后解锁全部历史记录与导出备份功能。';
+      }
       if (d.licenseId) document.getElementById('licenseIdText').textContent = d.licenseId;
       if (d.machineCode) code.value = d.machineCode;
       await loadMachineID();
@@ -677,7 +682,7 @@
         return;
       }
       input.value = '';
-      message.textContent = '激活成功，ClipVault 已开始记录剪贴板';
+      message.textContent = '激活成功，已解锁全部历史记录与导出备份功能';
       message.className = 'license-message ok';
       toast('激活成功');
       await loadLicenseStatus();
@@ -728,12 +733,11 @@
   async function refreshState() {
     try {
       const d = await fetch('/api/state').then(r => r.json());
-      const licenseBlocked = !licenseState.licensed;
-      DOT.className = 'dot' + ((d.paused || licenseBlocked) ? ' paused' : '');
-      ST.textContent = licenseBlocked ? '未激活' : (d.paused ? '已暂停' : '记录中');
+      DOT.className = 'dot' + (d.paused ? ' paused' : '');
+      ST.textContent = d.paused ? '已暂停' : '记录中';
       TOG.className = 'btn-toggle' + (d.paused ? ' off' : '');
-      TOG.disabled = licenseBlocked;
-      TOGTX.textContent = licenseBlocked ? '未激活' : (d.paused ? '恢复' : '暂停');
+      TOG.disabled = false;
+      TOGTX.textContent = d.paused ? '恢复' : '暂停';
       const togIcon = document.getElementById('togIcon');
       togIcon.innerHTML = d.paused
         ? '<polygon points="5 3 19 12 5 21 5 3"/>'
@@ -1225,6 +1229,7 @@
         return;
       }
       totalCount = d.total || 0;
+      fullTotalCount = (d.fullTotal !== undefined) ? d.fullTotal : totalCount;
       render(d.items || [], q);
       updatePagination();
     } catch (_) {}
@@ -1244,8 +1249,12 @@
     PREV.disabled = currentPage === 0;
     NEXT.disabled = end >= totalCount;
     PAG.classList.toggle('hidden', totalCount === 0);
-    BADGE.textContent = totalCount;
-    RC.textContent = totalCount + ' 条结果';
+    // 未激活时 badge 始终显示全量总数（转化钩子），已激活时跟随当前结果
+    BADGE.textContent = (!licenseState.licensed && fullTotalCount > 0) ? fullTotalCount : totalCount;
+    const freeNote = (!licenseState.licensed && fullTotalCount > totalCount)
+      ? ' · 免费版仅显示最近 ' + licenseState.freeLimit + ' 条'
+      : '';
+    RC.textContent = totalCount + ' 条结果' + freeNote;
     if (JI) { JI.value = currentPage + 1; JI.max = totalPages; }
   }
 
@@ -2931,6 +2940,15 @@
       try {
         const res = await secondaryFetch(baseUrl, requestInit);
         if (res.status === 403) continue; // token 失效，重试
+        if (res.status === 402) {
+          // 付费墙：未激活
+          try {
+            const d = await res.json();
+            toast(d.message || '导出为付费功能，请先激活', 'err');
+          } catch (_) { toast('导出为付费功能，请先激活', 'err'); }
+          openLicenseSettings();
+          return false;
+        }
         if (!res.ok) { toast('导出失败: ' + res.status, 'err'); return false; }
         const blob = await res.blob();
         const cd = res.headers.get('Content-Disposition') || '';
@@ -3003,6 +3021,7 @@
   };
 
   window.doExport = async function(type) {
+    if (!licenseState.licensed) { toast('导出为付费功能，激活后可导出全部数据', 'err'); openLicenseSettings(); return; }
     const fmt = type === 'data-xlsx' ? 'xlsx' : 'json';
     const fallback = 'clipvault-data.' + fmt;
     const label = '剪切板记录（' + (type === 'data-xlsx' ? 'Excel' : 'JSON') + '）';
@@ -3021,6 +3040,7 @@
 
   // ── Encrypted export (.cvexport) ─────────────────────────────
   window.doExportCvexport = function() {
+    if (!licenseState.licensed) { toast('导出为付费功能，激活后可导出全部数据', 'err'); openLicenseSettings(); return; }
     const html = `
       <div class="modal-overlay" id="cvexportOverlay">
         <div class="modal-box secondary-box" onclick="event.stopPropagation()">

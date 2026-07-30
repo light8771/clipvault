@@ -410,7 +410,7 @@ func (r *WindowsRuntime) notifyIconData() notifyIconData {
 	}
 	tip := "ClipVault - 正在记录"
 	if r.license != nil && !r.license.CanUsePaidFeatures() {
-		tip = "ClipVault - 未激活，未记录"
+		tip = fmt.Sprintf("ClipVault - 免费版：仅可查看最近 %d 条", FreeTierVisibleLimit)
 	} else if r.state.IsPaused() {
 		tip = "ClipVault - 已暂停"
 	}
@@ -576,7 +576,7 @@ func (r *WindowsRuntime) openQuickSearch() {
 		r.logger.Warn("quick_search_skipped", map[string]any{"reason": "store_or_url_missing"})
 		return
 	}
-	ShowSearchWindow(r.store, r.SearchURL, r.logger)
+	ShowSearchWindow(r.store, r.SearchURL, r.logger, r.license)
 }
 
 // ReregisterHotkey 从任意线程调用，通过 PostMessage 将重注册请求

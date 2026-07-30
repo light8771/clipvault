@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"clipboard_ext/internal/licensing"
 )
 
 // 搜索弹窗相关 Win32 常量
@@ -142,6 +144,7 @@ type searchWindow struct {
 	store     *Store
 	searchURL string
 	logger    *DailyLogger
+	license   *licensing.Manager
 
 	hwnd    uintptr
 	hEdit   uintptr
@@ -203,7 +206,7 @@ var (
 )
 
 // ShowSearchWindow 在新线程上启动搜索弹窗。如果已有弹窗则将其前置。
-func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger) {
+func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger, license *licensing.Manager) {
 	searchWindowMu.Lock()
 	existing := activeSearchWindow
 	if existing != nil {
@@ -217,6 +220,7 @@ func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger) {
 		store:          store,
 		searchURL:      searchURL,
 		logger:         logger,
+		license:        license,
 		pendingResults: make(map[uint64]searchResult),
 	}
 	activeSearchWindow = sw
@@ -348,7 +352,11 @@ func (sw *searchWindow) run() {
 	sw.applyTextFont(sw.hEdit)
 	sw.applyTextFont(sw.hList)
 	sw.applyTextFont(sw.hEmpty)
-	hintText, _ := syscall.UTF16PtrFromString(fmt.Sprintf("最多显示最近 %d 条匹配记录   X 清空输入   Enter 打开   ↑↓ 选择   Esc 关闭", quickSearchResultLimit))
+	hintBase := fmt.Sprintf("最多显示最近 %d 条匹配记录   X 清空输入   Enter 打开   ↑↓ 选择   Esc 关闭", quickSearchResultLimit)
+	if sw.license != nil && !sw.license.CanUsePaidFeatures() {
+		hintBase = fmt.Sprintf("免费版仅检索最近 %d 条记录，激活解锁全部   Esc 关闭", FreeTierVisibleLimit)
+	}
+	hintText, _ := syscall.UTF16PtrFromString(hintBase)
 	procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(staticCls)),
@@ -698,12 +706,16 @@ func (sw *searchWindow) startSearch(q string) {
 	sw.showSearchStatus("正在搜索...")
 
 	go func() {
-		items, _, err := sw.store.Search(ctx, SearchOptions{
+		opts := SearchOptions{
 			Query:            q,
 			Limit:            quickSearchResultLimit,
 			IncludeSensitive: false,
 			SkipTotal:        true,
-		})
+		}
+		if sw.license != nil && !sw.license.CanUsePaidFeatures() {
+			opts.RestrictToLatestN = FreeTierVisibleLimit
+		}
+		items, _, err := sw.store.Search(ctx, opts)
 		if ctx.Err() != nil {
 			return
 		}

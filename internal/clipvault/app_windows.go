@@ -119,7 +119,7 @@ func Run(env Environment) error {
 	})
 
 	state := NewRuntimeState(false)
-	recorder := NewRecorder(cfgMgr, store, state, logger, licenseMgr)
+	recorder := NewRecorder(cfgMgr, store, state, logger)
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 	searchURL, err := searchServer.Start()
