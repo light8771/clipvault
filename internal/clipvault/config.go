@@ -251,12 +251,14 @@ type BackupConfig struct {
 
 // DirBackupConfig 定时备份到指定目录。
 type DirBackupConfig struct {
-	Enabled      bool   `json:"enabled"`
-	RunOnStartup bool   `json:"runOnStartup"`
-	Interval     int    `json:"interval"` // 备份间隔(小时)
-	Dir          string `json:"dir"`      // 目标目录路径
-	Format       string `json:"format"`   // "json" / "xlsx" / "cvexport"
-	Password     string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+	Enabled                 bool        `json:"enabled"`
+	RunOnStartup            bool        `json:"runOnStartup"`
+	Interval                int         `json:"interval"`                // 备份间隔(小时)
+	Dir                     string      `json:"dir"`                     // 目标目录路径
+	Format                  string      `json:"format"`                  // "json" / "xlsx" / "cvexport"
+	Password                string      `json:"password"`                // cvexport 加密密码（仅 cvexport 格式使用）
+	Scope                   ExportScope `json:"scope"`                   // 备份范围 full/range/incremental
+	IncrementalFullInterval int         `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
 }
 
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。
@@ -272,10 +274,13 @@ type EmailBackupConfig struct {
 	To           string `json:"to"`       // 收件人邮箱
 	Format       string `json:"format"`   // "json" / "xlsx" / "cvexport"
 	Password     string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
-	Subject      string `json:"subject"`
-	Body         string `json:"body"`
-	Style        string `json:"style"`
-	AccentColor  string `json:"accentColor"`
+	Subject      string      `json:"subject"`
+	Body         string      `json:"body"`
+	Style        string      `json:"style"`
+	AccentColor  string      `json:"accentColor"`
+	Scope        ExportScope `json:"scope"`                  // 备份范围 full/range/incremental
+	MaxPartSize  int         `json:"maxPartSize"`            // 单封附件阈值(字节)，默认20MB
+	IncrementalFullInterval int `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
 }
 
 func DefaultConfig() Config {
@@ -338,17 +343,22 @@ func DefaultConfig() Config {
 		},
 		Backup: BackupConfig{
 			DirBackup: DirBackupConfig{
-				Interval: 24,
-				Format:   "cvexport",
+				Interval:                24,
+				Format:                  "cvexport",
+				Scope:                   ExportScope{Mode: "full"},
+				IncrementalFullInterval: 7,
 			},
 			EmailBackup: EmailBackupConfig{
-				Interval:    24,
-				SMTPPort:    587,
-				Format:      "cvexport",
-				Subject:     "ClipVault 备份 - {time}",
-				Body:        "已生成 {format} 备份文件：{filename}",
-				Style:       "card",
-				AccentColor: "#16A34A",
+				Interval:                24,
+				SMTPPort:                587,
+				Format:                  "cvexport",
+				Subject:                 "ClipVault 备份 - {time}",
+				Body:                    "已生成 {format} 备份文件：{filename}",
+				Style:                   "card",
+				AccentColor:             "#16A34A",
+				Scope:                   ExportScope{Mode: "full"},
+				MaxPartSize:             20 << 20,
+				IncrementalFullInterval: 7,
 			},
 		},
 	}

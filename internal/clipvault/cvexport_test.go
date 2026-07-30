@@ -45,49 +45,6 @@ func TestCvExportRoundtrip(t *testing.T) {
 	t.Logf("[OK] IsCVExport correctly identifies non-cvexport data")
 }
 
-func TestCvExportJSONRoundtrip(t *testing.T) {
-	type Data struct {
-		Items []struct {
-			ID   int    `json:"id"`
-			Text string `json:"text"`
-		} `json:"items"`
-		Groups []any `json:"groups"`
-	}
-
-	original := Data{
-		Items: []struct {
-			ID   int    `json:"id"`
-			Text string `json:"text"`
-		}{
-			{ID: 1, Text: "hello"},
-			{ID: 2, Text: "world"},
-		},
-		Groups: []any{},
-	}
-	password := "JsonTest#Pass1"
-
-	// Encrypt
-	encData, err := EncryptExportJSON(original, password)
-	if err != nil {
-		t.Fatalf("EncryptExportJSON: %v", err)
-	}
-	t.Logf("[OK] encrypted JSON: %d bytes", len(encData))
-
-	// Decrypt and unmarshal
-	var decrypted Data
-	if err := DecryptExportJSON(encData, password, &decrypted); err != nil {
-		t.Fatalf("DecryptExportJSON: %v", err)
-	}
-
-	if len(decrypted.Items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(decrypted.Items))
-	}
-	if decrypted.Items[0].Text != "hello" || decrypted.Items[1].Text != "world" {
-		t.Fatalf("data mismatch: %+v", decrypted.Items)
-	}
-	t.Logf("[OK] JSON roundtrip: %d items, data intact", len(decrypted.Items))
-}
-
 func TestCvExportDoesNotLeakPlaintext(t *testing.T) {
 	secret := "ThisIsVerySecretData123!@#"
 	data := []byte(`{"text":"` + secret + `"}`)

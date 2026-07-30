@@ -859,6 +859,23 @@
               <option value="xlsx">Excel（明文）</option>
             </select>
           </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-dirBackupScope">备份范围</label>
+              <p class="field-hint">增量只备份上次后新增的记录（按 id），定期自动全量兜底</p>
+            </div>
+            <select id="cfg-dirBackupScope" class="field-input" style="width:150px">
+              <option value="full">全量（推荐）</option>
+              <option value="incremental">增量</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-dirBackupIncrementalFullInterval">增量自动全量间隔</label>
+              <p class="field-hint">增量多少次后自动全量兜底（0=不自动兜底，需手动全量）</p>
+            </div>
+            <input type="number" id="cfg-dirBackupIncrementalFullInterval" class="field-input field-input-sm" min="0" max="100" step="1" placeholder="7">
+          </div>
           <div class="field-row" id="cfg-dirBackupPwdRow" style="display:none">
             <div class="field-info">
               <label class="field-label" for="cfg-dirBackupPwd">加密密码</label>
@@ -885,6 +902,7 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               立即备份
             </button>
+            <button class="btn-export" onclick="doBackupDirFullNow()" style="margin-left:8px" title="强制全量并重置增量链">立即全量</button>
           </div>
           <div class="field-row" id="cfg-dirBackupStatusRow" style="display:none">
             <div class="field-info">
@@ -1010,6 +1028,30 @@
               <option value="xlsx">Excel（明文）</option>
             </select>
           </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupScope">备份范围</label>
+              <p class="field-hint">增量只备份上次后新增的记录；数据量大时附件自动分多封发送</p>
+            </div>
+            <select id="cfg-emailBackupScope" class="field-input" style="width:150px">
+              <option value="full">全量（推荐）</option>
+              <option value="incremental">增量</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupMaxPartSize">单封附件上限（MB）</label>
+              <p class="field-hint">超过自动分多封，默认 20MB（SMTP 普通附件安全阈值）</p>
+            </div>
+            <input type="number" id="cfg-emailBackupMaxPartSize" class="field-input field-input-sm" min="1" max="50" step="1" placeholder="20">
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-emailBackupIncrementalFullInterval">增量自动全量间隔</label>
+              <p class="field-hint">增量多少次后自动全量兜底（0=不自动兜底，需手动全量）</p>
+            </div>
+            <input type="number" id="cfg-emailBackupIncrementalFullInterval" class="field-input field-input-sm" min="0" max="100" step="1" placeholder="7">
+          </div>
           <div class="field-row" id="cfg-emailBackupPwdRow" style="display:none">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupPwd">加密密码</label>
@@ -1046,6 +1088,7 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               立即发送
             </button>
+            <button class="btn-export" onclick="doBackupEmailFullNow()" style="margin-left:8px" title="强制全量并重置增量链">立即全量</button>
           </div>
           <div class="field-row" id="cfg-emailBackupStatusRow" style="display:none">
             <div class="field-info">

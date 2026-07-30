@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -569,11 +570,6 @@ func (s *Store) SaveConfig(cfg Config) error {
 	return err
 }
 
-// ExportAll 返回所有剪切板记录（不限数量），按 id 正序排列，用于数据导出。
-func (s *Store) ExportAll(ctx context.Context) ([]StoredItem, error) {
-	return exportAll(ctx, s.db)
-}
-
 func exportAll(ctx context.Context, queryer storeQueryer) ([]StoredItem, error) {
 	rows, err := queryer.QueryContext(ctx, `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive
 		FROM clipboard_items ORDER BY id ASC`)
@@ -651,6 +647,17 @@ type ItemGroupLink struct {
 	GroupID int64 `json:"groupId"`
 }
 
+// ExportScope describes the data range for export and backup operations.
+// It is persisted in backup config (DirBackupConfig/EmailBackupConfig.Scope)
+// but never written into the export JSON, so imports stay format-compatible.
+type ExportScope struct {
+	Mode    string `json:"mode"`    // "full" | "range" | "incremental"
+	From    string `json:"from"`    // range: inclusive start (RFC3339 or YYYY-MM-DD)
+	To      string `json:"to"`      // range: exclusive end
+	SinceID int64  `json:"sinceId"` // incremental: export rows with id > SinceID
+	MaxID   int64  `json:"maxId"`   // incremental: optional upper bound id <= MaxID (for chunking)
+}
+
 // ExportFullForJSON exports clipboard data, group hierarchy, and portable
 // sensitive-data rules.
 func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
@@ -722,6 +729,279 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	return export, nil
 }
 
+// StreamExport writes a complete export as JSON to w using row cursors, so
+// memory stays O(batch) instead of O(total rows). The output is byte-compatible
+// with json.Marshal of ExportFullForJSON and can be parsed by ImportFullJSON.
+// scope selects full / range / incremental data; groups and settings are always
+// exported in full (they are small), while items and item_groups are filtered.
+func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin export tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	header := struct {
+		ExportVersion int    `json:"exportVersion"`
+		App           string `json:"app"`
+		ExportedAt    string `json:"exportedAt"`
+		SourceEngine  string `json:"sourceEngine"`
+		Warning       string `json:"warning"`
+	}{
+		ExportVersion: 3,
+		App:           "ClipVault",
+		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
+		SourceEngine:  "duckdb",
+		Warning:       "This export contains plaintext clipboard content.",
+	}
+	hb, err := json.Marshal(header)
+	if err != nil {
+		return fmt.Errorf("marshal header: %w", err)
+	}
+	// Strip the trailing '}' so the items array can be appended.
+	if _, err := w.Write(hb[:len(hb)-1]); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+	if _, err := w.Write([]byte(`,"items":[`)); err != nil {
+		return fmt.Errorf("write items header: %w", err)
+	}
+
+	itemSQL, itemArgs := exportItemsQuery(scope)
+	rows, err := tx.QueryContext(ctx, itemSQL, itemArgs...)
+	if err != nil {
+		return fmt.Errorf("query items: %w", err)
+	}
+	first := true
+	for rows.Next() {
+		var item StoredItem
+		var created string
+		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
+			&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan item: %w", err)
+		}
+		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
+			item.CreatedAt = parsed
+		}
+		if !first {
+			if _, err := w.Write([]byte(",")); err != nil {
+				rows.Close()
+				return fmt.Errorf("write item separator: %w", err)
+			}
+		}
+		b, err := json.Marshal(item)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("marshal item: %w", err)
+		}
+		if _, err := w.Write(b); err != nil {
+			rows.Close()
+			return fmt.Errorf("write item: %w", err)
+		}
+		first = false
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close items: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate items: %w", err)
+	}
+
+	// groups: always full (typically small)
+	groups, err := listGroups(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("export groups: %w", err)
+	}
+	if groups == nil {
+		groups = []StoredGroup{}
+	}
+	gb, err := json.Marshal(groups)
+	if err != nil {
+		return fmt.Errorf("marshal groups: %w", err)
+	}
+	if _, err := w.Write([]byte(`],"groups":`)); err != nil {
+		return fmt.Errorf("write groups header: %w", err)
+	}
+	if _, err := w.Write(gb); err != nil {
+		return fmt.Errorf("write groups: %w", err)
+	}
+
+	// item_groups: streamed and filtered to the exported item range
+	linkSQL, linkArgs := exportLinksQuery(scope)
+	if _, err := w.Write([]byte(`,"itemGroups":[`)); err != nil {
+		return fmt.Errorf("write itemGroups header: %w", err)
+	}
+	lrows, err := tx.QueryContext(ctx, linkSQL, linkArgs...)
+	if err != nil {
+		return fmt.Errorf("query item_groups: %w", err)
+	}
+	lfirst := true
+	for lrows.Next() {
+		var l ItemGroupLink
+		if err := lrows.Scan(&l.ItemID, &l.GroupID); err != nil {
+			lrows.Close()
+			return fmt.Errorf("scan link: %w", err)
+		}
+		if !lfirst {
+			if _, err := w.Write([]byte(",")); err != nil {
+				lrows.Close()
+				return fmt.Errorf("write link separator: %w", err)
+			}
+		}
+		b, err := json.Marshal(l)
+		if err != nil {
+			lrows.Close()
+			return fmt.Errorf("marshal link: %w", err)
+		}
+		if _, err := w.Write(b); err != nil {
+			lrows.Close()
+			return fmt.Errorf("write link: %w", err)
+		}
+		lfirst = false
+	}
+	if err := lrows.Close(); err != nil {
+		return fmt.Errorf("close item_groups: %w", err)
+	}
+	if err := lrows.Err(); err != nil {
+		return fmt.Errorf("iterate item_groups: %w", err)
+	}
+
+	// settings: always full (portable sensitive rules only)
+	cfg, err := getConfig(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("export settings: %w", err)
+	}
+	settings := ExportSettings{Sensitive: SensitiveConfig{
+		CustomPatterns: append([]string{}, cfg.Sensitive.CustomPatterns...),
+	}}
+	sb, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if _, err := w.Write([]byte(`],"settings":`)); err != nil {
+		return fmt.Errorf("write settings header: %w", err)
+	}
+	if _, err := w.Write(sb); err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+	if _, err := w.Write([]byte("}")); err != nil {
+		return fmt.Errorf("write footer: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// exportItemsQuery builds the clipboard_items SELECT for the given scope.
+func exportItemsQuery(scope ExportScope) (string, []any) {
+	const base = `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive FROM clipboard_items`
+	switch scope.Mode {
+	case "range":
+		return base + ` WHERE created_at >= ? AND created_at < ? ORDER BY id ASC`, []any{scope.From, scope.To}
+	case "incremental":
+		sql := base + ` WHERE id > ?`
+		args := []any{scope.SinceID}
+		if scope.MaxID > 0 {
+			sql += ` AND id <= ?`
+			args = append(args, scope.MaxID)
+		}
+		return sql + ` ORDER BY id ASC`, args
+	default:
+		return base + ` ORDER BY id ASC`, nil
+	}
+}
+
+// exportLinksQuery builds the item_groups SELECT for the given scope. Links are
+// filtered to the exported item range so a partial export stays self-consistent.
+func exportLinksQuery(scope ExportScope) (string, []any) {
+	const base = `SELECT item_id, group_id FROM item_groups`
+	switch scope.Mode {
+	case "range":
+		return base + ` WHERE item_id IN (SELECT id FROM clipboard_items WHERE created_at >= ? AND created_at < ?) ORDER BY item_id ASC`, []any{scope.From, scope.To}
+	case "incremental":
+		sql := base + ` WHERE item_id > ?`
+		args := []any{scope.SinceID}
+		if scope.MaxID > 0 {
+			sql += ` AND item_id <= ?`
+			args = append(args, scope.MaxID)
+		}
+		return sql + ` ORDER BY item_id ASC`, args
+	default:
+		return base + ` ORDER BY item_id ASC`, nil
+	}
+}
+
+// exportScopeWhere builds the WHERE clause (without leading " WHERE") for
+// clipboard_items, shared by count/min/max queries.
+func exportScopeWhere(scope ExportScope) (string, []any) {
+	switch scope.Mode {
+	case "range":
+		return ` WHERE created_at >= ? AND created_at < ?`, []any{scope.From, scope.To}
+	case "incremental":
+		sql := ` WHERE id > ?`
+		args := []any{scope.SinceID}
+		if scope.MaxID > 0 {
+			sql += ` AND id <= ?`
+			args = append(args, scope.MaxID)
+		}
+		return sql, args
+	default:
+		return "", nil
+	}
+}
+
+// defaultItemsPerPart targets ~5k rows per chunk (roughly 1-5MB depending on
+// text size), small enough for email attachments when encrypted.
+const defaultItemsPerPart = 5000
+
+// IDRange returns the min and max item id for the given scope, used to plan
+// chunked exports (e.g. splitting a 300k-row backup into N email parts).
+func (s *Store) IDRange(ctx context.Context, scope ExportScope) (minID, maxID int64, err error) {
+	where, args := exportScopeWhere(scope)
+	q := `SELECT COALESCE(MIN(id),0), COALESCE(MAX(id),0) FROM clipboard_items` + where
+	err = s.db.QueryRowContext(ctx, q, args...).Scan(&minID, &maxID)
+	return
+}
+
+// BackupWatermark records the last successful incremental backup position,
+// stored in the settings table so incremental backups can resume from it.
+type BackupWatermark struct {
+	LastItemID       int64  `json:"lastItemId"`
+	LastSentAt       string `json:"lastSentAt"`
+	IncrementalCount int    `json:"incrementalCount"` // consecutive incremental runs; force full after threshold
+	LastFullAt       string `json:"lastFullAt"`       // timestamp of the last full backup
+}
+
+// GetBackupWatermark reads the watermark for the given backup kind ("dir" or "email").
+// Returns a zero value (no error) when no watermark exists yet.
+func (s *Store) GetBackupWatermark(ctx context.Context, kind string) (BackupWatermark, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, "backup."+kind+".watermark").Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackupWatermark{}, nil
+	}
+	if err != nil {
+		return BackupWatermark{}, fmt.Errorf("read backup watermark: %w", err)
+	}
+	var wm BackupWatermark
+	if err := json.Unmarshal([]byte(raw), &wm); err != nil {
+		return BackupWatermark{}, fmt.Errorf("parse backup watermark: %w", err)
+	}
+	return wm, nil
+}
+
+// SetBackupWatermark persists the watermark for the given backup kind.
+func (s *Store) SetBackupWatermark(ctx context.Context, kind string, wm BackupWatermark) error {
+	data, err := json.Marshal(wm)
+	if err != nil {
+		return fmt.Errorf("marshal backup watermark: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		"backup."+kind+".watermark", string(data))
+	return err
+}
+
 // ImportFullJSON imports clipboard data, group hierarchy, and portable
 // sensitive-data rules in one transaction.
 func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
@@ -771,7 +1051,10 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 	}
 
 	// Import groups with ID remapping. Parent groups are inserted first even
-	// when a workbook happens to list children before parents.
+	// when a workbook happens to list children before parents. Groups are merged
+	// idempotently by (name, parent_id): an existing matching group is reused
+	// instead of creating a duplicate, so multi-part email backups (each part
+	// carries the full group list) and repeated imports stay clean.
 	groupIDMap := make(map[int64]int64) // oldID -> newID
 	pendingGroups := append([]StoredGroup(nil), export.Groups...)
 	for len(pendingGroups) > 0 {
@@ -785,6 +1068,18 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			if !ready {
 				next = append(next, g)
 				continue
+			}
+			var existingID int64
+			lookupErr := tx.QueryRowContext(ctx,
+				`SELECT id FROM groups WHERE name = ? AND parent_id = ? ORDER BY id ASC LIMIT 1`,
+				g.Name, parentID).Scan(&existingID)
+			if lookupErr == nil {
+				groupIDMap[g.ID] = existingID
+				progressed = true
+				continue
+			}
+			if !errors.Is(lookupErr, sql.ErrNoRows) {
+				return fmt.Errorf("lookup group %q: %w", g.Name, lookupErr)
 			}
 			var newID int64
 			err := tx.QueryRowContext(ctx,
@@ -803,34 +1098,100 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		pendingGroups = next
 	}
 
-	// Import items with ID remapping
+	// Import items with ID remapping, batched for throughput (multi-row INSERT).
+	// DuckDB assigns sequential ids within a transaction, so after each batch we
+	// read back the new ids greater than the previous max to rebuild oldID->newID.
+	const importBatchSize = 500
 	itemIDMap := make(map[int64]int64) // oldID -> newID
-	for _, item := range export.Items {
-		var newID int64
-		err := tx.QueryRowContext(ctx,
-			`INSERT INTO clipboard_items
-			(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-			item.CreatedAt.UTC().Format(time.RFC3339Nano),
-			item.Kind, item.Format, item.Text,
-			item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
-			item.Starred, item.Sensitive,
-		).Scan(&newID)
-		if err != nil {
-			return fmt.Errorf("import item %d: %w", item.ID, err)
+	for i := 0; i < len(export.Items); i += importBatchSize {
+		end := i + importBatchSize
+		if end > len(export.Items) {
+			end = len(export.Items)
 		}
-		itemIDMap[item.ID] = newID
+		batch := export.Items[i:end]
+
+		var beforeMax int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id),0) FROM clipboard_items`).Scan(&beforeMax); err != nil {
+			return fmt.Errorf("query max id before batch: %w", err)
+		}
+
+		var sb strings.Builder
+		sb.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive) VALUES `)
+		args := make([]any, 0, len(batch)*10)
+		for j, item := range batch {
+			if j > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?)")
+			args = append(args,
+				item.CreatedAt.UTC().Format(time.RFC3339Nano),
+				item.Kind, item.Format, item.Text,
+				item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
+				item.Starred, item.Sensitive,
+			)
+		}
+		if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
+			return fmt.Errorf("import items batch at offset %d: %w", i, err)
+		}
+
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM clipboard_items WHERE id > ? ORDER BY id ASC`, beforeMax)
+		if err != nil {
+			return fmt.Errorf("query imported ids: %w", err)
+		}
+		k := 0
+		for rows.Next() {
+			var newID int64
+			if err := rows.Scan(&newID); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan imported id: %w", err)
+			}
+			if k < len(batch) {
+				itemIDMap[batch[k].ID] = newID
+			}
+			k++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate imported ids: %w", err)
+		}
+		if k != len(batch) {
+			return fmt.Errorf("imported %d ids for batch of %d items", k, len(batch))
+		}
 	}
 
-	// Import item_groups with remapped IDs
-	for _, link := range export.ItemGroups {
-		newItemID := itemIDMap[link.ItemID]
-		newGroupID := groupIDMap[link.GroupID]
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?)`,
-			newItemID, newGroupID,
-		); err != nil {
-			return fmt.Errorf("import item_group: %w", err)
+	// Import item_groups with remapped IDs (batched for throughput). Links are
+	// deduplicated after remapping: merged groups can collapse multiple source
+	// links onto the same (item_id, group_id) primary key.
+	const linkBatchSize = 500
+	seenLinks := make(map[ItemGroupLink]struct{}, len(export.ItemGroups))
+	for i := 0; i < len(export.ItemGroups); i += linkBatchSize {
+		end := i + linkBatchSize
+		if end > len(export.ItemGroups) {
+			end = len(export.ItemGroups)
+		}
+		batch := export.ItemGroups[i:end]
+		var lb strings.Builder
+		lb.WriteString(`INSERT INTO item_groups (item_id, group_id) VALUES `)
+		largs := make([]any, 0, len(batch)*2)
+		wrote := 0
+		for _, link := range batch {
+			mapped := ItemGroupLink{ItemID: itemIDMap[link.ItemID], GroupID: groupIDMap[link.GroupID]}
+			if _, dup := seenLinks[mapped]; dup {
+				continue
+			}
+			seenLinks[mapped] = struct{}{}
+			if wrote > 0 {
+				lb.WriteString(",")
+			}
+			lb.WriteString("(?,?)")
+			largs = append(largs, mapped.ItemID, mapped.GroupID)
+			wrote++
+		}
+		if wrote == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, lb.String(), largs...); err != nil {
+			return fmt.Errorf("import item_groups batch at offset %d: %w", i, err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx,

@@ -1043,9 +1043,35 @@ func preserveAssetMetadata(cfg *Config, current Config) {
 // handleExportData exports complete data as JSON, XLSX, or encrypted cvexport.
 func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
+	scope := ExportScope{
+		Mode: r.URL.Query().Get("mode"),
+		From: r.URL.Query().Get("from"),
+		To:   r.URL.Query().Get("to"),
+	}
+	if scope.Mode == "" {
+		scope.Mode = "full"
+	}
+	if sinceID := r.URL.Query().Get("sinceId"); sinceID != "" {
+		if id, err := strconv.ParseInt(sinceID, 10, 64); err == nil {
+			scope.SinceID = id
+		}
+	}
+	switch scope.Mode {
+	case "range":
+		if scope.From == "" || scope.To == "" {
+			s.writeError(w, errors.New("range export requires from and to"))
+			return
+		}
+	case "incremental":
+		if scope.SinceID <= 0 {
+			s.writeError(w, errors.New("incremental export requires sinceId"))
+			return
+		}
+	}
 
 	switch format {
 	case "xlsx":
+		// XLSX 暂保留全量导出（流式改造在后续阶段）
 		data, err := s.store.ExportXLSX(r.Context())
 		if err != nil {
 			s.writeError(w, err)
@@ -1054,19 +1080,15 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.xlsx"`)
 		_, _ = w.Write(data)
-		s.logger.Info("data_exported", map[string]any{"format": "xlsx"})
+		s.logger.Info("data_exported", map[string]any{"format": "xlsx", "mode": scope.Mode})
 	case "json":
-		export, err := s.store.ExportFullForJSON(r.Context())
-		if err != nil {
-			s.writeError(w, err)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.json"`)
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(export)
-		s.logger.Info("data_exported", map[string]any{"format": "json", "total": len(export.Items)})
+		if err := s.store.StreamExport(r.Context(), scope, w); err != nil {
+			s.logger.Error("data_export_failed", err, map[string]any{"format": "json", "mode": scope.Mode})
+			return
+		}
+		s.logger.Info("data_exported", map[string]any{"format": "json", "mode": scope.Mode})
 	case "cvexport":
 		if r.Method != http.MethodPost {
 			http.Error(w, "cvexport requires POST", http.StatusMethodNotAllowed)
@@ -1085,12 +1107,13 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "password is required for cvexport format", http.StatusBadRequest)
 			return
 		}
-		export, err := s.store.ExportFullForJSON(r.Context())
-		if err != nil {
+		// AES-256-GCM 需要完整明文：先流式收集到 buffer 再加密
+		var buf bytes.Buffer
+		if err := s.store.StreamExport(r.Context(), scope, &buf); err != nil {
 			s.writeError(w, err)
 			return
 		}
-		encData, err := EncryptExportJSON(export, password)
+		encData, err := EncryptExport(buf.Bytes(), password)
 		if err != nil {
 			s.writeError(w, err)
 			return
@@ -1098,7 +1121,7 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.cvexport"`)
 		_, _ = w.Write(encData)
-		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "total": len(export.Items)})
+		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "mode": scope.Mode, "size": len(encData)})
 	default:
 		http.Error(w, "unsupported export format", http.StatusBadRequest)
 	}
@@ -1106,8 +1129,8 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 
 // handleImportData imports a JSON, XLSX, or encrypted .cvexport export file.
 func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) {
-	// Limit upload to 100MB
-	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
+	// Limit upload to 500MB (batched import can handle large files now)
+	r.Body = http.MaxBytesReader(w, r.Body, 500<<20)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeImportError(w, fmt.Errorf("read body: %w", err))
@@ -1268,16 +1291,26 @@ func (s *SearchServer) handleBackupStatus(w http.ResponseWriter, r *http.Request
 		ds := s.backup.DirStatus()
 		es := s.backup.EmailStatus()
 		resp["dirStatus"] = map[string]any{
-			"lastTime":   ds.LastTime.Format(time.RFC3339),
-			"lastOK":     ds.LastOK,
-			"lastError":  ds.LastError,
-			"backupFile": ds.BackupFile,
+			"lastTime":         ds.LastTime.Format(time.RFC3339),
+			"lastOK":           ds.LastOK,
+			"lastError":        ds.LastError,
+			"backupFile":       ds.BackupFile,
+			"actualMode":       ds.ActualMode,
+			"autoFallback":     ds.AutoFallback,
+			"incrementalCount": ds.IncrementalCount,
+			"fullInterval":     ds.FullInterval,
+			"lastFullAt":       ds.LastFullAt,
 		}
 		resp["emailStatus"] = map[string]any{
-			"lastTime":   es.LastTime.Format(time.RFC3339),
-			"lastOK":     es.LastOK,
-			"lastError":  es.LastError,
-			"backupFile": es.BackupFile,
+			"lastTime":         es.LastTime.Format(time.RFC3339),
+			"lastOK":           es.LastOK,
+			"lastError":        es.LastError,
+			"backupFile":       es.BackupFile,
+			"actualMode":       es.ActualMode,
+			"autoFallback":     es.AutoFallback,
+			"incrementalCount": es.IncrementalCount,
+			"fullInterval":     es.FullInterval,
+			"lastFullAt":       es.LastFullAt,
 		}
 	}
 	s.writeJSON(w, resp)
@@ -1347,12 +1380,13 @@ func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request
 		s.writeJSON(w, map[string]any{"ok": false, "error": "未配置备份目录"})
 		return
 	}
-	if err := s.backup.RunDirBackup(); err != nil {
+	forceFull := r.URL.Query().Get("forceFull") == "1"
+	if err := s.backup.RunDirBackup(forceFull); err != nil {
 		s.logger.Error("dir_backup_manual_failed", err, nil)
 		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	s.logger.Info("dir_backup_manual_ok", nil)
+	s.logger.Info("dir_backup_manual_ok", map[string]any{"forceFull": forceFull})
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -1362,12 +1396,13 @@ func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Reque
 		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
 		return
 	}
-	if err := s.backup.RunEmailBackup(); err != nil {
+	forceFull := r.URL.Query().Get("forceFull") == "1"
+	if err := s.backup.RunEmailBackup(forceFull); err != nil {
 		s.logger.Error("email_backup_manual_failed", err, nil)
 		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	s.logger.Info("email_backup_manual_ok", nil)
+	s.logger.Info("email_backup_manual_ok", map[string]any{"forceFull": forceFull})
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 

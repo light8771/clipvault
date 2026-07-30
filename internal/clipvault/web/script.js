@@ -2206,6 +2206,10 @@
     if (dirInterval) dirInterval.value = db.interval || 24;
     if (dirDir) dirDir.value = db.dir || '';
     if (dirFormat) dirFormat.value = db.format || 'cvexport';
+    const dirScope = document.getElementById('cfg-dirBackupScope');
+    if (dirScope) dirScope.value = (db.scope && db.scope.mode) || 'full';
+    const dirIncrFullInterval = document.getElementById('cfg-dirBackupIncrementalFullInterval');
+    if (dirIncrFullInterval) dirIncrFullInterval.value = (db.incrementalFullInterval !== undefined && db.incrementalFullInterval !== null) ? db.incrementalFullInterval : 7;
     if (dirPwd) dirPwd.value = '';
     if (dirPwdClear) dirPwdClear.checked = false;
     const dirHasPwd = db.password === '__set__';
@@ -2240,6 +2244,15 @@
     if (emailFrom) emailFrom.value = eb.from || '';
     if (emailTo) emailTo.value = eb.to || '';
     if (emailFormat) emailFormat.value = eb.format || 'cvexport';
+    const emailScope = document.getElementById('cfg-emailBackupScope');
+    if (emailScope) emailScope.value = (eb.scope && eb.scope.mode) || 'full';
+    const emailMaxPartSize = document.getElementById('cfg-emailBackupMaxPartSize');
+    if (emailMaxPartSize) {
+      const mb = eb.maxPartSize ? Math.round(eb.maxPartSize / (1024 * 1024)) : 20;
+      emailMaxPartSize.value = mb > 0 ? mb : 20;
+    }
+    const emailIncrFullInterval = document.getElementById('cfg-emailBackupIncrementalFullInterval');
+    if (emailIncrFullInterval) emailIncrFullInterval.value = (eb.incrementalFullInterval !== undefined && eb.incrementalFullInterval !== null) ? eb.incrementalFullInterval : 7;
     if (emailSubject) emailSubject.value = eb.subject || '';
     if (emailBody) emailBody.value = eb.body || '';
     if (emailStyle) emailStyle.value = eb.style || 'card';
@@ -2431,6 +2444,8 @@
           dir:          document.getElementById('cfg-dirBackupDir')?.value.trim() || '',
           format:       document.getElementById('cfg-dirBackupFormat')?.value || 'cvexport',
           password:     backupPwdValue('cfg-dirBackupPwd', 'cfg-dirBackupPwdClear'),
+          scope:        { mode: document.getElementById('cfg-dirBackupScope')?.value || 'full' },
+          incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-dirBackupIncrementalFullInterval')?.value)),
         },
         emailBackup: {
           ...currentCfg.backup?.emailBackup,
@@ -2449,6 +2464,9 @@
           body:         document.getElementById('cfg-emailBackupBody')?.value || '',
           style:        document.getElementById('cfg-emailBackupStyle')?.value || '',
           accentColor:  document.getElementById('cfg-emailBackupAccentColor')?.value || '',
+          scope:        { mode: document.getElementById('cfg-emailBackupScope')?.value || 'full' },
+          maxPartSize:  (parseInt(document.getElementById('cfg-emailBackupMaxPartSize')?.value) || 20) * 1024 * 1024,
+          incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-emailBackupIncrementalFullInterval')?.value)),
         },
       },
     };
@@ -2932,13 +2950,73 @@
     return false;
   }
 
+  // ── Export scope dialog (full / date range) ─────────────────
+  window.showExportScopeDialog = function(performExport) {
+    const html = `
+      <div class="modal-overlay" id="exportScopeOverlay">
+        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">选择导出范围</span>
+            <button class="modal-close" onclick="closeExportScopeDialog()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <div style="margin-bottom:14px;font-size:13px;color:var(--sub)">
+              <label style="margin-right:18px;cursor:pointer"><input type="radio" name="exportScopeMode" value="full" checked> 全部记录</label>
+              <label style="cursor:pointer"><input type="radio" name="exportScopeMode" value="range"> 按日期范围</label>
+            </div>
+            <div id="exportRangeFields" class="hidden" style="margin-bottom:14px;font-size:13px;color:var(--sub)">
+              <input type="date" id="exportFrom" class="lock-input" style="display:inline-block;width:auto;margin-right:6px">
+              <span style="color:var(--sub)">至</span>
+              <input type="date" id="exportTo" class="lock-input" style="display:inline-block;width:auto;margin-left:6px">
+            </div>
+            <button class="lock-btn" onclick="confirmExportScope()">开始导出</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('exportScopeOverlay');
+    const rangeFields = document.getElementById('exportRangeFields');
+    document.querySelectorAll('input[name=exportScopeMode]').forEach(r => {
+      r.addEventListener('change', () => {
+        if (r.checked) rangeFields.classList.toggle('hidden', r.value !== 'range');
+      });
+    });
+    window.closeExportScopeDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeExportScopeDialog(); });
+    window.confirmExportScope = function() {
+      const mode = document.querySelector('input[name=exportScopeMode]:checked').value;
+      let params = '';
+      if (mode === 'range') {
+        const from = document.getElementById('exportFrom').value;
+        const to = document.getElementById('exportTo').value;
+        if (!from || !to) { toast('请选择起止日期', 'err'); return; }
+        params = '&mode=range&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+      }
+      closeExportScopeDialog();
+      performExport(params);
+    };
+  };
+
   window.doExport = async function(type) {
-    const baseUrl = '/api/export/data?format=' + (type === 'data-xlsx' ? 'xlsx' : 'json');
-    const fallback = type === 'data-xlsx' ? 'clipvault-data.xlsx' : 'clipvault-data.json';
+    const fmt = type === 'data-xlsx' ? 'xlsx' : 'json';
+    const fallback = 'clipvault-data.' + fmt;
     const label = '剪切板记录（' + (type === 'data-xlsx' ? 'Excel' : 'JSON') + '）';
-    if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
-    const ok = await authedDownload(baseUrl, fallback);
-    if (ok) toast('已导出 ' + label);
+    if (fmt === 'xlsx') {
+      if (!window.confirm('即将全量导出明文 Excel 数据。\n\n注意：Excel 格式不支持范围选择（仅全量导出），且数据量大时文件大、解析慢。如需按范围导出或数据量较大，建议改用 JSON 或加密导出。\n\n是否继续？')) return;
+      const ok = await authedDownload('/api/export/data?format=xlsx', fallback);
+      if (ok) toast('已导出 ' + label);
+    } else {
+      if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
+      showExportScopeDialog(function(scopeParams) {
+        const baseUrl = '/api/export/data?format=json' + scopeParams;
+        authedDownload(baseUrl, fallback).then(ok => { if (ok) toast('已导出 ' + label); });
+      });
+    }
   };
 
   // ── Encrypted export (.cvexport) ─────────────────────────────
@@ -2956,6 +3034,15 @@
             <p style="margin-bottom:16px;color:var(--sub);font-size:13px;line-height:1.6">
               输入密码加密导出文件。导入时需要相同的密码才能解密。
             </p>
+            <div style="margin-bottom:14px;font-size:13px;color:var(--sub)">
+              <label style="margin-right:18px;cursor:pointer"><input type="radio" name="cvexportScopeMode" value="full" checked> 全部记录</label>
+              <label style="cursor:pointer"><input type="radio" name="cvexportScopeMode" value="range"> 按日期范围</label>
+            </div>
+            <div id="cvexportRangeFields" class="hidden" style="margin-bottom:14px;font-size:13px;color:var(--sub)">
+              <input type="date" id="cvexportFrom" class="lock-input" style="display:inline-block;width:auto;margin-right:6px">
+              <span>至</span>
+              <input type="date" id="cvexportTo" class="lock-input" style="display:inline-block;width:auto;margin-left:6px">
+            </div>
             <form id="cvexportForm" class="lock-form">
               <input type="password" id="cvexportPwd" class="lock-input" placeholder="加密密码" autocomplete="new-password">
               <input type="password" id="cvexportConfirm" class="lock-input" placeholder="确认密码" autocomplete="new-password">
@@ -2979,6 +3066,13 @@
     window.closeCvexportDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCvexportDialog(); });
 
+    const rangeFields = document.getElementById('cvexportRangeFields');
+    document.querySelectorAll('input[name=cvexportScopeMode]').forEach(r => {
+      r.addEventListener('change', () => {
+        rangeFields.classList.toggle('hidden', r.value !== 'range');
+      });
+    });
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const pwd = pwdInput.value;
@@ -2987,7 +3081,16 @@
       if (!pwd) { errEl.textContent = '密码不能为空'; errEl.classList.remove('hidden'); return; }
       if (pwd !== confirm) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
 
-      const ok = await authedDownload('/api/export/data?format=cvexport', 'clipvault-data.cvexport', {
+      const mode = document.querySelector('input[name=cvexportScopeMode]:checked').value;
+      let scopeParams = '';
+      if (mode === 'range') {
+        const from = document.getElementById('cvexportFrom').value;
+        const to = document.getElementById('cvexportTo').value;
+        if (!from || !to) { errEl.textContent = '请选择起止日期'; errEl.classList.remove('hidden'); return; }
+        scopeParams = '&mode=range&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+      }
+
+      const ok = await authedDownload('/api/export/data?format=cvexport' + scopeParams, 'clipvault-data.cvexport', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pwd }),
@@ -3012,7 +3115,7 @@
           </div>
           <div class="modal-body" style="height:auto;padding:24px">
             <p style="margin-bottom:12px;color:var(--sub);font-size:13px;line-height:1.6">
-              选择 JSON、Excel 或加密 .cvexport 文件导入。导入为追加模式：不会清空现有数据，也不做去重，重复导入同一文件会产生重复记录。加密文件需输入密码。
+              选择 JSON、Excel 或加密 .cvexport 文件导入。导入为追加模式：不会清空现有数据，也不做去重，重复导入同一文件会产生重复记录。加密文件需输入密码。提示：Excel 文件较大时解析慢且占内存，大数据量建议用 JSON 或加密 .cvexport 格式。
             </p>
             <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--sub)">
             <input type="password" id="importPwd" class="lock-input" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off" style="margin-bottom:12px">
@@ -3144,43 +3247,65 @@
   window.doBackupDirNow = function() {
     backupAction('/api/backup/dir/now', '目录备份成功');
   };
+  window.doBackupDirFullNow = function() {
+    if (!window.confirm('将执行一次全量备份并重置增量链。是否继续？')) return;
+    backupAction('/api/backup/dir/now?forceFull=1', '目录全量备份成功（增量链已重置）');
+  };
   window.doBackupEmailNow = function() {
     backupAction('/api/backup/email/now', '邮件备份已发送');
+  };
+  window.doBackupEmailFullNow = function() {
+    if (!window.confirm('将执行一次全量备份并重置增量链。是否继续？')) return;
+    backupAction('/api/backup/email/now?forceFull=1', '邮件全量备份已发送（增量链已重置）');
   };
   window.doBackupEmailTest = function() {
     backupAction('/api/backup/email/test', '测试邮件已发送');
   };
+
+  function formatBackupStatus(s) {
+    if (!s || !s.lastTime || s.lastTime === '0001-01-01T00:00:00Z') return '';
+    const time = new Date(s.lastTime).toLocaleString('zh-CN');
+    if (!s.lastOK) {
+      return '❌ 失败 · ' + time + ' · ' + (s.lastError || '未知错误');
+    }
+    let modeLabel;
+    if (s.actualMode === 'incremental') {
+      const interval = s.fullInterval > 0 ? '/' + s.fullInterval : '';
+      modeLabel = '增量(' + s.incrementalCount + interval + ')';
+    } else {
+      modeLabel = s.autoFallback ? '全量(自动兜底)' : '全量';
+    }
+    let detail = '';
+    if (s.lastFullAt) {
+      const fullTime = new Date(s.lastFullAt).toLocaleString('zh-CN');
+      if (s.actualMode === 'incremental' && s.fullInterval > 0) {
+        detail = ' · 上次全量：' + fullTime + ' · 下次自动全量：第' + s.fullInterval + '次后';
+      } else if (s.actualMode === 'incremental' && s.fullInterval === 0) {
+        detail = ' · 上次全量：' + fullTime + ' · 未启用自动兜底，建议定期手动全量';
+      }
+    }
+    const icon = s.autoFallback ? '⚠️' : '✅';
+    return icon + ' ' + modeLabel + ' · ' + time + ' · ' + (s.backupFile || '') + detail;
+  }
 
   async function loadBackupStatus() {
     try {
       const d = await fetch('/api/backup/status').then(r => r.json());
       const ds = d.dirStatus;
       const es = d.emailStatus;
-      if (ds && ds.lastTime && ds.lastTime !== '0001-01-01T00:00:00Z') {
+      if (ds) {
         const row = document.getElementById('cfg-dirBackupStatusRow');
         const text = document.getElementById('cfg-dirBackupStatusText');
-        if (row) row.style.display = '';
-        if (text) {
-          const time = new Date(ds.lastTime).toLocaleString('zh-CN');
-          if (ds.lastOK) {
-            text.textContent = '成功 · ' + time + ' · ' + (ds.backupFile || '');
-          } else {
-            text.textContent = '失败 · ' + time + ' · ' + (ds.lastError || '未知错误');
-          }
-        }
+        const msg = formatBackupStatus(ds);
+        if (row) row.style.display = msg ? '' : 'none';
+        if (text) text.textContent = msg;
       }
-      if (es && es.lastTime && es.lastTime !== '0001-01-01T00:00:00Z') {
+      if (es) {
         const row = document.getElementById('cfg-emailBackupStatusRow');
         const text = document.getElementById('cfg-emailBackupStatusText');
-        if (row) row.style.display = '';
-        if (text) {
-          const time = new Date(es.lastTime).toLocaleString('zh-CN');
-          if (es.lastOK) {
-            text.textContent = '成功 · ' + time + ' · ' + (es.backupFile || '');
-          } else {
-            text.textContent = '失败 · ' + time + ' · ' + (es.lastError || '未知错误');
-          }
-        }
+        const msg = formatBackupStatus(es);
+        if (row) row.style.display = msg ? '' : 'none';
+        if (text) text.textContent = msg;
       }
     } catch (_) {}
   }

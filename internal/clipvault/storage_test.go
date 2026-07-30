@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,8 +60,6 @@ func TestPrepareEnvironmentForRunAppliesDataDirectoryMove(t *testing.T) {
 	}
 
 	env := Environment{DataDir: source, Source: "default"}
-	writeStorageKey(t, source, "source")
-	writeStorageKey(t, actualControlDir, "key")
 	if err := ScheduleDataDirectoryMove(env, target); err != nil {
 		t.Fatal(err)
 	}
@@ -304,8 +303,12 @@ func TestPortableFlagRequiresRegularFile(t *testing.T) {
 	}
 	link := filepath.Join(t.TempDir(), "portable-link.flag")
 	if err := os.Symlink(flag, link); err == nil {
-		if isPortableFlag(link) {
-			t.Fatal("portable.flag symlink enabled portable mode")
+		// Only assert when the link truly has symlink semantics; some
+		// environments report success but create a non-link entry.
+		if info, statErr := os.Lstat(link); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			if isPortableFlag(link) {
+				t.Fatal("portable.flag symlink enabled portable mode")
+			}
 		}
 	}
 }
@@ -417,10 +420,10 @@ func TestStorageStatusReportsPendingMove(t *testing.T) {
 	source := t.TempDir()
 	target := t.TempDir()
 	env := Environment{DataDir: source, Source: "default"}
+	writeStorageKey(t, source, "source")
 	if err := ScheduleDataDirectoryMove(env, target); err != nil {
 		t.Fatal(err)
 	}
-	writeStorageKey(t, source, "source")
 	if status := env.StorageStatus(); !status.Movable || !status.Pending {
 		t.Fatalf("storage status = %#v", status)
 	}
@@ -449,9 +452,6 @@ func TestPendingMoveWithActiveTargetOnlyFinalizesCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	move := mustStorageMoveJSON(t, source, target)
-	if err != nil {
-		t.Fatal(err)
-	}
 	pendingPath := filepath.Join(controlDir, storageMoveFile)
 	if err := atomicWriteFile(pendingPath, move); err != nil {
 		t.Fatal(err)
@@ -495,9 +495,6 @@ func TestPendingMoveWithNonEmptyTargetCancelsWithoutDeletingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	move := mustStorageMoveJSON(t, source, target)
-	if err != nil {
-		t.Fatal(err)
-	}
 	pendingPath := filepath.Join(controlDir, storageMoveFile)
 	if err := atomicWriteFile(pendingPath, move); err != nil {
 		t.Fatal(err)
@@ -632,9 +629,6 @@ func TestPendingMoveWithUnavailableTargetCancelsWithoutTouchingSource(t *testing
 	}
 	target := filepath.Join(t.TempDir(), "missing")
 	move := mustStorageMoveJSON(t, source, target)
-	if err != nil {
-		t.Fatal(err)
-	}
 	pendingPath := filepath.Join(controlDir, storageMoveFile)
 	if err := atomicWriteFile(pendingPath, move); err != nil {
 		t.Fatal(err)
@@ -664,6 +658,11 @@ func TestPendingMoveWithLinkedEntryCancelsWithoutFollowingIt(t *testing.T) {
 	link := filepath.Join(source, "linked.txt")
 	if err := os.Symlink(external, link); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
+	}
+	// Some environments report success yet create an entry without symlink
+	// semantics; the assertions below depend on a real link.
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Skipf("symlink has no link semantics in this environment")
 	}
 
 	writeStorageKey(t, source, "source")
@@ -713,6 +712,9 @@ func TestPendingMoveRejectsSourceDirectoryReplacedWithLink(t *testing.T) {
 	}
 	if err := os.Symlink(external, source); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
+	}
+	if info, statErr := os.Lstat(source); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Skipf("symlink has no link semantics in this environment")
 	}
 
 	if _, err := applyPendingDataDirectoryMove(environmentControlDir()); err == nil {
@@ -785,6 +787,19 @@ func TestDataMovePreservesControlFilesThroughControlDirectoryLink(t *testing.T) 
 	if err := os.Symlink(actualControlDir, controlLink); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
+	// Some environments report success yet produce a link without symlink
+	// semantics (writes through the link do not land in the target). Verify
+	// the link actually forwards before relying on it.
+	probeFile := "probe-symlink"
+	if err := os.WriteFile(filepath.Join(controlLink, probeFile), []byte("x"), 0o600); err != nil {
+		t.Skipf("symlink not writable: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(actualControlDir, probeFile)); err != nil {
+		t.Skipf("symlink does not forward to control directory: %v", err)
+	}
+	if err := os.Remove(filepath.Join(actualControlDir, probeFile)); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("LOCALAPPDATA", controlRoot)
 	target := t.TempDir()
 	if err := os.WriteFile(filepath.Join(actualControlDir, "clipvault.key"), []byte("key"), 0o600); err != nil {
@@ -824,6 +839,7 @@ func TestHandleStorageRelocate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer logger.Close()
+	writeStorageKey(t, source, "source")
 	server := &SearchServer{env: Environment{DataDir: source, Source: "default"}, logger: logger}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/storage/relocate", bytes.NewBufferString(`{"dataDir":`))

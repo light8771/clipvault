@@ -274,6 +274,13 @@ func writeRedactedDiagnosticLog(w io.Writer, file io.Reader, budget *diagnosticL
 		if budget.truncated {
 			return nil
 		}
+		// Pre-check before reading further: once the buffered partial line has
+		// reached the limit without a newline, stop reading immediately. Checking
+		// only after the next ReadSlice would let bufio drain the underlying
+		// reader (potentially to EOF) before the oversized line is detected.
+		if len(line) >= maxDiagnosticLogLineBytes {
+			return writeRedactedDiagnosticLogRecord(w, nil, true, true, budget)
+		}
 		chunk, readErr := reader.ReadSlice('\n')
 		hasNewline := len(chunk) > 0 && chunk[len(chunk)-1] == '\n'
 		if hasNewline {

@@ -214,7 +214,7 @@ func TestXLSXRoundTrip(t *testing.T) {
 	if _, err := source.CreateGroup(ctx, "Empty", 0); err != nil {
 		t.Fatal(err)
 	}
-	items, err := source.ExportAll(ctx)
+	items, err := exportAll(ctx, source.db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,11 @@ func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := EncryptExportJSON(export, "test-password")
+	exportJSON, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := EncryptExport(exportJSON, "test-password")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +743,11 @@ func TestCVExportCarriesSensitiveSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encrypted, err := EncryptExportJSON(export, "test-password")
+	exportJSON, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := EncryptExport(exportJSON, "test-password")
 	if err != nil {
 		t.Fatal(err)
 	}

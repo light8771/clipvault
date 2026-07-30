@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -126,24 +125,6 @@ func DecryptExport(encData []byte, password string) ([]byte, error) {
 	}
 
 	return decompressed, nil
-}
-
-// EncryptExportJSON marshals the given value to JSON, then encrypts it.
-func EncryptExportJSON(v any, password string) ([]byte, error) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("json marshal: %w", err)
-	}
-	return EncryptExport(data, password)
-}
-
-// DecryptExportJSON decrypts the .cvexport data and unmarshals JSON into v.
-func DecryptExportJSON(encData []byte, password string, v any) error {
-	data, err := DecryptExport(encData, password)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, v)
 }
 
 // IsCVExport checks if the given data starts with the .cvexport magic.

@@ -54,7 +54,7 @@ func TestBackupDataCanBeImported(t *testing.T) {
 		{name: "Encrypted", format: "cvexport", password: "backup-password"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			data, extension, err := backup.exportBackupData(test.format, test.password)
+			data, extension, err := backup.exportBackupData(test.format, test.password, ExportScope{Mode: "full"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +105,7 @@ func TestBackupDataCanBeImported(t *testing.T) {
 }
 
 func TestBackupDataRejectsUnsupportedFormat(t *testing.T) {
-	_, _, err := (&BackupService{}).exportBackupData("csv", "")
+	_, _, err := (&BackupService{}).exportBackupData("csv", "", ExportScope{})
 	if err == nil {
 		t.Fatal("unsupported backup format should fail")
 	}
@@ -442,5 +442,72 @@ func TestBuildMIMEWithAttachmentPreservesBinaryContent(t *testing.T) {
 	}
 	if !bytes.Equal(decoded, attachment) {
 		t.Fatalf("attachment mismatch: got %v, want %v", decoded, attachment)
+	}
+}
+
+// TestExportEmailPartsEmptyStoreProducesOneImportablePart 验证无新数据时邮件备份
+// 仍产出一片可独立导入的空导出（与目录备份"总是写文件"的行为一致），
+// 且水印不被推进。
+func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SaveConfig(DefaultConfig()); err != nil {
+		t.Fatal(err)
+	}
+	backup := &BackupService{store: store}
+
+	for _, test := range []struct {
+		name     string
+		format   string
+		password string
+	}{
+		{name: "JSON", format: "json"},
+		{name: "Encrypted", format: "cvexport", password: "empty-part-password"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parts, ext, err := backup.exportEmailParts(test.format, test.password, ExportScope{Mode: "incremental", SinceID: 0})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(parts) != 1 {
+				t.Fatalf("empty store should still produce 1 part, got %d", len(parts))
+			}
+			raw := parts[0]
+			if test.format == "cvexport" {
+				if ext != "cvexport" {
+					t.Fatalf("ext = %q", ext)
+				}
+				raw, err = DecryptExport(raw, test.password)
+				if err != nil {
+					t.Fatalf("decrypt empty part: %v", err)
+				}
+			}
+			var data ExportData
+			if err := json.Unmarshal(raw, &data); err != nil {
+				t.Fatalf("empty part is not valid export JSON: %v", err)
+			}
+			if len(data.Items) != 0 {
+				t.Fatalf("empty part should have no items, got %d", len(data.Items))
+			}
+			dst, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dst.Close()
+			if err := dst.ImportFullJSON(ctx, raw); err != nil {
+				t.Fatalf("empty part should be importable: %v", err)
+			}
+
+			// 空数据备份成功后水印不应推进（与目录备份一致）
+			wm := updateBackupWatermark(store, "email", ExportScope{Mode: "incremental", SinceID: 0})
+			if wm.LastItemID != 0 {
+				t.Fatalf("watermark should not advance on empty backup, got %#v", wm)
+			}
+			t.Logf("[OK] empty store produced 1 importable %s part (%d bytes)", ext, len(parts[0]))
+		})
 	}
 }

@@ -157,7 +157,7 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: "record", MetaJSON: "{}"}); err != nil {
 		t.Fatal(err)
 	}
-	items, err := store.ExportAll(ctx)
+	items, err := exportAll(ctx, store.db)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("export items = %#v, err = %v", items, err)
 	}
@@ -188,7 +188,7 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "second", ByteLen: 6, CharLen: 6, SHA256: "second", MetaJSON: "{}"}); err != nil {
 		t.Fatal(err)
 	}
-	items, err = store.ExportAll(ctx)
+	items, err = exportAll(ctx, store.db)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("export items = %#v, err = %v", items, err)
 	}
