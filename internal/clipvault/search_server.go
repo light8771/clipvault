@@ -872,6 +872,18 @@ func (s *SearchServer) enforceFreeWindow(w http.ResponseWriter, r *http.Request,
 	return false
 }
 
+// FreeTierRestriction 返回免费版（未激活）可见窗口限制是否生效：未激活用户只能
+// 浏览/检索最近 FreeTierVisibleLimit 条记录。CLI（cmd/clipvault/main.go 的 search）
+// 通过本函数判定，与 Web handler 基于 license.CanUsePaidFeatures 的判定等价，
+// 避免 CLI 各自硬编码而绕过窗口。receipt 路径与 app_windows.go 的 license 加载一致：
+// <DataDir>/license/clipvault.lic。注意：本函数会从磁盘重新加载 license 状态。
+func FreeTierRestriction(env Environment) bool {
+	receiptPath := filepath.Join(env.DataDir, "license", "clipvault.lic")
+	lm := licensing.NewManager(receiptPath, licensing.BuiltinTrustedKeys())
+	lm.Load()
+	return !lm.CanUsePaidFeatures()
+}
+
 func (s *SearchServer) handleState(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]any{"paused": s.state.IsPaused()})
 }
@@ -1519,11 +1531,28 @@ func (s *SearchServer) handleBackupEmailTest(w http.ResponseWriter, r *http.Requ
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
+// writeFileRefError 统一 resolveRecordedFilePath 三类失败的 HTTP 分层响应（#2b 错误码分层）：
+//   - ErrFreeWindowOutside → 402 window_outside（免费版可见窗口之外，与 enforceFreeWindow / handleItemPosition 一致）；
+//   - ErrFileRefLookup     → 5xx internal_error（存储层/IO 查询故障，复用本文件既有的 writeError 风格，
+//     不把 DuckDB 内部细节回传客户端，#19）；
+//   - 其余（无效 item_id / file_index、越界、非文件记录等）→ 400 invalid_file_ref（用户入参非法）。
+func (s *SearchServer) writeFileRefError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrFreeWindowOutside):
+		s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
+			"未激活仅可查看最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该文件不在可查看范围内", nil)
+	case errors.Is(err, ErrFileRefLookup):
+		s.writeError(w, err)
+	default:
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
+	}
+}
+
 // handleFileCheck checks if a file exists and returns its metadata.
 func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
+		s.writeFileRefError(w, err)
 		return
 	}
 	info, err := os.Stat(p)
@@ -1541,7 +1570,7 @@ func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
+		s.writeFileRefError(w, err)
 		return
 	}
 	info, err := os.Stat(p)
@@ -1559,7 +1588,7 @@ func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
+		s.writeFileRefError(w, err)
 		return
 	}
 	info, err := os.Stat(p)
@@ -1587,7 +1616,7 @@ func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
+		s.writeFileRefError(w, err)
 		return
 	}
 	if err := openFolderAndSelectItem(p); err != nil {
@@ -1597,10 +1626,30 @@ func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
+// ErrFreeWindowOutside 表示请求的文件所属记录在免费版可见窗口之外。
+// 调用方据此返回 402（与 enforceFreeWindow / handleItemPosition 语义一致，#2b）。
+var ErrFreeWindowOutside = errors.New("file record is outside the free-tier visible window")
+
+// ErrFileRefLookup 表示 resolveRecordedFilePath 在存储层/IO 查询（GetPositionByID、GetByID）
+// 失败时返回。调用方据此返回 5xx（与 enforceFreeWindow / handleItemPosition 对同类错误的处理
+// 对齐），避免把 DuckDB 查询故障误报成 400 客户端参数错误。原始错误通过 %v 保留在链中便于日志。
+var ErrFileRefLookup = errors.New("file reference lookup failed")
+
 func (s *SearchServer) resolveRecordedFilePath(r *http.Request) (string, error) {
 	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
 		return "", fmt.Errorf("invalid item_id")
+	}
+	// 免费版读窗口门控：未激活用户只能访问最近 FreeTierVisibleLimit 条记录，
+	// 窗口外的文件记录不允许定位/下载/校验/打开（与 enforceFreeWindow 一致，#2b）。
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		pos, perr := s.store.GetPositionByID(r.Context(), itemID)
+		if perr != nil {
+			return "", fmt.Errorf("%w: resolve position: %v", ErrFileRefLookup, perr)
+		}
+		if pos >= FreeTierVisibleLimit {
+			return "", ErrFreeWindowOutside
+		}
 	}
 	fileIndex, err := strconv.Atoi(r.URL.Query().Get("file_index"))
 	if err != nil || fileIndex < 0 {
@@ -1608,7 +1657,7 @@ func (s *SearchServer) resolveRecordedFilePath(r *http.Request) (string, error) 
 	}
 	item, err := s.store.GetByID(r.Context(), itemID)
 	if err != nil {
-		return "", fmt.Errorf("item not found")
+		return "", fmt.Errorf("%w: item not found: %v", ErrFileRefLookup, err)
 	}
 	if item.Format != "CF_HDROP" || !isStoredFileKind(item.Kind) {
 		return "", fmt.Errorf("item is not a file record")

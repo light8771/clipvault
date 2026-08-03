@@ -54,14 +54,23 @@ func (l *DailyLogger) Warn(event string, fields map[string]any) {
 }
 
 func (l *DailyLogger) Error(event string, err error, fields map[string]any) {
-	if fields == nil {
-		fields = map[string]any{}
+	// 在本地副本上追加 error 字段，避免就地修改调用方传入的 map。
+	// fields 为 nil 时 range 为空操作，local 仍是可用的空 map。
+	local := make(map[string]any, len(fields)+1)
+	for k, v := range fields {
+		local[k] = v
 	}
-	fields["error"] = err.Error()
-	l.write("error", event, fields)
+	local["error"] = err.Error()
+	l.write("error", event, local)
 }
 
 func (l *DailyLogger) write(level, event string, fields map[string]any) {
+	// nil 守卫：当 SearchServer.logger 未初始化（如部分测试中）时，
+	// 避免 writeAPIError 等错误路径解引用 nil 导致整个测试二进制崩溃。
+	// 生产路径始终通过 NewSearchServer 注入 logger，故此守卫不影响线上行为。
+	if l == nil {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

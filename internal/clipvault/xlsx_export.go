@@ -118,68 +118,90 @@ func writeXLSXRow(book *excelize.File, sheet string, row int, values []string) e
 // ImportXLSX parses the strict ClipVault workbook contract and commits it
 // through the same transaction as JSON imports.
 func (s *Store) ImportXLSX(ctx context.Context, data []byte) error {
+	export, err := decodeImportXLSX(data)
+	if err != nil {
+		return err
+	}
+	return s.importExportData(ctx, export)
+}
+
+// decodeImportXLSX parses a ClipVault workbook into the format-agnostic
+// ExportData carrier. It is the XLSX half of the decoder/persister split and
+// mirrors decodeImportJSON: format- and envelope-level validation happens here
+// (sheet set, headers, formula rejection, per-field syntax), while
+// data-semantic validation stays in importExportData so both import formats
+// keep sharing one rule set.
+//
+// The workbook is closed before this function returns, i.e. earlier than when
+// the decode was still inlined in ImportXLSX. That is safe: readXLSXRows
+// resolves every cell through GetRows/GetCellValue, which fully materialize
+// into freshly allocated Go strings, and the returned ExportData holds no
+// handle, decoder or lazy reference into the excelize file. Closing here also
+// releases the workbook XML (up to xlsxUnzipSizeLimit) before the import
+// transaction opens instead of holding it for the whole transaction.
+func decodeImportXLSX(data []byte) (ExportData, error) {
 	book, err := excelize.OpenReader(bytes.NewReader(data), excelize.Options{
 		UnzipSizeLimit:    xlsxUnzipSizeLimit,
 		UnzipXMLSizeLimit: xlsxUnzipXMLSizeLimit,
 	})
 	if err != nil {
-		return fmt.Errorf("open XLSX: %w", err)
+		return ExportData{}, fmt.Errorf("open XLSX: %w", err)
 	}
 	defer book.Close()
 
 	if err := validateXLSXSheets(book); err != nil {
-		return err
+		return ExportData{}, err
 	}
 	records, err := readXLSXRows(book, xlsxRecordsSheet, xlsxRecordsHeader)
 	if err != nil {
-		return err
+		return ExportData{}, err
 	}
 	groups, err := readXLSXRows(book, xlsxGroupsSheet, xlsxGroupsHeader)
 	if err != nil {
-		return err
+		return ExportData{}, err
 	}
 	itemGroups, err := readXLSXRows(book, xlsxItemGroupsSheet, xlsxItemGroupsHeader)
 	if err != nil {
-		return err
+		return ExportData{}, err
 	}
 	rules, err := readXLSXRows(book, xlsxSensitiveRulesSheet, xlsxSensitiveRulesHeader)
 	if err != nil {
-		return err
+		return ExportData{}, err
 	}
 
 	export := ExportData{App: "ClipVault", ExportVersion: 3}
 	for row, values := range records {
 		item, err := parseXLSXItem(values)
 		if err != nil {
-			return fmt.Errorf("Records row %d: %w", row+2, err)
+			return ExportData{}, fmt.Errorf("Records row %d: %w", row+2, err)
 		}
 		export.Items = append(export.Items, item)
 	}
 	for row, values := range groups {
 		group, err := parseXLSXGroup(values)
 		if err != nil {
-			return fmt.Errorf("Groups row %d: %w", row+2, err)
+			return ExportData{}, fmt.Errorf("Groups row %d: %w", row+2, err)
 		}
 		export.Groups = append(export.Groups, group)
 	}
 	for row, values := range itemGroups {
 		itemID, err := parseXLSXPositiveInt(values[0])
 		if err != nil {
-			return fmt.Errorf("ItemGroups row %d itemId: %w", row+2, err)
+			return ExportData{}, fmt.Errorf("ItemGroups row %d itemId: %w", row+2, err)
 		}
 		groupID, err := parseXLSXPositiveInt(values[1])
 		if err != nil {
-			return fmt.Errorf("ItemGroups row %d groupId: %w", row+2, err)
+			return ExportData{}, fmt.Errorf("ItemGroups row %d groupId: %w", row+2, err)
 		}
 		export.ItemGroups = append(export.ItemGroups, ItemGroupLink{ItemID: itemID, GroupID: groupID})
 	}
 	for row, values := range rules {
 		if values[0] == "" {
-			return fmt.Errorf("SensitiveRules row %d: pattern must not be empty", row+2)
+			return ExportData{}, fmt.Errorf("SensitiveRules row %d: pattern must not be empty", row+2)
 		}
 		export.Settings.Sensitive.CustomPatterns = append(export.Settings.Sensitive.CustomPatterns, values[0])
 	}
-	return s.importExportData(ctx, export)
+	return export, nil
 }
 
 func validateXLSXSheets(book *excelize.File) error {

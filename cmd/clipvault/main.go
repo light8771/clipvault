@@ -96,7 +96,12 @@ func search(env clipvault.Environment, args []string) error {
 		}
 	}
 
-	items, _, err := store.Search(context.Background(), clipvault.SearchOptions{Query: strings.Join(queryParts, " "), Limit: limit})
+	opts := clipvault.SearchOptions{Query: strings.Join(queryParts, " "), Limit: limit}
+	// 免费版读窗口：未激活用户只能检索最近 FreeTierVisibleLimit 条，与 Web 共用判定（#2b）。
+	if clipvault.FreeTierRestriction(env) {
+		opts.RestrictToLatestN = clipvault.FreeTierVisibleLimit
+	}
+	items, _, err := store.Search(context.Background(), opts)
 	if err != nil {
 		return err
 	}

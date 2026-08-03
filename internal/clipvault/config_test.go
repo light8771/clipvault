@@ -177,6 +177,11 @@ func TestInvalidSensitiveRulesAreRejectedBeforeConfigPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new config manager: %v", err)
 	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer logger.Close()
 
 	valid := manager.Get()
 	valid.Sensitive.CustomPatterns = []string{"^before-update$"}
@@ -204,7 +209,7 @@ func TestInvalidSensitiveRulesAreRejectedBeforeConfigPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal invalid config: %v", err)
 	}
-	server := &SearchServer{cfgMgr: manager}
+	server := &SearchServer{cfgMgr: manager, logger: logger}
 	result := httptest.NewRecorder()
 	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {

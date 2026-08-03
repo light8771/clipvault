@@ -95,8 +95,6 @@ func (r *Recorder) ProcessClipboardUpdate() {
 	if r.lastHash == snapshot.SHA256 && r.lastKind == snapshot.Kind {
 		return
 	}
-	r.lastHash = snapshot.SHA256
-	r.lastKind = snapshot.Kind
 
 	metaJSON := "{}"
 	if snapshot.Meta != nil {
@@ -115,9 +113,19 @@ func (r *Recorder) ProcessClipboardUpdate() {
 		MetaJSON:  metaJSON,
 		Sensitive: decision.Sensitive,
 	}); err != nil {
-		r.logger.Error("clipboard_save_failed", err, map[string]any{"kind": snapshot.Kind})
+		// 去重状态在此处刻意保持不变：Save 失败时若已推进 lastHash，
+		// 同一份剪贴板内容会被后续事件判定为重复而永远不再尝试落库（静默丢失）。
+		r.logger.Error("clipboard_save_failed", err, map[string]any{
+			"kind":    snapshot.Kind,
+			"charLen": snapshot.CharLen,
+		})
 		return
 	}
+	// 只有落库成功后才推进去重状态，保证失败内容在下次剪贴板事件中仍可重试。
+	// 本函数全程持有 r.mu，lastHash/lastKind 也仅在此处读写，故无需额外同步。
+	r.lastHash = snapshot.SHA256
+	r.lastKind = snapshot.Kind
+
 	r.logger.Info("clipboard_saved", map[string]any{
 		"kind":      snapshot.Kind,
 		"format":    snapshot.Format,

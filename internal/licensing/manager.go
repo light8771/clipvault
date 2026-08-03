@@ -48,7 +48,15 @@ func NewManager(receiptPath string, trustedKeys map[string]ed25519.PublicKey) *M
 	for id, key := range trustedKeys {
 		keys[id] = append(ed25519.PublicKey(nil), key...)
 	}
-	return &Manager{receiptPath: receiptPath, trustedKeys: keys, machineFn: MachineID}
+	return &Manager{
+		receiptPath: receiptPath,
+		trustedKeys: keys,
+		machineFn:   MachineID,
+		// 未 Load 前即视为"强制授权且无有效凭据"。若留零值，Context.Enforced=false
+		// 会让 CanUsePaidFeatures() 的 `Valid || !Enforced` 退化为 true，
+		// 使"构造后忘记 Load"变成静默放行全部付费功能的 fail-open 缺口。
+		context: Context{Enforced: EnforcementEnabled()},
+	}
 }
 
 func (m *Manager) Load() Context {

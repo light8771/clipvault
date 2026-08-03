@@ -53,7 +53,9 @@
   let locateActive = false; // 定位进行中，阻止 resetSearch 干扰
   let filterDateFrom = '', filterDateTo = '';
   let currentGroupID = 0; // 0 = no group filter
-	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '', freeLimit: 100 };
+	// freeLimit 由后端 GET /api/license/status 下发，权威值是 Go 侧的 FreeTierVisibleLimit。
+	// 前端不再自带默认条数：取不到时保持 0（含义为"限额未知"），所有带具体数字的限额文案一律不渲染。
+	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '', freeLimit: 0 };
 	let fullMachineId = '';
   const items = new Map();
   const filePaths = new Map();
@@ -590,10 +592,18 @@
     }, duration);
   }
 
+  // 归一化后端授权状态。后端未下发 freeLimit、或下发了非正数/非数字时一律归零，
+  // 避免把 undefined/0 直接拼进用户可见文案（例如"仅显示最近 undefined 条"）。
+  function normalizeLicenseState(d) {
+    const raw = Number(d && d.freeLimit);
+    const freeLimit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+    return Object.assign({}, d, { freeLimit });
+  }
+
   async function loadLicenseStatus() {
     try {
       const d = await fetch('/api/license/status').then(r => r.json());
-      licenseState = d;
+      licenseState = normalizeLicenseState(d);
       const banner = document.getElementById('licenseBanner');
       const badge = document.getElementById('licenseStatusBadge');
       const hint = document.getElementById('licenseStatusHint');
@@ -612,9 +622,11 @@
       activateBlock.classList.toggle('hidden', d.licensed);
       details.classList.toggle('hidden', !d.licensed);
       if (!d.licensed) {
-        const limit = d.freeLimit || 100;
-        banner.querySelector('span').textContent =
-          '免费版运行中：持续记录剪贴板，可浏览最近 ' + limit + ' 条。激活后解锁全部历史记录与导出备份功能。';
+        // 限额未知时退化为不带数字的说法，但保留横幅本身（它同时是激活入口）。
+        const limit = licenseState.freeLimit;
+        banner.querySelector('span').textContent = limit > 0
+          ? '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索最近 ' + limit + ' 条。激活后解锁完整历史记录，以及导出与备份功能。'
+          : '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。';
       }
       if (d.licenseId) document.getElementById('licenseIdText').textContent = d.licenseId;
       if (d.machineCode) code.value = d.machineCode;
@@ -1251,8 +1263,9 @@
     PAG.classList.toggle('hidden', totalCount === 0);
     // 未激活时 badge 始终显示全量总数（转化钩子），已激活时跟随当前结果
     BADGE.textContent = (!licenseState.licensed && fullTotalCount > 0) ? fullTotalCount : totalCount;
-    const freeNote = (!licenseState.licensed && fullTotalCount > totalCount)
-      ? ' · 免费版仅显示最近 ' + licenseState.freeLimit + ' 条'
+    // 限额未知（freeLimit 为 0）时整条提示隐藏，绝不渲染"仅显示最近 0 条"。
+    const freeNote = (!licenseState.licensed && licenseState.freeLimit > 0 && fullTotalCount > totalCount)
+      ? ' · 免费版仅显示最近 ' + licenseState.freeLimit + ' 条，激活后查看全部'
       : '';
     RC.textContent = totalCount + ' 条结果' + freeNote;
     if (JI) { JI.value = currentPage + 1; JI.max = totalPages; }

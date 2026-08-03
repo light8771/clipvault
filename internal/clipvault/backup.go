@@ -919,9 +919,51 @@ func writeAttachmentPart(parent *multipart.Writer, attachment emailAttachment) {
 	header.Set("Content-Transfer-Encoding", "base64")
 	header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": attachment.filename}))
 	part, _ := parent.CreatePart(header)
-	encoded := base64.StdEncoding.EncodeToString(attachment.data)
-	for i := 0; i < len(encoded); i += 76 {
-		end := min(i+76, len(encoded))
-		_, _ = fmt.Fprint(part, encoded[i:end]+"\r\n")
+
+	// 流式 base64 编码 + 定宽折行，替代「先整体 EncodeToString 再逐行字符串拼接」。
+	// 输出与旧实现逐字节等价：每满 base64MIMELineWidth 个字符输出一次 CRLF，
+	// 末尾不足一行的残余同样以 CRLF 收尾；attachment.data 为空时不产生任何输出。
+	var out bytes.Buffer
+	lw := &base64LineWriter{buf: &out}
+	encoder := base64.NewEncoder(base64.StdEncoding, lw)
+	_, _ = encoder.Write(attachment.data)
+	_ = encoder.Close()
+	lw.flushLine()
+	_, _ = part.Write(out.Bytes())
+}
+
+// base64MIMELineWidth 是 base64 附件正文的折行宽度（RFC 2045 建议 76 列）。
+const base64MIMELineWidth = 76
+
+// base64LineWriter 接收 base64 编码流，按 base64MIMELineWidth 折行写入缓冲区。
+// 写入目标是 *bytes.Buffer（其 Write 不会失败），因此内部无需处理错误。
+type base64LineWriter struct {
+	buf *bytes.Buffer
+	col int
+}
+
+func (lw *base64LineWriter) Write(p []byte) (int, error) {
+	total := len(p)
+	for len(p) > 0 {
+		n := base64MIMELineWidth - lw.col
+		if n > len(p) {
+			n = len(p)
+		}
+		lw.buf.Write(p[:n])
+		lw.col += n
+		p = p[n:]
+		if lw.col == base64MIMELineWidth {
+			lw.buf.WriteString("\r\n")
+			lw.col = 0
+		}
+	}
+	return total, nil
+}
+
+// flushLine 为不足整行的残余补上换行，与旧实现末行也带 CRLF 的行为保持一致。
+func (lw *base64LineWriter) flushLine() {
+	if lw.col > 0 {
+		lw.buf.WriteString("\r\n")
+		lw.col = 0
 	}
 }

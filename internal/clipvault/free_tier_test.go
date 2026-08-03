@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -247,5 +248,97 @@ func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 	}
 	if cd := w.Header().Get("Content-Disposition"); cd == "" {
 		t.Fatal("licensed export missing Content-Disposition")
+	}
+}
+
+// TestRecordedFileFreeTierWindow 覆盖 #2b(a)：文件类端点的免费版读窗口门控。
+//
+// resolveRecordedFilePath 是 handleFileCheck / handleFileServe / handleFileHash /
+// handleFileOpenDir 四个端点的共同入口，门控逻辑集中于此，故以 handleFileCheck 为代表验证。
+// 门控刻意排在 GetByID 之前：窗口外请求在触碰记录内容之前就被拒绝，
+// 避免通过响应差异探测窗口外记录是否存在。
+func TestRecordedFileFreeTierWindow(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// 真实落盘一个文件，使窗口内断言能验到 exists=true，而不只是 HTTP 200。
+	p := filepath.Join(t.TempDir(), "recorded.png")
+	if err := os.WriteFile(p, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	saveFileRecord := func() {
+		t.Helper()
+		if err := store.Save(ctx, ClipboardItem{
+			Kind: "image", Format: "CF_HDROP", Text: p,
+			ByteLen: len(p), CharLen: len(p), SHA256: hashString(p), MetaJSON: "{}",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 先存一条文件记录，再灌满窗口把它挤出去，最后补一条落在窗口内。
+	// Store.Save 是纯 INSERT（不按 sha256 去重），两条同路径记录会拿到不同 id。
+	saveFileRecord()
+	texts := make([]string, 0, FreeTierVisibleLimit+5)
+	for i := 0; i < FreeTierVisibleLimit+5; i++ {
+		texts = append(texts, "filler-"+strconv.Itoa(i))
+	}
+	saveFreeTierItems(t, store, texts)
+	saveFileRecord()
+
+	items, _, err := store.Search(ctx, SearchOptions{Limit: 500})
+	if err != nil || len(items) != FreeTierVisibleLimit+7 {
+		t.Fatalf("setup search len=%d err=%v, want %d", len(items), err, FreeTierVisibleLimit+7)
+	}
+	// items 按 id DESC 排序：第一条是最新（position 0，窗口内），
+	// 最后一条是最旧（position = FreeTierVisibleLimit+6，窗口外）。
+	inWindowID := items[0].ID
+	outOfWindowID := items[len(items)-1].ID
+
+	checkFile := func(server *SearchServer, itemID int64) (int, map[string]any) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		server.handleFileCheck(w, httptest.NewRequest(http.MethodGet,
+			"/api/file/check?item_id="+strconv.FormatInt(itemID, 10)+"&file_index=0", nil))
+		var resp map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode body %q: %v", w.Body.String(), err)
+		}
+		return w.Code, resp
+	}
+
+	unlicensed := newFreeTierTestServer(t, store, newUnlicensedManager(t))
+
+	// 1) 未激活 + 窗口内：门控放行，正常解析出路径
+	code, resp := checkFile(unlicensed, inWindowID)
+	if code != http.StatusOK || resp["exists"] != true {
+		t.Fatalf("in-window check status=%d resp=%v, want 200 exists=true", code, resp)
+	}
+	if resp["name"] != "recorded.png" {
+		t.Fatalf("in-window name=%v, want recorded.png", resp["name"])
+	}
+
+	// 2) 未激活 + 窗口外：402 + window_outside（与 handleItemPosition 的 #19 契约一致，
+	//    不能退化成 400 invalid_file_ref，否则前端无法区分「限额」与「参数错误」）
+	code, resp = checkFile(unlicensed, outOfWindowID)
+	if code != http.StatusPaymentRequired {
+		t.Fatalf("out-of-window check status=%d resp=%v, want 402", code, resp)
+	}
+	if resp["code"] != "window_outside" {
+		t.Fatalf("out-of-window code=%v, want window_outside", resp["code"])
+	}
+
+	// 3) license 为 nil：门控整体不生效，窗口外记录也能解析。
+	//    注意此处验的是「s.license == nil 时跳过门控」这一条分支，
+	//    **不等于**「已激活用户不受限」——测试构建未注入内置公钥，造不出 Valid=true 的
+	//    Manager，已激活分支至今仍无覆盖（审查报告 #26 范围）。
+	ungated := newFreeTierTestServer(t, store, nil)
+	code, resp = checkFile(ungated, outOfWindowID)
+	if code != http.StatusOK || resp["exists"] != true {
+		t.Fatalf("ungated out-of-window check status=%d resp=%v, want 200 exists=true", code, resp)
 	}
 }

@@ -126,6 +126,14 @@ type WindowsRuntime struct {
 	pendingHotkey       *HotkeyConfig
 	pendingSearchHotkey *HotkeyConfig
 	pendingHotkeyResult chan error
+
+	// 剪贴板事件由单个 worker goroutine 串行消费，clipCh 是容量 1 的合并信号通道：
+	// 投递为非阻塞，通道已满即丢弃，因为剪贴板处理只关心「最新状态」，中间态可合并。
+	// 这些字段只在 Run() 启动 worker 前写入，之后仅由消息循环线程读取，无需加锁。
+	clipCh       chan struct{}
+	clipStop     chan struct{}
+	clipDone     chan struct{}
+	clipStopOnce sync.Once
 }
 
 // HotkeyError 表示全局快捷键注册失败。
@@ -215,6 +223,11 @@ func (r *WindowsRuntime) Run() error {
 	}
 	r.hwnd = hwnd
 
+	// worker 必须在注册剪贴板监听之前就绪，确保任何 WM_CLIPBOARDUPDATE
+	// 被派发时 clipCh 已非 nil；退出时（正常 WM_QUIT 或错误返回）统一收敛。
+	r.startClipWorker()
+	defer r.stopClipWorker()
+
 	if ok, _, err := procAddClipboardFormatListener.Call(hwnd); ok == 0 {
 		r.logger.Warn("clipboard_listener_failed", map[string]any{"error": err.Error()})
 	}
@@ -227,7 +240,8 @@ func (r *WindowsRuntime) Run() error {
 		r.updateTrayIcon()
 		r.showPauseNotification(paused)
 	})
-	go r.recorder.ProcessClipboardUpdate()
+	// 启动时补捕一次当前剪贴板内容，交由 worker 串行处理。
+	r.notifyClipboardUpdate()
 
 	var m msg
 	for {
@@ -249,7 +263,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
 	case wmClipboardUpdate:
 		if r != nil {
-			go r.recorder.ProcessClipboardUpdate()
+			r.notifyClipboardUpdate()
 		}
 		return 0
 	case wmTrayIcon:
@@ -526,6 +540,61 @@ func shellExecute(verb, file, params string) {
 		paramsPtr, _ = syscall.UTF16PtrFromString(params)
 	}
 	procShellExecuteW.Call(0, uintptr(unsafe.Pointer(verbPtr)), uintptr(unsafe.Pointer(filePtr)), uintptr(unsafe.Pointer(paramsPtr)), 0, swShowNormal)
+}
+
+// clipWorkerDrainTimeout 是退出时等待剪贴板 worker 收敛的上限。
+// 正常情况下 worker 会立即返回；此处设上限是为了避免一次卡住的
+// store.Save 把整个进程退出流程无限期阻塞住。
+const clipWorkerDrainTimeout = 5 * time.Second
+
+// startClipWorker 启动唯一的剪贴板处理 goroutine。
+// 旧实现对每个 WM_CLIPBOARDUPDATE 都 `go` 一个新 goroutine，剪贴板被高频写入时
+// 会无上限堆积且处理顺序不确定；改为单 worker + 合并通道后并发度恒定为 1，
+// 处理顺序与事件顺序一致。
+func (r *WindowsRuntime) startClipWorker() {
+	r.clipCh = make(chan struct{}, 1)
+	r.clipStop = make(chan struct{})
+	r.clipDone = make(chan struct{})
+	go func() {
+		defer close(r.clipDone)
+		for {
+			select {
+			case <-r.clipStop:
+				return
+			case <-r.clipCh:
+				r.recorder.ProcessClipboardUpdate()
+			}
+		}
+	}()
+}
+
+// notifyClipboardUpdate 以非阻塞方式投递一次「剪贴板已变化」信号。
+// 通道已有待处理信号时直接丢弃：worker 下一轮会重新读取当前剪贴板，
+// 合并掉的中间态没有额外信息。该函数只在消息循环线程调用，绝不阻塞消息泵。
+func (r *WindowsRuntime) notifyClipboardUpdate() {
+	if r.clipCh == nil {
+		return
+	}
+	select {
+	case r.clipCh <- struct{}{}:
+	default:
+	}
+}
+
+// stopClipWorker 请求 worker 退出并等待其真正结束，避免 goroutine 泄漏。
+// 可重复调用（Once 保护 close），未启动时为空操作。
+func (r *WindowsRuntime) stopClipWorker() {
+	if r.clipStop == nil {
+		return
+	}
+	r.clipStopOnce.Do(func() { close(r.clipStop) })
+	select {
+	case <-r.clipDone:
+	case <-time.After(clipWorkerDrainTimeout):
+		r.logger.Warn("clip_worker_drain_timeout", map[string]any{
+			"timeoutSeconds": clipWorkerDrainTimeout.Seconds(),
+		})
+	}
 }
 
 func (r *WindowsRuntime) cleanup() {

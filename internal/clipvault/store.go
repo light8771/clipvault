@@ -1097,26 +1097,40 @@ func (s *Store) SetBackupWatermark(ctx context.Context, kind string, wm BackupWa
 // ImportFullJSON imports clipboard data, group hierarchy, and portable
 // sensitive-data rules in one transaction.
 func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
+	export, err := decodeImportJSON(data)
+	if err != nil {
+		return err
+	}
+	return s.importExportData(ctx, export)
+}
+
+// decodeImportJSON parses a ClipVault JSON export into the format-agnostic
+// ExportData carrier. It is the JSON half of the decoder/persister split and
+// mirrors decodeImportXLSX: format- and envelope-level validation happens here
+// (settings presence, app marker, export version), while data-semantic
+// validation stays in importExportData so both import formats keep sharing one
+// rule set.
+func decodeImportJSON(data []byte) (ExportData, error) {
 	var envelope struct {
 		Settings json.RawMessage `json:"settings"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		return fmt.Errorf("parse export JSON: %w", err)
+		return ExportData{}, fmt.Errorf("parse export JSON: %w", err)
 	}
 	if len(envelope.Settings) == 0 || string(envelope.Settings) == "null" {
-		return errors.New("settings is required")
+		return ExportData{}, errors.New("settings is required")
 	}
 	var export ExportData
 	if err := json.Unmarshal(data, &export); err != nil {
-		return fmt.Errorf("parse export JSON: %w", err)
+		return ExportData{}, fmt.Errorf("parse export JSON: %w", err)
 	}
 	if export.App != "ClipVault" {
-		return fmt.Errorf("not a ClipVault export (app=%q)", export.App)
+		return ExportData{}, fmt.Errorf("not a ClipVault export (app=%q)", export.App)
 	}
 	if export.ExportVersion != 3 {
-		return fmt.Errorf("unsupported export version %d", export.ExportVersion)
+		return ExportData{}, fmt.Errorf("unsupported export version %d", export.ExportVersion)
 	}
-	return s.importExportData(ctx, export)
+	return export, nil
 }
 
 // importExportData imports a validated complete export in one transaction.

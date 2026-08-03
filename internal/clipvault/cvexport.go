@@ -22,6 +22,10 @@ import (
 
 const cvexportMagic = "CVEXP001"
 
+// cvexportMagicLen 是文件头 magic 的字节长度，直接由 magic 常量推导，
+// 避免头部长度计算与偏移量中散落字面量 8。
+const cvexportMagicLen = len(cvexportMagic)
+
 // 解密端对文件头里的 KDF 参数设上限，防止恶意 .cvexport 通过超大 N/r/p
 // 让 scrypt 尝试分配海量内存导致 OOM（这些值必须 >= 写入端常量 scryptN/R/P）。
 const (
@@ -83,14 +87,14 @@ func EncryptExport(data []byte, password string) ([]byte, error) {
 // DecryptExport decrypts a .cvexport byte slice with the given password
 // and returns the original data (JSON bytes).
 func DecryptExport(encData []byte, password string) ([]byte, error) {
-	if len(encData) < 8+1+3+saltLen+nonceLen+12+4 {
+	if len(encData) < cvexportMagicLen+1+3+saltLen+nonceLen+12+4 {
 		return nil, fmt.Errorf("cvexport file too short")
 	}
-	if string(encData[:8]) != cvexportMagic {
+	if string(encData[:cvexportMagicLen]) != cvexportMagic {
 		return nil, fmt.Errorf("bad magic: not a .cvexport file")
 	}
 
-	offset := 8 + 1 + 3 // magic + version + reserved
+	offset := cvexportMagicLen + 1 + 3 // magic + version + reserved
 	salt := encData[offset : offset+saltLen]
 	offset += saltLen
 	nonce := encData[offset : offset+nonceLen]
@@ -148,5 +152,5 @@ func DecryptExport(encData []byte, password string) ([]byte, error) {
 
 // IsCVExport checks if the given data starts with the .cvexport magic.
 func IsCVExport(data []byte) bool {
-	return len(data) >= 8 && string(data[:8]) == cvexportMagic
+	return len(data) >= cvexportMagicLen && string(data[:cvexportMagicLen]) == cvexportMagic
 }
