@@ -680,6 +680,39 @@ type ExportScope struct {
 	MaxID   int64  `json:"maxId"`   // incremental: optional upper bound id <= MaxID (for chunking)
 }
 
+// validateExportScope 统一校验导出/备份范围参数，供导出 API 与备份调度共用，
+// 避免两条路径校验口径不一致（导出 API 曾只查非空、不查 From>=To，导致静默空导出）。
+// range 模式要求 From/To 非空、From<To、且格式为 RFC3339 或 YYYY-MM-DD
+// （两种格式字典序与时间序一致，可直接字符串比较）。
+// incremental 模式要求 SinceID>0。空 Mode 视为 full（调用方已归一化）。
+func validateExportScope(scope ExportScope) error {
+	switch scope.Mode {
+	case "range":
+		if scope.From == "" || scope.To == "" {
+			return errors.New("range export requires from and to")
+		}
+		if scope.From >= scope.To {
+			return fmt.Errorf("range 起始时间 %q 必须早于结束时间 %q", scope.From, scope.To)
+		}
+		for _, v := range []string{scope.From, scope.To} {
+			if _, err := time.Parse(time.RFC3339, v); err != nil {
+				if _, err2 := time.Parse("2006-01-02", v); err2 != nil {
+					return fmt.Errorf("range 时间 %q 格式非法（需 RFC3339 或 YYYY-MM-DD）", v)
+				}
+			}
+		}
+	case "incremental":
+		if scope.SinceID <= 0 {
+			return errors.New("incremental export requires sinceId")
+		}
+	case "full", "":
+		// 合法
+	default:
+		return fmt.Errorf("unsupported export mode %q", scope.Mode)
+	}
+	return nil
+}
+
 // ExportFullForJSON exports clipboard data, group hierarchy, and portable
 // sensitive-data rules.
 func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
@@ -756,10 +789,14 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 // with json.Marshal of ExportFullForJSON and can be parsed by ImportFullJSON.
 // scope selects full / range / incremental data; groups and settings are always
 // exported in full (they are small), while items and item_groups are filtered.
-func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer) error {
+// StreamExport writes an export JSON document for the given scope to w.
+// It returns the id of the LAST item included (0 when no items matched) so the
+// caller can advance a backup watermark from the exact snapshot that was
+// exported — querying the max id afterwards would race with concurrent writes.
+func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin export tx: %w", err)
+		return 0, fmt.Errorf("begin export tx: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -778,29 +815,30 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 	}
 	hb, err := json.Marshal(header)
 	if err != nil {
-		return fmt.Errorf("marshal header: %w", err)
+		return 0, fmt.Errorf("marshal header: %w", err)
 	}
 	// Strip the trailing '}' so the items array can be appended.
 	if _, err := w.Write(hb[:len(hb)-1]); err != nil {
-		return fmt.Errorf("write header: %w", err)
+		return 0, fmt.Errorf("write header: %w", err)
 	}
 	if _, err := w.Write([]byte(`,"items":[`)); err != nil {
-		return fmt.Errorf("write items header: %w", err)
+		return 0, fmt.Errorf("write items header: %w", err)
 	}
 
 	itemSQL, itemArgs := exportItemsQuery(scope)
 	rows, err := tx.QueryContext(ctx, itemSQL, itemArgs...)
 	if err != nil {
-		return fmt.Errorf("query items: %w", err)
+		return 0, fmt.Errorf("query items: %w", err)
 	}
 	first := true
+	var lastID int64
 	for rows.Next() {
 		var item StoredItem
 		var created string
 		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
 			&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
 			rows.Close()
-			return fmt.Errorf("scan item: %w", err)
+			return 0, fmt.Errorf("scan item: %w", err)
 		}
 		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
 			item.CreatedAt = parsed
@@ -808,128 +846,120 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 		if !first {
 			if _, err := w.Write([]byte(",")); err != nil {
 				rows.Close()
-				return fmt.Errorf("write item separator: %w", err)
+				return 0, fmt.Errorf("write item separator: %w", err)
 			}
 		}
 		b, err := json.Marshal(item)
 		if err != nil {
 			rows.Close()
-			return fmt.Errorf("marshal item: %w", err)
+			return 0, fmt.Errorf("marshal item: %w", err)
 		}
 		if _, err := w.Write(b); err != nil {
 			rows.Close()
-			return fmt.Errorf("write item: %w", err)
+			return 0, fmt.Errorf("write item: %w", err)
 		}
 		first = false
+		lastID = item.ID
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close items: %w", err)
+		return 0, fmt.Errorf("close items: %w", err)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate items: %w", err)
+		return 0, fmt.Errorf("iterate items: %w", err)
 	}
 
 	// groups: always full (typically small)
 	groups, err := listGroups(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("export groups: %w", err)
+		return 0, fmt.Errorf("export groups: %w", err)
 	}
 	if groups == nil {
 		groups = []StoredGroup{}
 	}
 	gb, err := json.Marshal(groups)
 	if err != nil {
-		return fmt.Errorf("marshal groups: %w", err)
+		return 0, fmt.Errorf("marshal groups: %w", err)
 	}
 	if _, err := w.Write([]byte(`],"groups":`)); err != nil {
-		return fmt.Errorf("write groups header: %w", err)
+		return 0, fmt.Errorf("write groups header: %w", err)
 	}
 	if _, err := w.Write(gb); err != nil {
-		return fmt.Errorf("write groups: %w", err)
+		return 0, fmt.Errorf("write groups: %w", err)
 	}
 
 	// item_groups: streamed and filtered to the exported item range
 	linkSQL, linkArgs := exportLinksQuery(scope)
 	if _, err := w.Write([]byte(`,"itemGroups":[`)); err != nil {
-		return fmt.Errorf("write itemGroups header: %w", err)
+		return 0, fmt.Errorf("write itemGroups header: %w", err)
 	}
 	lrows, err := tx.QueryContext(ctx, linkSQL, linkArgs...)
 	if err != nil {
-		return fmt.Errorf("query item_groups: %w", err)
+		return 0, fmt.Errorf("query item_groups: %w", err)
 	}
 	lfirst := true
 	for lrows.Next() {
 		var l ItemGroupLink
 		if err := lrows.Scan(&l.ItemID, &l.GroupID); err != nil {
 			lrows.Close()
-			return fmt.Errorf("scan link: %w", err)
+			return 0, fmt.Errorf("scan link: %w", err)
 		}
 		if !lfirst {
 			if _, err := w.Write([]byte(",")); err != nil {
 				lrows.Close()
-				return fmt.Errorf("write link separator: %w", err)
+				return 0, fmt.Errorf("write link separator: %w", err)
 			}
 		}
 		b, err := json.Marshal(l)
 		if err != nil {
 			lrows.Close()
-			return fmt.Errorf("marshal link: %w", err)
+			return 0, fmt.Errorf("marshal link: %w", err)
 		}
 		if _, err := w.Write(b); err != nil {
 			lrows.Close()
-			return fmt.Errorf("write link: %w", err)
+			return 0, fmt.Errorf("write link: %w", err)
 		}
 		lfirst = false
 	}
 	if err := lrows.Close(); err != nil {
-		return fmt.Errorf("close item_groups: %w", err)
+		return 0, fmt.Errorf("close item_groups: %w", err)
 	}
 	if err := lrows.Err(); err != nil {
-		return fmt.Errorf("iterate item_groups: %w", err)
+		return 0, fmt.Errorf("iterate item_groups: %w", err)
 	}
 
 	// settings: always full (portable sensitive rules only)
 	cfg, err := getConfig(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("export settings: %w", err)
+		return 0, fmt.Errorf("export settings: %w", err)
 	}
 	settings := ExportSettings{Sensitive: SensitiveConfig{
 		CustomPatterns: append([]string{}, cfg.Sensitive.CustomPatterns...),
 	}}
 	sb, err := json.Marshal(settings)
 	if err != nil {
-		return fmt.Errorf("marshal settings: %w", err)
+		return 0, fmt.Errorf("marshal settings: %w", err)
 	}
 	if _, err := w.Write([]byte(`],"settings":`)); err != nil {
-		return fmt.Errorf("write settings header: %w", err)
+		return 0, fmt.Errorf("write settings header: %w", err)
 	}
 	if _, err := w.Write(sb); err != nil {
-		return fmt.Errorf("write settings: %w", err)
+		return 0, fmt.Errorf("write settings: %w", err)
 	}
 	if _, err := w.Write([]byte("}")); err != nil {
-		return fmt.Errorf("write footer: %w", err)
+		return 0, fmt.Errorf("write footer: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit export tx: %w", err)
+	}
+	return lastID, nil
 }
 
 // exportItemsQuery builds the clipboard_items SELECT for the given scope.
 func exportItemsQuery(scope ExportScope) (string, []any) {
 	const base = `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive FROM clipboard_items`
-	switch scope.Mode {
-	case "range":
-		return base + ` WHERE created_at >= ? AND created_at < ? ORDER BY id ASC`, []any{scope.From, scope.To}
-	case "incremental":
-		sql := base + ` WHERE id > ?`
-		args := []any{scope.SinceID}
-		if scope.MaxID > 0 {
-			sql += ` AND id <= ?`
-			args = append(args, scope.MaxID)
-		}
-		return sql + ` ORDER BY id ASC`, args
-	default:
-		return base + ` ORDER BY id ASC`, nil
-	}
+	where, args := exportScopeWhere(scope)
+	return base + where + ` ORDER BY id ASC`, args
 }
 
 // exportLinksQuery builds the item_groups SELECT for the given scope. Links are
@@ -937,8 +967,6 @@ func exportItemsQuery(scope ExportScope) (string, []any) {
 func exportLinksQuery(scope ExportScope) (string, []any) {
 	const base = `SELECT item_id, group_id FROM item_groups`
 	switch scope.Mode {
-	case "range":
-		return base + ` WHERE item_id IN (SELECT id FROM clipboard_items WHERE created_at >= ? AND created_at < ?) ORDER BY item_id ASC`, []any{scope.From, scope.To}
 	case "incremental":
 		sql := base + ` WHERE item_id > ?`
 		args := []any{scope.SinceID}
@@ -948,27 +976,45 @@ func exportLinksQuery(scope ExportScope) (string, []any) {
 		}
 		return sql + ` ORDER BY item_id ASC`, args
 	default:
-		return base + ` ORDER BY item_id ASC`, nil
+		// full / range：通过子查询把 item_id 限定到同一 scope 的记录集合，
+		// 分片时 id 窗口（SinceID/MaxID）由 exportScopeWhere 统一叠加。
+		subWhere, args := exportScopeWhere(scope)
+		return base + ` WHERE item_id IN (SELECT id FROM clipboard_items` + subWhere + `) ORDER BY item_id ASC`, args
 	}
 }
 
 // exportScopeWhere builds the WHERE clause (without leading " WHERE") for
-// clipboard_items, shared by count/min/max queries.
+// clipboard_items, shared by count/min/max/export queries.
+// 除自身过滤条件外，当 MaxID>0 时叠加 keyset 分片窗口 (id > SinceID AND id <= MaxID)，
+// 供邮件分片导出按行数切分使用；非分片调用（IDRange/CountInScope）不传 MaxID，不受影响。
 func exportScopeWhere(scope ExportScope) (string, []any) {
+	var where string
+	var args []any
 	switch scope.Mode {
 	case "range":
-		return ` WHERE created_at >= ? AND created_at < ?`, []any{scope.From, scope.To}
+		where = ` WHERE created_at >= ? AND created_at < ?`
+		args = []any{scope.From, scope.To}
 	case "incremental":
-		sql := ` WHERE id > ?`
-		args := []any{scope.SinceID}
-		if scope.MaxID > 0 {
-			sql += ` AND id <= ?`
-			args = append(args, scope.MaxID)
-		}
-		return sql, args
+		where = ` WHERE id > ?`
+		args = []any{scope.SinceID}
 	default:
-		return "", nil
+		where = ""
 	}
+	if scope.MaxID > 0 {
+		if scope.Mode == "incremental" {
+			// incremental 已含 id > SinceID，只需补上界
+			where += ` AND id <= ?`
+			args = append(args, scope.MaxID)
+		} else {
+			if where == "" {
+				where = ` WHERE id > ? AND id <= ?`
+			} else {
+				where += ` AND id > ? AND id <= ?`
+			}
+			args = append(args, scope.SinceID, scope.MaxID)
+		}
+	}
+	return where, args
 }
 
 // defaultItemsPerPart targets ~5k rows per chunk (roughly 1-5MB depending on
@@ -982,6 +1028,30 @@ func (s *Store) IDRange(ctx context.Context, scope ExportScope) (minID, maxID in
 	q := `SELECT COALESCE(MIN(id),0), COALESCE(MAX(id),0) FROM clipboard_items` + where
 	err = s.db.QueryRowContext(ctx, q, args...).Scan(&minID, &maxID)
 	return
+}
+
+// CountInScope returns the number of items matching the scope. Used by
+// chunked exports to size parts by actual row count (id holes are irrelevant).
+func (s *Store) CountInScope(ctx context.Context, scope ExportScope) (int, error) {
+	where, args := exportScopeWhere(scope)
+	q := `SELECT COUNT(*) FROM clipboard_items` + where
+	var n int
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&n)
+	return n, err
+}
+
+// NthIDAfter returns the id of the item at offset n (0-based) among rows with
+// id > after, ordered by id ASC. Used as the keyset cursor when splitting an
+// export into row-count-sized parts: the last id of a part is the id of the
+// item just after the part boundary.
+func (s *Store) NthIDAfter(ctx context.Context, after int64, n int) (int64, error) {
+	q := `SELECT id FROM clipboard_items WHERE id > ? ORDER BY id ASC LIMIT 1 OFFSET ?`
+	var id int64
+	err := s.db.QueryRowContext(ctx, q, after, n).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // BackupWatermark records the last successful incremental backup position,
@@ -1362,14 +1432,22 @@ func (s *Store) checkDescendant(ctx context.Context, groupID, targetID int64) er
 }
 
 // DeleteGroup 删除分组及其所有后代分组，同时清理 item_groups 关联。
+// 后代收集与删除在同一事务内完成，避免"收集后、删除前"新建子分组漏删；
+// defer tx.Rollback() 统一回滚，任何失败路径都不会残留半删状态。
 func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
-	// 收集所有后代分组 id
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 收集所有后代分组 id（BFS，事务内查询）
 	ids := []int64{id}
 	queue := []int64{id}
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
-		rows, err := s.db.QueryContext(ctx, `SELECT id FROM groups WHERE parent_id = ?`, cur)
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM groups WHERE parent_id = ?`, cur)
 		if err != nil {
 			return err
 		}
@@ -1385,17 +1463,11 @@ func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 		rows.Close()
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
 	for _, gid := range ids {
-		if _, err := tx.Exec(`DELETE FROM item_groups WHERE group_id = ?`, gid); err != nil {
-			tx.Rollback()
+		if _, err := tx.ExecContext(ctx, `DELETE FROM item_groups WHERE group_id = ?`, gid); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM groups WHERE id = ?`, gid); err != nil {
-			tx.Rollback()
+		if _, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, gid); err != nil {
 			return err
 		}
 	}

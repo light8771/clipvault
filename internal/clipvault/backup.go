@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -29,6 +30,9 @@ var errBackupLicenseRequired = errors.New("需要先激活 ClipVault 才能使�
 const (
 	emailBackupModeAutomatic = "automatic"
 	emailBackupModeManual    = "manual"
+	// maxEmailParts 是单次邮件备份分片总数的硬上限，防止数据量异常时
+	// 产生海量空分片（SMTP 滥发 / 账号封禁）。
+	maxEmailParts = 60
 )
 
 // BackupStatus 记录最近一次备份的状态。
@@ -330,7 +334,7 @@ func (bs *BackupService) doDirBackup(cfg Config, forceFull bool) error {
 	if db.Format == "xlsx" {
 		scope.Mode = "full" // XLSX 不支持范围过滤，始终全量，水印按全量记录
 	}
-	data, ext, err := bs.exportBackupData(db.Format, db.Password, scope)
+	data, ext, exportedMaxID, err := bs.exportBackupData(db.Format, db.Password, scope)
 	if err != nil {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
 		bs.setDirStatus(makeBackupStatus(time.Now(), false, scope, autoFallback, wm, db.IncrementalFullInterval, err.Error(), ""))
@@ -345,7 +349,12 @@ func (bs *BackupService) doDirBackup(cfg Config, forceFull bool) error {
 		return err
 	}
 
-	wm := updateBackupWatermark(bs.store, "dir", scope)
+	wm, wmErr := updateBackupWatermark(bs.store, "dir", scope, exportedMaxID)
+	if wmErr != nil {
+		bs.logger.Error("dir_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
+		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, db.IncrementalFullInterval, wmErr.Error(), fullPath))
+		return wmErr
+	}
 	bs.setDirStatus(makeBackupStatus(now, true, scope, autoFallback, wm, db.IncrementalFullInterval, "", fullPath))
 	bs.logger.Info("dir_backup_ok", map[string]any{"file": fullPath, "size": len(data), "mode": scope.Mode, "autoFallback": autoFallback})
 	return nil
@@ -404,7 +413,7 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 	if eb.Format == "xlsx" {
 		scope.Mode = "full" // XLSX 不支持范围过滤，始终全量，水印按全量记录
 	}
-	parts, ext, err := bs.exportEmailParts(eb.Format, eb.Password, scope)
+	parts, ext, exportedMaxID, err := bs.exportEmailParts(eb.Format, eb.Password, scope)
 	if err != nil {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
 		bs.setEmailStatus(makeBackupStatus(time.Now(), false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
@@ -422,14 +431,22 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	}
 
-	lastFilename := ""
+	// 大小预检前置：所有分片生成后、发送任何一封邮件之前统一校验。
+	// 若放行循环内逐个检查，第 N 片超限时前面 N-1 片已经发出且无法撤回。
+	// 阈值按预估投递体积（base64 +33% + MIME 头开销）比较，20MB 附件实际
+	// 邮件 ~27MB，已接近 Gmail 等 25MB 上限，故用 80% 作为安全系数。
 	for i, part := range parts {
-		if len(part) > eb.MaxPartSize {
-			err := fmt.Errorf("第 %d/%d 封附件 %d 字节超过阈值 %d，请缩小备份范围或减少单条记录大小", i+1, total, len(part), eb.MaxPartSize)
+		if est := estimateEmailPartSize(part); est > eb.MaxPartSize {
+			err := fmt.Errorf("第 %d/%d 封附件预计 %d 字节（base64 后）超过阈值 %d，请缩小备份范围或减少单条记录大小", i+1, total, est, eb.MaxPartSize)
+			bs.sendBackupFailureNotice(eb, now, i, total, ext, err)
 			wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
 			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
 			return err
 		}
+	}
+
+	lastFilename := ""
+	for i, part := range parts {
 		filename := fmt.Sprintf("clipvault-backup-%s.%s", now.Format("20060102-150405"), ext)
 		subject, body, htmlBody := renderEmailTemplate(eb, filename, ext, now)
 		if total > 1 {
@@ -453,14 +470,25 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 	}); err != nil {
 		bs.logger.Error("email_backup_history_record_failed", err, nil)
 	}
-	wm := updateBackupWatermark(bs.store, "email", scope)
+	wm, wmErr := updateBackupWatermark(bs.store, "email", scope, exportedMaxID)
 	statusFile := lastFilename
 	if total > 1 {
 		statusFile = fmt.Sprintf("%d part(s)", total)
 	}
+	if wmErr != nil {
+		bs.logger.Error("email_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
+		bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, wmErr.Error(), statusFile))
+		return wmErr
+	}
 	bs.setEmailStatus(makeBackupStatus(now, true, scope, autoFallback, wm, eb.IncrementalFullInterval, "", statusFile))
 	bs.logger.Info("email_backup_ok", map[string]any{"to": eb.To, "parts": total, "mode": scope.Mode, "autoFallback": autoFallback})
 	return nil
+}
+
+// estimateEmailPartSize 粗略估算一封含该附件的邮件投递体积：base64 编码
+// 放大 4/3，加上 MIME 头与边界等固定开销（保守取 16KB）。
+func estimateEmailPartSize(part []byte) int {
+	return len(part)*4/3 + 16<<10
 }
 
 func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
@@ -538,36 +566,40 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 }
 
 // exportBackupData 导出单份数据（用于目录备份），按 scope 过滤。
-func (bs *BackupService) exportBackupData(format, password string, scope ExportScope) ([]byte, string, error) {
+// 返回 (data, ext, exportedMaxID)：exportedMaxID 是该次导出快照包含的
+// 最后一条记录的 id（无数据时为 0），供写水印使用，避免二次查询竞态。
+func (bs *BackupService) exportBackupData(format, password string, scope ExportScope) ([]byte, string, int64, error) {
 	switch format {
 	case "xlsx":
 		// XLSX 暂不支持 scope，全量导出
 		data, err := bs.store.ExportXLSX(context.Background())
 		if err != nil {
-			return nil, "", fmt.Errorf("Excel 导出失败: %w", err)
+			return nil, "", 0, fmt.Errorf("Excel 导出失败: %w", err)
 		}
-		return data, "xlsx", nil
+		return data, "xlsx", 0, nil
 	case "cvexport":
 		if password == "" {
-			return nil, "", fmt.Errorf("cvexport 格式需要加密密码")
+			return nil, "", 0, fmt.Errorf("cvexport 格式需要加密密码")
 		}
 		var buf bytes.Buffer
-		if err := bs.store.StreamExport(context.Background(), scope, &buf); err != nil {
-			return nil, "", fmt.Errorf("导出数据失败: %w", err)
+		maxID, err := bs.store.StreamExport(context.Background(), scope, &buf)
+		if err != nil {
+			return nil, "", 0, fmt.Errorf("导出数据失败: %w", err)
 		}
 		encData, err := EncryptExport(buf.Bytes(), password)
 		if err != nil {
-			return nil, "", fmt.Errorf("加密失败: %w", err)
+			return nil, "", 0, fmt.Errorf("加密失败: %w", err)
 		}
-		return encData, "cvexport", nil
+		return encData, "cvexport", maxID, nil
 	case "json":
 		var buf bytes.Buffer
-		if err := bs.store.StreamExport(context.Background(), scope, &buf); err != nil {
-			return nil, "", fmt.Errorf("导出数据失败: %w", err)
+		maxID, err := bs.store.StreamExport(context.Background(), scope, &buf)
+		if err != nil {
+			return nil, "", 0, fmt.Errorf("导出数据失败: %w", err)
 		}
-		return buf.Bytes(), "json", nil
+		return buf.Bytes(), "json", maxID, nil
 	default:
-		return nil, "", fmt.Errorf("不支持的备份格式: %s", format)
+		return nil, "", 0, fmt.Errorf("不支持的备份格式: %s", format)
 	}
 }
 
@@ -585,12 +617,10 @@ func resolveBackupScope(store *Store, kind string, configured ExportScope, fullI
 		return configured, false, nil
 	}
 	if configured.Mode == "range" {
-		// range 按字符串比较 created_at（RFC3339 / YYYY-MM-DD 前缀字典序一致）
-		if configured.From == "" || configured.To == "" {
-			return configured, false, fmt.Errorf("range 备份需要配置起止时间（from/to）")
-		}
-		if configured.From >= configured.To {
-			return configured, false, fmt.Errorf("range 备份起始时间 %q 必须早于结束时间 %q", configured.From, configured.To)
+		// 复用统一校验（validateExportScope：非空 + From<To + 格式合法），
+		// 与导出 API handleExportData 口径一致，避免两条路径校验不一致。
+		if err := validateExportScope(configured); err != nil {
+			return configured, false, fmt.Errorf("range 备份配置非法: %w", err)
 		}
 		return configured, false, nil
 	}
@@ -610,17 +640,23 @@ func resolveBackupScope(store *Store, kind string, configured ExportScope, fullI
 	return configured, false, nil
 }
 
-// updateBackupWatermark records the current max id after a successful backup
-// and returns the new watermark. full resets the incremental counter and
-// updates LastFullAt; incremental increments the counter and preserves LastFullAt.
-func updateBackupWatermark(store *Store, kind string, scope ExportScope) BackupWatermark {
-	_, maxID, err := store.IDRange(context.Background(), scope)
-	if err != nil || maxID <= 0 {
-		return BackupWatermark{}
+// updateBackupWatermark records the backup position from the id that was ACTUALLY
+// exported (exportedMaxID), not from a fresh query — a later query would race
+// with concurrent clipboard writes and could advance the watermark past rows
+// that were never exported, silently losing them from every future incremental
+// backup. exportedMaxID<=0 means "no data was exported" and the watermark is
+// left untouched (the existing watermark is returned so the UI status does not
+// flash a reset).
+func updateBackupWatermark(store *Store, kind string, scope ExportScope, exportedMaxID int64) (BackupWatermark, error) {
+	wm, err := store.GetBackupWatermark(context.Background(), kind)
+	if err != nil {
+		return BackupWatermark{}, fmt.Errorf("读取水印失败: %w", err)
 	}
-	wm, _ := store.GetBackupWatermark(context.Background(), kind)
+	if exportedMaxID <= 0 {
+		return wm, nil
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	newWM := BackupWatermark{LastItemID: maxID, LastSentAt: now}
+	newWM := BackupWatermark{LastItemID: exportedMaxID, LastSentAt: now}
 	if scope.Mode == "incremental" {
 		newWM.IncrementalCount = wm.IncrementalCount + 1
 		newWM.LastFullAt = wm.LastFullAt
@@ -628,8 +664,10 @@ func updateBackupWatermark(store *Store, kind string, scope ExportScope) BackupW
 		newWM.IncrementalCount = 0
 		newWM.LastFullAt = now
 	}
-	store.SetBackupWatermark(context.Background(), kind, newWM)
-	return newWM
+	if err := store.SetBackupWatermark(context.Background(), kind, newWM); err != nil {
+		return wm, fmt.Errorf("写回水印失败: %w", err)
+	}
+	return newWM, nil
 }
 
 // makeBackupStatus builds a BackupStatus with transparent incremental-chain info.
@@ -650,75 +688,102 @@ func makeBackupStatus(now time.Time, ok bool, scope ExportScope, autoFallback bo
 }
 
 // exportEmailParts exports data split into multiple self-contained parts (one per
-// email). Each part is an independent ExportData over an id window, so it can be
-// imported on its own. cvexport parts are individually encrypted.
-func (bs *BackupService) exportEmailParts(format, password string, scope ExportScope) ([][]byte, string, error) {
+// email). Each part is an independent ExportData over a row-count-sized id window,
+// so it can be imported on its own. cvexport parts are individually encrypted.
+//
+// The returned maxID is the id of the LAST item actually included in the parts,
+// computed from the same snapshot that produced the parts, so the caller can
+// persist the backup watermark from the exported data (not from a later query —
+// that would race with concurrent clipboard writes and silently skip rows).
+func (bs *BackupService) exportEmailParts(format, password string, scope ExportScope) ([][]byte, string, int64, error) {
 	if format == "xlsx" {
 		data, err := bs.store.ExportXLSX(context.Background())
 		if err != nil {
-			return nil, "", fmt.Errorf("Excel 导出失败: %w", err)
+			return nil, "", 0, fmt.Errorf("Excel 导出失败: %w", err)
 		}
-		return [][]byte{data}, "xlsx", nil
-	}
-	minID, maxID, err := bs.store.IDRange(context.Background(), scope)
-	if err != nil {
-		return nil, "", fmt.Errorf("查询 id 范围失败: %w", err)
+		return [][]byte{data}, "xlsx", 0, nil
 	}
 	ext := "json"
 	if format == "cvexport" {
 		ext = "cvexport"
 	}
-	// No new data: still produce one self-contained empty export (same behavior
-	// as directory backups, which always write a file), so the scheduled email
-	// confirms the backup chain is alive. updateBackupWatermark leaves the
-	// watermark untouched when the scope matches no rows.
-	if minID <= 0 {
+
+	// Chunk by actual row count (not by id range): id holes from deletes would
+	// otherwise explode the part count into mostly-empty emails.
+	partRows := defaultItemsPerPart
+	if partRows <= 0 {
+		partRows = 5000
+	}
+	total, err := bs.store.CountInScope(context.Background(), scope)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("统计分片行数失败: %w", err)
+	}
+	// 空数据：产出一片自包含的空导出（与目录备份一致），maxID=0 表示不推进水印。
+	if total <= 0 {
 		var buf bytes.Buffer
-		if err := bs.store.StreamExport(context.Background(), scope, &buf); err != nil {
-			return nil, "", fmt.Errorf("导出空备份失败: %w", err)
+		if _, err := bs.store.StreamExport(context.Background(), scope, &buf); err != nil {
+			return nil, "", 0, fmt.Errorf("导出空备份失败: %w", err)
 		}
 		raw := buf.Bytes()
 		if format == "cvexport" {
 			if password == "" {
-				return nil, "", fmt.Errorf("cvexport 格式需要加密密码")
+				return nil, "", 0, fmt.Errorf("cvexport 格式需要加密密码")
 			}
 			enc, err := EncryptExport(raw, password)
 			if err != nil {
-				return nil, "", fmt.Errorf("加密分片失败: %w", err)
+				return nil, "", 0, fmt.Errorf("加密分片失败: %w", err)
 			}
 			raw = enc
 		}
-		return [][]byte{raw}, ext, nil
+		return [][]byte{raw}, ext, 0, nil
 	}
-	// Split by id windows of defaultItemsPerPart rows each.
+
+	numParts := (total + partRows - 1) / partRows
+	if numParts > maxEmailParts {
+		return nil, "", 0, fmt.Errorf("备份数据量过大：按每 %d 条一份需 %d 封邮件，超过上限 %d 封，请改用目录备份或缩小备份范围", partRows, numParts, maxEmailParts)
+	}
+
 	var parts [][]byte
-	for start := minID; start <= maxID; start += defaultItemsPerPart {
-		end := start + defaultItemsPerPart - 1
-		if end > maxID {
-			end = maxID
-		}
+	// 游标从原始 scope 的下界开始（增量备份 = 已有水印，全量 = 0），
+	// 每个分片取一个连续的 id 窗口：起点为上一片末尾（keyset 游标），
+	// 终点为本片最后一条记录的 id。分片只在 id 上叠加窗口，保留原始
+	// Mode 的过滤条件（range 的 created_at 过滤、incremental 的 SinceID
+	// 都继续生效），窗口下界由 exportScopeWhere 与原始条件 AND 叠加。
+	lastID := scope.SinceID
+	if scope.Mode == "range" || scope.Mode == "" || scope.Mode == "full" {
+		lastID = 0 // 全量/range 分片的 id 下界是 0
+	}
+	for i := 0; i < numParts; i++ {
 		partScope := scope
-		partScope.Mode = "incremental"
-		partScope.SinceID = start - 1
-		partScope.MaxID = end
+		partScope.SinceID = lastID // 关键：窗口下界跟随游标推进，避免分片间重复/遗漏
+		partScope.MaxID = 0        // 由下游 NthIDAfter 游标推进，不使用旧实现里按 id 步进的 MaxID 语义
+		endID, err := bs.store.NthIDAfter(context.Background(), lastID, partRows-1)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				break // 数据已在并发删除下变少，安全退出
+			}
+			return nil, "", 0, fmt.Errorf("定位分片边界失败: %w", err)
+		}
+		partScope.MaxID = endID
 		var buf bytes.Buffer
-		if err := bs.store.StreamExport(context.Background(), partScope, &buf); err != nil {
-			return nil, "", fmt.Errorf("导出分片失败: %w", err)
+		if _, err := bs.store.StreamExport(context.Background(), partScope, &buf); err != nil {
+			return nil, "", 0, fmt.Errorf("导出分片失败: %w", err)
 		}
 		raw := buf.Bytes()
 		if format == "cvexport" {
 			if password == "" {
-				return nil, "", fmt.Errorf("cvexport 格式需要加密密码")
+				return nil, "", 0, fmt.Errorf("cvexport 格式需要加密密码")
 			}
 			enc, err := EncryptExport(raw, password)
 			if err != nil {
-				return nil, "", fmt.Errorf("加密分片失败: %w", err)
+				return nil, "", 0, fmt.Errorf("加密分片失败: %w", err)
 			}
 			raw = enc
 		}
 		parts = append(parts, raw)
+		lastID = endID
 	}
-	return parts, ext, nil
+	return parts, ext, lastID, nil
 }
 
 // sendBackupFailureNotice sends a notification email when a multi-part backup

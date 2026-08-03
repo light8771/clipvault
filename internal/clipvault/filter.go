@@ -17,15 +17,17 @@ type FilterDecision struct {
 }
 
 // NewFilterEngine 根据配置编译自定义正则表达式，创建过滤引擎。
+// 即使某条规则编译失败，也返回一个可用的空引擎（customs 非 nil）+
+// 错误，调用方丢弃错误后 CheckText 仍安全（遍历空切片），不会 nil panic。
 func NewFilterEngine(cfg SensitiveConfig) (*FilterEngine, error) {
-	engine := &FilterEngine{}
+	engine := &FilterEngine{customs: []*regexp.Regexp{}}
 	for _, pattern := range cfg.CustomPatterns {
 		if strings.TrimSpace(pattern) == "" {
 			continue
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			return nil, err
+			return engine, err
 		}
 		engine.customs = append(engine.customs, re)
 	}

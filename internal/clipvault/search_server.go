@@ -202,6 +202,10 @@ func (s *SearchServer) URL() string {
 }
 
 func (s *SearchServer) Close(ctx context.Context) error {
+	// 先停 cleaner goroutine，再关 HTTP server（#23：防 Web 重启泄漏 goroutine）
+	if s.auth != nil {
+		s.auth.Close()
+	}
 	if s.server == nil {
 		return nil
 	}
@@ -242,9 +246,8 @@ func (s *SearchServer) handleStorageRelocate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := ScheduleDataDirectoryMove(s.env, req.DataDir); err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// 原始 err（文件系统/权限）只进日志，客户端给可读文案
+		s.writeAPIError(w, http.StatusBadRequest, "relocate_failed", "数据目录迁移失败："+err.Error(), err)
 		return
 	}
 	s.logger.Info("storage_relocation_scheduled", nil)
@@ -383,12 +386,12 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
 	data, err := io.ReadAll(r.Body)
 	if err != nil || len(data) == 0 {
-		http.Error(w, "invalid background media", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_media", "无效的背景媒体", nil)
 		return
 	}
 	contentType := detectBackgroundContentType(data)
 	if contentType == "" {
-		http.Error(w, "unsupported background media", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "unsupported_media", "不支持的背景媒体格式", nil)
 		return
 	}
 	s.assetMu.Lock()
@@ -419,7 +422,7 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
 	data, err := io.ReadAll(r.Body)
 	if err != nil || len(data) == 0 {
-		http.Error(w, "invalid image", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_image", "无效的图片", nil)
 		return
 	}
 	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
@@ -427,7 +430,7 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 		contentType = "image/x-icon"
 	}
 	if !isBrandContentType(contentType, kind) || !isValidBrandImage(data, contentType) {
-		http.Error(w, "unsupported image", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "unsupported_image", "不支持的图片格式", nil)
 		return
 	}
 	s.assetMu.Lock()
@@ -641,12 +644,12 @@ func (s *SearchServer) handleLicenseStatus(w http.ResponseWriter, r *http.Reques
 
 func (s *SearchServer) handleLicenseMachine(w http.ResponseWriter, r *http.Request) {
 	if s.license == nil {
-		http.Error(w, "license manager unavailable", http.StatusServiceUnavailable)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", "授权管理器不可用", nil)
 		return
 	}
 	ctx := s.license.Context()
 	if ctx.MachineID == "" {
-		http.Error(w, "machine id unavailable", http.StatusServiceUnavailable)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "machine_id_unavailable", "无法获取机器标识", nil)
 		return
 	}
 	s.writeJSON(w, map[string]any{"machineId": ctx.MachineID, "machineCode": ctx.MachineCode})
@@ -654,7 +657,7 @@ func (s *SearchServer) handleLicenseMachine(w http.ResponseWriter, r *http.Reque
 
 func (s *SearchServer) handleLicenseActivate(w http.ResponseWriter, r *http.Request) {
 	if s.license == nil {
-		http.Error(w, "license manager unavailable", http.StatusServiceUnavailable)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", "授权管理器不可用", nil)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
@@ -708,7 +711,7 @@ func (s *SearchServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string) {
 	data, err := fs.ReadFile(webFS, name)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		s.writeAPIError(w, http.StatusNotFound, "not_found", "资源不存在", nil)
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -752,6 +755,15 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		for i := range items {
 			if items[i].Sensitive {
 				items[i].Text = "【敏感内容，点击查看】"
+				// 遮蔽衍生字段：MetaJSON（文件类含完整本地路径）、SHA256、
+				// Format、ByteLen 一并清空，防止绕过 Text 遮蔽泄漏敏感信息
+				// （#20：原先只遮蔽 Text，meta_json 直接暴露文件路径）。
+				// 注：前端文件类型判断用 it.kind（isNonTextKind），不消费 it.format，
+				// 清 Format 不影响渲染；CharLen 保留（前端显示"xx 字"）。
+				items[i].MetaJSON = ""
+				items[i].SHA256 = ""
+				items[i].Format = ""
+				items[i].ByteLen = 0
 			}
 		}
 	}
@@ -789,17 +801,31 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
 		return
 	}
 	item, err := s.store.GetByID(r.Context(), id)
 	if err != nil {
-		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		s.writeAPIError(w, http.StatusNotFound, "not_found", "记录不存在", nil)
 		return
 	}
 	if !item.Sensitive {
-		http.Error(w, `{"error":"not sensitive"}`, http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "not_sensitive", "该记录不是敏感内容", nil)
 		return
+	}
+	// 免费版读窗口：未激活时仅允许查看最近 FreeTierVisibleLimit 条，
+	// 与 handleItemPosition 的门控保持一致，防止按 id 枚举窗口外敏感记录。
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		pos, perr := s.store.GetPositionByID(r.Context(), id)
+		if perr != nil {
+			s.writeError(w, perr)
+			return
+		}
+		if pos >= FreeTierVisibleLimit {
+			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
+				"未激活仅可查看最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该记录不在可查看范围内", nil)
+			return
+		}
 	}
 	s.writeJSON(w, map[string]any{"item": item})
 }
@@ -808,7 +834,7 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
 		return
 	}
 	pos, err := s.store.GetPositionByID(r.Context(), id)
@@ -817,11 +843,33 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// 未激活时，窗口外的记录无法定位（前端列表里根本看不到）
+	// 统一 402 语义（与 handleSensitiveItem/enforceFreeWindow 一致，#19）
 	if s.license != nil && !s.license.CanUsePaidFeatures() && pos >= FreeTierVisibleLimit {
-		s.writeJSON(w, map[string]any{"error": "未激活仅可查看最近 " + strconv.Itoa(FreeTierVisibleLimit) + " 条记录，该记录不在可查看范围内"})
+		s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
+			"未激活仅可查看最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该记录不在可查看范围内", nil)
 		return
 	}
 	s.writeJSON(w, map[string]any{"position": pos})
+}
+
+// enforceFreeWindow 免费版（未激活）写操作门控：与读窗口语义一致，
+// 窗口外（最近 FreeTierVisibleLimit 条之外）的记录不允许删除/收藏等写操作。
+// 返回 true 表示已拦截并写出 402 响应，调用方应直接 return。
+// 与 handleSensitiveItem/handleItemPosition 的读窗口门控共用 GetPositionByID 判定。
+func (s *SearchServer) enforceFreeWindow(w http.ResponseWriter, r *http.Request, id int64) bool {
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		pos, perr := s.store.GetPositionByID(r.Context(), id)
+		if perr != nil {
+			s.writeError(w, perr)
+			return true
+		}
+		if pos >= FreeTierVisibleLimit {
+			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
+				"未激活仅可操作最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该记录不在可操作范围内", nil)
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SearchServer) handleState(w http.ResponseWriter, r *http.Request) {
@@ -844,7 +892,11 @@ func (s *SearchServer) handlePause(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleItems(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		return
+	}
+	// 免费版写门控：窗口外记录不允许删除（与读窗口语义一致，#21）
+	if s.enforceFreeWindow(w, r, id) {
 		return
 	}
 	if err := s.store.Delete(r.Context(), id); err != nil {
@@ -857,7 +909,11 @@ func (s *SearchServer) handleItems(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleStarItem(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		return
+	}
+	// 免费版写门控：窗口外记录不允许收藏/取消收藏（与读窗口语义一致，#21）
+	if s.enforceFreeWindow(w, r, id) {
 		return
 	}
 	starred := r.URL.Query().Get("starred") != "0"
@@ -948,12 +1004,12 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求体读取失败", err)
 		return
 	}
 	var cfg Config
 	if err := json.Unmarshal(body, &cfg); err != nil {
-		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "配置格式错误", err)
 		return
 	}
 	s.assetMu.Lock()
@@ -962,7 +1018,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	preserveAssetMetadata(&cfg, curCfg)
 	listenHost, _, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
-		http.Error(w, "invalid search.listenAddr: "+err.Error(), http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", "监听地址无效: "+err.Error(), err)
 		return
 	}
 	if !isLoopbackHost(listenHost) && (!s.auth.HasLockPassword(curCfg) || !s.auth.HasSecondaryPassword(curCfg)) {
@@ -997,7 +1053,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
-		http.Error(w, "invalid sensitive rule: "+err.Error(), http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_sensitive_rule", "敏感规则无效: "+err.Error(), err)
 		return
 	}
 	// 保留当前密码哈希，不被前端回传的空值覆盖
@@ -1089,17 +1145,11 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 			scope.SinceID = id
 		}
 	}
-	switch scope.Mode {
-	case "range":
-		if scope.From == "" || scope.To == "" {
-			s.writeError(w, errors.New("range export requires from and to"))
-			return
-		}
-	case "incremental":
-		if scope.SinceID <= 0 {
-			s.writeError(w, errors.New("incremental export requires sinceId"))
-			return
-		}
+	// 统一校验（与备份 resolveBackupScope 共用 validateExportScope），
+	// 修复 range 模式只查非空不查 From>=To 的静默空导出问题。
+	if err := validateExportScope(scope); err != nil {
+		s.writeError(w, err)
+		return
 	}
 
 	switch format {
@@ -1115,16 +1165,22 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		_, _ = w.Write(data)
 		s.logger.Info("data_exported", map[string]any{"format": "xlsx", "mode": scope.Mode})
 	case "json":
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.json"`)
-		if err := s.store.StreamExport(r.Context(), scope, w); err != nil {
+		// 先缓冲导出到内存，成功后再写响应头与正文；
+		// 否则中途失败会让客户端收到 HTTP 200 的截断 JSON（误判导出成功）。
+		var buf bytes.Buffer
+		if _, err := s.store.StreamExport(r.Context(), scope, &buf); err != nil {
 			s.logger.Error("data_export_failed", err, map[string]any{"format": "json", "mode": scope.Mode})
+			s.writeError(w, err)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.json"`)
+		w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+		_, _ = w.Write(buf.Bytes())
 		s.logger.Info("data_exported", map[string]any{"format": "json", "mode": scope.Mode})
 	case "cvexport":
 		if r.Method != http.MethodPost {
-			http.Error(w, "cvexport requires POST", http.StatusMethodNotAllowed)
+			s.writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "cvexport 导出需要 POST 请求", nil)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
@@ -1132,17 +1188,17 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 			Password string `json:"password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request", http.StatusBadRequest)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_request", "无效的请求", nil)
 			return
 		}
 		password := req.Password
 		if password == "" {
-			http.Error(w, "password is required for cvexport format", http.StatusBadRequest)
+			s.writeAPIError(w, http.StatusBadRequest, "password_required", "cvexport 格式需要加密密码", nil)
 			return
 		}
 		// AES-256-GCM 需要完整明文：先流式收集到 buffer 再加密
 		var buf bytes.Buffer
-		if err := s.store.StreamExport(r.Context(), scope, &buf); err != nil {
+		if _, err := s.store.StreamExport(r.Context(), scope, &buf); err != nil {
 			s.writeError(w, err)
 			return
 		}
@@ -1156,7 +1212,7 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		_, _ = w.Write(encData)
 		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "mode": scope.Mode, "size": len(encData)})
 	default:
-		http.Error(w, "unsupported export format", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "unsupported_format", "不支持的导出格式", nil)
 	}
 }
 
@@ -1233,9 +1289,9 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *SearchServer) writeImportError(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+	// 导入失败：原始 err 只进日志，客户端给可读文案
+	// （防解密/DB 内部错误细节泄漏，#19）
+	s.writeAPIError(w, http.StatusBadRequest, "import_error", "导入失败，请检查文件格式、密码或数据完整性", err)
 }
 
 // ── Recovery password management ──────────────────────────────
@@ -1250,7 +1306,7 @@ func (s *SearchServer) handleRecoverySet(w http.ResponseWriter, r *http.Request)
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if HasRecoveryPassword(s.env.DataDir) {
@@ -1259,7 +1315,8 @@ func (s *SearchServer) handleRecoverySet(w http.ResponseWriter, r *http.Request)
 	}
 	if err := SetRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.Password); err != nil {
 		s.logger.Error("recovery_set_failed", err, nil)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// 原始 err（scrypt/文件系统内部细节）只进日志，客户端给可读文案
+		s.writeAPIError(w, http.StatusBadRequest, "recovery_set_failed", "设置恢复密码失败", err)
 		return
 	}
 	s.logger.Info("recovery_password_set", nil)
@@ -1272,12 +1329,19 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 		NewPassword string `json:"newPassword"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if err := ChangeRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.OldPassword, req.NewPassword); err != nil {
 		s.logger.Error("recovery_change_failed", err, nil)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// RecoveryPasswordError（wrong_password/not_set）是用户可理解的业务错误，
+		// 其 Error() 仅含业务码不含内部细节，可回传；其他错误只进日志。
+		var rpe *RecoveryPasswordError
+		if errors.As(err, &rpe) {
+			s.writeAPIError(w, http.StatusBadRequest, "recovery_change_failed", err.Error(), err)
+		} else {
+			s.writeAPIError(w, http.StatusBadRequest, "recovery_change_failed", "修改恢复密码失败", err)
+		}
 		return
 	}
 	s.logger.Info("recovery_password_changed", nil)
@@ -1287,7 +1351,8 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 func (s *SearchServer) handleRecoveryRemove(w http.ResponseWriter, r *http.Request) {
 	if err := RemoveRecoveryPassword(s.env.DataDir); err != nil {
 		s.logger.Error("recovery_remove_failed", err, nil)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// 原始 err（文件系统）只进日志
+		s.writeAPIError(w, http.StatusBadRequest, "recovery_remove_failed", "移除恢复密码失败", err)
 		return
 	}
 	s.logger.Info("recovery_password_removed", nil)
@@ -1458,7 +1523,7 @@ func (s *SearchServer) handleBackupEmailTest(w http.ResponseWriter, r *http.Requ
 func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		http.Error(w, "invalid file reference", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
 		return
 	}
 	info, err := os.Stat(p)
@@ -1476,12 +1541,12 @@ func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		http.Error(w, "invalid file reference", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
 		return
 	}
 	info, err := os.Stat(p)
 	if err != nil || info.IsDir() {
-		http.Error(w, "file not found", http.StatusNotFound)
+		s.writeAPIError(w, http.StatusNotFound, "file_not_found", "文件不存在", nil)
 		return
 	}
 	if r.URL.Query().Get("download") == "1" || !safeInlineImageExt(filepath.Ext(p)) {
@@ -1494,7 +1559,7 @@ func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		http.Error(w, "invalid file reference", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
 		return
 	}
 	info, err := os.Stat(p)
@@ -1504,14 +1569,15 @@ func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := os.Open(p)
 	if err != nil {
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// 系统错误（权限/磁盘）只进日志，客户端给可读文案
+		s.writeAPIError(w, http.StatusInternalServerError, "file_open_failed", "无法读取文件", err)
 		return
 	}
 	defer f.Close()
 	m := md5.New()
 	sh := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(m, sh), f); err != nil {
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		s.writeAPIError(w, http.StatusInternalServerError, "file_read_failed", "读取文件失败", err)
 		return
 	}
 	s.writeJSON(w, map[string]any{"ok": true, "md5": hex.EncodeToString(m.Sum(nil)), "sha256": hex.EncodeToString(sh.Sum(nil))})
@@ -1521,7 +1587,7 @@ func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolveRecordedFilePath(r)
 	if err != nil {
-		http.Error(w, "invalid file reference", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
 		return
 	}
 	if err := openFolderAndSelectItem(p); err != nil {
@@ -1597,7 +1663,7 @@ func (s *SearchServer) handleGroupsCreate(w http.ResponseWriter, r *http.Request
 		ParentID int64  `json:"parentId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
@@ -1617,7 +1683,7 @@ func (s *SearchServer) handleGroupsCreate(w http.ResponseWriter, r *http.Request
 func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
 		return
 	}
 	var req struct {
@@ -1625,7 +1691,7 @@ func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request
 		ParentID int64  `json:"parentId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
@@ -1633,7 +1699,8 @@ func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.store.UpdateGroup(r.Context(), id, strings.TrimSpace(req.Name), req.ParentID); err != nil {
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		// DB 内部错误只进日志（#19）
+		s.writeAPIError(w, http.StatusBadRequest, "group_update_failed", "更新分组失败", err)
 		return
 	}
 	s.logger.Info("group_updated", map[string]any{"id": id, "name": req.Name, "parentId": req.ParentID})
@@ -1644,7 +1711,7 @@ func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request
 func (s *SearchServer) handleGroupsDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
 		return
 	}
 	if err := s.store.DeleteGroup(r.Context(), id); err != nil {
@@ -1662,7 +1729,7 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 		GroupID int64 `json:"groupId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if req.ItemID <= 0 || req.GroupID <= 0 {
@@ -1671,7 +1738,7 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 	}
 	if err := s.store.AddItemToGroup(r.Context(), req.ItemID, req.GroupID); err != nil {
 		if errors.Is(err, errItemOrGroupNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			s.writeAPIError(w, http.StatusNotFound, "not_found", "条目或分组不存在", err)
 			return
 		}
 		s.writeError(w, err)
@@ -1684,12 +1751,12 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 func (s *SearchServer) handleItemRemoveFromGroup(w http.ResponseWriter, r *http.Request) {
 	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
-		http.Error(w, "invalid item_id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", "无效的条目 id", nil)
 		return
 	}
 	groupID, err := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 	if err != nil || groupID <= 0 {
-		http.Error(w, "invalid group_id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "无效的分组 id", nil)
 		return
 	}
 	if err := s.store.RemoveItemFromGroup(r.Context(), itemID, groupID); err != nil {
@@ -1703,7 +1770,7 @@ func (s *SearchServer) handleItemRemoveFromGroup(w http.ResponseWriter, r *http.
 func (s *SearchServer) handleItemGroups(w http.ResponseWriter, r *http.Request) {
 	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
-		http.Error(w, "invalid item_id", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", "无效的条目 id", nil)
 		return
 	}
 	ids, err := s.store.GetItemGroups(r.Context(), itemID)
@@ -1722,8 +1789,25 @@ func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeAPIError 统一 JSON 错误契约：{ok:false, code, message}。
+// 原始 err 只写日志，不回传客户端（防 SQL/DuckDB 内部细节泄漏，#19）。
+// 前端以 d.error 字段消费错误，message 保留为可读文案；code 供程序化判断。
+func (s *SearchServer) writeAPIError(w http.ResponseWriter, status int, code, userMsg string, err error) {
+	if err != nil {
+		s.logger.Warn("api_error", map[string]any{"code": code, "error": err.Error()})
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "code": code, "error": userMsg})
+}
+
+// writeInternalError 内部错误便捷封装：不透传原始 err（仅日志），统一 500。
+func (s *SearchServer) writeInternalError(w http.ResponseWriter, err error) {
+	s.writeAPIError(w, http.StatusInternalServerError, "internal_error", "操作失败，请查看日志", err)
+}
+
 func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
-	http.Error(w, err.Error(), http.StatusInternalServerError)
+	s.writeInternalError(w, err)
 }
 
 // formatDuration 将时长格式化为中文可读字符串。
@@ -1775,7 +1859,7 @@ func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		token := GetSessionToken(r)
 		sess := s.auth.GetSession(token)
 		if sess == nil || !sess.Authenticated {
-			http.Error(w, "{\"error\":\"unauthorized\"}", http.StatusUnauthorized)
+			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
 			return
 		}
 		next(w, r)
@@ -1802,7 +1886,7 @@ func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc 
 		sess := s.auth.GetSession(token)
 		if sess == nil || !sess.Authenticated {
 			if s.auth.HasLockPassword(cfg) {
-				http.Error(w, "{\"error\":\"unauthorized\"}", http.StatusUnauthorized)
+				s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
 				return
 			}
 			// 没有锁屏密码时，不需要会话认证，但仍需二次认证
@@ -1820,7 +1904,7 @@ func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc 
 				// 再检查一次性 token，避免把敏感 token 写入 URL 和浏览器历史。
 				oneTimeToken := r.Header.Get("X-ClipVault-Secondary-Token")
 				if !s.auth.ConsumeSecondaryToken(oneTimeToken) {
-					http.Error(w, "{\"error\":\"secondary_required\"}", http.StatusForbidden)
+					s.writeAPIError(w, http.StatusForbidden, "secondary_required", "需要二次认证", nil)
 					return
 				}
 			}
@@ -1857,7 +1941,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
@@ -1898,7 +1982,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
@@ -1914,7 +1998,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	sess := s.auth.GetSession(token)
 	if sess == nil || !sess.Authenticated {
 		if s.auth.HasLockPassword(cfg) {
-			http.Error(w, "{\"error\":\"unauthorized\"}", http.StatusUnauthorized)
+			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
 			return
 		}
 		// 没有锁屏密码时，创建一个临时会话用于二次认证
@@ -1962,16 +2046,16 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		NewPassword string `json:"newPassword"` // 新密码
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 
 	if req.Type != "lock" && req.Type != "secondary" {
-		http.Error(w, "invalid type", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_type", "无效的类型", nil)
 		return
 	}
 	if req.Action != "set" && req.Action != "change" && req.Action != "remove" {
-		http.Error(w, "invalid action", http.StatusBadRequest)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_action", "无效的操作", nil)
 		return
 	}
 

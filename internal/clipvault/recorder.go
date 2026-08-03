@@ -31,7 +31,12 @@ type ClipboardSnapshot struct {
 }
 
 func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger) *Recorder {
-	filter, _ := NewFilterEngine(cfgMgr.Get().Sensitive)
+	filter, filterErr := NewFilterEngine(cfgMgr.Get().Sensitive)
+	// NewFilterEngine 失败时仍返回非 nil 空引擎（CheckText 安全），
+	// 此处记日志便于排查非法规则，不回退为 nil 避免 panic。
+	if filterErr != nil {
+		logger.Error("filter_init_failed", filterErr, nil)
+	}
 	r := &Recorder{
 		cfgMgr: cfgMgr,
 		store:  store,
@@ -41,11 +46,15 @@ func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logge
 	}
 	// 配置变更时重建 FilterEngine（立即生效）
 	cfgMgr.OnChange(func(cfg Config) error {
-		if newFilter, err := NewFilterEngine(cfg.Sensitive); err == nil {
-			r.mu.Lock()
-			r.filter = newFilter
-			r.mu.Unlock()
+		newFilter, err := NewFilterEngine(cfg.Sensitive)
+		if err != nil {
+			// 新规则编译失败：保留旧引擎继续工作，仅记日志，不清空 filter。
+			r.logger.Error("filter_rebuild_failed", err, nil)
+			return nil
 		}
+		r.mu.Lock()
+		r.filter = newFilter
+		r.mu.Unlock()
 		return nil
 	})
 	return r

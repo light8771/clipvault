@@ -31,7 +31,7 @@ func TestStreamExportMatchesFullExport(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := store.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
+	if _, err := store.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
 		t.Fatalf("StreamExport: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestStreamExportRangeScope(t *testing.T) {
 
 	var buf bytes.Buffer
 	scope := ExportScope{Mode: "range", From: "2026-06-01", To: "2026-08-01"}
-	if err := store.StreamExport(ctx, scope, &buf); err != nil {
+	if _, err := store.StreamExport(ctx, scope, &buf); err != nil {
 		t.Fatalf("StreamExport range: %v", err)
 	}
 
@@ -100,7 +100,7 @@ func TestStreamExportIncrementalScope(t *testing.T) {
 
 	// 全量导出拿 id，取第二条作为增量水位线
 	var fullBuf bytes.Buffer
-	if err := store.StreamExport(ctx, ExportScope{Mode: "full"}, &fullBuf); err != nil {
+	if _, err := store.StreamExport(ctx, ExportScope{Mode: "full"}, &fullBuf); err != nil {
 		t.Fatalf("StreamExport full: %v", err)
 	}
 	var fullData ExportData
@@ -114,7 +114,7 @@ func TestStreamExportIncrementalScope(t *testing.T) {
 
 	// 增量导出 id > cutoff，应只返回 third
 	var incBuf bytes.Buffer
-	if err := store.StreamExport(ctx, ExportScope{Mode: "incremental", SinceID: cutoff}, &incBuf); err != nil {
+	if _, err := store.StreamExport(ctx, ExportScope{Mode: "incremental", SinceID: cutoff}, &incBuf); err != nil {
 		t.Fatalf("StreamExport incremental: %v", err)
 	}
 	var incData ExportData
@@ -139,7 +139,7 @@ func TestStreamExportRoundtripImport(t *testing.T) {
 	seedStoreForExport(t, src)
 
 	var buf bytes.Buffer
-	if err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
+	if _, err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
 		t.Fatalf("StreamExport: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestStreamExportEmptyStore(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := store.StreamExport(context.Background(), ExportScope{Mode: "full"}, &buf); err != nil {
+	if _, err := store.StreamExport(context.Background(), ExportScope{Mode: "full"}, &buf); err != nil {
 		t.Fatalf("StreamExport empty: %v", err)
 	}
 	var data ExportData
@@ -263,7 +263,7 @@ func TestImportMergesGroupsIdempotently(t *testing.T) {
 	seedStoreForExport(t, src)
 
 	var buf bytes.Buffer
-	if err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
+	if _, err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
 		t.Fatalf("StreamExport: %v", err)
 	}
 

@@ -54,13 +54,14 @@ func TestBackupDataCanBeImported(t *testing.T) {
 		{name: "Encrypted", format: "cvexport", password: "backup-password"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			data, extension, err := backup.exportBackupData(test.format, test.password, ExportScope{Mode: "full"})
+			data, extension, exportedMaxID, err := backup.exportBackupData(test.format, test.password, ExportScope{Mode: "full"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if extension != test.format {
 				t.Fatalf("backup extension = %q, want %q", extension, test.format)
 			}
+			_ = exportedMaxID
 			if test.format == "cvexport" {
 				if !IsCVExport(data) {
 					t.Fatal("encrypted backup is not a cvexport file")
@@ -105,7 +106,7 @@ func TestBackupDataCanBeImported(t *testing.T) {
 }
 
 func TestBackupDataRejectsUnsupportedFormat(t *testing.T) {
-	_, _, err := (&BackupService{}).exportBackupData("csv", "", ExportScope{})
+	_, _, _, err := (&BackupService{}).exportBackupData("csv", "", ExportScope{})
 	if err == nil {
 		t.Fatal("unsupported backup format should fail")
 	}
@@ -469,12 +470,15 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 		{name: "Encrypted", format: "cvexport", password: "empty-part-password"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			parts, ext, err := backup.exportEmailParts(test.format, test.password, ExportScope{Mode: "incremental", SinceID: 0})
+			parts, ext, exportedMaxID, err := backup.exportEmailParts(test.format, test.password, ExportScope{Mode: "incremental", SinceID: 0})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(parts) != 1 {
 				t.Fatalf("empty store should still produce 1 part, got %d", len(parts))
+			}
+			if exportedMaxID != 0 {
+				t.Fatalf("empty store should report exportedMaxID=0, got %d", exportedMaxID)
 			}
 			raw := parts[0]
 			if test.format == "cvexport" {
@@ -503,7 +507,10 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 			}
 
 			// 空数据备份成功后水印不应推进（与目录备份一致）
-			wm := updateBackupWatermark(store, "email", ExportScope{Mode: "incremental", SinceID: 0})
+			wm, err := updateBackupWatermark(store, "email", ExportScope{Mode: "incremental", SinceID: 0}, exportedMaxID)
+			if err != nil {
+				t.Fatalf("updateBackupWatermark: %v", err)
+			}
 			if wm.LastItemID != 0 {
 				t.Fatalf("watermark should not advance on empty backup, got %#v", wm)
 			}

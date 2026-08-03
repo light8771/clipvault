@@ -415,6 +415,11 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Backup.EmailBackup.Format == "" {
 		cfg.Backup.EmailBackup.Format = def.Backup.EmailBackup.Format
 	}
+	// MaxPartSize 为 0 是非法值（0 字节阈值会让邮件备份必然失败）。
+	// PUT 省略该字段时会被反序列化成 0，这里回填默认值兜底。
+	if cfg.Backup.EmailBackup.MaxPartSize <= 0 {
+		cfg.Backup.EmailBackup.MaxPartSize = def.Backup.EmailBackup.MaxPartSize
+	}
 }
 
 func isBackupFormat(format string) bool {

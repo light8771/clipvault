@@ -4,8 +4,10 @@ package clipvault
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 )
@@ -31,12 +33,19 @@ var (
 
 // ReadClipboardSnapshot 读取当前剪贴板内容。
 // 优先级：Unicode 文本 > 文件拖放路径清单。其他二进制格式忽略。
+//
+// Win32 剪贴板所有权是按线程记账的：OpenClipboard / CloseClipboard 必须在
+// 同一线程上调用。Go 调度器可能在任意 syscall 返回点把 goroutine 迁移到别的
+// OS 线程，因此这里锁定当前线程，避免 CloseClipboard 落到错误的线程上导致
+// 剪贴板被永久占用（全系统粘贴失效）。
 func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
-	if ok, _, err := procOpenClipboard.Call(0); ok == 0 {
-		if err != syscall.Errno(0) {
-			return nil, fmt.Errorf("OpenClipboard: %w", err)
-		}
-		return nil, fmt.Errorf("OpenClipboard failed")
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// 剪贴板常被 Office/浏览器等短暂占用，OpenClipboard 立即失败是常态，
+	// 用指数退避重试几次再放弃，避免瞬时占用导致这条记录永久丢失。
+	if err := openClipboardWithRetry(5); err != nil {
+		return nil, fmt.Errorf("OpenClipboard: %w", err)
 	}
 	defer procCloseClipboard.Call()
 
@@ -47,6 +56,26 @@ func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
 		return readFileDropClipboard(cfg)
 	}
 	return nil, nil
+}
+
+// openClipboardWithRetry 以指数退避重试打开剪贴板，最多 attempts 次。
+func openClipboardWithRetry(attempts int) error {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		ok, _, err := procOpenClipboard.Call(0)
+		if ok != 0 {
+			return nil
+		}
+		if err != syscall.Errno(0) {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("OpenClipboard failed")
+		}
+		if i < attempts-1 {
+			time.Sleep(time.Duration(10*(1<<i)) * time.Millisecond)
+		}
+	}
+	return lastErr
 }
 
 func isClipboardFormatAvailable(format uint32) bool {
