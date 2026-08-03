@@ -49,6 +49,9 @@ type AuthManager struct {
 	secondaryTokens map[string]string // 一次性二次认证 token -> session token
 	rateMu          sync.Mutex
 	rateBuckets     map[string]*rateBucket // IP -> 失败记录
+
+	stopCh    chan struct{} // startSessionCleaner 的退出信号（Close 关闭）
+	closeOnce sync.Once     // 防 Close 重复关闭 stopCh panic
 }
 
 // NewAuthManager 创建一个新的 AuthManager。
@@ -57,6 +60,7 @@ func NewAuthManager() *AuthManager {
 		sessions:        make(map[string]*Session),
 		secondaryTokens: make(map[string]string),
 		rateBuckets:     make(map[string]*rateBucket),
+		stopCh:          make(chan struct{}),
 	}
 }
 
@@ -479,13 +483,25 @@ func (am *AuthManager) CleanExpiredRateBuckets() {
 }
 
 // startSessionCleaner 启动一个后台 goroutine 定期清理过期会话和限流桶。
+// goroutine 监听 stopCh，Close 调用后立即退出，避免 Web 重启时泄漏。
 func (am *AuthManager) startSessionCleaner() {
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			am.CleanExpiredSessions()
-			am.CleanExpiredRateBuckets()
+		for {
+			select {
+			case <-ticker.C:
+				am.CleanExpiredSessions()
+				am.CleanExpiredRateBuckets()
+			case <-am.stopCh:
+				return
+			}
 		}
 	}()
+}
+
+// Close 停止 cleaner goroutine（幂等，可多次调用）。
+// SearchServer.Close 时调用，保证每次 Web 重启不泄漏一个 cleaner。
+func (am *AuthManager) Close() {
+	am.closeOnce.Do(func() { close(am.stopCh) })
 }

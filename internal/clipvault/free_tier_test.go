@@ -188,9 +188,12 @@ func TestHandleItemPositionFreeTier(t *testing.T) {
 		t.Fatalf("newest position resp=%v, want position 0", okResp)
 	}
 
-	// 窗口外：返回错误提示
+	// 窗口外：返回 402 + 错误提示（#19 统一契约：窗口外定位不再是 200 成功码）
 	w = httptest.NewRecorder()
 	unlicensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/items/position?id="+strconv.FormatInt(oldestID, 10), nil))
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("out-of-window position status = %d, want 402", w.Code)
+	}
 	var errResp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
 		t.Fatal(err)

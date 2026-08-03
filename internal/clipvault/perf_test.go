@@ -26,7 +26,7 @@ func TestImportBatchedRoundtrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
+	if _, err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
 		t.Fatalf("StreamExport: %v", err)
 	}
 

@@ -49,6 +49,9 @@ func SetRecoveryPassword(dataDir string, dbKey []byte, password string) error {
 }
 
 // ChangeRecoveryPassword verifies the old password, then sets a new one.
+// 原子替换：新文件写入临时路径并自检通过后才 rename 覆盖旧文件，
+// 任何失败路径都保留原 recovery 文件，避免"自检失败即删除"把用户
+// 唯一的恢复能力从"有"清零到"无"（原实现直接覆写 + os.Remove）。
 func ChangeRecoveryPassword(dataDir string, dbKey []byte, oldPassword, newPassword string) error {
 	recPath := filepath.Join(dataDir, "clipvault.recovery")
 	if _, err := os.Stat(recPath); os.IsNotExist(err) {
@@ -60,17 +63,34 @@ func ChangeRecoveryPassword(dataDir string, dbKey []byte, oldPassword, newPasswo
 		return &RecoveryPasswordError{Code: "wrong_password", Err: err}
 	}
 
-	// Write new recovery file
-	if err := WriteRecoveryFile(recPath, dbKey, []byte(newPassword)); err != nil {
+	// 写临时文件：同目录 .new 后缀保证与 recPath 同卷（rename 原子、无跨盘问题）；
+	// 不用 .tmp 后缀，避免与 WriteRecoveryFile 内部 atomicWriteFile 的 .tmp 混淆。
+	tmpPath := recPath + ".new"
+	if err := WriteRecoveryFile(tmpPath, dbKey, []byte(newPassword)); err != nil {
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write recovery file: %w", err)
 	}
+	// 兜底清理：rename 成功后 tmpPath 已不存在，Remove 报错可忽略
+	defer os.Remove(tmpPath)
 
-	// Self-test
-	if err := VerifyRecoveryPassword(dataDir, newPassword); err != nil {
-		_ = os.Remove(recPath)
+	// 自检临时文件本身：VerifyRecoveryPassword 固定读 recPath（旧文件），
+	// 不能用于验证新文件，必须直接读 tmpPath。
+	if _, _, err := ReadRecoveryFile(tmpPath, []byte(newPassword)); err != nil {
 		return fmt.Errorf("self-test failed: %w", err)
 	}
 
+	// 原子替换：此刻旧文件仍完整，rename 失败也不丢恢复能力
+	if err := os.Rename(tmpPath, recPath); err != nil {
+		return fmt.Errorf("rename recovery file: %w", err)
+	}
+
+	// 同步 state 标志（原实现缺失：改密后 state.HasRecovery 可能滞后）。
+	// best-effort：改密成功是主操作，state 写失败仅记日志不应 abort，
+	// handleRecoveryStatus 以文件存在性为准，数据一致性不受影响。
+	if err := updateStateRecoveryFlag(dataDir, true); err != nil {
+		// 无 logger 引用，静默保留：state 仅用于展示，文件存在性为准
+		_ = err
+	}
 	return nil
 }
 
