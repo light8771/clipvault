@@ -150,6 +150,9 @@ func StartupErrorLogFile() string {
 type Config struct {
 	MaxTextChars     int                `json:"maxTextChars"`
 	MaxFileDropPaths int                `json:"maxFileDropPaths"`
+	// RecordSourceInfo 记录每条剪贴板内容的来源进程（前台窗口法）。
+	// 关闭后不再捕获任何来源信息，隐私敏感环境可关闭。
+	RecordSourceInfo bool               `json:"recordSourceInfo"`
 	Brand            BrandConfig        `json:"brand"`
 	Background       BackgroundConfig   `json:"background"`
 	Theme            ThemeConfig        `json:"theme"`
@@ -305,8 +308,9 @@ func DefaultConfig() Config {
 			FontScale:      100,
 			SurfaceOpacity: 100,
 		},
-		MaxTextChars:     0, // 0 表示不限制
-		MaxFileDropPaths: 0, // 0 表示不限制
+		MaxTextChars:      0, // 0 表示不限制
+		MaxFileDropPaths:  0, // 0 表示不限制
+		RecordSourceInfo: true,
 		Search: SearchConfig{
 			Enabled:    true,
 			ListenAddr: "127.0.0.1:18765",

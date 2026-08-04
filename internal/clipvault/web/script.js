@@ -1124,6 +1124,12 @@
       const starTitle = it.starred ? '取消收藏' : '收藏';
       const sensHTML  = it.sensitive ? '<span class="msens">敏感</span>' : '';
       const sensAttr  = it.sensitive ? ' data-sensitive="1"' : '';
+      // 来源应用（前台窗口法）：exe 名直接显示，悬停看窗口标题与完整路径
+      let srcHTML = '';
+      if (it.sourceExeName) {
+        const srcTip = esc([it.sourceWindowTitle, it.sourceExePath].filter(Boolean).join('\n'));
+        srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${esc(it.sourceExeName)}</span>`;
+      }
 
       let bodyHTML, charText, showView;
       if (it.sensitive && !authState.secondaryAuthed) {
@@ -1155,6 +1161,7 @@
             <span class="mtime" title="${fullTime}">${relTime(it.createdAt)}</span>
             <span class="msep">·</span>
             <span class="mchars">${charText}</span>
+            ${srcHTML}
           </div>
           <div class="card-acts">
             ${showView ? `<button class="ab exp" onclick="doView(${it.id})">${viewHTML}</button>` : ''}
@@ -2142,6 +2149,9 @@
     applyThemeFormState(cfg.theme);
     document.getElementById('cfg-maxTextChars').value = cfg.maxTextChars ?? 0;
     document.getElementById('cfg-maxFileDropPaths').value = cfg.maxFileDropPaths ?? 0;
+    const rsi = document.getElementById('cfg-recordSourceInfo');
+    // 缺省视为开启：与后端 DefaultConfig().RecordSourceInfo = true 对齐
+    if (rsi) rsi.checked = cfg.recordSourceInfo !== false;
 
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
     updateListenAddressWarning();
@@ -2428,6 +2438,7 @@
       theme: themeFromForm(),
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
       maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
+      recordSourceInfo: !!(document.getElementById('cfg-recordSourceInfo')?.checked),
       sensitive: { customPatterns: patterns },
       search: {
         ...currentCfg.search,

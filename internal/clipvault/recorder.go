@@ -28,6 +28,23 @@ type ClipboardSnapshot struct {
 	CharLen int
 	SHA256  string
 	Meta    map[string]any
+	Source  SourceInfo
+}
+
+// SourceInfo 记录一条剪贴板内容的来源进程信息（前台窗口法）。
+// PID 与 hwnd 在 WM_CLIPBOARDUPDATE 派发现场同步捕获（captureForegroundSourceFast），
+// exe 路径/窗口标题由 worker 异步惰性解析（resolveDetails）。
+// Method 标记识别方法，当前固定为 "foreground"；空 Method 表示未捕获
+// （启动补捕、配置关闭、非 Windows 平台）。
+type SourceInfo struct {
+	PID         uint32
+	ExePath     string
+	ExeName     string
+	WindowTitle string
+	Method      string
+
+	// hwnd 仅用于 worker 解析窗口标题，不参与落库。
+	hwnd uintptr
 }
 
 func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger) *Recorder {
@@ -60,7 +77,7 @@ func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logge
 	return r
 }
 
-func (r *Recorder) ProcessClipboardUpdate() {
+func (r *Recorder) ProcessClipboardUpdate(source SourceInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -76,6 +93,12 @@ func (r *Recorder) ProcessClipboardUpdate() {
 	}
 	if snapshot == nil {
 		return
+	}
+
+	// 来源信息是增强元数据：解析失败静默降级，绝不影响内容落库。
+	if source.PID != 0 {
+		source.resolveDetails()
+		snapshot.Source = source
 	}
 
 	if cfg.MaxTextChars > 0 && snapshot.CharLen > cfg.MaxTextChars {
@@ -104,14 +127,18 @@ func (r *Recorder) ProcessClipboardUpdate() {
 	}
 
 	if err := r.store.Save(context.Background(), ClipboardItem{
-		Kind:      snapshot.Kind,
-		Format:    snapshot.Format,
-		Text:      snapshot.Text,
-		ByteLen:   snapshot.ByteLen,
-		CharLen:   snapshot.CharLen,
-		SHA256:    snapshot.SHA256,
-		MetaJSON:  metaJSON,
-		Sensitive: decision.Sensitive,
+		Kind:              snapshot.Kind,
+		Format:            snapshot.Format,
+		Text:              snapshot.Text,
+		ByteLen:           snapshot.ByteLen,
+		CharLen:           snapshot.CharLen,
+		SHA256:            snapshot.SHA256,
+		MetaJSON:          metaJSON,
+		Sensitive:         decision.Sensitive,
+		SourceExeName:     snapshot.Source.ExeName,
+		SourceExePath:     snapshot.Source.ExePath,
+		SourceWindowTitle: snapshot.Source.WindowTitle,
+		SourceMethod:      snapshot.Source.Method,
 	}); err != nil {
 		// 去重状态在此处刻意保持不变：Save 失败时若已推进 lastHash，
 		// 同一份剪贴板内容会被后续事件判定为重复而永远不再尝试落库（静默丢失）。

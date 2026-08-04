@@ -44,7 +44,9 @@ func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
 
 	// 剪贴板常被 Office/浏览器等短暂占用，OpenClipboard 立即失败是常态，
 	// 用指数退避重试几次再放弃，避免瞬时占用导致这条记录永久丢失。
-	if err := openClipboardWithRetry(5); err != nil {
+	// 8 次退避总窗口约 1.3s（10ms 起倍增），覆盖 Electron 等长占用场景；
+	// 重试发生在 worker goroutine 而非消息泵线程，拉长不会卡住 UI。
+	if err := openClipboardWithRetry(8); err != nil {
 		return nil, fmt.Errorf("OpenClipboard: %w", err)
 	}
 	defer procCloseClipboard.Call()

@@ -758,12 +758,16 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 				// 遮蔽衍生字段：MetaJSON（文件类含完整本地路径）、SHA256、
 				// Format、ByteLen 一并清空，防止绕过 Text 遮蔽泄漏敏感信息
 				// （#20：原先只遮蔽 Text，meta_json 直接暴露文件路径）。
+				// 来源窗口标题常含文档名、exe 路径含用户名，同属内容衍生信息，
+				// 一并遮蔽；exe 名只是应用标识（如同 CharLen），保留用于展示。
 				// 注：前端文件类型判断用 it.kind（isNonTextKind），不消费 it.format，
 				// 清 Format 不影响渲染；CharLen 保留（前端显示"xx 字"）。
 				items[i].MetaJSON = ""
 				items[i].SHA256 = ""
 				items[i].Format = ""
 				items[i].ByteLen = 0
+				items[i].SourceWindowTitle = ""
+				items[i].SourceExePath = ""
 			}
 		}
 	}

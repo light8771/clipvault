@@ -129,11 +129,18 @@ type WindowsRuntime struct {
 
 	// 剪贴板事件由单个 worker goroutine 串行消费，clipCh 是容量 1 的合并信号通道：
 	// 投递为非阻塞，通道已满即丢弃，因为剪贴板处理只关心「最新状态」，中间态可合并。
+	// 每个事件携带派发现场同步捕获的来源信息（前台窗口法），worker 异步解析细节。
 	// 这些字段只在 Run() 启动 worker 前写入，之后仅由消息循环线程读取，无需加锁。
-	clipCh       chan struct{}
+	clipCh       chan clipEvent
 	clipStop     chan struct{}
 	clipDone     chan struct{}
 	clipStopOnce sync.Once
+}
+
+// clipEvent 是一次剪贴板变化信号。source 在消息派发现场捕获（此时前台窗口
+// 还是复制动作的来源进程）；启动补捕事件 source 为零值。
+type clipEvent struct {
+	source SourceInfo
 }
 
 // HotkeyError 表示全局快捷键注册失败。
@@ -241,7 +248,8 @@ func (r *WindowsRuntime) Run() error {
 		r.showPauseNotification(paused)
 	})
 	// 启动时补捕一次当前剪贴板内容，交由 worker 串行处理。
-	r.notifyClipboardUpdate()
+	// 此刻前台窗口与复制来源无关，来源信息留空。
+	r.notifyClipboardUpdate(SourceInfo{})
 
 	var m msg
 	for {
@@ -263,7 +271,14 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
 	case wmClipboardUpdate:
 		if r != nil {
-			r.notifyClipboardUpdate()
+			// 来源信息必须在派发现场同步捕获：worker 异步处理时前台窗口
+			// 可能已经不是复制动作的来源进程。captureForegroundSourceFast
+			// 只做纯句柄查询，不阻塞消息泵。
+			var source SourceInfo
+			if r.cfgMgr.Get().RecordSourceInfo {
+				source = captureForegroundSourceFast()
+			}
+			r.notifyClipboardUpdate(source)
 		}
 		return 0
 	case wmTrayIcon:
@@ -552,7 +567,7 @@ const clipWorkerDrainTimeout = 5 * time.Second
 // 会无上限堆积且处理顺序不确定；改为单 worker + 合并通道后并发度恒定为 1，
 // 处理顺序与事件顺序一致。
 func (r *WindowsRuntime) startClipWorker() {
-	r.clipCh = make(chan struct{}, 1)
+	r.clipCh = make(chan clipEvent, 1)
 	r.clipStop = make(chan struct{})
 	r.clipDone = make(chan struct{})
 	go func() {
@@ -561,8 +576,8 @@ func (r *WindowsRuntime) startClipWorker() {
 			select {
 			case <-r.clipStop:
 				return
-			case <-r.clipCh:
-				r.recorder.ProcessClipboardUpdate()
+			case ev := <-r.clipCh:
+				r.recorder.ProcessClipboardUpdate(ev.source)
 			}
 		}
 	}()
@@ -571,12 +586,12 @@ func (r *WindowsRuntime) startClipWorker() {
 // notifyClipboardUpdate 以非阻塞方式投递一次「剪贴板已变化」信号。
 // 通道已有待处理信号时直接丢弃：worker 下一轮会重新读取当前剪贴板，
 // 合并掉的中间态没有额外信息。该函数只在消息循环线程调用，绝不阻塞消息泵。
-func (r *WindowsRuntime) notifyClipboardUpdate() {
+func (r *WindowsRuntime) notifyClipboardUpdate(source SourceInfo) {
 	if r.clipCh == nil {
 		return
 	}
 	select {
-	case r.clipCh <- struct{}{}:
+	case r.clipCh <- clipEvent{source: source}:
 	default:
 	}
 }

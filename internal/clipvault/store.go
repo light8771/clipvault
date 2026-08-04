@@ -44,6 +44,11 @@ type ClipboardItem struct {
 	SHA256    string
 	MetaJSON  string
 	Sensitive bool
+	// 来源进程信息（前台窗口法）；空串表示未捕获或配置关闭。
+	SourceExeName     string
+	SourceExePath     string
+	SourceWindowTitle string
+	SourceMethod      string
 }
 
 // Group 表示一个用户自定义分组，支持嵌套（parent_id 为 0 表示顶级分组）。
@@ -82,6 +87,26 @@ type StoredItem struct {
 	MetaJSON  string    `json:"metaJson"`
 	Starred   bool      `json:"starred"`
 	Sensitive bool      `json:"sensitive"`
+	// 来源进程信息（前台窗口法）；旧数据/未捕获时为空串。
+	SourceExeName     string `json:"sourceExeName"`
+	SourceExePath     string `json:"sourceExePath"`
+	SourceWindowTitle string `json:"sourceWindowTitle"`
+	SourceMethod      string `json:"sourceMethod"`
+}
+
+// clipboardItemColumns 是 clipboard_items 行查询的统一列清单，
+// Search/GetByID/exportAll/exportItemsQuery 共用，防止多处列清单漂移。
+// 扫描顺序必须与 scanStoredItem 一致。
+const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, ` +
+	`source_exe_name, source_exe_path, source_window_title, source_method`
+
+// rowScanner 同时抽象 *sql.Row 与 *sql.Rows 的 Scan。
+type rowScanner interface{ Scan(dest ...any) error }
+
+func scanStoredItem(row rowScanner, item *StoredItem, created *string) error {
+	return row.Scan(&item.ID, created, &item.Kind, &item.Format, &item.Text,
+		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive,
+		&item.SourceExeName, &item.SourceExePath, &item.SourceWindowTitle, &item.SourceMethod)
 }
 
 // SearchOptions holds parameters for Store.Search.
@@ -238,12 +263,17 @@ func (s *Store) migrate() error {
 			sha256 TEXT NOT NULL,
 			meta_json TEXT NOT NULL,
 			starred BOOLEAN NOT NULL DEFAULT false,
-			sensitive BOOLEAN NOT NULL DEFAULT false
+			sensitive BOOLEAN NOT NULL DEFAULT false,
+			source_exe_name TEXT NOT NULL DEFAULT '',
+			source_exe_path TEXT NOT NULL DEFAULT '',
+			source_window_title TEXT NOT NULL DEFAULT '',
+			source_method TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_created_at ON clipboard_items(created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_kind ON clipboard_items(kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_sha256 ON clipboard_items(sha256)`,
 		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_sensitive ON clipboard_items(sensitive)`,
+		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_source_exe_name ON clipboard_items(source_exe_name)`,
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
@@ -296,8 +326,9 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		item.MetaJSON = "{}"
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO clipboard_items
-		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, sensitive)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, sensitive,
+		 source_exe_name, source_exe_path, source_window_title, source_method)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		time.Now().UTC().Format(time.RFC3339Nano),
 		item.Kind,
 		item.Format,
@@ -307,6 +338,10 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		item.SHA256,
 		item.MetaJSON,
 		item.Sensitive,
+		item.SourceExeName,
+		item.SourceExePath,
+		item.SourceWindowTitle,
+		item.SourceMethod,
 	)
 	return err
 }
@@ -420,8 +455,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	// Fetch page
 	fetchArgs := append(append([]any{}, args...), opts.Limit, opts.Offset)
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive "+
-			"FROM clipboard_items"+where+" ORDER BY id DESC LIMIT ? OFFSET ?",
+		"SELECT "+clipboardItemColumns+" FROM clipboard_items"+where+" ORDER BY id DESC LIMIT ? OFFSET ?",
 		fetchArgs...)
 	if err != nil {
 		return nil, 0, err
@@ -432,8 +466,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	for rows.Next() {
 		var item StoredItem
 		var created string
-		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
-			&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
+		if err := scanStoredItem(rows, &item, &created); err != nil {
 			return nil, 0, err
 		}
 		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
@@ -456,12 +489,10 @@ func splitSearchTerms(query string) []string {
 func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 	var item StoredItem
 	var created string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive
-		FROM clipboard_items WHERE id = ?`, id).Scan(
-		&item.ID, &created, &item.Kind, &item.Format, &item.Text,
-		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive)
-	if err != nil {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+clipboardItemColumns+`
+		FROM clipboard_items WHERE id = ?`, id)
+	if err := scanStoredItem(row, &item, &created); err != nil {
 		return item, err
 	}
 	if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
@@ -593,7 +624,7 @@ func (s *Store) SaveConfig(cfg Config) error {
 }
 
 func exportAll(ctx context.Context, queryer storeQueryer) ([]StoredItem, error) {
-	rows, err := queryer.QueryContext(ctx, `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive
+	rows, err := queryer.QueryContext(ctx, `SELECT `+clipboardItemColumns+`
 		FROM clipboard_items ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
@@ -604,7 +635,7 @@ func exportAll(ctx context.Context, queryer storeQueryer) ([]StoredItem, error) 
 	for rows.Next() {
 		var item StoredItem
 		var created string
-		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text, &item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
+		if err := scanStoredItem(rows, &item, &created); err != nil {
 			return nil, err
 		}
 		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
@@ -835,8 +866,7 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 	for rows.Next() {
 		var item StoredItem
 		var created string
-		if err := rows.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
-			&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive); err != nil {
+		if err := scanStoredItem(rows, &item, &created); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan item: %w", err)
 		}
@@ -957,7 +987,7 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 
 // exportItemsQuery builds the clipboard_items SELECT for the given scope.
 func exportItemsQuery(scope ExportScope) (string, []any) {
-	const base = `SELECT id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive FROM clipboard_items`
+	base := `SELECT ` + clipboardItemColumns + ` FROM clipboard_items`
 	where, args := exportScopeWhere(scope)
 	return base + where + ` ORDER BY id ASC`, args
 }
@@ -1222,18 +1252,19 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		}
 
 		var sb strings.Builder
-		sb.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive) VALUES `)
-		args := make([]any, 0, len(batch)*10)
+		sb.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, source_exe_name, source_exe_path, source_window_title, source_method) VALUES `)
+		args := make([]any, 0, len(batch)*14)
 		for j, item := range batch {
 			if j > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 			args = append(args,
 				item.CreatedAt.UTC().Format(time.RFC3339Nano),
 				item.Kind, item.Format, item.Text,
 				item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
 				item.Starred, item.Sensitive,
+				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod,
 			)
 		}
 		if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {

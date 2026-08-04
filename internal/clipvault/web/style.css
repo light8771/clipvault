@@ -636,6 +636,17 @@ article[data-sensitive="1"] {
   flex-shrink: 0;
 }
 
+.msource {
+  font: 12.5px ui-monospace, Consolas, monospace;
+  color: var(--muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  cursor: default;
+}
+
 /* Actions group */
 .card-acts {
   display: flex;
