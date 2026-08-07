@@ -358,6 +358,7 @@ func completeScheduledBackupConfig() Config {
 		Body:        "已生成 {format} 备份文件：{filename}",
 		Style:       "card",
 		AccentColor: "#16A34A",
+		MaxPartSize: 20 << 20,
 	}
 	return cfg
 }
@@ -446,6 +447,25 @@ func TestBuildMIMEWithAttachmentPreservesBinaryContent(t *testing.T) {
 	}
 }
 
+func TestEmailBackupMessageUsesPartFilenameAndCountsRenderedBody(t *testing.T) {
+	cfg := completeScheduledBackupConfig().Backup.EmailBackup
+	cfg.Subject = "Backup {filename}"
+	cfg.Body = "Attached: {filename}"
+	now := time.Date(2026, time.August, 7, 12, 34, 56, 0, time.UTC)
+	message := buildEmailBackupMessage(cfg, "json", now, 1, 3, []byte("payload"))
+	const filename = "clipvault-backup-20260807-123456-2of3.json"
+	if message.filename != filename || !bytes.Contains(message.data, []byte(filename)) {
+		t.Fatalf("part filename was not used consistently: filename=%q", message.filename)
+	}
+
+	shortSize := emailBackupMessageSize(cfg, "json", []byte("payload"))
+	cfg.Body += strings.Repeat(" rendered-body", 1000)
+	longSize := emailBackupMessageSize(cfg, "json", []byte("payload"))
+	if longSize <= shortSize {
+		t.Fatalf("rendered body was not included in MIME size: short=%d long=%d", shortSize, longSize)
+	}
+}
+
 // TestExportEmailPartsEmptyStoreProducesOneImportablePart 验证无新数据时邮件备份
 // 仍产出一片可独立导入的空导出（与目录备份"总是写文件"的行为一致），
 // 且水印不被推进。
@@ -470,7 +490,11 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 		{name: "Encrypted", format: "cvexport", password: "empty-part-password"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			parts, ext, exportedMaxID, err := backup.exportEmailParts(test.format, test.password, ExportScope{Mode: "incremental", SinceID: 0})
+			cfg := DefaultConfig().Backup.EmailBackup
+			cfg.Format = test.format
+			cfg.Password = test.password
+			cfg.MaxPartSize = 64 << 20
+			parts, ext, exportedMaxID, err := backup.exportEmailPartsSized(cfg, ExportScope{Mode: "full"})
 			if err != nil {
 				t.Fatal(err)
 			}

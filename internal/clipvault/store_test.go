@@ -58,7 +58,7 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 		},
 		{
 			Kind:      "image",
-			Format:    "CF_DIBV5",
+			Format:    "CF_HDROP",
 			Text:      "",
 			ByteLen:   128,
 			CharLen:   0,
@@ -89,7 +89,7 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 		{query: "RELEASE", want: "files"},
 		{query: "file", want: "files"},
 		{query: "hdrop", want: "files"},
-		{query: "a1b2", want: "files"},
+		{query: hashString(items[0].Text)[:8], want: "files"},
 		{query: "explorer", want: "files"},
 		{query: "release file", want: "files"},
 		{query: "🚀", want: "text"},

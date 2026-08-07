@@ -174,8 +174,8 @@ func TestHandleItemPositionFreeTier(t *testing.T) {
 	if err != nil || len(items) != FreeTierVisibleLimit+10 {
 		t.Fatalf("setup search len=%d err=%v", len(items), err)
 	}
-	newestID := items[0].ID                  // 按 id DESC 第一个 = 最新
-	oldestID := items[len(items)-1].ID       // 窗口外
+	newestID := items[0].ID            // 按 id DESC 第一个 = 最新
+	oldestID := items[len(items)-1].ID // 窗口外
 	unlicensed := newFreeTierTestServer(t, store, newUnlicensedManager(t))
 
 	// 窗口内：正常返回 position
@@ -216,6 +216,41 @@ func TestHandleItemPositionFreeTier(t *testing.T) {
 	}
 }
 
+func TestHandleSourceExesFreeTierUsesVisibleWindow(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err := store.Save(ctx, ClipboardItem{
+		Kind: "text", Format: "CF_UNICODETEXT", Text: "old", SourceExeName: "old-only.exe",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < FreeTierVisibleLimit; i++ {
+		if err := store.Save(ctx, ClipboardItem{
+			Kind: "text", Format: "CF_UNICODETEXT", Text: "new-" + strconv.Itoa(i), SourceExeName: "visible.exe",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	server := newFreeTierTestServer(t, store, newUnlicensedManager(t))
+	result := httptest.NewRecorder()
+	server.handleSourceExes(result, httptest.NewRequest(http.MethodGet, "/api/source-exes", nil))
+	if result.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", result.Code, result.Body.String())
+	}
+	var stats []ExeStat
+	if err := json.Unmarshal(result.Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 || stats[0].Name != "visible.exe" || stats[0].Count != FreeTierVisibleLimit {
+		t.Fatalf("stats = %#v, want only the %d visible records", stats, FreeTierVisibleLimit)
+	}
+}
+
 func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
@@ -253,10 +288,8 @@ func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 
 // TestRecordedFileFreeTierWindow 覆盖 #2b(a)：文件类端点的免费版读窗口门控。
 //
-// resolveRecordedFilePath 是 handleFileCheck / handleFileServe / handleFileHash /
-// handleFileOpenDir 四个端点的共同入口，门控逻辑集中于此，故以 handleFileCheck 为代表验证。
-// 门控刻意排在 GetByID 之前：窗口外请求在触碰记录内容之前就被拒绝，
-// 避免通过响应差异探测窗口外记录是否存在。
+// resolveRecordedFile 是 handleFileCheck / handleFileServe / handleFileHash /
+// handleFileOpenDir 四个端点的共同入口，窗口门控集中于此，故以 handleFileCheck 为代表验证。
 func TestRecordedFileFreeTierWindow(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})

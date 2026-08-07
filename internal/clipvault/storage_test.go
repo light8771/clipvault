@@ -896,7 +896,6 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("release listen port: %v", err)
 	}
 	cfg := manager.Get()
-	cfg.Search.Enabled = true
 	cfg.Search.ListenAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	if err := manager.Update(cfg); err != nil {
 		t.Fatalf("configure search server: %v", err)

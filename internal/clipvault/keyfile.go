@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -8,6 +9,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/crypto/scrypt"
@@ -68,11 +70,29 @@ func decryptAESGCM(key, nonce, ciphertext []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// atomicWriteFile 原子写入文件：先写 tmp 再 rename。
+// atomicWriteFile atomically publishes a fully flushed, owner-only temporary
+// file. A unique temporary name also makes concurrent writers independent.
 func atomicWriteFile(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create tmp: %w", err)
+	}
+	tmp := file.Name()
+	defer os.Remove(tmp)
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("chmod tmp: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
 		return fmt.Errorf("write tmp: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync tmp: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("rename: %w", err)
@@ -85,6 +105,7 @@ func atomicWriteFile(path string, data []byte) error {
 // 格式: magic[6] + version[1] + fingerprint[8] + created_at[8] + blob_len[4] + blob[]
 
 const dpapiKeyMagic = "CVKEY1"
+const keyEnvelopeVersion = 1
 
 // WriteDPAPIKeyFile 用 DPAPI 保护 dbKey 后原子写入 key 文件。
 func WriteDPAPIKeyFile(path string, dbKey []byte) error {
@@ -97,7 +118,7 @@ func WriteDPAPIKeyFile(path string, dbKey []byte) error {
 
 	var buf []byte
 	buf = append(buf, []byte(dpapiKeyMagic)...)
-	buf = append(buf, 1) // version
+	buf = append(buf, keyEnvelopeVersion)
 	buf = append(buf, fp...)
 	var ts [8]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(now))
@@ -122,15 +143,25 @@ func ReadDPAPIKeyFile(path string) (dbKey, fingerprint []byte, err error) {
 	if string(buf[:6]) != dpapiKeyMagic {
 		return nil, nil, fmt.Errorf("bad magic: %q", buf[:6])
 	}
-	fingerprint = buf[7 : 7+8]
+	if buf[6] != keyEnvelopeVersion {
+		return nil, nil, fmt.Errorf("unsupported key file version %d", buf[6])
+	}
+	storedFingerprint := buf[7 : 7+8]
 	blobLen := binary.LittleEndian.Uint32(buf[23:27])
-	if len(buf) < 27+int(blobLen) {
-		return nil, nil, fmt.Errorf("key file truncated")
+	if blobLen == 0 || len(buf) != 27+int(blobLen) {
+		return nil, nil, fmt.Errorf("invalid key file length")
 	}
 	blob := buf[27 : 27+blobLen]
 	dbKey, err = DPAPIUnprotect(blob)
 	if err != nil {
 		return nil, nil, fmt.Errorf("DPAPIUnprotect: %w", err)
+	}
+	if len(dbKey) != wrappingLen {
+		return nil, nil, fmt.Errorf("invalid database key length %d", len(dbKey))
+	}
+	fingerprint = KeyFingerprint(dbKey)
+	if !bytes.Equal(storedFingerprint, fingerprint) {
+		return nil, nil, fmt.Errorf("key fingerprint mismatch")
 	}
 	return dbKey, fingerprint, nil
 }
@@ -142,6 +173,16 @@ func ReadDPAPIKeyFile(path string) (dbKey, fingerprint []byte, err error) {
 //	+ kdf_N[4] + kdf_r[4] + kdf_p[4] + data_len[4] + data[]
 
 const recoveryMagic = "CVREC1"
+
+type recoveryEnvelope struct {
+	fingerprint []byte
+	salt        []byte
+	nonce       []byte
+	n           uint32
+	r           uint32
+	p           uint32
+	ciphertext  []byte
+}
 
 // WriteRecoveryFile 用 scrypt + AES-256-GCM 加密 dbKey 后原子写入 recovery 文件。
 func WriteRecoveryFile(path string, dbKey, password []byte) error {
@@ -161,7 +202,7 @@ func WriteRecoveryFile(path string, dbKey, password []byte) error {
 
 	var buf []byte
 	buf = append(buf, []byte(recoveryMagic)...)
-	buf = append(buf, 1) // version
+	buf = append(buf, keyEnvelopeVersion)
 	buf = append(buf, fp...)
 	buf = append(buf, salt...)
 	buf = append(buf, nonce...)
@@ -185,31 +226,69 @@ func ReadRecoveryFile(path string, password []byte) (dbKey, fingerprint []byte, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("read recovery file: %w", err)
 	}
-	if len(buf) < 6+1+8+32+12+12+4 {
-		return nil, nil, fmt.Errorf("recovery file too short")
+	envelope, err := parseRecoveryEnvelope(buf)
+	if err != nil {
+		return nil, nil, err
 	}
-	if string(buf[:6]) != recoveryMagic {
-		return nil, nil, fmt.Errorf("bad magic: %q", buf[:6])
-	}
-	fingerprint = buf[7 : 7+8]
-	salt := buf[15 : 15+32]
-	nonce := buf[47 : 47+12]
-	nVal := binary.LittleEndian.Uint32(buf[59:63])
-	rVal := binary.LittleEndian.Uint32(buf[63:67])
-	pVal := binary.LittleEndian.Uint32(buf[67:71])
-	dataLen := binary.LittleEndian.Uint32(buf[71:75])
-	if len(buf) < 75+int(dataLen) {
-		return nil, nil, fmt.Errorf("recovery file truncated")
-	}
-	ciphertext := buf[75 : 75+dataLen]
-
-	wrappingKey, err := scrypt.Key(password, salt, int(nVal), int(rVal), int(pVal), wrappingLen)
+	wrappingKey, err := scrypt.Key(password, envelope.salt, int(envelope.n), int(envelope.r), int(envelope.p), wrappingLen)
 	if err != nil {
 		return nil, nil, fmt.Errorf("scrypt.Key: %w", err)
 	}
-	dbKey, err = decryptAESGCM(wrappingKey, nonce, ciphertext)
+	dbKey, err = decryptAESGCM(wrappingKey, envelope.nonce, envelope.ciphertext)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decryptAESGCM: %w", err)
 	}
+	if len(dbKey) != wrappingLen {
+		return nil, nil, fmt.Errorf("invalid recovered database key length %d", len(dbKey))
+	}
+	fingerprint = KeyFingerprint(dbKey)
+	if !bytes.Equal(envelope.fingerprint, fingerprint) {
+		return nil, nil, fmt.Errorf("recovery fingerprint mismatch")
+	}
 	return dbKey, fingerprint, nil
+}
+
+func readRecoveryFileFingerprint(path string) ([]byte, error) {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read recovery file: %w", err)
+	}
+	envelope, err := parseRecoveryEnvelope(buf)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), envelope.fingerprint...), nil
+}
+
+func parseRecoveryEnvelope(buf []byte) (recoveryEnvelope, error) {
+	if len(buf) < 6+1+8+32+12+12+4 {
+		return recoveryEnvelope{}, fmt.Errorf("recovery file too short")
+	}
+	if string(buf[:6]) != recoveryMagic {
+		return recoveryEnvelope{}, fmt.Errorf("bad magic: %q", buf[:6])
+	}
+	if buf[6] != keyEnvelopeVersion {
+		return recoveryEnvelope{}, fmt.Errorf("unsupported recovery file version %d", buf[6])
+	}
+	nVal := binary.LittleEndian.Uint32(buf[59:63])
+	rVal := binary.LittleEndian.Uint32(buf[63:67])
+	pVal := binary.LittleEndian.Uint32(buf[67:71])
+	// v1 参数由文件提供，但不能在验证前原样交给 scrypt：损坏或恶意文件
+	// 可用极端参数造成内存/CPU 拒绝服务。v1 只接受写入端的固定参数。
+	if nVal != uint32(scryptN) || rVal != uint32(scryptR) || pVal != uint32(scryptP) {
+		return recoveryEnvelope{}, fmt.Errorf("unsupported recovery KDF parameters")
+	}
+	dataLen := binary.LittleEndian.Uint32(buf[71:75])
+	if dataLen != 48 || len(buf) != 75+int(dataLen) {
+		return recoveryEnvelope{}, fmt.Errorf("recovery file truncated")
+	}
+	return recoveryEnvelope{
+		fingerprint: buf[7:15],
+		salt:        buf[15:47],
+		nonce:       buf[47:59],
+		n:           nVal,
+		r:           rVal,
+		p:           pVal,
+		ciphertext:  buf[75 : 75+dataLen],
+	}, nil
 }

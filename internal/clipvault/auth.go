@@ -4,12 +4,14 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/scrypt"
 )
@@ -18,18 +20,23 @@ const (
 	sessionCookieName = "cv_session"
 	sessionTokenBytes = 32
 	// 内部会话最长存活时间，用于清理过期会话
-	maxSessionLifetime = 24 * time.Hour
+	maxSessionLifetime     = 24 * time.Hour
+	secondaryTokenLifetime = 2 * time.Minute
 
 	// 密码限流参数
-	rateLimitThreshold = 10              // 每个统计窗口最多失败次数
-	rateLimitWindow    = 5 * time.Minute // 滚动统计窗口
+	rateLimitThreshold   = 10              // 每个统计窗口最多失败次数
+	rateLimitWindow      = 5 * time.Minute // 滚动统计窗口
+	ratePurposeLock      = "lock"
+	ratePurposeSecondary = "secondary"
 
-	authScryptN      = 32768
-	authScryptR      = 8
-	authScryptP      = 1
-	authScryptKeyLen = 32
-	authPasswordSalt = 16
-	authHashPrefix   = "$scrypt$v=1$"
+	authScryptN          = 32768
+	authScryptR          = 8
+	authScryptP          = 1
+	authScryptKeyLen     = 32
+	authPasswordSalt     = 16
+	authHashPrefix       = "$scrypt$v=1$"
+	minAuthPasswordRunes = 8
+	maxAuthPasswordBytes = 1024
 )
 
 // Session 表示一个已认证的浏览器会话。
@@ -46,25 +53,33 @@ type Session struct {
 type AuthManager struct {
 	mu              sync.RWMutex
 	sessions        map[string]*Session
-	secondaryTokens map[string]string // 一次性二次认证 token -> session token
+	secondaryTokens map[string]secondaryToken
 	rateMu          sync.Mutex
-	rateBuckets     map[string]*rateBucket // IP -> 失败记录
+	rateBuckets     map[string]*rateBucket // 凭据类别 -> 失败记录
 
 	stopCh    chan struct{} // startSessionCleaner 的退出信号（Close 关闭）
 	closeOnce sync.Once     // 防 Close 重复关闭 stopCh panic
+}
+
+type secondaryToken struct {
+	SessionToken string
+	ExpiresAt    time.Time
 }
 
 // NewAuthManager 创建一个新的 AuthManager。
 func NewAuthManager() *AuthManager {
 	return &AuthManager{
 		sessions:        make(map[string]*Session),
-		secondaryTokens: make(map[string]string),
+		secondaryTokens: make(map[string]secondaryToken),
 		rateBuckets:     make(map[string]*rateBucket),
 		stopCh:          make(chan struct{}),
 	}
 }
 
 func newPasswordHash(password string) (string, error) {
+	if err := validateAuthPassword(password); err != nil {
+		return "", err
+	}
 	salt := make([]byte, authPasswordSalt)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate password salt: %w", err)
@@ -76,10 +91,32 @@ func newPasswordHash(password string) (string, error) {
 	return fmt.Sprintf("%sn=%d$r=%d$p=%d$%s$%s", authHashPrefix, authScryptN, authScryptR, authScryptP, hex.EncodeToString(salt), hex.EncodeToString(derived)), nil
 }
 
+func validateAuthPassword(password string) error {
+	if strings.TrimSpace(password) != password {
+		return errors.New("密码首尾不能有空格")
+	}
+	if utf8.RuneCountInString(password) < minAuthPasswordRunes {
+		return fmt.Errorf("密码至少需要 %d 个字符", minAuthPasswordRunes)
+	}
+	if len(password) > maxAuthPasswordBytes {
+		return errors.New("密码过长")
+	}
+	return nil
+}
+
 func verifyPasswordHash(encoded, password string) bool {
+	salt, expected, err := parsePasswordHash(encoded)
+	if err != nil {
+		return false
+	}
+	actual, err := scrypt.Key([]byte(password), salt, authScryptN, authScryptR, authScryptP, len(expected))
+	return err == nil && subtle.ConstantTimeCompare(actual, expected) == 1
+}
+
+func parsePasswordHash(encoded string) (salt, expected []byte, err error) {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 8 || parts[1] != "scrypt" || parts[2] != "v=1" {
-		return false
+		return nil, nil, errors.New("invalid password hash format")
 	}
 	parseParam := func(part, name string) (int, bool) {
 		prefix := name + "="
@@ -93,18 +130,25 @@ func verifyPasswordHash(encoded, password string) bool {
 	r, okR := parseParam(parts[4], "r")
 	p, okP := parseParam(parts[5], "p")
 	if !okN || !okR || !okP || n != authScryptN || r != authScryptR || p != authScryptP {
-		return false
+		return nil, nil, errors.New("unsupported password hash parameters")
 	}
-	salt, err := hex.DecodeString(parts[6])
+	salt, err = hex.DecodeString(parts[6])
 	if err != nil || len(salt) != authPasswordSalt {
-		return false
+		return nil, nil, errors.New("invalid password hash salt")
 	}
-	expected, err := hex.DecodeString(parts[7])
+	expected, err = hex.DecodeString(parts[7])
 	if err != nil || len(expected) != authScryptKeyLen {
-		return false
+		return nil, nil, errors.New("invalid password hash digest")
 	}
-	actual, err := scrypt.Key([]byte(password), salt, n, r, p, len(expected))
-	return err == nil && subtle.ConstantTimeCompare(actual, expected) == 1
+	return salt, expected, nil
+}
+
+func validateStoredPasswordHash(encoded string) error {
+	if encoded == "" {
+		return nil
+	}
+	_, _, err := parsePasswordHash(encoded)
+	return err
 }
 
 // generateToken 生成一个随机的会话令牌。
@@ -262,23 +306,37 @@ func (am *AuthManager) GenerateSecondaryToken(sessionToken string) (string, erro
 		return "", err
 	}
 	am.mu.Lock()
-	am.secondaryTokens[token] = sessionToken
-	am.mu.Unlock()
+	defer am.mu.Unlock()
+	sess, ok := am.sessions[sessionToken]
+	if !ok || !sess.Authenticated || time.Now().After(sess.ExpiresAt) {
+		return "", fmt.Errorf("secondary token requires an active session")
+	}
+	am.secondaryTokens[token] = secondaryToken{
+		SessionToken: sessionToken,
+		ExpiresAt:    time.Now().Add(secondaryTokenLifetime),
+	}
 	return token, nil
 }
 
-// ConsumeSecondaryToken 消费一个一次性二次认证 token，成功返回 true。
-func (am *AuthManager) ConsumeSecondaryToken(token string) bool {
-	if token == "" {
+// ConsumeSecondaryToken 消费一个一次性二次认证 token。令牌必须属于当前
+// 浏览器会话、仍在短有效期内，且该会话本身仍然有效。
+func (am *AuthManager) ConsumeSecondaryToken(token, sessionToken string) bool {
+	if token == "" || sessionToken == "" {
 		return false
 	}
 	am.mu.Lock()
 	defer am.mu.Unlock()
-	_, ok := am.secondaryTokens[token]
-	if ok {
-		delete(am.secondaryTokens, token)
+	grant, ok := am.secondaryTokens[token]
+	if !ok {
+		return false
 	}
-	return ok
+	// 无论成功与否都消费，避免攻击者拿着窃取的令牌反复试探会话。
+	delete(am.secondaryTokens, token)
+	if grant.SessionToken != sessionToken || time.Now().After(grant.ExpiresAt) {
+		return false
+	}
+	sess, ok := am.sessions[sessionToken]
+	return ok && sess.Authenticated && time.Now().Before(sess.ExpiresAt)
 }
 
 // DestroySession 销毁会话。
@@ -290,8 +348,8 @@ func (am *AuthManager) DestroySession(token string) {
 
 func (am *AuthManager) destroySessionLocked(token string) {
 	delete(am.sessions, token)
-	for st, sess := range am.secondaryTokens {
-		if sess == token {
+	for st, grant := range am.secondaryTokens {
+		if grant.SessionToken == token {
 			delete(am.secondaryTokens, st)
 		}
 	}
@@ -306,7 +364,7 @@ func (am *AuthManager) RevokeAllSecondaryAuth() {
 		sess.SecondaryAuth = false
 	}
 	// 清理所有一次性 token
-	am.secondaryTokens = make(map[string]string)
+	am.secondaryTokens = make(map[string]secondaryToken)
 }
 
 // DestroyAllSessionsExcept 销毁除指定 token 外的所有会话。
@@ -320,8 +378,8 @@ func (am *AuthManager) DestroyAllSessionsExcept(exceptToken string) {
 		}
 	}
 	// 清理绑定到已销毁会话的一次性 token
-	for st, sess := range am.secondaryTokens {
-		if sess != exceptToken {
+	for st, grant := range am.secondaryTokens {
+		if grant.SessionToken != exceptToken {
 			delete(am.secondaryTokens, st)
 		}
 	}
@@ -341,8 +399,8 @@ func (am *AuthManager) CleanExpiredSessions() {
 		}
 	}
 	// 清理绑定到已过期会话的一次性 token
-	for st, sess := range am.secondaryTokens {
-		if !alive[sess] {
+	for st, grant := range am.secondaryTokens {
+		if !alive[grant.SessionToken] || now.After(grant.ExpiresAt) {
 			delete(am.secondaryTokens, st)
 		}
 	}
@@ -427,11 +485,12 @@ func rateLimitStatus(b *rateBucket, now time.Time) RateLimitStatus {
 	return status
 }
 
-// CheckRateLimit 检查当前密码尝试额度。
-func (am *AuthManager) CheckRateLimit() RateLimitStatus {
+// CheckRateLimitFor 检查指定凭据类别的密码尝试额度。锁屏密码与二次密码
+// 使用独立桶，任一凭据验证成功都不会替另一凭据清空失败次数。
+func (am *AuthManager) CheckRateLimitFor(purpose string) RateLimitStatus {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
-	b, ok := am.rateBuckets["__global__"]
+	b, ok := am.rateBuckets[purpose]
 	if !ok {
 		return RateLimitStatus{Allowed: true, Remaining: rateLimitThreshold}
 	}
@@ -441,14 +500,14 @@ func (am *AuthManager) CheckRateLimit() RateLimitStatus {
 }
 
 // RecordFailedAttempt 记录一次密码验证失败并返回剩余额度。
-func (am *AuthManager) RecordFailedAttempt() RateLimitStatus {
+func (am *AuthManager) RecordFailedAttemptFor(purpose string) RateLimitStatus {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
 	now := time.Now()
-	b, ok := am.rateBuckets["__global__"]
+	b, ok := am.rateBuckets[purpose]
 	if !ok {
 		b = &rateBucket{}
-		am.rateBuckets["__global__"] = b
+		am.rateBuckets[purpose] = b
 	}
 	pruneRateFailures(b, now)
 	b.failures = append(b.failures, now)
@@ -460,10 +519,10 @@ func (am *AuthManager) RecordFailedAttempt() RateLimitStatus {
 }
 
 // ResetRateLimit 清除失败记录（密码验证成功后调用）。
-func (am *AuthManager) ResetRateLimit() {
+func (am *AuthManager) ResetRateLimitFor(purpose string) {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
-	delete(am.rateBuckets, "__global__")
+	delete(am.rateBuckets, purpose)
 }
 
 // CleanExpiredRateBuckets 清理过期的限流桶。
@@ -471,13 +530,10 @@ func (am *AuthManager) CleanExpiredRateBuckets() {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
 	now := time.Now()
-	for ip, b := range am.rateBuckets {
-		if now.After(b.lockedUntil) && len(b.failures) == 0 {
-			delete(am.rateBuckets, ip)
-		}
+	for purpose, b := range am.rateBuckets {
 		pruneRateFailures(b, now)
 		if now.After(b.lockedUntil) && len(b.failures) == 0 {
-			delete(am.rateBuckets, ip)
+			delete(am.rateBuckets, purpose)
 		}
 	}
 }

@@ -128,7 +128,7 @@ func TestSourceExeStats(t *testing.T) {
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "c", ByteLen: 1, CharLen: 1, SHA256: "s3", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "d", ByteLen: 1, CharLen: 1, SHA256: "s4", MetaJSON: "{}", SourceExeName: ""}))
 
-	stats, err := store.SourceExeStats(ctx)
+	stats, err := store.SourceExeStatsFiltered(ctx, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestSourceExeStatsEmpty(t *testing.T) {
 	ctx := context.Background()
 
 	// 1) 根本没有记录
-	stats, err := store.SourceExeStats(ctx)
+	stats, err := store.SourceExeStatsFiltered(ctx, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestSourceExeStatsEmpty(t *testing.T) {
 	}
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "x", ByteLen: 1, CharLen: 1, SHA256: "z1", MetaJSON: "{}", SourceExeName: ""}))
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "y", ByteLen: 1, CharLen: 1, SHA256: "z2", MetaJSON: "{}", SourceExeName: ""}))
-	stats2, err := store.SourceExeStats(ctx)
+	stats2, err := store.SourceExeStatsFiltered(ctx, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestSearchSourceExeWithOtherFilters(t *testing.T) {
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "A", ByteLen: 1, CharLen: 1, SHA256: "x1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "B", ByteLen: 1, CharLen: 1, SHA256: "x2", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "C", ByteLen: 1, CharLen: 1, SHA256: "x3", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "image", Format: "CF_BITMAP", Text: "D", ByteLen: 1, CharLen: 1, SHA256: "x4", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{Kind: "image", Format: "CF_HDROP", Text: "D", ByteLen: 1, CharLen: 1, SHA256: "x4", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 
 	// 回填 starred：A、C、D 为收藏
 	all, _, err := store.Search(ctx, SearchOptions{Limit: 100, IncludeSensitive: true})

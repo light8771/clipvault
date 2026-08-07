@@ -291,7 +291,7 @@ func configuredStorageLocation(controlDir string) (storageLocation, bool, error)
 		return storageLocation{}, false, fmt.Errorf("读取数据目录配置失败: %w", err)
 	}
 	var location storageLocation
-	if err := json.Unmarshal(data, &location); err != nil {
+	if err := decodeStrictJSON(data, &location); err != nil {
 		return storageLocation{}, false, fmt.Errorf("解析数据目录配置失败: %w", err)
 	}
 	dataDir, err := resolveAbsoluteDataDirectory(location.DataDir, "configured data directory")
@@ -318,7 +318,7 @@ func applyPendingDataDirectoryMove(controlDir string) (string, error) {
 		return "", fmt.Errorf("read data directory relocation task failed: %w", err)
 	}
 	var move storageMove
-	if err := json.Unmarshal(data, &move); err != nil {
+	if err := decodeStrictJSON(data, &move); err != nil {
 		return "", fmt.Errorf("parse data directory relocation task failed: %w", err)
 	}
 	sourcePath, err := resolveAbsoluteDataDirectory(move.SourceDir, "storage move source directory")

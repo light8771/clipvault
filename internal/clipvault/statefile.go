@@ -13,7 +13,6 @@ import (
 type AppState struct {
 	Engine         string `json:"engine"`         // "duckdb" 或 "sqlite"
 	KeyFingerprint string `json:"keyFingerprint"` // db_key 的 SHA-256 前 8 字节 hex
-	HasRecovery    bool   `json:"hasRecovery"`    // 是否已设置恢复密码
 	CreatedAt      string `json:"createdAt"`      // ISO 8601
 	LastOpenedAt   string `json:"lastOpenedAt"`   // ISO 8601
 }
@@ -42,7 +41,7 @@ func ReadStateFile(dataDir string) (AppState, error) {
 		return AppState{}, fmt.Errorf("read state file: %w", err)
 	}
 	var state AppState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := decodeStrictJSON(data, &state); err != nil {
 		return AppState{}, fmt.Errorf("unmarshal state: %w", err)
 	}
 	return state, nil

@@ -1,10 +1,16 @@
 package clipvault
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 )
+
+const minRecoveryPasswordRunes = 12
 
 // RecoveryPasswordError describes a recovery password operation failure.
 type RecoveryPasswordError struct {
@@ -22,17 +28,46 @@ func (e *RecoveryPasswordError) Error() string {
 func (e *RecoveryPasswordError) Unwrap() error { return e.Err }
 
 // HasRecoveryPassword checks if a recovery file exists in the data directory.
-func HasRecoveryPassword(dataDir string) bool {
+func HasRecoveryPassword(dataDir string) (bool, error) {
 	recPath := filepath.Join(dataDir, "clipvault.recovery")
 	_, err := os.Stat(recPath)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("stat recovery file: %w", err)
 }
 
-// SetRecoveryPassword creates or overwrites the recovery file with the given password.
-// Also updates the state file to mark HasRecovery = true.
+func hasRecoveryEnvelopeForKey(dataDir string, dbKey []byte) (bool, error) {
+	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	fingerprint, err := readRecoveryFileFingerprint(recPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("validate recovery file: %w", err)
+	}
+	if !bytes.Equal(fingerprint, KeyFingerprint(dbKey)) {
+		return false, errors.New("recovery file belongs to a different database key")
+	}
+	return true, nil
+}
+
+// SetRecoveryPassword creates the initial recovery file. Existing recovery
+// material must be changed through ChangeRecoveryPassword or ResetRecoveryPassword.
 // Requires the current dbKey (from Store.DBKey()).
 func SetRecoveryPassword(dataDir string, dbKey []byte, password string) error {
+	if err := validateRecoveryPassword(password); err != nil {
+		return err
+	}
 	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	if _, err := os.Stat(recPath); err == nil {
+		return errors.New("recovery password is already set")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat recovery file: %w", err)
+	}
 	if err := WriteRecoveryFile(recPath, dbKey, []byte(password)); err != nil {
 		return fmt.Errorf("write recovery file: %w", err)
 	}
@@ -44,8 +79,7 @@ func SetRecoveryPassword(dataDir string, dbKey []byte, password string) error {
 		return fmt.Errorf("self-test failed: %w", err)
 	}
 
-	// Update state file
-	return updateStateRecoveryFlag(dataDir, true)
+	return nil
 }
 
 // ChangeRecoveryPassword verifies the old password, then sets a new one.
@@ -54,23 +88,35 @@ func SetRecoveryPassword(dataDir string, dbKey []byte, password string) error {
 // 唯一的恢复能力从"有"清零到"无"（原实现直接覆写 + os.Remove）。
 func ChangeRecoveryPassword(dataDir string, dbKey []byte, oldPassword, newPassword string) error {
 	recPath := filepath.Join(dataDir, "clipvault.recovery")
-	if _, err := os.Stat(recPath); os.IsNotExist(err) {
-		return &RecoveryPasswordError{Code: "not_set"}
+	if _, err := os.Stat(recPath); err != nil {
+		if os.IsNotExist(err) {
+			return &RecoveryPasswordError{Code: "not_set"}
+		}
+		return fmt.Errorf("stat recovery file: %w", err)
 	}
 
 	// Verify old password
 	if err := VerifyRecoveryPassword(dataDir, oldPassword); err != nil {
 		return &RecoveryPasswordError{Code: "wrong_password", Err: err}
 	}
+	return ResetRecoveryPassword(dataDir, dbKey, newPassword)
+}
 
-	// 写临时文件：同目录 .new 后缀保证与 recPath 同卷（rename 原子、无跨盘问题）；
-	// 不用 .tmp 后缀，避免与 WriteRecoveryFile 内部 atomicWriteFile 的 .tmp 混淆。
+// ResetRecoveryPassword 使用当前已打开数据库的 dbKey 原子替换恢复文件。
+// 调用方必须先完成一次“刚刚验证”的二次认证；该能力用于用户忘记旧恢复
+// 密码、但 Windows DPAPI 仍能正常打开数据库时重新建立恢复能力。
+func ResetRecoveryPassword(dataDir string, dbKey []byte, newPassword string) error {
+	if err := validateRecoveryPassword(newPassword); err != nil {
+		return err
+	}
+	recPath := filepath.Join(dataDir, "clipvault.recovery")
+
+	// 同目录临时文件保证 rename 不跨卷。
 	tmpPath := recPath + ".new"
 	if err := WriteRecoveryFile(tmpPath, dbKey, []byte(newPassword)); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write recovery file: %w", err)
 	}
-	// 兜底清理：rename 成功后 tmpPath 已不存在，Remove 报错可忽略
 	defer os.Remove(tmpPath)
 
 	// 自检临时文件本身：VerifyRecoveryPassword 固定读 recPath（旧文件），
@@ -84,23 +130,17 @@ func ChangeRecoveryPassword(dataDir string, dbKey []byte, oldPassword, newPasswo
 		return fmt.Errorf("rename recovery file: %w", err)
 	}
 
-	// 同步 state 标志（原实现缺失：改密后 state.HasRecovery 可能滞后）。
-	// best-effort：改密成功是主操作，state 写失败仅记日志不应 abort，
-	// handleRecoveryStatus 以文件存在性为准，数据一致性不受影响。
-	if err := updateStateRecoveryFlag(dataDir, true); err != nil {
-		// 无 logger 引用，静默保留：state 仅用于展示，文件存在性为准
-		_ = err
-	}
 	return nil
 }
 
-// RemoveRecoveryPassword deletes the recovery file and updates the state file.
-func RemoveRecoveryPassword(dataDir string) error {
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
-	if err := os.Remove(recPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove recovery file: %w", err)
+func validateRecoveryPassword(password string) error {
+	if strings.TrimSpace(password) != password || utf8.RuneCountInString(password) < minRecoveryPasswordRunes {
+		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("恢复密码至少需要 %d 个字符，且首尾不能有空格", minRecoveryPasswordRunes)}
 	}
-	return updateStateRecoveryFlag(dataDir, false)
+	if len(password) > 1024 {
+		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("恢复密码过长")}
+	}
+	return nil
 }
 
 // VerifyRecoveryPassword tests that the password can decrypt the db_key from the recovery file.
@@ -111,17 +151,4 @@ func VerifyRecoveryPassword(dataDir, password string) error {
 		return fmt.Errorf("verify recovery: %w", err)
 	}
 	return nil
-}
-
-// updateStateRecoveryFlag updates the HasRecovery field in the state file.
-func updateStateRecoveryFlag(dataDir string, hasRecovery bool) error {
-	state, err := ReadStateFile(dataDir)
-	if err != nil {
-		// If state file doesn't exist, create a minimal one
-		state = AppState{
-			Engine: "duckdb",
-		}
-	}
-	state.HasRecovery = hasRecovery
-	return WriteStateFile(dataDir, state)
 }

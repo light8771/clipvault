@@ -2,6 +2,7 @@ package clipvault
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,6 @@ func RecoverWithPassword(dataDir, password string) error {
 	state := AppState{
 		Engine:         "duckdb",
 		KeyFingerprint: hex.EncodeToString(fingerprint),
-		HasRecovery:    true,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if err := WriteStateFile(dataDir, state); err != nil {
@@ -50,35 +50,33 @@ func RecoverWithPassword(dataDir, password string) error {
 }
 
 // CreateNewDatabase isolates old files and creates a fresh encrypted database.
-// Old files are renamed with a .locked-YYYYMMDD-HHMMSS suffix.
-func CreateNewDatabase(dataDir string) error {
-	ts := time.Now().Format("20060102-150405")
-
-	// Isolate old files
-	oldFiles := []string{"clipvault.duckdb", "clipvault.duckdb.wal", "clipvault.key", "clipvault.recovery", "clipvault.state"}
-	for _, name := range oldFiles {
-		oldPath := filepath.Join(dataDir, name)
-		if _, err := os.Stat(oldPath); err == nil {
-			lockedPath := filepath.Join(dataDir, name+".locked-"+ts)
-			if err := os.Rename(oldPath, lockedPath); err != nil {
-				return fmt.Errorf("isolate %s: %w", name, err)
-			}
-		}
+// Any failure restores the original file set, so the recovery UI can safely retry.
+func CreateNewDatabase(dataDir string) (err error) {
+	isolation, err := isolateDatabaseFiles(dataDir)
+	if err != nil {
+		return err
 	}
+	keyPath := filepath.Join(dataDir, "clipvault.key")
+	dbPath := filepath.Join(dataDir, "clipvault.duckdb")
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, removeNewStoreFiles(keyPath, dbPath), restoreDatabaseFiles(isolation))
+		}
+	}()
 
-	// Create new database via OpenStore (first-run path)
 	store, err := OpenStore(StoreOptions{DataDir: dataDir})
 	if err != nil {
 		return fmt.Errorf("create new store: %w", err)
 	}
-	defer store.Close()
+	fp := KeyFingerprint(store.dbKey)
+	if closeErr := store.Close(); closeErr != nil {
+		return fmt.Errorf("close new store: %w", closeErr)
+	}
 
 	// Write state file
-	fp := KeyFingerprint(store.dbKey)
 	state := AppState{
 		Engine:         "duckdb",
 		KeyFingerprint: hex.EncodeToString(fp),
-		HasRecovery:    false,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if err := WriteStateFile(dataDir, state); err != nil {
@@ -88,14 +86,58 @@ func CreateNewDatabase(dataDir string) error {
 	return nil
 }
 
-// verifyDuckDBKey tries to open the DuckDB file with the given key to verify correctness.
-func verifyDuckDBKey(dbPath, keyHex string) error {
-	// If db file doesn't exist yet, skip verification
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return nil
+type isolatedDatabaseFile struct {
+	original string
+	locked   string
+}
+
+func isolateDatabaseFiles(dataDir string) ([]isolatedDatabaseFile, error) {
+	suffix := ".locked-" + time.Now().UTC().Format("20060102-150405.000000000")
+	names := []string{"clipvault.duckdb", "clipvault.duckdb.wal", "clipvault.key", "clipvault.recovery", "clipvault.state"}
+	files := make([]isolatedDatabaseFile, 0, len(names))
+	for _, name := range names {
+		original := filepath.Join(dataDir, name)
+		exists, err := pathExists(original)
+		if err != nil {
+			return nil, fmt.Errorf("inspect %s: %w", name, err)
+		}
+		if !exists {
+			continue
+		}
+		locked := original + suffix
+		lockedExists, err := pathExists(locked)
+		if err != nil {
+			return nil, fmt.Errorf("inspect isolation target for %s: %w", name, err)
+		}
+		if lockedExists {
+			return nil, fmt.Errorf("isolation target already exists for %s", name)
+		}
+		files = append(files, isolatedDatabaseFile{original: original, locked: locked})
 	}
 
-	// Use the same ATTACH approach as OpenStore
-	// We import database/sql here to avoid circular dependency issues
+	for i, file := range files {
+		if err := os.Rename(file.original, file.locked); err != nil {
+			return nil, errors.Join(fmt.Errorf("isolate %s: %w", filepath.Base(file.original), err), restoreDatabaseFiles(files[:i]))
+		}
+	}
+	return files, nil
+}
+
+func restoreDatabaseFiles(files []isolatedDatabaseFile) error {
+	var restoreErrors []error
+	for i := len(files) - 1; i >= 0; i-- {
+		file := files[i]
+		if err := os.Rename(file.locked, file.original); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("restore %s: %w", filepath.Base(file.original), err))
+		}
+	}
+	return errors.Join(restoreErrors...)
+}
+
+// verifyDuckDBKey tries to open the DuckDB file with the given key to verify correctness.
+func verifyDuckDBKey(dbPath, keyHex string) error {
+	if _, err := os.Stat(dbPath); err != nil {
+		return fmt.Errorf("database file unavailable: %w", err)
+	}
 	return verifyDuckDBKeyInternal(dbPath, keyHex)
 }

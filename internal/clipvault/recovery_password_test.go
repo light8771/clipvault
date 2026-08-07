@@ -17,8 +17,11 @@ func TestRecoveryPasswordLifecycle(t *testing.T) {
 	dbKey := store.DBKey()
 
 	// Initially no recovery password
-	if HasRecoveryPassword(dir) {
+	if exists, err := HasRecoveryPassword(dir); err != nil || exists {
 		t.Fatal("recovery file should not exist initially")
+	}
+	if exists, err := hasRecoveryEnvelopeForKey(dir, dbKey); err != nil || exists {
+		t.Fatal("valid recovery envelope should not exist initially")
 	}
 
 	// Set recovery password
@@ -28,23 +31,22 @@ func TestRecoveryPasswordLifecycle(t *testing.T) {
 	}
 	t.Logf("[OK] recovery password set")
 
-	if !HasRecoveryPassword(dir) {
+	if exists, err := HasRecoveryPassword(dir); err != nil || !exists {
 		t.Fatal("recovery file should exist after set")
 	}
-
-	// Verify state file updated
-	state, err := ReadStateFile(dir)
-	if err != nil {
-		t.Fatalf("ReadStateFile: %v", err)
+	if valid, err := hasRecoveryEnvelopeForKey(dir, dbKey); err != nil || !valid {
+		t.Fatalf("recovery envelope does not match database key: %v", err)
 	}
-	if !state.HasRecovery {
-		t.Fatal("state.HasRecovery should be true")
-	}
-	t.Logf("[OK] state file has HasRecovery=true")
 
 	// Self-test: verify password works
 	if err := VerifyRecoveryPassword(dir, password); err != nil {
 		t.Fatalf("VerifyRecoveryPassword: %v", err)
+	}
+	if err := SetRecoveryPassword(dir, dbKey, "Replacement1Pass"); err == nil {
+		t.Fatal("SetRecoveryPassword overwrote an existing recovery file")
+	}
+	if err := VerifyRecoveryPassword(dir, password); err != nil {
+		t.Fatalf("rejected second setup changed the original recovery password: %v", err)
 	}
 	t.Logf("[OK] self-test: password decrypts key correctly")
 
@@ -73,11 +75,11 @@ func TestRecoveryPasswordLifecycle(t *testing.T) {
 	}
 	t.Logf("[OK] new password works after change")
 
-	if err := ChangeRecoveryPassword(dir, dbKey, newPassword, ""); err != nil {
-		t.Fatalf("ChangeRecoveryPassword to empty password: %v", err)
+	if err := ChangeRecoveryPassword(dir, dbKey, newPassword, ""); err == nil {
+		t.Fatal("empty recovery password should be rejected")
 	}
-	if err := VerifyRecoveryPassword(dir, ""); err != nil {
-		t.Fatalf("empty password verification: %v", err)
+	if err := VerifyRecoveryPassword(dir, newPassword); err != nil {
+		t.Fatalf("rejected change must preserve current password: %v", err)
 	}
 
 	// Change with wrong old password should fail
@@ -86,25 +88,6 @@ func TestRecoveryPasswordLifecycle(t *testing.T) {
 	}
 	t.Logf("[OK] change with wrong old password rejected")
 
-	// Remove recovery password
-	if err := RemoveRecoveryPassword(dir); err != nil {
-		t.Fatalf("RemoveRecoveryPassword: %v", err)
-	}
-	t.Logf("[OK] recovery password removed")
-
-	if HasRecoveryPassword(dir) {
-		t.Fatal("recovery file should not exist after remove")
-	}
-
-	// State file should reflect removal
-	state, err = ReadStateFile(dir)
-	if err != nil {
-		t.Fatalf("ReadStateFile after remove: %v", err)
-	}
-	if state.HasRecovery {
-		t.Fatal("state.HasRecovery should be false after remove")
-	}
-	t.Logf("[OK] state file has HasRecovery=false after remove")
 }
 
 func TestRecoveryFileDoesNotLeakPassword(t *testing.T) {

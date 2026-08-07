@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	xlsxRecordsHeader        = []string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive"}
+	xlsxRecordsHeader        = []string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive", "sourceExeName", "sourceExePath", "sourceWindowTitle", "sourceMethod"}
 	xlsxGroupsHeader         = []string{"id", "name", "parentId", "createdAt"}
 	xlsxItemGroupsHeader     = []string{"itemId", "groupId"}
 	xlsxSensitiveRulesHeader = []string{"pattern"}
@@ -31,11 +31,29 @@ var (
 // ExportXLSX produces a complete, portable spreadsheet export. All four
 // sheets are required by ImportXLSX and map exactly to ExportData.
 func (s *Store) ExportXLSX(ctx context.Context) ([]byte, error) {
-	export, err := s.ExportFullForJSON(ctx)
+	return s.ExportXLSXScope(ctx, ExportScope{Mode: "full"})
+}
+
+// ExportXLSXScope exports the same full/range/incremental scope contract as
+// JSON and cvexport. Materializing is required by excelize, but the source
+// query and item-group filtering remain identical to StreamExport.
+func (s *Store) ExportXLSXScope(ctx context.Context, scope ExportScope) ([]byte, error) {
+	data, _, err := s.exportXLSXScope(ctx, scope)
+	return data, err
+}
+
+func (s *Store) exportXLSXScope(ctx context.Context, scope ExportScope) ([]byte, int64, error) {
+	var buf bytes.Buffer
+	maxID, err := s.StreamExport(ctx, scope, &buf)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return encodeExportXLSX(export)
+	export, err := decodeImportJSON(buf.Bytes())
+	if err != nil {
+		return nil, 0, err
+	}
+	data, err := encodeExportXLSX(&export)
+	return data, maxID, err
 }
 
 func encodeExportXLSX(export *ExportData) ([]byte, error) {
@@ -58,6 +76,7 @@ func encodeExportXLSX(export *ExportData) ([]byte, error) {
 			strconv.FormatInt(item.ID, 10), item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Kind, item.Format, item.Text,
 			strconv.Itoa(item.ByteLen), strconv.Itoa(item.CharLen), item.SHA256, item.MetaJSON,
 			strconv.FormatBool(item.Starred), strconv.FormatBool(item.Sensitive),
+			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod,
 		}
 		if err := writeXLSXRow(book, xlsxRecordsSheet, index+2, row); err != nil {
 			return nil, err
@@ -314,7 +333,12 @@ func parseXLSXItem(values []string) (StoredItem, error) {
 	if byteLen > maxInt || charLen > maxInt {
 		return StoredItem{}, fmt.Errorf("byteLen and charLen exceed the platform integer limit")
 	}
-	return StoredItem{ID: id, CreatedAt: createdAt, Kind: values[2], Format: values[3], Text: values[4], ByteLen: int(byteLen), CharLen: int(charLen), SHA256: values[7], MetaJSON: values[8], Starred: starred, Sensitive: sensitive}, nil
+	return StoredItem{
+		ID: id, CreatedAt: createdAt, Kind: values[2], Format: values[3], Text: values[4],
+		ByteLen: int(byteLen), CharLen: int(charLen), SHA256: values[7], MetaJSON: values[8],
+		Starred: starred, Sensitive: sensitive, SourceExeName: values[11], SourceExePath: values[12],
+		SourceWindowTitle: values[13], SourceMethod: values[14],
+	}, nil
 }
 
 func parseXLSXGroup(values []string) (StoredGroup, error) {

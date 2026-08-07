@@ -11,8 +11,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
@@ -22,7 +24,14 @@ type Store struct {
 	dbKey []byte
 }
 
-var errItemOrGroupNotFound = errors.New("item or group not found")
+var (
+	ErrItemNotFound        = errors.New("item not found")
+	errItemOrGroupNotFound = errors.New("item or group not found")
+)
+
+const storeSchemaVersion = "1"
+
+const maxGroupNameRunes = 100
 
 const emailBackupHistoryTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
@@ -87,7 +96,7 @@ type StoredItem struct {
 	MetaJSON  string    `json:"metaJson"`
 	Starred   bool      `json:"starred"`
 	Sensitive bool      `json:"sensitive"`
-	// 来源进程信息（前台窗口法）；旧数据/未捕获时为空串。
+	// 来源进程信息（前台窗口法）；未捕获时为空串。
 	SourceExeName     string `json:"sourceExeName"`
 	SourceExePath     string `json:"sourceExePath"`
 	SourceWindowTitle string `json:"sourceWindowTitle"`
@@ -103,10 +112,19 @@ const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char
 // rowScanner 同时抽象 *sql.Row 与 *sql.Rows 的 Scan。
 type rowScanner interface{ Scan(dest ...any) error }
 
-func scanStoredItem(row rowScanner, item *StoredItem, created *string) error {
-	return row.Scan(&item.ID, created, &item.Kind, &item.Format, &item.Text,
+func scanStoredItem(row rowScanner, item *StoredItem) error {
+	var created string
+	if err := row.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
 		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive,
-		&item.SourceExeName, &item.SourceExePath, &item.SourceWindowTitle, &item.SourceMethod)
+		&item.SourceExeName, &item.SourceExePath, &item.SourceWindowTitle, &item.SourceMethod); err != nil {
+		return err
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return fmt.Errorf("parse item %d created_at: %w", item.ID, err)
+	}
+	item.CreatedAt = parsed
+	return nil
 }
 
 // SearchOptions holds parameters for Store.Search.
@@ -116,8 +134,8 @@ type SearchOptions struct {
 	Offset           int // pagination offset
 	StarredOnly      bool
 	Kind             string // filter by kind (empty = all)
-	DateFrom         string // YYYY-MM-DD, inclusive lower bound on created_at (UTC date)
-	DateTo           string // YYYY-MM-DD, inclusive upper bound on created_at (UTC date)
+	CreatedFrom      string // RFC3339 inclusive UTC instant
+	CreatedBefore    string // RFC3339 exclusive UTC instant
 	SensitiveOnly    bool   // filter to sensitive items only
 	IncludeSensitive bool   // include sensitive items in results (default false)
 	GroupID          int64  // filter by group id (0 = no group filter)
@@ -144,6 +162,10 @@ type StoreOptions struct {
 // protects it with DPAPI, writes the key file, and creates the database.
 // On subsequent runs, it reads the key file, DPAPI-decrypts the key, and opens the db.
 func OpenStore(opts StoreOptions) (*Store, error) {
+	return openStore(opts, (*Store).initializeSchema)
+}
+
+func openStore(opts StoreOptions, initializeSchema func(*Store) error) (_ *Store, err error) {
 	if err := os.MkdirAll(opts.DataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir data dir: %w", err)
 	}
@@ -151,18 +173,33 @@ func OpenStore(opts StoreOptions) (*Store, error) {
 	keyPath := filepath.Join(opts.DataDir, "clipvault.key")
 	dbPath := filepath.Join(opts.DataDir, "clipvault.duckdb")
 
+	keyExists, err := pathExists(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat key file: %w", err)
+	}
+	dbExists, err := pathExists(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat database file: %w", err)
+	}
+	if keyExists != dbExists {
+		return nil, errors.New("database and key file must either both exist or both be absent")
+	}
+	newStore := !dbExists
+	if newStore {
+		defer func() {
+			if err != nil {
+				err = errors.Join(err, removeNewStoreFiles(keyPath, dbPath))
+			}
+		}()
+	}
 	var dbKey []byte
-
-	_, keyErr := os.Stat(keyPath)
-	if keyErr == nil {
-		// Key file exists — DPAPI decrypt
+	if keyExists {
 		key, _, err := ReadDPAPIKeyFile(keyPath)
 		if err != nil {
 			return nil, fmt.Errorf("read DPAPI key file: %w", err)
 		}
 		dbKey = key
-	} else if os.IsNotExist(keyErr) {
-		// First run — generate new key
+	} else {
 		dbKey = make([]byte, 32)
 		if _, err := rand.Read(dbKey); err != nil {
 			return nil, fmt.Errorf("generate db key: %w", err)
@@ -170,8 +207,6 @@ func OpenStore(opts StoreOptions) (*Store, error) {
 		if err := WriteDPAPIKeyFile(keyPath, dbKey); err != nil {
 			return nil, fmt.Errorf("write DPAPI key file: %w", err)
 		}
-	} else {
-		return nil, fmt.Errorf("stat key file: %w", keyErr)
 	}
 
 	keyHex := hex.EncodeToString(dbKey)
@@ -197,15 +232,48 @@ func OpenStore(opts StoreOptions) (*Store, error) {
 	}
 
 	store := &Store{db: db, dbKey: dbKey}
-	if err := store.migrate(); err != nil {
+	if newStore {
+		err = initializeSchema(store)
+	} else {
+		err = store.validateSchema()
+	}
+	if err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, err
 	}
 	return store, nil
 }
 
-// DBKey returns the raw database encryption key (for recovery file creation).
-func (s *Store) DBKey() []byte { return s.dbKey }
+func removeNewStoreFiles(keyPath, dbPath string) error {
+	var dataErrors []error
+	for _, path := range []string{dbPath + ".wal", dbPath} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			dataErrors = append(dataErrors, fmt.Errorf("remove %s: %w", filepath.Base(path), err))
+		}
+	}
+	if err := errors.Join(dataErrors...); err != nil {
+		return fmt.Errorf("clean up new database: %w", err)
+	}
+	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clean up new key file: %w", err)
+	}
+	return nil
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+// DBKey returns an ownership-independent copy of the database encryption key
+// for recovery-file operations.
+func (s *Store) DBKey() []byte { return slices.Clone(s.dbKey) }
 
 // escapeSQLPath escapes single quotes in a file path for safe embedding in SQL.
 func escapeSQLPath(path string) string {
@@ -234,29 +302,15 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) migrate() error {
-	// schema_migrations table for version tracking
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version INTEGER PRIMARY KEY,
-		applied_at TEXT NOT NULL
-	)`); err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
-	}
-
-	// Check current version
-	var currentVersion int
-	err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&currentVersion)
+func (s *Store) initializeSchema() error {
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("check schema version: %w", err)
+		return fmt.Errorf("begin schema initialization: %w", err)
 	}
-
-	if currentVersion >= 1 {
-		return nil // already migrated
-	}
-
+	defer tx.Rollback()
 	stmts := []string{
-		`CREATE SEQUENCE IF NOT EXISTS seq_clipboard_items START 1`,
-		`CREATE TABLE IF NOT EXISTS clipboard_items (
+		`CREATE SEQUENCE seq_clipboard_items START 1`,
+		`CREATE TABLE clipboard_items (
 			id INTEGER PRIMARY KEY DEFAULT nextval('seq_clipboard_items'),
 			created_at TEXT NOT NULL,
 			kind TEXT NOT NULL,
@@ -273,31 +327,31 @@ func (s *Store) migrate() error {
 			source_window_title TEXT NOT NULL DEFAULT '',
 			source_method TEXT NOT NULL DEFAULT ''
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_created_at ON clipboard_items(created_at DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_kind ON clipboard_items(kind)`,
-		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_sha256 ON clipboard_items(sha256)`,
-		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_sensitive ON clipboard_items(sensitive)`,
-		`CREATE INDEX IF NOT EXISTS idx_clipboard_items_source_exe_name ON clipboard_items(source_exe_name)`,
-		`CREATE TABLE IF NOT EXISTS settings (
+		`CREATE INDEX idx_clipboard_items_created_at ON clipboard_items(created_at DESC)`,
+		`CREATE INDEX idx_clipboard_items_kind ON clipboard_items(kind)`,
+		`CREATE INDEX idx_clipboard_items_sha256 ON clipboard_items(sha256)`,
+		`CREATE INDEX idx_clipboard_items_sensitive ON clipboard_items(sensitive)`,
+		`CREATE INDEX idx_clipboard_items_source_exe_name ON clipboard_items(source_exe_name)`,
+		`CREATE TABLE settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
-		`CREATE SEQUENCE IF NOT EXISTS seq_groups START 1`,
-		`CREATE TABLE IF NOT EXISTS groups (
+		`CREATE SEQUENCE seq_groups START 1`,
+		`CREATE TABLE groups (
 			id INTEGER PRIMARY KEY DEFAULT nextval('seq_groups'),
 			name TEXT NOT NULL,
 			parent_id INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_groups_parent ON groups(parent_id)`,
-		`CREATE TABLE IF NOT EXISTS item_groups (
+		`CREATE INDEX idx_groups_parent ON groups(parent_id)`,
+		`CREATE TABLE item_groups (
 			item_id INTEGER NOT NULL,
 			group_id INTEGER NOT NULL,
 			PRIMARY KEY (item_id, group_id)
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_item_groups_group ON item_groups(group_id)`,
-		`CREATE SEQUENCE IF NOT EXISTS seq_email_backup_history START 1`,
-		`CREATE TABLE IF NOT EXISTS email_backup_history (
+		`CREATE INDEX idx_item_groups_group ON item_groups(group_id)`,
+		`CREATE SEQUENCE seq_email_backup_history START 1`,
+		`CREATE TABLE email_backup_history (
 			id INTEGER PRIMARY KEY DEFAULT nextval('seq_email_backup_history'),
 			sent_at TEXT NOT NULL,
 			mode TEXT NOT NULL,
@@ -305,29 +359,56 @@ func (s *Store) migrate() error {
 			to_address TEXT NOT NULL,
 			format TEXT NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_email_backup_history_sent_at ON email_backup_history(sent_at DESC)`,
+		`CREATE INDEX idx_email_backup_history_sent_at ON email_backup_history(sent_at DESC)`,
 	}
 	for _, stmt := range stmts {
-		if _, err := s.db.Exec(stmt); err != nil {
-			return fmt.Errorf("migrate stmt: %w\nSQL: %s", err, stmt)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("initialize schema: %w\nSQL: %s", err, stmt)
 		}
 	}
+	cfg := DefaultConfig()
+	normalizeConfig(&cfg)
+	configJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode default config: %w", err)
+	}
+	for key, value := range map[string]string{
+		"schema.version":   storeSchemaVersion,
+		"config":           string(configJSON),
+		"config.last_good": string(configJSON),
+	} {
+		if _, err := tx.Exec(`INSERT INTO settings (key, value) VALUES (?, ?)`, key, value); err != nil {
+			return fmt.Errorf("initialize setting %q: %w", key, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit schema initialization: %w", err)
+	}
+	return nil
+}
 
-	// Record migration version
-	if _, err := s.db.Exec(
-		`INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)`,
-		time.Now().UTC().Format(time.RFC3339Nano),
-	); err != nil {
-		return fmt.Errorf("record migration: %w", err)
+func (s *Store) validateSchema() error {
+	var version string
+	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'schema.version'`).Scan(&version); err != nil {
+		return fmt.Errorf("unsupported database schema; rebuild the development database: %w", err)
+	}
+	if version != storeSchemaVersion {
+		return fmt.Errorf("unsupported database schema version %q; rebuild the development database", version)
 	}
 	return nil
 }
 
 func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
+	if !validItemKindFormat(item.Kind, item.Format) {
+		return fmt.Errorf("invalid clipboard kind/format %q/%q", item.Kind, item.Format)
+	}
+	item.ByteLen = len([]byte(item.Text))
+	item.CharLen = textRuneLen(item.Text)
+	item.SHA256 = hashString(item.Text)
 	if item.MetaJSON == "" {
 		item.MetaJSON = "{}"
 	} else if !json.Valid([]byte(item.MetaJSON)) {
-		item.MetaJSON = "{}"
+		return errors.New("meta_json must be valid JSON")
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO clipboard_items
 		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, sensitive,
@@ -393,14 +474,19 @@ type ExeStat struct {
 	Count int64  `json:"count"`
 }
 
-// SourceExeStats 返回所有非空来源应用及其记录数，按 count 降序、名称升序排列。
-// 供前端"来源应用"下拉与白名单/别名编辑使用。
-// 注意：统计全表（含免费版 100 条窗口之外、含敏感记录来源）是有意设计——下拉展示
-// 完整来源谱系可勾引未激活用户升级（转化钩子），与搜索结果窗口限制互不冲突（#3）。
-func (s *Store) SourceExeStats(ctx context.Context) ([]ExeStat, error) {
+func (s *Store) SourceExeStatsFiltered(ctx context.Context, includeSensitive bool, restrictToLatestN int) ([]ExeStat, error) {
+	where := `WHERE source_exe_name <> ''`
+	var args []any
+	if restrictToLatestN > 0 {
+		where += ` AND id IN (SELECT id FROM clipboard_items ORDER BY id DESC LIMIT ?)`
+		args = append(args, restrictToLatestN)
+	}
+	if !includeSensitive {
+		where += ` AND sensitive = false`
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT source_exe_name, COUNT(*) AS c FROM clipboard_items `+
-			`WHERE source_exe_name <> '' GROUP BY source_exe_name ORDER BY c DESC, source_exe_name ASC`)
+			where+` GROUP BY source_exe_name ORDER BY c DESC, source_exe_name ASC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +524,11 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		args = append(args, opts.RestrictToLatestN)
 	}
 
-	for _, term := range splitSearchTerms(opts.Query) {
+	terms, err := splitSearchTerms(opts.Query)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, term := range terms {
 		like := "%" + escapeLike(term) + "%"
 		// 每个 term 可匹配可见文本、类型、原生格式、元数据、分组名；多 term 之间 AND（语义同既有逻辑）。
 		// 别名命中的原始名以精确匹配（source_exe_name = ?）并入该 term 的 OR 组。
@@ -479,13 +569,13 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		conds = append(conds, "kind = ?")
 		args = append(args, opts.Kind)
 	}
-	if opts.DateFrom != "" {
-		conds = append(conds, "substr(created_at,1,10) >= ?")
-		args = append(args, opts.DateFrom)
+	if opts.CreatedFrom != "" {
+		conds = append(conds, "created_at >= ?")
+		args = append(args, opts.CreatedFrom)
 	}
-	if opts.DateTo != "" {
-		conds = append(conds, "substr(created_at,1,10) <= ?")
-		args = append(args, opts.DateTo)
+	if opts.CreatedBefore != "" {
+		conds = append(conds, "created_at < ?")
+		args = append(args, opts.CreatedBefore)
 	}
 	if opts.SensitiveOnly {
 		conds = append(conds, "sensitive = true")
@@ -524,38 +614,33 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	var items []StoredItem
 	for rows.Next() {
 		var item StoredItem
-		var created string
-		if err := scanStoredItem(rows, &item, &created); err != nil {
+		if err := scanStoredItem(rows, &item); err != nil {
 			return nil, 0, err
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
-			item.CreatedAt = parsed
 		}
 		items = append(items, item)
 	}
 	return items, total, rows.Err()
 }
 
-func splitSearchTerms(query string) []string {
+func splitSearchTerms(query string) ([]string, error) {
 	terms := strings.Fields(query)
 	if len(terms) > maxSearchTerms {
-		return terms[:maxSearchTerms]
+		return nil, fmt.Errorf("search query exceeds %d terms", maxSearchTerms)
 	}
-	return terms
+	return terms, nil
 }
 
 // GetByID 返回指定 ID 的单条记录。
 func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 	var item StoredItem
-	var created string
 	row := s.db.QueryRowContext(ctx,
 		`SELECT `+clipboardItemColumns+`
 		FROM clipboard_items WHERE id = ?`, id)
-	if err := scanStoredItem(row, &item, &created); err != nil {
+	if err := scanStoredItem(row, &item); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return item, fmt.Errorf("%w: %d", ErrItemNotFound, id)
+		}
 		return item, err
-	}
-	if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
-		item.CreatedAt = parsed
 	}
 	return item, nil
 }
@@ -564,10 +649,15 @@ func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 // 用于搜索结果定位到时间线中的页码位置。
 func (s *Store) GetPositionByID(ctx context.Context, id int64) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM clipboard_items WHERE id > ?`, id).Scan(&count)
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM clipboard_items WHERE id > ?),
+		EXISTS(SELECT 1 FROM clipboard_items WHERE id = ?)`, id, id).Scan(&count, &exists)
 	if err != nil {
 		return 0, err
+	}
+	if !exists {
+		return 0, fmt.Errorf("%w: %d", ErrItemNotFound, id)
 	}
 	return count, nil
 }
@@ -590,7 +680,7 @@ func (s *Store) Star(ctx context.Context, id int64, starred bool) error {
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("item %d not found", id)
+		return fmt.Errorf("%w: %d", ErrItemNotFound, id)
 	}
 	return nil
 }
@@ -614,7 +704,7 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("item %d not found", id)
+		return fmt.Errorf("%w: %d", ErrItemNotFound, id)
 	}
 	return tx.Commit()
 }
@@ -642,44 +732,77 @@ func (s *Store) ClearAll(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
-// GetConfig 从 settings 表读取配置，不存在时返回默认配置。
+// ErrConfigCorrupt 表示数据库可正常打开，但配置 JSON 已损坏。调用方必须
+// fail-closed，并通过恢复密码确认后才可回退到最近一次有效配置。
+var ErrConfigCorrupt = errors.New("configuration is corrupt")
+
+// GetConfig 从 settings 表读取配置。新库初始化时已写入默认配置，
+// 因此缺失或损坏都是需要恢复密码介入的完整性错误。
 func (s *Store) GetConfig() (Config, error) {
 	return getConfig(context.Background(), s.db)
 }
 
 func getConfig(ctx context.Context, queryer storeQueryer) (Config, error) {
-	cfg := DefaultConfig()
+	var cfg Config
 	var jsonStr string
 	err := queryer.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = 'config'`).Scan(&jsonStr)
-	if errors.Is(err, sql.ErrNoRows) {
-		return cfg, nil
-	}
 	if err != nil {
-		return cfg, err
+		return Config{}, fmt.Errorf("%w: %v", ErrConfigCorrupt, err)
 	}
-	if err := json.Unmarshal([]byte(jsonStr), &cfg); err != nil {
-		return DefaultConfig(), nil
+	if err := decodeStrictJSON([]byte(jsonStr), &cfg); err != nil {
+		return Config{}, fmt.Errorf("%w: %v", ErrConfigCorrupt, err)
 	}
 	normalizeConfig(&cfg)
+	if err := validateConfig(cfg); err != nil {
+		return Config{}, fmt.Errorf("%w: %v", ErrConfigCorrupt, err)
+	}
 	return cfg, nil
 }
 
 // SaveConfig 将配置持久化到 settings 表。
 func (s *Store) SaveConfig(cfg Config) error {
 	normalizeConfig(&cfg)
-	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
-		return fmt.Errorf("invalid sensitive rule: %w", err)
+	if err := validateConfig(cfg); err != nil {
+		return err
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO settings (key, value) VALUES ('config', ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		string(data),
-	)
-	return err
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, key := range []string{"config", "config.last_good"} {
+		if _, err := tx.Exec(
+			`INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, string(data)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// RestoreLastGoodConfig 用最近一次成功保存的配置修复主配置。
+// 调用方负责在调用前验证恢复密码。
+func (s *Store) RestoreLastGoodConfig() (Config, error) {
+	var raw string
+	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'config.last_good'`).Scan(&raw); err != nil {
+		return Config{}, fmt.Errorf("read last-known-good configuration: %w", err)
+	}
+	var cfg Config
+	if err := decodeStrictJSON([]byte(raw), &cfg); err != nil {
+		return Config{}, fmt.Errorf("last-known-good configuration is corrupt: %w", err)
+	}
+	normalizeConfig(&cfg)
+	if err := validateConfig(cfg); err != nil {
+		return Config{}, fmt.Errorf("last-known-good configuration is corrupt: %w", err)
+	}
+	if err := s.SaveConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 func exportAll(ctx context.Context, queryer storeQueryer) ([]StoredItem, error) {
@@ -693,12 +816,8 @@ func exportAll(ctx context.Context, queryer storeQueryer) ([]StoredItem, error) 
 	var items []StoredItem
 	for rows.Next() {
 		var item StoredItem
-		var created string
-		if err := scanStoredItem(rows, &item, &created); err != nil {
+		if err := scanStoredItem(rows, &item); err != nil {
 			return nil, err
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
-			item.CreatedAt = parsed
 		}
 		items = append(items, item)
 	}
@@ -730,7 +849,7 @@ type ExportSettings struct {
 func (settings *ExportSettings) UnmarshalJSON(data []byte) error {
 	type exportSettings ExportSettings
 	var decoded exportSettings
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := decodeStrictJSON(data, &decoded); err != nil {
 		return err
 	}
 	var fields map[string]json.RawMessage
@@ -761,42 +880,45 @@ type ItemGroupLink struct {
 
 // ExportScope describes the data range for export and backup operations.
 // It is persisted in backup config (DirBackupConfig/EmailBackupConfig.Scope)
-// but never written into the export JSON, so imports stay format-compatible.
+// but is not part of the exported document.
 type ExportScope struct {
-	Mode    string `json:"mode"`    // "full" | "range" | "incremental"
-	From    string `json:"from"`    // range: inclusive start (RFC3339 or YYYY-MM-DD)
-	To      string `json:"to"`      // range: exclusive end
-	SinceID int64  `json:"sinceId"` // incremental: export rows with id > SinceID
-	MaxID   int64  `json:"maxId"`   // incremental: optional upper bound id <= MaxID (for chunking)
+	Mode    string `json:"mode"` // "full" | "range" | "incremental"
+	From    string `json:"from"` // range: inclusive start (RFC3339 or YYYY-MM-DD)
+	To      string `json:"to"`   // range: exclusive end
+	SinceID int64  `json:"-"`    // internal incremental watermark / chunk lower bound
+	MaxID   int64  `json:"-"`    // internal chunk upper bound id <= MaxID
 }
 
-// validateExportScope 统一校验导出/备份范围参数，供导出 API 与备份调度共用，
-// 避免两条路径校验口径不一致（导出 API 曾只查非空、不查 From>=To，导致静默空导出）。
-// range 模式要求 From/To 非空、From<To、且格式为 RFC3339 或 YYYY-MM-DD
-// （两种格式字典序与时间序一致，可直接字符串比较）。
-// incremental 模式要求 SinceID>0。空 Mode 视为 full（调用方已归一化）。
+// validateExportScope 校验已归一化的导出范围。range 使用 RFC3339
+// [From,To) 边界；UI 的本地日期由 normalizeExportRange 先转换。
 func validateExportScope(scope ExportScope) error {
 	switch scope.Mode {
 	case "range":
 		if scope.From == "" || scope.To == "" {
 			return errors.New("range export requires from and to")
 		}
-		if scope.From >= scope.To {
-			return fmt.Errorf("range 起始时间 %q 必须早于结束时间 %q", scope.From, scope.To)
+		from, err := parseExportInstant(scope.From)
+		if err != nil {
+			return fmt.Errorf("range 时间 %q 格式非法（需 RFC3339）", scope.From)
 		}
-		for _, v := range []string{scope.From, scope.To} {
-			if _, err := time.Parse(time.RFC3339, v); err != nil {
-				if _, err2 := time.Parse("2006-01-02", v); err2 != nil {
-					return fmt.Errorf("range 时间 %q 格式非法（需 RFC3339 或 YYYY-MM-DD）", v)
-				}
-			}
+		to, err := parseExportInstant(scope.To)
+		if err != nil {
+			return fmt.Errorf("range 时间 %q 格式非法（需 RFC3339）", scope.To)
+		}
+		if !from.Before(to) {
+			return fmt.Errorf("range 起始时间 %q 必须早于结束时间 %q", scope.From, scope.To)
 		}
 	case "incremental":
 		if scope.SinceID <= 0 {
 			return errors.New("incremental export requires sinceId")
 		}
+		if scope.From != "" || scope.To != "" {
+			return errors.New("incremental export does not accept from or to")
+		}
 	case "full", "":
-		// 合法
+		if scope.From != "" || scope.To != "" {
+			return errors.New("full export does not accept from or to")
+		}
 	default:
 		return fmt.Errorf("unsupported export mode %q", scope.Mode)
 	}
@@ -874,16 +996,14 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	return export, nil
 }
 
-// StreamExport writes a complete export as JSON to w using row cursors, so
-// memory stays O(batch) instead of O(total rows). The output is byte-compatible
-// with json.Marshal of ExportFullForJSON and can be parsed by ImportFullJSON.
-// scope selects full / range / incremental data; groups and settings are always
-// exported in full (they are small), while items and item_groups are filtered.
 // StreamExport writes an export JSON document for the given scope to w.
 // It returns the id of the LAST item included (0 when no items matched) so the
 // caller can advance a backup watermark from the exact snapshot that was
 // exported — querying the max id afterwards would race with concurrent writes.
 func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer) (int64, error) {
+	if err := validateExportScope(scope); err != nil {
+		return 0, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin export tx: %w", err)
@@ -924,13 +1044,9 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 	var lastID int64
 	for rows.Next() {
 		var item StoredItem
-		var created string
-		if err := scanStoredItem(rows, &item, &created); err != nil {
+		if err := scanStoredItem(rows, &item); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan item: %w", err)
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
-			item.CreatedAt = parsed
 		}
 		if !first {
 			if _, err := w.Write([]byte(",")); err != nil {
@@ -1073,9 +1189,9 @@ func exportLinksQuery(scope ExportScope) (string, []any) {
 }
 
 // exportScopeWhere builds the WHERE clause (without leading " WHERE") for
-// clipboard_items, shared by count/min/max/export queries.
+// clipboard_items, shared by count/boundary/export queries.
 // 除自身过滤条件外，当 MaxID>0 时叠加 keyset 分片窗口 (id > SinceID AND id <= MaxID)，
-// 供邮件分片导出按行数切分使用；非分片调用（IDRange/CountInScope）不传 MaxID，不受影响。
+// 供邮件分片导出按行数切分使用；非分片调用不传 MaxID，不受影响。
 func exportScopeWhere(scope ExportScope) (string, []any) {
 	var where string
 	var args []any
@@ -1110,15 +1226,6 @@ func exportScopeWhere(scope ExportScope) (string, []any) {
 // text size), small enough for email attachments when encrypted.
 const defaultItemsPerPart = 5000
 
-// IDRange returns the min and max item id for the given scope, used to plan
-// chunked exports (e.g. splitting a 300k-row backup into N email parts).
-func (s *Store) IDRange(ctx context.Context, scope ExportScope) (minID, maxID int64, err error) {
-	where, args := exportScopeWhere(scope)
-	q := `SELECT COALESCE(MIN(id),0), COALESCE(MAX(id),0) FROM clipboard_items` + where
-	err = s.db.QueryRowContext(ctx, q, args...).Scan(&minID, &maxID)
-	return
-}
-
 // CountInScope returns the number of items matching the scope. Used by
 // chunked exports to size parts by actual row count (id holes are irrelevant).
 func (s *Store) CountInScope(ctx context.Context, scope ExportScope) (int, error) {
@@ -1129,15 +1236,21 @@ func (s *Store) CountInScope(ctx context.Context, scope ExportScope) (int, error
 	return n, err
 }
 
-// NthIDAfter returns the id of the item at offset n (0-based) among rows with
-// id > after, ordered by id ASC. Used as the keyset cursor when splitting an
-// export into row-count-sized parts: the last id of a part is the id of the
-// item just after the part boundary.
-func (s *Store) NthIDAfter(ctx context.Context, after int64, n int) (int64, error) {
-	q := `SELECT id FROM clipboard_items WHERE id > ? ORDER BY id ASC LIMIT 1 OFFSET ?`
+// NthIDInScopeAfter returns a keyset boundary from the same filtered scope
+// that will be exported. Range exports therefore cannot choose boundaries
+// from unrelated rows outside their date interval.
+func (s *Store) NthIDInScopeAfter(ctx context.Context, scope ExportScope, after int64, n int) (int64, error) {
+	scope.MaxID = 0
+	where, args := exportScopeWhere(scope)
+	if where == "" {
+		where = ` WHERE id > ?`
+	} else {
+		where += ` AND id > ?`
+	}
+	args = append(args, after, n)
+	q := `SELECT id FROM clipboard_items` + where + ` ORDER BY id ASC LIMIT 1 OFFSET ?`
 	var id int64
-	err := s.db.QueryRowContext(ctx, q, after, n).Scan(&id)
-	if err != nil {
+	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
 		return 0, err
 	}
 	return id, nil
@@ -1155,6 +1268,9 @@ type BackupWatermark struct {
 // GetBackupWatermark reads the watermark for the given backup kind ("dir" or "email").
 // Returns a zero value (no error) when no watermark exists yet.
 func (s *Store) GetBackupWatermark(ctx context.Context, kind string) (BackupWatermark, error) {
+	if err := validateBackupKind(kind); err != nil {
+		return BackupWatermark{}, err
+	}
 	var raw string
 	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, "backup."+kind+".watermark").Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1164,7 +1280,10 @@ func (s *Store) GetBackupWatermark(ctx context.Context, kind string) (BackupWate
 		return BackupWatermark{}, fmt.Errorf("read backup watermark: %w", err)
 	}
 	var wm BackupWatermark
-	if err := json.Unmarshal([]byte(raw), &wm); err != nil {
+	if err := decodeStrictJSON([]byte(raw), &wm); err != nil {
+		return BackupWatermark{}, fmt.Errorf("parse backup watermark: %w", err)
+	}
+	if err := validateBackupWatermark(wm); err != nil {
 		return BackupWatermark{}, fmt.Errorf("parse backup watermark: %w", err)
 	}
 	return wm, nil
@@ -1172,6 +1291,12 @@ func (s *Store) GetBackupWatermark(ctx context.Context, kind string) (BackupWate
 
 // SetBackupWatermark persists the watermark for the given backup kind.
 func (s *Store) SetBackupWatermark(ctx context.Context, kind string, wm BackupWatermark) error {
+	if err := validateBackupKind(kind); err != nil {
+		return err
+	}
+	if err := validateBackupWatermark(wm); err != nil {
+		return err
+	}
 	data, err := json.Marshal(wm)
 	if err != nil {
 		return fmt.Errorf("marshal backup watermark: %w", err)
@@ -1181,6 +1306,31 @@ func (s *Store) SetBackupWatermark(ctx context.Context, kind string, wm BackupWa
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		"backup."+kind+".watermark", string(data))
 	return err
+}
+
+func validateBackupKind(kind string) error {
+	if kind != "dir" && kind != "email" {
+		return fmt.Errorf("invalid backup kind %q", kind)
+	}
+	return nil
+}
+
+func validateBackupWatermark(wm BackupWatermark) error {
+	if wm.LastItemID < 0 || wm.IncrementalCount < 0 {
+		return errors.New("backup watermark counters must not be negative")
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{{"lastSentAt", wm.LastSentAt}, {"lastFullAt", wm.LastFullAt}} {
+		if field.value == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, field.value); err != nil {
+			return fmt.Errorf("backup watermark %s is invalid: %w", field.name, err)
+		}
+	}
+	return nil
 }
 
 // ImportFullJSON imports clipboard data, group hierarchy, and portable
@@ -1210,7 +1360,7 @@ func decodeImportJSON(data []byte) (ExportData, error) {
 		return ExportData{}, errors.New("settings is required")
 	}
 	var export ExportData
-	if err := json.Unmarshal(data, &export); err != nil {
+	if err := decodeStrictJSON(data, &export); err != nil {
 		return ExportData{}, fmt.Errorf("parse export JSON: %w", err)
 	}
 	if export.App != "ClipVault" {
@@ -1390,10 +1540,12 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			return fmt.Errorf("import item_groups batch at offset %d: %w", i, err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO settings (key, value) VALUES ('config', ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(settings)); err != nil {
-		return fmt.Errorf("import settings: %w", err)
+	for _, key := range []string{"config", "config.last_good"} {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, string(settings)); err != nil {
+			return fmt.Errorf("import settings: %w", err)
+		}
 	}
 
 	return tx.Commit()
@@ -1408,6 +1560,12 @@ func validateExportData(export ExportData) error {
 		if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
 			return fmt.Errorf("invalid item %d", item.ID)
 		}
+		if !validItemKindFormat(item.Kind, item.Format) {
+			return fmt.Errorf("invalid item %d: unsupported kind/format %q/%q", item.ID, item.Kind, item.Format)
+		}
+		if item.ByteLen != len([]byte(item.Text)) || item.CharLen != textRuneLen(item.Text) || item.SHA256 != hashString(item.Text) {
+			return fmt.Errorf("invalid item %d: content metadata mismatch", item.ID)
+		}
 		if _, exists := itemIDs[item.ID]; exists {
 			return fmt.Errorf("duplicate item ID %d", item.ID)
 		}
@@ -1417,6 +1575,12 @@ func validateExportData(export ExportData) error {
 	for _, group := range export.Groups {
 		if group.ID <= 0 || group.ParentID < 0 || group.CreatedAt.IsZero() {
 			return fmt.Errorf("invalid group %d", group.ID)
+		}
+		if strings.TrimSpace(group.Name) != group.Name {
+			return fmt.Errorf("invalid group %d: name has surrounding whitespace", group.ID)
+		}
+		if err := validateGroupName(group.Name); err != nil {
+			return fmt.Errorf("invalid group %d: %w", group.ID, err)
 		}
 		if _, exists := groupIDs[group.ID]; exists {
 			return fmt.Errorf("duplicate group ID %d", group.ID)
@@ -1444,6 +1608,18 @@ func validateExportData(export ExportData) error {
 		links[link] = struct{}{}
 	}
 	return nil
+}
+
+func validItemKindFormat(kind, format string) bool {
+	if kind == "text" {
+		return format == "CF_UNICODETEXT"
+	}
+	switch kind {
+	case "image", "video", "archive", "office", "files":
+		return format == "CF_HDROP"
+	default:
+		return false
+	}
 }
 
 func escapeLike(s string) string {
@@ -1482,14 +1658,46 @@ func listGroups(ctx context.Context, queryer storeQueryer) ([]StoredGroup, error
 	return groups, rows.Err()
 }
 
+var (
+	ErrInvalidGroupParent = errors.New("invalid group parent")
+	ErrInvalidGroupName   = errors.New("invalid group name")
+	ErrGroupParentMissing = errors.New("group parent not found")
+	ErrGroupNotFound      = errors.New("group not found")
+	ErrGroupCycle         = errors.New("group hierarchy cycle")
+)
+
 // CreateGroup 创建一个新分组。
 func (s *Store) CreateGroup(ctx context.Context, name string, parentID int64) (StoredGroup, error) {
+	name = strings.TrimSpace(name)
+	if err := validateGroupName(name); err != nil {
+		return StoredGroup{}, err
+	}
+	if parentID < 0 {
+		return StoredGroup{}, fmt.Errorf("%w: id must not be negative", ErrInvalidGroupParent)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return StoredGroup{}, err
+	}
+	defer tx.Rollback()
+	if parentID > 0 {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM groups WHERE id = ?)`, parentID).Scan(&exists); err != nil {
+			return StoredGroup{}, err
+		}
+		if !exists {
+			return StoredGroup{}, fmt.Errorf("%w: %d", ErrGroupParentMissing, parentID)
+		}
+	}
 	now := time.Now().UTC()
 	var id int64
-	err := s.db.QueryRowContext(ctx,
+	err = tx.QueryRowContext(ctx,
 		`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
 		name, parentID, now.Format(time.RFC3339Nano)).Scan(&id)
 	if err != nil {
+		return StoredGroup{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return StoredGroup{}, err
 	}
 	return StoredGroup{ID: id, Name: name, ParentID: parentID, CreatedAt: now}, nil
@@ -1497,36 +1705,61 @@ func (s *Store) CreateGroup(ctx context.Context, name string, parentID int64) (S
 
 // UpdateGroup 更新分组名称和父分组。
 func (s *Store) UpdateGroup(ctx context.Context, id int64, name string, parentID int64) error {
+	name = strings.TrimSpace(name)
+	if err := validateGroupName(name); err != nil {
+		return err
+	}
+	if parentID < 0 {
+		return fmt.Errorf("%w: id must not be negative", ErrInvalidGroupParent)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	// 不允许将分组设为自己的后代，防止循环
 	if parentID > 0 {
 		if parentID == id {
-			return fmt.Errorf("cannot set parent to self")
+			return fmt.Errorf("%w: cannot set parent to self", ErrGroupCycle)
 		}
-		if err := s.checkDescendant(ctx, id, parentID); err != nil {
+		if err := checkDescendant(ctx, tx, id, parentID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: %d", ErrGroupParentMissing, parentID)
+			}
 			return err
 		}
 	}
-	res, err := s.db.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`UPDATE groups SET name = ?, parent_id = ? WHERE id = ?`, name, parentID, id)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("group %d not found", id)
+		return fmt.Errorf("%w: %d", ErrGroupNotFound, id)
+	}
+	return tx.Commit()
+}
+
+func validateGroupName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: name must not be empty", ErrInvalidGroupName)
+	}
+	if utf8.RuneCountInString(name) > maxGroupNameRunes {
+		return fmt.Errorf("%w: name exceeds %d characters", ErrInvalidGroupName, maxGroupNameRunes)
 	}
 	return nil
 }
 
 // checkDescendant 检查 targetID 是否是 groupID 的后代（防止循环引用）。
-func (s *Store) checkDescendant(ctx context.Context, groupID, targetID int64) error {
+func checkDescendant(ctx context.Context, queryer storeQueryer, groupID, targetID int64) error {
 	cursor := targetID
 	for cursor > 0 {
 		if cursor == groupID {
-			return fmt.Errorf("cannot move group into its own descendant")
+			return fmt.Errorf("%w: cannot move group into its own descendant", ErrGroupCycle)
 		}
 		var parent int64
-		err := s.db.QueryRowContext(ctx, `SELECT parent_id FROM groups WHERE id = ?`, cursor).Scan(&parent)
+		err := queryer.QueryRowContext(ctx, `SELECT parent_id FROM groups WHERE id = ?`, cursor).Scan(&parent)
 		if err != nil {
 			return err
 		}
@@ -1544,6 +1777,13 @@ func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 		return err
 	}
 	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM groups WHERE id = ?)`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("%w: %d", ErrGroupNotFound, id)
+	}
 
 	// 收集所有后代分组 id（BFS，事务内查询）
 	ids := []int64{id}

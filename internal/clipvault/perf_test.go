@@ -157,22 +157,21 @@ func TestResolveBackupScopeRangeValidation(t *testing.T) {
 	defer store.Close()
 
 	// 缺 From/To：报错
-	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "", To: "2026-08-01"}, 7, false); err == nil {
+	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "", To: "2026-08-01T00:00:00Z"}, 7, false); err == nil {
 		t.Fatal("range without from should fail")
 	}
-	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-07-01", To: ""}, 7, false); err == nil {
+	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-07-01T00:00:00Z", To: ""}, 7, false); err == nil {
 		t.Fatal("range without to should fail")
 	}
-	// From >= To：报错
-	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-08-01", To: "2026-07-01"}, 7, false); err == nil {
+	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-08-01T00:00:00Z", To: "2026-07-01T00:00:00Z"}, 7, false); err == nil {
 		t.Fatal("range with from >= to should fail")
 	}
-	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-07-01", To: "2026-07-01"}, 7, false); err == nil {
-		t.Fatal("range with from == to should fail")
+	if _, _, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-07-01T00:00:00Z", To: "2026-07-01T00:00:00Z"}, 7, false); err == nil {
+		t.Fatal("empty half-open range should fail")
 	}
 	// 合法 range：原样通过（不看水位线）
-	scope, autoFB, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-07-01", To: "2026-08-01"}, 7, false)
-	if err != nil || scope.Mode != "range" || scope.From != "2026-07-01" || scope.To != "2026-08-01" || autoFB {
+	scope, autoFB, err := resolveBackupScope(store, "dir", ExportScope{Mode: "range", From: "2026-07-01T00:00:00Z", To: "2026-08-01T00:00:00Z"}, 7, false)
+	if err != nil || scope.Mode != "range" || scope.From != "2026-07-01T00:00:00Z" || scope.To != "2026-08-01T00:00:00Z" || autoFB {
 		t.Fatalf("valid range should pass through, got %#v autoFB=%v err=%v", scope, autoFB, err)
 	}
 	// forceFull 跳过 range 校验（强制全量优先）

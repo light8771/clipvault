@@ -63,3 +63,34 @@ func TestCvExportDoesNotLeakPlaintext(t *testing.T) {
 	}
 	t.Logf("[OK] encrypted export does not leak plaintext or password")
 }
+
+func TestCvExportRejectsTamperedEnvelope(t *testing.T) {
+	original, err := EncryptExport([]byte(`{"items":[]}`), "EnvelopePass1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{name: "version", mutate: func(data []byte) []byte { data[cvexportMagicLen]++; return data }},
+		{name: "reserved", mutate: func(data []byte) []byte { data[cvexportMagicLen+1] = 1; return data }},
+		{name: "KDF", mutate: func(data []byte) []byte {
+			offset := cvexportMagicLen + 1 + 3 + saltLen + nonceLen
+			data[offset] ^= 1
+			return data
+		}},
+		{name: "trailing bytes", mutate: func(data []byte) []byte { return append(data, 0) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := test.mutate(append([]byte(nil), original...))
+			if _, err := DecryptExport(data, "EnvelopePass1"); err == nil {
+				t.Fatal("tampered cvexport envelope was accepted")
+			}
+		})
+	}
+	if _, err := EncryptExport([]byte("data"), ""); err == nil {
+		t.Fatal("empty export password was accepted")
+	}
+}

@@ -18,7 +18,6 @@ func TestStateFileRoundtrip(t *testing.T) {
 	state := AppState{
 		Engine:         "duckdb",
 		KeyFingerprint: "abcd1234ef5678ab",
-		HasRecovery:    true,
 		CreatedAt:      "2026-07-09T10:00:00Z",
 	}
 	if err := WriteStateFile(tmpDir, state); err != nil {
@@ -40,9 +39,6 @@ func TestStateFileRoundtrip(t *testing.T) {
 	}
 	if read.KeyFingerprint != "abcd1234ef5678ab" {
 		t.Fatalf("fingerprint mismatch: %q", read.KeyFingerprint)
-	}
-	if !read.HasRecovery {
-		t.Fatalf("hasRecovery should be true")
 	}
 	if read.LastOpenedAt == "" {
 		t.Fatalf("lastOpenedAt should be set")

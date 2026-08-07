@@ -21,22 +21,20 @@ import (
 // using a key derived from the user's password via scrypt.
 
 const cvexportMagic = "CVEXP001"
+const cvexportVersion = 1
 
 // cvexportMagicLen 是文件头 magic 的字节长度，直接由 magic 常量推导，
 // 避免头部长度计算与偏移量中散落字面量 8。
 const cvexportMagicLen = len(cvexportMagic)
 
-// 解密端对文件头里的 KDF 参数设上限，防止恶意 .cvexport 通过超大 N/r/p
-// 让 scrypt 尝试分配海量内存导致 OOM（这些值必须 >= 写入端常量 scryptN/R/P）。
-const (
-	maxDecryptScryptN = 1 << 20 // 1,048,576（写入端 32768 = 2^15）
-	maxDecryptScryptR = 16      // 写入端 8
-	maxDecryptScryptP = 8       // 写入端 1
-)
+const maxCVExportPlaintextSize = 500 << 20
 
 // EncryptExport encrypts the given data (JSON bytes) with the given password
 // and returns a .cvexport byte slice.
 func EncryptExport(data []byte, password string) ([]byte, error) {
+	if password == "" {
+		return nil, fmt.Errorf("export password is required")
+	}
 	// Gzip compress the data first
 	var compressed bytes.Buffer
 	gw := gzip.NewWriter(&compressed)
@@ -66,7 +64,7 @@ func EncryptExport(data []byte, password string) ([]byte, error) {
 	// Build the envelope
 	var buf bytes.Buffer
 	buf.WriteString(cvexportMagic)
-	buf.WriteByte(1)           // version
+	buf.WriteByte(cvexportVersion)
 	buf.Write([]byte{0, 0, 0}) // reserved
 	buf.Write(salt)
 	buf.Write(nonce)
@@ -93,6 +91,12 @@ func DecryptExport(encData []byte, password string) ([]byte, error) {
 	if string(encData[:cvexportMagicLen]) != cvexportMagic {
 		return nil, fmt.Errorf("bad magic: not a .cvexport file")
 	}
+	if encData[cvexportMagicLen] != cvexportVersion {
+		return nil, fmt.Errorf("unsupported cvexport version %d", encData[cvexportMagicLen])
+	}
+	if !bytes.Equal(encData[cvexportMagicLen+1:cvexportMagicLen+4], []byte{0, 0, 0}) {
+		return nil, fmt.Errorf("invalid cvexport reserved header")
+	}
 
 	offset := cvexportMagicLen + 1 + 3 // magic + version + reserved
 	salt := encData[offset : offset+saltLen]
@@ -107,20 +111,15 @@ func DecryptExport(encData []byte, password string) ([]byte, error) {
 	offset += 4
 	dataLen := binary.LittleEndian.Uint32(encData[offset : offset+4])
 	offset += 4
-	if len(encData) < offset+int(dataLen) {
-		return nil, fmt.Errorf("cvexport file truncated")
+	if dataLen < 16 || len(encData) != offset+int(dataLen) {
+		return nil, fmt.Errorf("invalid cvexport data length")
 	}
 	ciphertext := encData[offset : offset+int(dataLen)]
 
-	// 校验不可信的 KDF 参数，超限直接拒绝，避免 scrypt 分配过量内存。
-	if nVal == 0 || nVal > maxDecryptScryptN || (nVal&(nVal-1)) != 0 {
-		return nil, fmt.Errorf("unsupported scrypt N: %d", nVal)
-	}
-	if rVal == 0 || rVal > maxDecryptScryptR {
-		return nil, fmt.Errorf("unsupported scrypt r: %d", rVal)
-	}
-	if pVal == 0 || pVal > maxDecryptScryptP {
-		return nil, fmt.Errorf("unsupported scrypt p: %d", pVal)
+	// v1 has one fixed KDF profile. Refusing file-controlled work factors keeps
+	// malformed imports from turning decryption into a memory/CPU exhaustion path.
+	if nVal != uint32(scryptN) || rVal != uint32(scryptR) || pVal != uint32(scryptP) {
+		return nil, fmt.Errorf("unsupported cvexport KDF parameters")
 	}
 
 	// Derive key
@@ -142,9 +141,12 @@ func DecryptExport(encData []byte, password string) ([]byte, error) {
 	}
 	defer gr.Close()
 
-	decompressed, err := io.ReadAll(gr)
+	decompressed, err := io.ReadAll(io.LimitReader(gr, maxCVExportPlaintextSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("gzip read: %w", err)
+	}
+	if len(decompressed) > maxCVExportPlaintextSize {
+		return nil, fmt.Errorf("cvexport plaintext exceeds %d bytes", maxCVExportPlaintextSize)
 	}
 
 	return decompressed, nil

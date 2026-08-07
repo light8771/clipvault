@@ -48,7 +48,7 @@ func ReadRecoveryAppearance(dataDir string) (RecoveryAppearance, error) {
 	if err != nil {
 		return appearance, fmt.Errorf("read recovery appearance: %w", err)
 	}
-	if err := json.Unmarshal(data, &appearance); err != nil {
+	if err := decodeStrictJSON(data, &appearance); err != nil {
 		return defaultRecoveryAppearance(), fmt.Errorf("decode recovery appearance: %w", err)
 	}
 	normalizeBrand(&appearance.Brand, DefaultConfig().Brand)

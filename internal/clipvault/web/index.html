@@ -620,6 +620,14 @@
               </div>
               <input type="text" id="cfg-listenAddr" class="field-input" style="width:180px" placeholder="127.0.0.1:18765">
             </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-timeZone">日期筛选时区</label>
+                <p class="field-hint">使用 system 跟随 Windows，或填写 IANA 时区（例如 Asia/Shanghai）；夏令时会自动处理</p>
+              </div>
+              <input type="text" id="cfg-timeZone" class="field-input" style="width:180px" list="timeZoneSuggestions" placeholder="system">
+              <datalist id="timeZoneSuggestions"><option value="system"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"><option value="UTC"></datalist>
+            </div>
             <div class="listen-security-warning hidden" id="listenAddrWarning" role="alert">
               <strong>局域网访问风险</strong>
               <span>非回环地址会把剪贴板服务暴露给同一网络。保存前必须设置锁屏密码和二次密码，并重新输入二次密码确认。建议仅在可信网络中使用，并检查 Windows 防火墙规则。</span>
@@ -699,26 +707,23 @@
             <div class="field-row">
               <div class="field-info">
                 <label class="field-label">二次密码</label>
-                <p class="field-hint">访问敏感数据、导出和备份数据时需要此密码</p>
+                <p class="field-hint">访问敏感数据、导出、备份和重置恢复密码时需要此密码。此密码为必需项，无法删除。</p>
               </div>
               <div class="pwd-actions" id="secondaryPwdActions">
                 <span class="pwd-status" id="secondaryPwdStatus">未设置</span>
-                <button class="btn-pwd-set" id="secondaryPwdSetBtn" onclick="showPwdDialog('secondary','set')">设置</button>
                 <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" onclick="showPwdDialog('secondary','change')">修改</button>
-                <button class="btn-pwd-remove hidden" id="secondaryPwdRemoveBtn" onclick="showPwdDialog('secondary','remove')">删除</button>
               </div>
             </div>
             <!-- 数据恢复密码 -->
             <div class="field-row">
               <div class="field-info">
                 <label class="field-label">数据恢复密码</label>
-                <p class="field-hint">换电脑、重装系统或 DPAPI 失效时，用此密码恢复加密数据库。密码可自由设置，请确认两次输入一致。</p>
+                <p class="field-hint">用于在换电脑、重装系统或 Windows DPAPI 失效时恢复数据库密钥；不是锁屏密码、二次密码、授权码或导出密码。此密码为必需项，无法删除。</p>
               </div>
               <div class="pwd-actions" id="recoveryPwdActions">
                 <span class="pwd-status" id="recoveryPwdStatus">未设置</span>
-                <button class="btn-pwd-set" id="recoveryPwdSetBtn" onclick="showRecoveryDialog('set')">设置</button>
                 <button class="btn-pwd-change hidden" id="recoveryPwdChangeBtn" onclick="showRecoveryDialog('change')">修改</button>
-                <button class="btn-pwd-change hidden" id="recoveryPwdRemoveBtn" onclick="showRecoveryRemoveDialog()">删除</button>
+                <button class="btn-pwd-change hidden" id="recoveryPwdResetBtn" onclick="showRecoveryDialog('reset')">忘记旧密码时重置</button>
               </div>
             </div>
             <!-- 锁屏会话超时 -->
@@ -1081,8 +1086,8 @@
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-emailBackupMaxPartSize">单封附件上限（MB）</label>
-              <p class="field-hint">超过自动分多封，默认 20MB（SMTP 普通附件安全阈值）</p>
+              <label class="field-label" for="cfg-emailBackupMaxPartSize">单封邮件投递上限（MB）</label>
+              <p class="field-hint">按包含正文、附件 Base64 和 MIME 开销的最终邮件字节数分片；单条记录仍超限会明确报错</p>
             </div>
             <input type="number" id="cfg-emailBackupMaxPartSize" class="field-input field-input-sm" min="1" max="50" step="1" placeholder="20">
           </div>

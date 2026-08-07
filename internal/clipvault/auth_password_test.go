@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,10 +26,18 @@ func TestPasswordHashRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestPasswordHashRejectsWeakOrOversizedPasswords(t *testing.T) {
+	for _, password := range []string{"", "1234567", " password", "password ", strings.Repeat("x", maxAuthPasswordBytes+1)} {
+		if _, err := newPasswordHash(password); err == nil {
+			t.Fatalf("weak password was accepted: length=%d", len(password))
+		}
+	}
+}
+
 func TestPasswordRateLimitAllowsTenAttemptsPerFiveMinutes(t *testing.T) {
 	auth := NewAuthManager()
 	for attempt := 1; attempt <= rateLimitThreshold; attempt++ {
-		status := auth.RecordFailedAttempt()
+		status := auth.RecordFailedAttemptFor(ratePurposeLock)
 		wantRemaining := rateLimitThreshold - attempt
 		if status.Remaining != wantRemaining {
 			t.Fatalf("attempt %d: remaining=%d, want %d", attempt, status.Remaining, wantRemaining)
@@ -45,11 +54,11 @@ func TestPasswordRateLimitAllowsTenAttemptsPerFiveMinutes(t *testing.T) {
 			}
 		}
 	}
-	if status := auth.CheckRateLimit(); status.Allowed || status.Remaining != 0 {
+	if status := auth.CheckRateLimitFor(ratePurposeLock); status.Allowed || status.Remaining != 0 {
 		t.Fatalf("rate limit not retained: %+v", status)
 	}
-	auth.ResetRateLimit()
-	if status := auth.CheckRateLimit(); !status.Allowed || status.Remaining != rateLimitThreshold {
+	auth.ResetRateLimitFor(ratePurposeLock)
+	if status := auth.CheckRateLimitFor(ratePurposeLock); !status.Allowed || status.Remaining != rateLimitThreshold {
 		t.Fatalf("rate limit not reset: %+v", status)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -169,7 +170,7 @@ func TestBrandFaviconUploadServeAndReset(t *testing.T) {
 	}
 }
 
-func TestBrandUploadKeepsAssetWhenHotkeyRegistrationFails(t *testing.T) {
+func TestBrandUploadKeepsAssetWhenRuntimeApplyFails(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(StoreOptions{DataDir: dir})
 	if err != nil {
@@ -181,7 +182,7 @@ func TestBrandUploadKeepsAssetWhenHotkeyRegistrationFails(t *testing.T) {
 		t.Fatalf("new config manager: %v", err)
 	}
 	manager.OnChange(func(Config) error {
-		return &HotkeyError{Msg: "hotkey registration failed"}
+		return errors.New("appearance sync failed")
 	})
 	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
 
@@ -197,13 +198,13 @@ func TestBrandUploadKeepsAssetWhenHotkeyRegistrationFails(t *testing.T) {
 		t.Fatalf("upload status = %d, want %d: %s", result.Code, http.StatusOK, result.Body.String())
 	}
 	var response struct {
-		HotkeyError string `json:"hotkeyError"`
+		RuntimeError string `json:"runtimeError"`
 	}
 	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.HotkeyError != "hotkey registration failed" {
-		t.Fatalf("hotkey error = %q", response.HotkeyError)
+	if response.RuntimeError != "appearance sync failed" {
+		t.Fatalf("runtime error = %q", response.RuntimeError)
 	}
 	brand := manager.Get().Brand
 	if _, err := os.Stat(filepath.Join(dir, assetFileName(brandLogoAsset, brand.LogoVersion))); err != nil {
@@ -355,7 +356,11 @@ func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
 	cfg := manager.Get()
 	cfg.Brand.Title = "Locked ClipVault"
 	cfg.Theme.FontScale = 130
-	cfg.Security.LockPasswordHash = "must-not-leak"
+	lockHash, err := newPasswordHash("AppearancePass1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Security.LockPasswordHash = lockHash
 	if err := manager.Update(cfg); err != nil {
 		t.Fatalf("update config: %v", err)
 	}
@@ -365,7 +370,7 @@ func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
 	if result.Code != http.StatusOK {
 		t.Fatalf("appearance status = %d", result.Code)
 	}
-	if bytes.Contains(result.Body.Bytes(), []byte("must-not-leak")) || bytes.Contains(result.Body.Bytes(), []byte("security")) {
+	if bytes.Contains(result.Body.Bytes(), []byte(lockHash)) || bytes.Contains(result.Body.Bytes(), []byte("security")) {
 		t.Fatalf("public appearance exposes sensitive configuration: %s", result.Body.String())
 	}
 	var appearance struct {
@@ -552,7 +557,11 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("authenticated upload status = %d, want %d", uploadRes.StatusCode, http.StatusOK)
 	}
 	securedCfg := manager.Get()
-	securedCfg.Security.SecondaryPasswordHash = "configured-for-test"
+	secondaryHash, err := newPasswordHash("BrandEndpointPass1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	securedCfg.Security.SecondaryPasswordHash = secondaryHash
 	if err := manager.Update(securedCfg); err != nil {
 		t.Fatalf("set secondary password requirement: %v", err)
 	}

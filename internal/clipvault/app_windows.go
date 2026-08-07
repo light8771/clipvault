@@ -75,18 +75,48 @@ func Run(env Environment) error {
 	}
 	defer store.Close()
 
-	// Write/update state file after successful open
-	if err := updateStateOnStartup(env.DataDir, store); err != nil {
-		logger.Warn("state_update_failed", map[string]any{"error": err.Error()})
+	// 恢复密码和二次密码必须在任何剪贴板监听、备份或管理服务启动前
+	// 通过同一个门禁页面完成初始化。
+	hasRecovery, err := hasRecoveryEnvelopeForKey(env.DataDir, store.DBKey())
+	if err != nil {
+		return err
 	}
 
 	cfgMgr, err := NewConfigManager(store)
+	if errors.Is(err, ErrConfigCorrupt) {
+		logger.Error("config_corrupt", err, nil)
+		if !hasRecovery {
+			return fmt.Errorf("configuration is corrupt before security credentials were initialized: %w", err)
+		}
+		if gateErr := runStartupGate(store, env, startupGateRepairConfig, logger); gateErr != nil {
+			return gateErr
+		}
+		cfgMgr, err = NewConfigManager(store)
+	}
 	if err != nil {
 		logger.Error("config_load_failed", err, nil)
 		return err
 	}
-
 	cfg := cfgMgr.Get()
+	hasSecondary := cfg.Security.SecondaryPasswordHash != ""
+	if hasRecovery != hasSecondary {
+		return errors.New("security credential initialization is incomplete")
+	}
+	if !hasRecovery {
+		if err := runStartupGate(store, env, startupGateSetCredentials, logger); err != nil {
+			return err
+		}
+		if err := cfgMgr.Reload(); err != nil {
+			return fmt.Errorf("reload security configuration: %w", err)
+		}
+	}
+
+	// Write/update state file after successful open and mandatory setup.
+	if err := updateStateOnStartup(env.DataDir, store); err != nil {
+		logger.Warn("state_update_failed", map[string]any{"error": err.Error()})
+	}
+
+	cfg = cfgMgr.Get()
 	if err := WriteRecoveryAppearance(env.DataDir, cfg); err != nil {
 		logger.Warn("recovery_appearance_sync_failed", map[string]any{"error": err.Error()})
 	}
@@ -121,14 +151,19 @@ func Run(env Environment) error {
 	state := NewRuntimeState(false)
 	recorder := NewRecorder(cfgMgr, store, state, logger)
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
+	defer backup.Stop()
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 	searchURL, err := searchServer.Start()
 	if err != nil {
-		logger.Warn("search_server_start_failed", map[string]any{"error": err.Error()})
+		logger.Error("search_server_start_failed", err, nil)
+		return fmt.Errorf("start management server: %w", err)
 	}
-	if searchURL != "" {
-		fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
-	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = searchServer.Close(ctx)
+	}()
+	fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
 
 	backup.Start()
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, store, searchURL, licenseMgr)
@@ -174,7 +209,7 @@ func Run(env Environment) error {
 			searchURL, err = searchServer.Start()
 			if err != nil {
 				logger.Error("restart_search_failed", err, nil)
-				continue
+				return fmt.Errorf("restart management server: %w", err)
 			}
 			runtime.SearchURL = searchURL
 			logger.Info("restart_done", map[string]any{"searchURL": searchURL})
@@ -182,6 +217,25 @@ func Run(env Environment) error {
 			shellExecute("open", searchURL, "")
 		}
 	}
+}
+
+func runStartupGate(store *Store, env Environment, mode startupGateMode, logger *DailyLogger) error {
+	gate := NewStartupGate(store, env.DataDir, mode)
+	url, err := gate.Start()
+	if err != nil {
+		return err
+	}
+	defer gate.Close()
+	safeURL := strings.SplitN(url, "#", 2)[0]
+	logger.Info("startup_gate_started", map[string]any{"mode": mode, "url": safeURL})
+	fmt.Printf("安全设置页面: %s\n", safeURL)
+	openBrowser(url)
+	<-gate.Done()
+	if !gate.Success() {
+		return fmt.Errorf("startup security setup was not completed")
+	}
+	logger.Info("startup_gate_completed", map[string]any{"mode": mode})
+	return nil
 }
 
 var errAppQuit = fmt.Errorf("app quit")
@@ -222,18 +276,17 @@ func updateStateOnStartup(dataDir string, store *Store) error {
 	fp := KeyFingerprint(store.dbKey)
 
 	if StateExists(dataDir) {
-		// Update last_opened_at only
 		state, err := ReadStateFile(dataDir)
 		if err != nil {
 			// State corrupt — rewrite
 			state = AppState{}
 		}
-		state.LastOpenedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		if state.KeyFingerprint == "" {
-			state.KeyFingerprint = fmt.Sprintf("%x", fp)
-		}
-		if state.Engine == "" {
-			state.Engine = "duckdb"
+		// Engine and fingerprint describe the store that was actually opened;
+		// never preserve stale or tampered metadata from the sidecar file.
+		state.Engine = "duckdb"
+		state.KeyFingerprint = fmt.Sprintf("%x", fp)
+		if state.CreatedAt == "" {
+			state.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
 		return WriteStateFile(dataDir, state)
 	}
@@ -242,7 +295,6 @@ func updateStateOnStartup(dataDir string, store *Store) error {
 	state := AppState{
 		Engine:         "duckdb",
 		KeyFingerprint: fmt.Sprintf("%x", fp),
-		HasRecovery:    false,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
 		LastOpenedAt:   time.Now().UTC().Format(time.RFC3339Nano),
 	}

@@ -1,11 +1,16 @@
 package clipvault
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net/mail"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
+	_ "time/tzdata"
 )
 
 const appDirName = "ClipVault"
@@ -147,25 +152,123 @@ func StartupErrorLogFile() string {
 }
 
 // Config 是应用的完整配置结构，通过 Web 界面修改，存储在数据库中。
+const (
+	configVersion          = 1
+	maxBackupIntervalHours = 720
+)
+
 type Config struct {
-	MaxTextChars     int                `json:"maxTextChars"`
-	MaxFileDropPaths int                `json:"maxFileDropPaths"`
+	Version          int `json:"version"`
+	MaxTextChars     int `json:"maxTextChars"`
+	MaxFileDropPaths int `json:"maxFileDropPaths"`
 	// RecordSourceInfo 记录每条剪贴板内容的来源进程（前台窗口法）。
 	// 关闭后不再捕获任何来源信息，隐私敏感环境可关闭。
-	RecordSourceInfo bool               `json:"recordSourceInfo"`
+	RecordSourceInfo bool `json:"recordSourceInfo"`
 	// Source 控制"来源应用"的展示、筛选与搜索；仅当顶层 RecordSourceInfo=true 时有意义。
-	Source          SourceAppConfig     `json:"source"`
-	Brand            BrandConfig        `json:"brand"`
-	Background       BackgroundConfig   `json:"background"`
-	Theme            ThemeConfig        `json:"theme"`
-	Search           SearchConfig       `json:"search"`
-	Sensitive        SensitiveConfig    `json:"sensitive"`
-	Autostart        AutostartConfig    `json:"autostart"`
-	Notifications    NotificationConfig `json:"notifications"`
-	Security         SecurityConfig     `json:"security"`
-	Hotkey           HotkeyConfig       `json:"hotkey"`
-	SearchHotkey     HotkeyConfig       `json:"searchHotkey"`
-	Backup           BackupConfig       `json:"backup"`
+	Source        SourceAppConfig    `json:"source"`
+	Brand         BrandConfig        `json:"brand"`
+	Background    BackgroundConfig   `json:"background"`
+	Theme         ThemeConfig        `json:"theme"`
+	Search        SearchConfig       `json:"search"`
+	Sensitive     SensitiveConfig    `json:"sensitive"`
+	Autostart     AutostartConfig    `json:"autostart"`
+	Notifications NotificationConfig `json:"notifications"`
+	Security      SecurityConfig     `json:"security"`
+	Hotkey        HotkeyConfig       `json:"hotkey"`
+	SearchHotkey  HotkeyConfig       `json:"searchHotkey"`
+	Backup        BackupConfig       `json:"backup"`
+}
+
+// UnmarshalJSON enforces the complete current configuration contract. This
+// project uses fresh databases during development, so a missing field is
+// corruption rather than an older shape to be defaulted. In particular,
+// missing security fields must never turn password protection off silently.
+func (cfg *Config) UnmarshalJSON(data []byte) error {
+	type configWire Config
+	var decoded configWire
+	if err := decodeStrictJSON(data, &decoded); err != nil {
+		return err
+	}
+	top, err := requiredJSONObject(data, "config",
+		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
+		"brand", "background", "theme", "search", "sensitive", "autostart",
+		"notifications", "security", "hotkey", "searchHotkey", "backup")
+	if err != nil {
+		return err
+	}
+	objects := []struct {
+		field    string
+		required []string
+	}{
+		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
+		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
+		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity"}},
+		{"search", []string{"listenAddr", "timeZone"}},
+		{"autostart", []string{"enabled", "appName"}},
+		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
+		{"security", []string{"lockPasswordHash", "secondaryPasswordHash", "lockSessionTimeout", "secondaryAuthTimeout"}},
+		{"hotkey", []string{"enabled", "modifiers", "key"}},
+		{"searchHotkey", []string{"enabled", "modifiers", "key"}},
+	}
+	for _, object := range objects {
+		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {
+			return err
+		}
+	}
+	if _, err := requiredJSONObjectAllowingNull(top["source"], "config.source", map[string]struct{}{"exeWhitelist": {}},
+		"showExe", "exeAliases", "exeWhitelist"); err != nil {
+		return err
+	}
+	if _, err := requiredJSONObjectAllowingNull(top["sensitive"], "config.sensitive", map[string]struct{}{"customPatterns": {}},
+		"customPatterns"); err != nil {
+		return err
+	}
+	backup, err := requiredJSONObject(top["backup"], "config.backup", "dirBackup", "emailBackup")
+	if err != nil {
+		return err
+	}
+	dir, err := requiredJSONObject(backup["dirBackup"], "config.backup.dirBackup",
+		"enabled", "runOnStartup", "interval", "dir", "format", "password", "scope", "incrementalFullInterval")
+	if err != nil {
+		return err
+	}
+	email, err := requiredJSONObject(backup["emailBackup"], "config.backup.emailBackup",
+		"enabled", "runOnStartup", "interval", "smtpHost", "smtpPort", "smtpUser", "smtpPass",
+		"from", "to", "format", "password", "subject", "body", "style", "accentColor",
+		"scope", "maxPartSize", "incrementalFullInterval")
+	if err != nil {
+		return err
+	}
+	if _, err := requiredJSONObject(dir["scope"], "config.backup.dirBackup.scope", "mode", "from", "to"); err != nil {
+		return err
+	}
+	if _, err := requiredJSONObject(email["scope"], "config.backup.emailBackup.scope", "mode", "from", "to"); err != nil {
+		return err
+	}
+	*cfg = Config(decoded)
+	return nil
+}
+
+func requiredJSONObject(data []byte, path string, fields ...string) (map[string]json.RawMessage, error) {
+	return requiredJSONObjectAllowingNull(data, path, nil, fields...)
+}
+
+func requiredJSONObjectAllowingNull(data []byte, path string, nullable map[string]struct{}, fields ...string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return nil, fmt.Errorf("%s must be an object: %w", path, err)
+	}
+	if object == nil {
+		return nil, fmt.Errorf("%s must be an object", path)
+	}
+	for _, field := range fields {
+		value, ok := object[field]
+		_, allowNull := nullable[field]
+		if !ok || len(value) == 0 || (!allowNull && string(value) == "null") {
+			return nil, fmt.Errorf("%s.%s is required", path, field)
+		}
+	}
+	return object, nil
 }
 
 // SourceAppConfig 控制"来源应用"的展示、筛选与搜索；仅当顶层 RecordSourceInfo=true 时有意义。
@@ -227,11 +330,11 @@ type ThemeConfig struct {
 }
 
 type SearchConfig struct {
-	Enabled    bool   `json:"enabled"`
 	ListenAddr string `json:"listenAddr"`
+	TimeZone   string `json:"timeZone"` // "system" 或 IANA 时区（如 Asia/Shanghai）
 }
 
-// SensitiveConfig 过滤规则：默认全部记录，只有匹配自定义正则的内容才会被过滤。
+// SensitiveConfig 敏感规则：匹配内容仍会加密保存，读取时受二次认证保护。
 type SensitiveConfig struct {
 	CustomPatterns []string `json:"customPatterns"`
 }
@@ -288,28 +391,29 @@ type DirBackupConfig struct {
 
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。
 type EmailBackupConfig struct {
-	Enabled      bool   `json:"enabled"`
-	RunOnStartup bool   `json:"runOnStartup"`
-	Interval     int    `json:"interval"` // 备份间隔(小时)
-	SMTPHost     string `json:"smtpHost"` // SMTP 服务器地址
-	SMTPPort     int    `json:"smtpPort"` // SMTP 端口
-	SMTPUser     string `json:"smtpUser"` // SMTP 用户名
-	SMTPPass     string `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
-	From         string `json:"from"`     // 发件人邮箱
-	To           string `json:"to"`       // 收件人邮箱
-	Format       string `json:"format"`   // "json" / "xlsx" / "cvexport"
-	Password     string `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
-	Subject      string      `json:"subject"`
-	Body         string      `json:"body"`
-	Style        string      `json:"style"`
-	AccentColor  string      `json:"accentColor"`
-	Scope        ExportScope `json:"scope"`                  // 备份范围 full/range/incremental
-	MaxPartSize  int         `json:"maxPartSize"`            // 单封附件阈值(字节)，默认20MB
-	IncrementalFullInterval int `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
+	Enabled                 bool        `json:"enabled"`
+	RunOnStartup            bool        `json:"runOnStartup"`
+	Interval                int         `json:"interval"` // 备份间隔(小时)
+	SMTPHost                string      `json:"smtpHost"` // SMTP 服务器地址
+	SMTPPort                int         `json:"smtpPort"` // SMTP 端口
+	SMTPUser                string      `json:"smtpUser"` // SMTP 用户名
+	SMTPPass                string      `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
+	From                    string      `json:"from"`     // 发件人邮箱
+	To                      string      `json:"to"`       // 收件人邮箱
+	Format                  string      `json:"format"`   // "json" / "xlsx" / "cvexport"
+	Password                string      `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+	Subject                 string      `json:"subject"`
+	Body                    string      `json:"body"`
+	Style                   string      `json:"style"`
+	AccentColor             string      `json:"accentColor"`
+	Scope                   ExportScope `json:"scope"`                   // 备份范围 full/range/incremental
+	MaxPartSize             int         `json:"maxPartSize"`             // 单封附件阈值(字节)，默认20MB
+	IncrementalFullInterval int         `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
 }
 
 func DefaultConfig() Config {
 	return Config{
+		Version: configVersion,
 		Brand: BrandConfig{
 			Title: "ClipVault",
 		},
@@ -330,8 +434,8 @@ func DefaultConfig() Config {
 			FontScale:      100,
 			SurfaceOpacity: 100,
 		},
-		MaxTextChars:      0, // 0 表示不限制
-		MaxFileDropPaths:  0, // 0 表示不限制
+		MaxTextChars:     0, // 0 表示不限制
+		MaxFileDropPaths: 0, // 0 表示不限制
 		RecordSourceInfo: true,
 		Source: SourceAppConfig{
 			ShowExe:      true,
@@ -339,8 +443,8 @@ func DefaultConfig() Config {
 			ExeWhitelist: nil,
 		},
 		Search: SearchConfig{
-			Enabled:    true,
 			ListenAddr: "127.0.0.1:18765",
+			TimeZone:   "system",
 		},
 		Sensitive: SensitiveConfig{
 			CustomPatterns: nil,
@@ -395,6 +499,91 @@ func DefaultConfig() Config {
 	}
 }
 
+// cloneConfig returns an ownership-independent configuration value. Config is
+// otherwise mostly a value type, but its maps and slices must not cross mutex or
+// callback boundaries by reference.
+func cloneConfig(cfg Config) Config {
+	if cfg.Source.ExeAliases != nil {
+		cfg.Source.ExeAliases = maps.Clone(cfg.Source.ExeAliases)
+	}
+	if cfg.Source.ExeWhitelist != nil {
+		cfg.Source.ExeWhitelist = slices.Clone(cfg.Source.ExeWhitelist)
+	}
+	if cfg.Sensitive.CustomPatterns != nil {
+		cfg.Sensitive.CustomPatterns = slices.Clone(cfg.Sensitive.CustomPatterns)
+	}
+	return cfg
+}
+
+func validateConfig(cfg Config) error {
+	if cfg.Version != configVersion {
+		return fmt.Errorf("unsupported config version %d", cfg.Version)
+	}
+	if cfg.MaxTextChars < 0 || cfg.MaxTextChars > 100000 {
+		return fmt.Errorf("maxTextChars must be between 0 and 100000")
+	}
+	if cfg.MaxFileDropPaths < 0 || cfg.MaxFileDropPaths > 1000 {
+		return fmt.Errorf("maxFileDropPaths must be between 0 and 1000")
+	}
+	if _, _, err := validateListenAddr(cfg.Search.ListenAddr); err != nil {
+		return err
+	}
+	if _, err := configuredLocation(cfg.Search.TimeZone); err != nil {
+		return err
+	}
+	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
+		return fmt.Errorf("invalid sensitive rule: %w", err)
+	}
+	if cfg.Security.LockSessionTimeout < 0 || cfg.Security.LockSessionTimeout > 525600 ||
+		cfg.Security.SecondaryAuthTimeout < 0 || cfg.Security.SecondaryAuthTimeout > 525600 {
+		return fmt.Errorf("security timeouts must be between 0 and 525600 minutes")
+	}
+	if err := validateStoredPasswordHash(cfg.Security.LockPasswordHash); err != nil {
+		return fmt.Errorf("invalid lock password hash: %w", err)
+	}
+	if err := validateStoredPasswordHash(cfg.Security.SecondaryPasswordHash); err != nil {
+		return fmt.Errorf("invalid secondary password hash: %w", err)
+	}
+	if cfg.Backup.DirBackup.Interval < 1 || cfg.Backup.DirBackup.Interval > maxBackupIntervalHours ||
+		cfg.Backup.EmailBackup.Interval < 1 || cfg.Backup.EmailBackup.Interval > maxBackupIntervalHours {
+		return fmt.Errorf("backup intervals must be between 1 and %d hours", maxBackupIntervalHours)
+	}
+	if !isBackupFormat(cfg.Backup.DirBackup.Format) || !isBackupFormat(cfg.Backup.EmailBackup.Format) {
+		return fmt.Errorf("unsupported backup format")
+	}
+	if cfg.Backup.EmailBackup.MaxPartSize < 1<<20 || cfg.Backup.EmailBackup.MaxPartSize > 50<<20 {
+		return fmt.Errorf("email maxPartSize must be between 1 and 50 MiB")
+	}
+	if cfg.Backup.DirBackup.IncrementalFullInterval < 0 || cfg.Backup.DirBackup.IncrementalFullInterval > 100 ||
+		cfg.Backup.EmailBackup.IncrementalFullInterval < 0 || cfg.Backup.EmailBackup.IncrementalFullInterval > 100 {
+		return fmt.Errorf("incremental full intervals must be between 0 and 100")
+	}
+	if err := validateConfiguredBackupScope(cfg.Backup.DirBackup.Scope, cfg.Search.TimeZone); err != nil {
+		return fmt.Errorf("invalid directory backup scope: %w", err)
+	}
+	if err := validateConfiguredBackupScope(cfg.Backup.EmailBackup.Scope, cfg.Search.TimeZone); err != nil {
+		return fmt.Errorf("invalid email backup scope: %w", err)
+	}
+	return nil
+}
+
+func validateConfiguredBackupScope(scope ExportScope, timeZone string) error {
+	switch scope.Mode {
+	case "", "full":
+		return validateExportScope(scope)
+	case "incremental":
+		if scope.From != "" || scope.To != "" {
+			return fmt.Errorf("incremental backup scope does not accept from or to")
+		}
+		return nil
+	case "range":
+		_, err := normalizeExportRange(scope, timeZone)
+		return err
+	default:
+		return fmt.Errorf("unsupported export mode %q", scope.Mode)
+	}
+}
+
 // DatabaseFile 返回 DuckDB 数据库文件的绝对路径。
 func (e Environment) DatabaseFile() string {
 	return filepath.Join(e.DataDir, "clipvault.duckdb")
@@ -431,6 +620,9 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Search.ListenAddr == "" {
 		cfg.Search.ListenAddr = def.Search.ListenAddr
 	}
+	if cfg.Search.TimeZone == "" {
+		cfg.Search.TimeZone = def.Search.TimeZone
+	}
 	if cfg.Autostart.AppName == "" {
 		cfg.Autostart.AppName = def.Autostart.AppName
 	}
@@ -446,12 +638,19 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Backup.EmailBackup.Format == "" {
 		cfg.Backup.EmailBackup.Format = def.Backup.EmailBackup.Format
 	}
-	// MaxPartSize 为 0 是非法值（0 字节阈值会让邮件备份必然失败）。
-	// PUT 省略该字段时会被反序列化成 0，这里回填默认值兜底。
-	if cfg.Backup.EmailBackup.MaxPartSize <= 0 {
-		cfg.Backup.EmailBackup.MaxPartSize = def.Backup.EmailBackup.MaxPartSize
-	}
 	cfg.Source.normalize()
+}
+
+func configuredLocation(name string) (*time.Location, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || name == "system" {
+		return time.Local, nil
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid IANA time zone %q: %w", name, err)
+	}
+	return loc, nil
 }
 
 func isBackupFormat(format string) bool {
@@ -517,12 +716,6 @@ func smtpDeliveryErrors(backup EmailBackupConfig) []string {
 	} else if _, err := mail.ParseAddress(to); err != nil {
 		errors = append(errors, "收件人邮箱")
 	}
-	return errors
-}
-
-func emailBackupSendErrors(backup EmailBackupConfig) []string {
-	errors := smtpDeliveryErrors(backup)
-	errors = append(errors, emailTemplateErrors(backup)...)
 	return errors
 }
 

@@ -339,7 +339,7 @@ func TestImportRejectsDuplicateItemGroupLinksAtomically(t *testing.T) {
 		ExportVersion: 3,
 		App:           "ClipVault",
 		Items: []StoredItem{{
-			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: "hash", MetaJSON: "{}",
+			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: hashString("record"), MetaJSON: "{}",
 		}},
 		Groups:     []StoredGroup{{ID: 1, Name: "group", CreatedAt: now}},
 		ItemGroups: []ItemGroupLink{{ItemID: 1, GroupID: 1}, {ItemID: 1, GroupID: 1}},
@@ -413,7 +413,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellStr(xlsxRecordsSheet, "L2", "unexpected"); err != nil {
+	if err := book.SetCellStr(xlsxRecordsSheet, "P2", "unexpected"); err != nil {
 		t.Fatal(err)
 	}
 	extraColumnData, err := book.WriteToBuffer()
@@ -431,7 +431,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellFormula(xlsxRecordsSheet, "L2", `=""`); err != nil {
+	if err := book.SetCellFormula(xlsxRecordsSheet, "P2", `=""`); err != nil {
 		t.Fatal(err)
 	}
 	blankFormulaData, err := book.WriteToBuffer()

@@ -3,6 +3,7 @@
 package clipvault
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -25,11 +26,19 @@ var (
 	procCloseClipboard             = user32.NewProc("CloseClipboard")
 	procGetClipboardData           = user32.NewProc("GetClipboardData")
 	procIsClipboardFormatAvailable = user32.NewProc("IsClipboardFormatAvailable")
+	procGetClipboardSequenceNumber = user32.NewProc("GetClipboardSequenceNumber")
 	procGlobalLock                 = kernel32.NewProc("GlobalLock")
 	procGlobalUnlock               = kernel32.NewProc("GlobalUnlock")
 	procGlobalSize                 = kernel32.NewProc("GlobalSize")
 	procDragQueryFileW             = shell32.NewProc("DragQueryFileW")
 )
+
+var ErrClipboardSuperseded = errors.New("clipboard event was superseded")
+
+func clipboardSequenceNumber() uint32 {
+	seq, _, _ := procGetClipboardSequenceNumber.Call()
+	return uint32(seq)
+}
 
 // ReadClipboardSnapshot 读取当前剪贴板内容。
 // 优先级：Unicode 文本 > 文件拖放路径清单。其他二进制格式忽略。
@@ -39,8 +48,18 @@ var (
 // OS 线程，因此这里锁定当前线程，避免 CloseClipboard 落到错误的线程上导致
 // 剪贴板被永久占用（全系统粘贴失效）。
 func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
+	return readClipboardSnapshotForSequence(cfg, 0)
+}
+
+// readClipboardSnapshotForSequence 仅在剪贴板仍对应派发事件时读取。成功
+// OpenClipboard 后内容在 CloseClipboard 前不会再变化，因此来源信息可以安全
+// 绑定到该序列；若等待占用期间已发生新复制，则返回 ErrClipboardSuperseded。
+func readClipboardSnapshotForSequence(cfg Config, expectedSequence uint32) (*ClipboardSnapshot, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
+		return nil, ErrClipboardSuperseded
+	}
 
 	// 剪贴板常被 Office/浏览器等短暂占用，OpenClipboard 立即失败是常态，
 	// 用指数退避重试几次再放弃，避免瞬时占用导致这条记录永久丢失。
@@ -50,6 +69,9 @@ func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
 		return nil, fmt.Errorf("OpenClipboard: %w", err)
 	}
 	defer procCloseClipboard.Call()
+	if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
+		return nil, ErrClipboardSuperseded
+	}
 
 	if isClipboardFormatAvailable(cfUnicodeText) {
 		return readUnicodeTextClipboard()

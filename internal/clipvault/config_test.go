@@ -251,6 +251,7 @@ func TestValidateEmailBackupEnabled(t *testing.T) {
 		Interval: 24, SMTPHost: "smtp.example.com", SMTPPort: 587,
 		SMTPUser: "user@example.com", SMTPPass: "pass", From: "a@x.com", To: "b@x.com",
 		Format: "cvexport", Password: "pw", Subject: "备份 {time}", Body: "文件 {filename}", Style: "card", AccentColor: "#16A34A",
+		MaxPartSize: 20 << 20,
 	}
 	tests := []struct {
 		name    string
@@ -278,6 +279,8 @@ func TestValidateEmailBackupEnabled(t *testing.T) {
 		{name: "invalid accent color", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.AccentColor = "green"; return c }(complete), wantErr: true},
 		{name: "missing export password", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Password = ""; return c }(complete), wantErr: true},
 		{name: "unknown format", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "csv"; return c }(complete), wantErr: true},
+		{name: "part limit below minimum", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.MaxPartSize = (1 << 20) - 1; return c }(complete), wantErr: true},
+		{name: "part limit above maximum", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.MaxPartSize = (50 << 20) + 1; return c }(complete), wantErr: true},
 		{name: "json no password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "json"; c.Password = ""; return c }(complete)},
 		{name: "xlsx no password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "xlsx"; c.Password = ""; return c }(complete)},
 	}

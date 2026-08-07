@@ -127,20 +127,20 @@ type WindowsRuntime struct {
 	pendingSearchHotkey *HotkeyConfig
 	pendingHotkeyResult chan error
 
-	// 剪贴板事件由单个 worker goroutine 串行消费，clipCh 是容量 1 的合并信号通道：
-	// 投递为非阻塞，通道已满即丢弃，因为剪贴板处理只关心「最新状态」，中间态可合并。
-	// 每个事件携带派发现场同步捕获的来源信息（前台窗口法），worker 异步解析细节。
+	// 剪贴板事件由单个 worker goroutine 串行消费。每个事件携带 Win32
+	// sequence number 与派发现场捕获的来源；worker 只在序列仍匹配时读取，
+	// 防止旧来源错配到新内容。队列满时淘汰最旧事件并保留最新事件。
 	// 这些字段只在 Run() 启动 worker 前写入，之后仅由消息循环线程读取，无需加锁。
-	clipCh       chan clipEvent
-	clipStop     chan struct{}
-	clipDone     chan struct{}
-	clipStopOnce sync.Once
+	clipCh        chan clipEvent
+	clipDone      chan struct{}
+	clipCloseOnce sync.Once
 }
 
 // clipEvent 是一次剪贴板变化信号。source 在消息派发现场捕获（此时前台窗口
 // 还是复制动作的来源进程）；启动补捕事件 source 为零值。
 type clipEvent struct {
-	source SourceInfo
+	source   SourceInfo
+	sequence uint32
 }
 
 // HotkeyError 表示全局快捷键注册失败。
@@ -567,42 +567,60 @@ const clipWorkerDrainTimeout = 5 * time.Second
 // 会无上限堆积且处理顺序不确定；改为单 worker + 合并通道后并发度恒定为 1，
 // 处理顺序与事件顺序一致。
 func (r *WindowsRuntime) startClipWorker() {
-	r.clipCh = make(chan clipEvent, 1)
-	r.clipStop = make(chan struct{})
+	r.clipCh = make(chan clipEvent, 64)
 	r.clipDone = make(chan struct{})
+	ch := r.clipCh
 	go func() {
 		defer close(r.clipDone)
-		for {
-			select {
-			case <-r.clipStop:
-				return
-			case ev := <-r.clipCh:
-				r.recorder.ProcessClipboardUpdate(ev.source)
-			}
+		for ev := range ch {
+			r.recorder.ProcessClipboardUpdate(ev.source, ev.sequence)
 		}
 	}()
 }
 
 // notifyClipboardUpdate 以非阻塞方式投递一次「剪贴板已变化」信号。
-// 通道已有待处理信号时直接丢弃：worker 下一轮会重新读取当前剪贴板，
-// 合并掉的中间态没有额外信息。该函数只在消息循环线程调用，绝不阻塞消息泵。
+// 队列满时淘汰最旧事件并尽量保留最新事件；该函数只在消息循环线程调用，
+// 不会阻塞消息泵。
 func (r *WindowsRuntime) notifyClipboardUpdate(source SourceInfo) {
 	if r.clipCh == nil {
 		return
 	}
+	ev := clipEvent{source: source, sequence: clipboardSequenceNumber()}
+	if ev.sequence == 0 {
+		// 系统未能提供一致性标识时仍可保存内容，但不绑定可能错配的来源。
+		ev.source = SourceInfo{}
+	}
 	select {
-	case r.clipCh <- clipEvent{source: source}:
+	case r.clipCh <- ev:
 	default:
+		// 保留最新状态：队列满时淘汰一个尚未处理的最旧事件。
+		select {
+		case dropped := <-r.clipCh:
+			r.logger.Warn("clipboard_queue_coalesced", map[string]any{
+				"droppedSequence": dropped.sequence,
+				"latestSequence":  ev.sequence,
+			})
+		default:
+		}
+		select {
+		case r.clipCh <- ev:
+		default:
+			r.logger.Warn("clipboard_queue_drop", map[string]any{"sequence": ev.sequence})
+		}
 	}
 }
 
 // stopClipWorker 请求 worker 退出并等待其真正结束，避免 goroutine 泄漏。
 // 可重复调用（Once 保护 close），未启动时为空操作。
 func (r *WindowsRuntime) stopClipWorker() {
-	if r.clipStop == nil {
+	if r.clipCh == nil {
 		return
 	}
-	r.clipStopOnce.Do(func() { close(r.clipStop) })
+	r.clipCloseOnce.Do(func() {
+		ch := r.clipCh
+		r.clipCh = nil
+		close(ch)
+	})
 	select {
 	case <-r.clipDone:
 	case <-time.After(clipWorkerDrainTimeout):

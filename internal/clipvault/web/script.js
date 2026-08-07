@@ -75,6 +75,7 @@
   // ── Auth state ───────────────────────────────────────────
   let authState = { hasLockPassword: false, hasSecondaryPassword: false, authenticated: false, secondaryAuthed: false };
   let secondaryResolve = null; // pending secondary auth promise resolver
+  let secondaryAuthPromise = null;
 
   const LOCK_OVERLAY = document.getElementById('lockOverlay');
   const LOCK_FORM    = document.getElementById('lockForm');
@@ -140,6 +141,7 @@
 
   // ── Secondary auth ───────────────────────────────────────
   let pendingSecondaryToken = null; // 一次性 token，timeout=0 模式下用
+  let protectedItemRequestQueue = Promise.resolve();
 
   function withSecondaryToken(init) {
     const opts = Object.assign({}, init || {});
@@ -168,25 +170,28 @@
   }
 
   function requestSecondaryAuth(forceFresh = false) {
-    return new Promise(async (resolve) => {
-      if (!authState.hasSecondaryPassword) { resolve(true); return; }
-      // 已经完成验证且一次性 token 尚未使用时，直接复用到紧随其后的
-      // 受保护请求。典型场景是进入设置页后加载恢复密码状态，避免连弹两次。
-      if (!forceFresh && pendingSecondaryToken) { resolve(true); return; }
-      // 后端校验：查询当前会话的二次认证状态
-      try {
-        if (forceFresh) throw new Error('fresh verification requested');
-        const st = await fetch('/api/auth/status').then(r => r.json());
-        authState.secondaryAuthed = st.secondaryAuthed;
-        if (st.secondaryAuthed) { resolve(true); return; }
-      } catch (_) {}
-      // 需要弹窗输入二次密码
-      secondaryResolve = resolve;
-      SECONDARY_MODAL.classList.remove('hidden');
-      SECONDARY_INPUT.value = '';
-      SECONDARY_ERR.classList.add('hidden');
-      setTimeout(() => SECONDARY_INPUT.focus(), 50);
-    });
+    if (!authState.hasSecondaryPassword) return Promise.resolve(true);
+    if (!forceFresh && pendingSecondaryToken) return Promise.resolve(true);
+    if (secondaryAuthPromise) return secondaryAuthPromise;
+
+    const run = (async () => {
+      if (!forceFresh) {
+        try {
+          const st = await fetch('/api/auth/status').then(r => r.json());
+          authState.secondaryAuthed = st.secondaryAuthed;
+          if (st.secondaryAuthed) return true;
+        } catch (_) {}
+      }
+      return new Promise((resolve) => {
+        secondaryResolve = resolve;
+        SECONDARY_MODAL.classList.remove('hidden');
+        SECONDARY_INPUT.value = '';
+        SECONDARY_ERR.classList.add('hidden');
+        setTimeout(() => SECONDARY_INPUT.focus(), 50);
+      });
+    })();
+    secondaryAuthPromise = run.finally(() => { secondaryAuthPromise = null; });
+    return secondaryAuthPromise;
   }
 
   window.closeSecondaryModal = function() {
@@ -207,7 +212,7 @@
       const d = await res.json();
       if (d.ok) {
         SECONDARY_MODAL.classList.add('hidden');
-        authState.secondaryAuthed = true;
+        authState.secondaryAuthed = d.secondaryCached === true;
         pendingSecondaryToken = d.secondaryToken || null;
         toast(d.message || '二次验证成功');
         if (secondaryResolve) { secondaryResolve(true); secondaryResolve = null; }
@@ -254,7 +259,7 @@
               ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
               <label class="field-label" for="pwdDlgNew">新密码</label>
               <input type="password" id="pwdDlgNew" class="lock-input" autocomplete="new-password" aria-describedby="pwdDlgHint">
-              <p class="field-hint" id="pwdDlgHint">密码可自由设置，请确认两次输入一致</p>
+              <p class="field-hint" id="pwdDlgHint">至少 8 个字符，首尾不能有空格</p>
               <label class="field-label" for="pwdDlgConfirm">确认新密码</label>
               <input type="password" id="pwdDlgConfirm" class="lock-input" autocomplete="new-password">`}
               <label class="password-show"><input type="checkbox" id="pwdDlgShow"> 显示密码</label>
@@ -309,6 +314,7 @@
       errEl.classList.add('hidden');
 
       if (!isRemove && newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
+      if (!isRemove && (Array.from(newPwd).length < 8 || newPwd.trim() !== newPwd)) { errEl.textContent = '密码至少需要 8 个字符，且首尾不能有空格'; errEl.classList.remove('hidden'); return; }
 
       try {
         const res = await fetch('/api/auth/password', {
@@ -319,7 +325,8 @@
         const d = await res.json();
         if (d.ok) {
           closePwdDialog();
-          toast(passwordName + '已' + (isRemove ? '删除' : (isChange ? '修改' : '设置')));
+          const successMessage = passwordName + '已' + (isRemove ? '删除' : (isChange ? '修改' : '设置'));
+          toast(d.runtimeError ? successMessage + '，但' + d.runtimeError : successMessage, d.runtimeError ? 'err' : undefined);
           await checkAuthStatus();
           updatePwdStatusUI();
         } else {
@@ -341,17 +348,13 @@
     const lockChangeBtn = document.getElementById('lockPwdChangeBtn');
     const lockRemoveBtn = document.getElementById('lockPwdRemoveBtn');
     const secStatus = document.getElementById('secondaryPwdStatus');
-    const secSetBtn = document.getElementById('secondaryPwdSetBtn');
     const secChangeBtn = document.getElementById('secondaryPwdChangeBtn');
-    const secRemoveBtn = document.getElementById('secondaryPwdRemoveBtn');
     if (lockStatus) lockStatus.textContent = lockSet ? '已设置' : '未设置';
     if (lockSetBtn) lockSetBtn.classList.toggle('hidden', lockSet);
     if (lockChangeBtn) lockChangeBtn.classList.toggle('hidden', !lockSet);
     if (lockRemoveBtn) lockRemoveBtn.classList.toggle('hidden', !lockSet);
-    if (secStatus) secStatus.textContent = secSet ? '已设置' : '未设置';
-    if (secSetBtn) secSetBtn.classList.toggle('hidden', secSet);
+    if (secStatus) secStatus.textContent = secSet ? '已设置（必需）' : '状态异常';
     if (secChangeBtn) secChangeBtn.classList.toggle('hidden', !secSet);
-    if (secRemoveBtn) secRemoveBtn.classList.toggle('hidden', !secSet);
     updateRecoveryPwdUI();
   }
 
@@ -373,18 +376,17 @@
 
   function updateRecoveryPwdUI() {
     const status = document.getElementById('recoveryPwdStatus');
-    const setBtn = document.getElementById('recoveryPwdSetBtn');
     const changeBtn = document.getElementById('recoveryPwdChangeBtn');
-    const removeBtn = document.getElementById('recoveryPwdRemoveBtn');
-    if (status) status.textContent = recoveryState.hasRecovery ? '已设置' : '未设置';
-    if (setBtn) setBtn.classList.toggle('hidden', recoveryState.hasRecovery);
+    const resetBtn = document.getElementById('recoveryPwdResetBtn');
+    if (status) status.textContent = recoveryState.hasRecovery ? '已设置（必需）' : '状态异常';
     if (changeBtn) changeBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
-    if (removeBtn) removeBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
+    if (resetBtn) resetBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
   }
 
   window.showRecoveryDialog = function(action) {
     const isChange = action === 'change';
-    const title = '数据恢复密码' + (isChange ? '修改' : '设置');
+    const isReset = action === 'reset';
+    const title = '数据恢复密码' + (isReset ? '重置' : '修改');
     const oldLabel = isChange ? '当前恢复密码' : null;
     const html = `
       <div class="modal-overlay" id="recDialogOverlay">
@@ -432,15 +434,16 @@
       if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
 
       try {
-        const ok = await requestSecondaryAuth();
+        const ok = await requestSecondaryAuth(isReset);
         if (!ok) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
-        const baseUrl = isChange ? '/api/recovery/change' : '/api/recovery/set';
+        const baseUrl = isReset ? '/api/recovery/reset' : '/api/recovery/change';
         const body = isChange
           ? { oldPassword: oldPwd, newPassword: newPwd }
           : { password: newPwd };
 
         const doFetch = async () => {
-          return await secondaryFetch(baseUrl, {
+          const fetcher = isReset ? freshSecondaryFetch : secondaryFetch;
+          return await fetcher(baseUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -449,15 +452,16 @@
 
         let res = await doFetch();
         if (res.status === 403) {
-          const ok2 = await requestSecondaryAuth();
+          const ok2 = await requestSecondaryAuth(isReset);
           if (!ok2) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
           res = await doFetch();
         }
         const d = await res.json();
         if (d.ok) {
           closeRecDialog();
-          toast('数据恢复密码已' + (isChange ? '修改' : '设置'));
-          await loadRecoveryStatus();
+          toast('数据恢复密码已' + (isReset ? '重置' : '修改'));
+          recoveryState.hasRecovery = true;
+          updateRecoveryPwdUI();
         } else {
           errEl.textContent = d.error || '操作失败';
           errEl.classList.remove('hidden');
@@ -468,64 +472,6 @@
       }
     });
   };
-
-  window.showRecoveryRemoveDialog = function() {
-    const html = `
-      <div class="modal-overlay" id="recRemoveOverlay">
-        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
-          <div class="modal-head">
-            <span class="modal-title">删除恢复密码</span>
-            <button class="modal-close" onclick="closeRecRemoveDialog()">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-          <div class="modal-body" style="height:auto;padding:24px">
-            <p style="margin-bottom:16px;color:var(--sub);line-height:1.6;font-size:14px">
-              删除恢复密码后，如果 DPAPI 失效（换电脑、重装系统等），将无法恢复加密数据库中的数据。
-              确定要删除吗？
-            </p>
-            <div style="display:flex;gap:12px">
-              <button class="lock-btn" style="flex:1;background:var(--danger)" onclick="doRecoveryRemove()">确认删除</button>
-              <button class="lock-btn" style="flex:1;background:var(--card)" onclick="closeRecRemoveDialog()">取消</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
-    document.body.appendChild(wrapper.firstElementChild);
-    const overlay = document.getElementById('recRemoveOverlay');
-    window.closeRecRemoveDialog = function() { overlay.remove(); };
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRecRemoveDialog(); });
-  };
-
-  async function doRecoveryRemove() {
-    try {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能删除恢复密码', 'err'); return; }
-      const doFetch = async () => {
-        return await secondaryFetch('/api/recovery/remove', { method: 'POST' });
-      };
-      let res = await doFetch();
-      if (res.status === 403) {
-        const ok2 = await requestSecondaryAuth();
-        if (!ok2) { toast('需要二次验证才能删除恢复密码', 'err'); return; }
-        res = await doFetch();
-      }
-      const d = await res.json();
-      if (d.ok) {
-        closeRecRemoveDialog();
-        toast('恢复密码已删除');
-        await loadRecoveryStatus();
-      } else {
-        toast(d.error || '删除失败', 'error');
-      }
-    } catch (_) {
-      toast('网络错误', 'error');
-    }
-  }
-  window.doRecoveryRemove = doRecoveryRemove;
 
   // ── View switch ───────────────────────────────────────────
   let viewSwitchSequence = 0;
@@ -766,12 +712,8 @@
 
   async function fetchSensitiveText(id) {
     const url = '/api/items/sensitive?id=' + id;
-    let res = await secondaryFetch(url);
-    if (res.status === 403) {
-      const ok = await requestSecondaryAuth();
-      if (!ok) return null;
-      return fetchSensitiveText(id);
-    }
+    const res = await authorizedItemFetch(id, url);
+    if (!res.ok) return null;
     const d = await res.json();
     return d.item ? d.item.text : null;
   }
@@ -781,9 +723,11 @@
     if (!item) return;
     let textToCopy = item.text;
     if (item.sensitive) {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
-      textToCopy = await fetchSensitiveText(id);
+      try {
+        textToCopy = await fetchSensitiveText(id);
+      } catch (_) {
+        textToCopy = null;
+      }
       if (textToCopy === null) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
     }
     try {
@@ -798,7 +742,7 @@
   // ── Delete ────────────────────────────────────────────────
   async function doDelete(id, art) {
     try {
-      const res = await fetch('/api/items?id=' + id, { method: 'DELETE' });
+      const res = await authorizedItemFetch(id, '/api/items?id=' + id, { method: 'DELETE' });
       if (!res.ok) throw 0;
       art.style.transition = 'opacity .18s, transform .18s';
       art.style.opacity = '0';
@@ -819,7 +763,7 @@
     if (!item) return;
     const newStarred = !item.starred;
     try {
-      const res = await fetch('/api/items?id=' + id + '&starred=' + (newStarred ? '1' : '0'), { method: 'PATCH' });
+      const res = await authorizedItemFetch(id, '/api/items?id=' + id + '&starred=' + (newStarred ? '1' : '0'), { method: 'PATCH' });
       if (!res.ok) throw 0;
       item.starred = newStarred;
       const art = btn.closest('article');
@@ -846,22 +790,12 @@
     currentModalId = id;
     const kindKey = item.kind || 'text';
 
-    // 敏感内容需要二次验证后获取明文
-    if (item.sensitive && !authState.secondaryAuthed) {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能查看敏感内容', 'err'); return; }
-    }
-
     let displayText = item.text;
     if (item.sensitive) {
       try {
         const url = '/api/items/sensitive?id=' + id;
-        const res = await secondaryFetch(url);
-        if (res.status === 403) {
-          const ok = await requestSecondaryAuth();
-          if (!ok) { toast('需要二次验证才能查看敏感内容', 'err'); return; }
-          return doView(id);
-        }
+        const res = await authorizedItemFetch(id, url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const d = await res.json();
         if (d.item && d.item.text) {
           displayText = d.item.text;
@@ -886,11 +820,14 @@
         const ext = getExt(name);
         const isImg = IMAGE_EXTS.includes(ext);
         return '<div class="modal-file-item">' +
-          (isImg && ext !== 'svg' ? '<img src="/api/file?item_id=' + item.id + '&file_index=' + idx + '" loading="lazy" alt="' + esc(name) + '" onerror="this.style.display=\'none\'">' : '') +
+          (isImg && ext !== 'svg' ? '<img data-file-index="' + idx + '" loading="lazy" alt="' + esc(name) + '">' : '') +
           '<div class="modal-file-name">' + esc(name) + '</div>' +
           '<div class="modal-file-path">' + esc(p) + '</div>' +
         '</div>';
       }).join('');
+      preview.querySelectorAll('img[data-file-index]').forEach(img => {
+        loadFileImage(img, item.id, Number(img.dataset.fileIndex));
+      });
     } else {
       MODAL_TITLE.textContent = '内容预览 · #' + id + (item.sensitive ? ' · 敏感' : '');
       MODAL_PRE.style.display = 'block';
@@ -916,9 +853,11 @@
     const btn = document.getElementById('modalCopyBtn');
     let textToCopy = item.text;
     if (item.sensitive) {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
-      textToCopy = await fetchSensitiveText(currentModalId);
+      try {
+        textToCopy = await fetchSensitiveText(currentModalId);
+      } catch (_) {
+        textToCopy = null;
+      }
       if (textToCopy === null) { toast('需要二次验证才能复制敏感内容', 'err'); return; }
     }
     try {
@@ -960,6 +899,46 @@
   const dlHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载';
   const dirHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> 目录';
   const hashHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> Hash';
+  const fileObjectURLs = new Set();
+
+  function revokeFileObjectURLs() {
+    fileObjectURLs.forEach(url => URL.revokeObjectURL(url));
+    fileObjectURLs.clear();
+  }
+
+  async function authorizedItemFetch(itemId, url, init) {
+    const sensitive = !!items.get(itemId)?.sensitive;
+    if (!sensitive) return fetch(url, init);
+
+    const run = async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const ok = await requestSecondaryAuth();
+        if (!ok) throw new Error('需要二次验证');
+        const res = await secondaryFetch(url, init);
+        if (res.status !== 403) return res;
+        const failure = await res.clone().json().catch(() => ({}));
+        if (failure.code !== 'secondary_required') return res;
+        authState.secondaryAuthed = false;
+      }
+      throw new Error('需要二次验证');
+    };
+    const queued = protectedItemRequestQueue.then(run, run);
+    protectedItemRequestQueue = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  async function loadFileImage(img, itemId, idx) {
+    if (!img) return;
+    try {
+      const res = await authorizedItemFetch(itemId, '/api/file?item_id=' + itemId + '&file_index=' + idx);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const url = URL.createObjectURL(await res.blob());
+      fileObjectURLs.add(url);
+      img.src = url;
+    } catch (_) {
+      img.style.display = 'none';
+    }
+  }
 
   function renderFileList(it) {
     const paths = it.text.split('\n').filter(Boolean);
@@ -992,7 +971,7 @@
       const p = paths[idx];
       try {
         const fileRef = 'item_id=' + itemId + '&file_index=' + idx;
-        const d = await fetch('/api/file/check?' + fileRef).then(r => r.json());
+        const d = await authorizedItemFetch(itemId, '/api/file/check?' + fileRef).then(r => r.json());
         const stat = document.getElementById('fstat-' + itemId + '-' + idx);
         const dl = document.getElementById('fdl-' + itemId + '-' + idx);
         const dir = document.getElementById('fdir-' + itemId + '-' + idx);
@@ -1005,7 +984,10 @@
           const ext = getExt(d.name || p);
           if (IMAGE_EXTS.includes(ext)) {
             const thumb = document.getElementById('fthumb-' + itemId + '-' + idx);
-            if (thumb && ext !== 'svg') thumb.innerHTML = '<img src="/api/file?item_id=' + itemId + '&file_index=' + idx + '" loading="lazy" onclick="doFileView(' + itemId + ',' + idx + ')">';
+            if (thumb && ext !== 'svg') {
+              thumb.innerHTML = '<img loading="lazy" onclick="doFileView(' + itemId + ',' + idx + ')">';
+              loadFileImage(thumb.querySelector('img'), itemId, idx);
+            }
           }
         } else {
           if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 \u6587\u4ef6\u4e0d\u5b58\u5728</span>';
@@ -1017,17 +999,21 @@
     }
   }
 
-  function doDownload(itemId, idx) {
+  async function doDownload(itemId, idx) {
     const paths = filePaths.get(itemId);
     if (!paths || !paths[idx]) return;
-    const a = document.createElement('a');
-    a.href = '/api/file?item_id=' + itemId + '&file_index=' + idx + '&download=1';
-    a.download = getBaseName(paths[idx]);
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast('开始下载');
+    try {
+      const res = await authorizedItemFetch(itemId, '/api/file?item_id=' + itemId + '&file_index=' + idx + '&download=1');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = getBaseName(paths[idx]);
+      a.style.display = 'none';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('开始下载');
+    } catch (e) { toast('下载失败: ' + (e.message || e), 'err'); }
   }
 
   async function doOpenDir(itemId, idx) {
@@ -1036,7 +1022,7 @@
     const btn = document.getElementById('fdir-' + itemId + '-' + idx);
     if (btn) { btn.disabled = true; }
     try {
-      const res = await fetch('/api/file/opendir?item_id=' + itemId + '&file_index=' + idx, { method: 'POST' });
+      const res = await authorizedItemFetch(itemId, '/api/file/opendir?item_id=' + itemId + '&file_index=' + idx, { method: 'POST' });
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
         throw new Error(msg || ('HTTP ' + res.status));
@@ -1057,7 +1043,7 @@
     if (btn) { btn.disabled = true; }
     if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">计算中...</span>';
     try {
-      const d = await fetch('/api/file/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
+      const d = await authorizedItemFetch(itemId, '/api/file/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
       if (d.ok) {
         if (hashDiv) hashDiv.innerHTML =
           '<div class="fhash-line"><span class="fhash-label">MD5</span> <span class="fhash-val">' + esc(d.md5) + '</span></div>' +
@@ -1072,7 +1058,7 @@
     }
   }
 
-  function doFileView(itemId, idx) {
+  async function doFileView(itemId, idx) {
     const paths = filePaths.get(itemId);
     if (!paths || !paths[idx]) return;
     const p = paths[idx];
@@ -1088,7 +1074,8 @@
       document.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
-    preview.innerHTML = getExt(name) === 'svg' ? '<div class="fmiss">SVG 文件仅支持下载，不提供内联预览</div>' : '<img src="/api/file?item_id=' + itemId + '&file_index=' + idx + '" alt="' + esc(name) + '">';
+    preview.innerHTML = getExt(name) === 'svg' ? '<div class="fmiss">SVG 文件仅支持下载，不提供内联预览</div>' : '<img alt="' + esc(name) + '">';
+    if (getExt(name) !== 'svg') await loadFileImage(preview.querySelector('img'), itemId, idx);
     VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   }
@@ -1100,6 +1087,7 @@
   const locateHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
 
   function render(arr, q) {
+    revokeFileObjectURLs();
     items.clear();
     filePaths.clear();
     arr.forEach(i => items.set(i.id, i));
@@ -1223,9 +1211,15 @@
   window.doLocate = doLocate;
 
   // ── Search ────────────────────────────────────────────────
-    function resetSearch() { if (locateActive) return; currentPage = 0; search(); }
+  let searchRevision = 0;
+  let searchController = null;
+  function resetSearch() { if (locateActive) return; currentPage = 0; search(); }
 
   async function search() {
+    const revision = ++searchRevision;
+    if (searchController) searchController.abort();
+    const controller = new AbortController();
+    searchController = controller;
     const q = Q.value;
     const pageSize = parseInt(PAGESIZE.value) || 50;
     try {
@@ -1248,18 +1242,27 @@
         currentSourceExes.forEach(n => p.append('source_exe', n));
       }
       const request = url === '/api/search/sensitive' ? secondaryFetch : fetch;
-      const d = await request(url + '?' + p).then(r => r.json());
-      if (d.error === 'secondary_required') {
+      const response = await request(url + '?' + p, { signal: controller.signal });
+      const d = await response.json();
+      if (revision !== searchRevision) return;
+      if (d.code === 'secondary_required') {
         const ok = await requestSecondaryAuth();
+        if (revision !== searchRevision) return;
         if (ok) { await search(); return; }
         toast('需要二次验证才能查看敏感数据', 'err');
+        return;
+      }
+      if (!response.ok) {
+        toast(d.error || '搜索失败，请重试', 'err');
         return;
       }
       totalCount = d.total || 0;
       fullTotalCount = (d.fullTotal !== undefined) ? d.fullTotal : totalCount;
       render(d.items || [], q);
       updatePagination();
-    } catch (_) {}
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
   }
 
   // ── 来源应用（exe）下拉 ─────────────────────────────────
@@ -1769,8 +1772,8 @@
       const data = await res.json();
       updateCurrentConfig({ brand: data.brand });
       applyBrandFormState(data.brand);
-      if (data.hotkeyError) {
-        toast(data.hotkeyError, 'err');
+      if (data.runtimeError || data.hotkeyError) {
+        toast('素材已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
         return;
       }
       toast(kind === 'logo' ? 'Logo 已更新' : 'favicon 已更新');
@@ -1793,8 +1796,8 @@
       const data = await res.json();
       updateCurrentConfig({ brand: data.brand });
       applyBrandFormState(data.brand);
-      if (data.hotkeyError) {
-        toast(data.hotkeyError, 'err');
+      if (data.runtimeError || data.hotkeyError) {
+        toast('设置已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
         return;
       }
       toast(kind === 'logo' ? '已还原默认 Logo' : '已还原默认 favicon');
@@ -1920,8 +1923,8 @@
       const data = await res.json();
       updateCurrentConfig({ background: data.background });
       applyBackgroundFormState(data.background);
-      if (data.hotkeyError) {
-        toast(data.hotkeyError, 'err');
+      if (data.runtimeError || data.hotkeyError) {
+        toast('背景已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
         return;
       }
       toast('背景已更新');
@@ -1944,8 +1947,8 @@
       const data = await res.json();
       updateCurrentConfig({ background: data.background });
       applyBackgroundFormState(data.background);
-      if (data.hotkeyError) {
-        toast(data.hotkeyError, 'err');
+      if (data.runtimeError || data.hotkeyError) {
+        toast('设置已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
         return;
       }
       toast('背景已移除');
@@ -2258,6 +2261,8 @@
     renderSourceWhitelist(cfg.source?.exeWhitelist || []);
 
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
+	const timeZoneEl = document.getElementById('cfg-timeZone');
+	if (timeZoneEl) timeZoneEl.value = (cfg.search && cfg.search.timeZone) || 'system';
     updateListenAddressWarning();
 
     // 全局快捷键
@@ -2384,8 +2389,7 @@
     if (emailScope) emailScope.value = (eb.scope && eb.scope.mode) || 'full';
     const emailMaxPartSize = document.getElementById('cfg-emailBackupMaxPartSize');
     if (emailMaxPartSize) {
-      const mb = eb.maxPartSize ? Math.round(eb.maxPartSize / (1024 * 1024)) : 20;
-      emailMaxPartSize.value = mb > 0 ? mb : 20;
+      emailMaxPartSize.value = Math.round(eb.maxPartSize / (1024 * 1024));
     }
     const emailIncrFullInterval = document.getElementById('cfg-emailBackupIncrementalFullInterval');
     if (emailIncrFullInterval) emailIncrFullInterval.value = (eb.incrementalFullInterval !== undefined && eb.incrementalFullInterval !== null) ? eb.incrementalFullInterval : 7;
@@ -2476,7 +2480,7 @@
       if (!ok) { toast('需要二次验证才能查看过滤规则', 'err'); return; }
       try {
         const d = await secondaryFetch('/api/sensitive/rules').then(r => r.json());
-        if (d.error === 'secondary_required') {
+        if (d.code === 'secondary_required') {
           toast('二次验证失败', 'err');
           return;
         }
@@ -2625,6 +2629,7 @@
       search: {
         ...currentCfg.search,
         listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
+		timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system',
       },
       security: {
         ...currentCfg.security,
@@ -2659,7 +2664,7 @@
           dir:          document.getElementById('cfg-dirBackupDir')?.value.trim() || '',
           format:       document.getElementById('cfg-dirBackupFormat')?.value || 'cvexport',
           password:     backupPwdValue('cfg-dirBackupPwd', 'cfg-dirBackupPwdClear'),
-          scope:        { mode: document.getElementById('cfg-dirBackupScope')?.value || 'full' },
+          scope:        { mode: document.getElementById('cfg-dirBackupScope')?.value || 'full', from: '', to: '' },
           incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-dirBackupIncrementalFullInterval')?.value)),
         },
         emailBackup: {
@@ -2679,8 +2684,8 @@
           body:         document.getElementById('cfg-emailBackupBody')?.value || '',
           style:        document.getElementById('cfg-emailBackupStyle')?.value || '',
           accentColor:  document.getElementById('cfg-emailBackupAccentColor')?.value || '',
-          scope:        { mode: document.getElementById('cfg-emailBackupScope')?.value || 'full' },
-          maxPartSize:  (parseInt(document.getElementById('cfg-emailBackupMaxPartSize')?.value) || 20) * 1024 * 1024,
+          scope:        { mode: document.getElementById('cfg-emailBackupScope')?.value || 'full', from: '', to: '' },
+          maxPartSize:  Number(document.getElementById('cfg-emailBackupMaxPartSize')?.value) * 1024 * 1024,
           incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-emailBackupIncrementalFullInterval')?.value)),
         },
       },
@@ -2733,9 +2738,14 @@
     }
   }
 
-  async function saveConfigNow() {
+  async function saveConfigNow(secondaryRetried = false) {
     const newCfg = collectConfig();
     if (!newCfg) return false;
+    const emailMaxPartSizeMB = newCfg.backup.emailBackup.maxPartSize / (1024 * 1024);
+    if (!Number.isInteger(emailMaxPartSizeMB) || emailMaxPartSizeMB < 1 || emailMaxPartSizeMB > 50) {
+      toast('单封邮件上限必须是 1–50MB 的整数', 'err');
+      return false;
+    }
 
     // 验证正则合法性
     for (const p of newCfg.sensitive.customPatterns) {
@@ -2793,14 +2803,22 @@
       });
       if (!res.ok) {
         const txt = await res.text();
-        let message = txt;
-        try { message = JSON.parse(txt).error || txt; } catch (_) {}
-        throw new Error(message);
+        let failure = {};
+        try { failure = JSON.parse(txt); } catch (_) {}
+        if (!openingLAN && !secondaryRetried && res.status === 403 && failure.code === 'secondary_required') {
+          authState.secondaryAuthed = false;
+          const ok = await requestSecondaryAuth();
+          if (ok) return saveConfigNow(true);
+          toast('需要二次验证才能保存配置', 'err');
+          return false;
+        }
+        throw new Error(failure.error || txt || `HTTP ${res.status}`);
       }
       const d = await res.json();
       replaceCurrentConfig(d.config);
-      if (d.hotkeyError) {
-        toast('设置已保存，但' + d.hotkeyError, 'err');
+      const runtimeWarning = d.runtimeError || d.hotkeyError;
+      if (runtimeWarning) {
+        toast('设置已保存，但' + runtimeWarning, 'err');
       } else {
         toast('设置已保存');
       }
@@ -2810,13 +2828,7 @@
       }
       return true;
     } catch (e) {
-      if (e.message && e.message.includes('secondary_required')) {
-        const ok = await requestSecondaryAuth();
-        if (ok) return await saveConfigNow();
-        toast('需要二次验证才能保存配置', 'err');
-      } else {
-        toast('保存失败：' + (e.message || e), 'err');
-      }
+			toast('保存失败：' + (e.message || e), 'err');
       return false;
     }
   }
@@ -2886,6 +2898,7 @@
     if (autoSaveBound) return;
     autoSaveBound = true;
     const listenAddrEl = document.getElementById('cfg-listenAddr');
+	const timeZoneEl = document.getElementById('cfg-timeZone');
     const brandTitleEl = document.getElementById('cfg-brandTitle');
     brandTitleEl?.addEventListener('input', () => applyBrand({ ...currentCfg?.brand, title: brandTitleEl.value }));
     ['logo', 'favicon'].forEach(kind => {
@@ -2945,11 +2958,11 @@
 	  applyTheme(themeFromForm());
 	});
     settingsEl.addEventListener('input', (e) => {
-      if (e.target === listenAddrEl || e.target?.type === 'file') return;
+	  if (e.target === listenAddrEl || e.target === timeZoneEl || e.target?.type === 'file') return;
       scheduleConfigSave(800);
     });
     settingsEl.addEventListener('change', (e) => {
-      if (e.target === listenAddrEl || e.target?.type === 'file') return;
+	  if (e.target === listenAddrEl || e.target === timeZoneEl || e.target?.type === 'file') return;
       scheduleConfigSave(300);
     });
     // 监听地址失焦时立即保存（触发重启确认）
@@ -2959,6 +2972,9 @@
         scheduleConfigSave(0);
       });
     }
+	if (timeZoneEl) {
+	  timeZoneEl.addEventListener('blur', () => scheduleConfigSave(0));
+	}
     // 过滤规则增删也触发保存
     const addBtn = document.getElementById('addPatternBtn');
     if (addBtn) {
@@ -3232,9 +3248,11 @@
     const fallback = 'clipvault-data.' + fmt;
     const label = '剪切板记录（' + (type === 'data-xlsx' ? 'Excel' : 'JSON') + '）';
     if (fmt === 'xlsx') {
-      if (!window.confirm('即将全量导出明文 Excel 数据。\n\n注意：Excel 格式不支持范围选择（仅全量导出），且数据量大时文件大、解析慢。如需按范围导出或数据量较大，建议改用 JSON 或加密导出。\n\n是否继续？')) return;
-      const ok = await authedDownload('/api/export/data?format=xlsx', fallback);
-      if (ok) toast('已导出 ' + label);
+	  if (!window.confirm('即将导出明文 Excel 数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
+	  showExportScopeDialog(function(scopeParams) {
+		const baseUrl = '/api/export/data?format=xlsx' + scopeParams;
+		authedDownload(baseUrl, fallback).then(ok => { if (ok) toast('已导出 ' + label); });
+	  });
     } else {
       if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
       showExportScopeDialog(function(scopeParams) {
@@ -3427,12 +3445,12 @@
   }
 
   function notifyImportSuccess(data) {
-    if (data.hotkeyError) {
-      toast('导入成功，' + data.hotkeyError, 'err');
-      return;
-    }
     if (data.runtimeError) {
       toast('导入成功，但部分运行时设置需重启后生效：' + data.runtimeError, 'err');
+      return;
+    }
+    if (data.hotkeyError) {
+      toast('导入成功，' + data.hotkeyError, 'err');
       return;
     }
     toast('导入成功');
@@ -3663,9 +3681,15 @@
     let itemGroupIds = [];
     if (mode === 'assign' && opts.itemId) {
       try {
-        const d = await fetch('/api/items/groups?item_id=' + opts.itemId).then(r => r.json());
+        const res = await authorizedItemFetch(opts.itemId, '/api/items/groups?item_id=' + opts.itemId);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
         itemGroupIds = d.groupIds || [];
-      } catch (_) {}
+      } catch (_) {
+        toast('无法读取条目分组', 'err');
+        closeGroupModal();
+        return;
+      }
     }
 
     let html = '';
@@ -3802,15 +3826,17 @@
           const isChecked = checkEl.classList.contains('checked');
           try {
             if (isChecked) {
-              await fetch('/api/items/group?item_id=' + opts.itemId + '&group_id=' + id, { method: 'DELETE' });
+              const res = await authorizedItemFetch(opts.itemId, '/api/items/group?item_id=' + opts.itemId + '&group_id=' + id, { method: 'DELETE' });
+              if (!res.ok) throw new Error('HTTP ' + res.status);
               checkEl.classList.remove('checked');
               toast('已移出分组');
             } else {
-              await fetch('/api/items/group', {
+              const res = await authorizedItemFetch(opts.itemId, '/api/items/group', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ itemId: opts.itemId, groupId: id }),
               });
+              if (!res.ok) throw new Error('HTTP ' + res.status);
               checkEl.classList.add('checked');
               toast('已加入分组');
             }

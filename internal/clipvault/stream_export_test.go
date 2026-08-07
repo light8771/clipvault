@@ -69,7 +69,7 @@ func TestStreamExportRangeScope(t *testing.T) {
 	insertItem(t, store, recent, "recent record", false, false)
 
 	var buf bytes.Buffer
-	scope := ExportScope{Mode: "range", From: "2026-06-01", To: "2026-08-01"}
+	scope := ExportScope{Mode: "range", From: "2026-06-01T00:00:00Z", To: "2026-08-01T00:00:00Z"}
 	if _, err := store.StreamExport(ctx, scope, &buf); err != nil {
 		t.Fatalf("StreamExport range: %v", err)
 	}
@@ -242,8 +242,8 @@ func insertItem(t *testing.T, store *Store, ts time.Time, text string, starred, 
 		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ts.UTC().Format(time.RFC3339Nano),
-		"text", "CF_UNICODETEXT", text, len(text), len(text),
-		text, "{}", starred, sensitive,
+		"text", "CF_UNICODETEXT", text, len([]byte(text)), textRuneLen(text),
+		hashString(text), "{}", starred, sensitive,
 	)
 	if err != nil {
 		t.Fatalf("insert %q: %v", text, err)
@@ -315,7 +315,7 @@ func TestImportDeduplicatesLinksAfterGroupMerge(t *testing.T) {
 		SourceEngine:  "duckdb",
 		Items: []StoredItem{{
 			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT",
-			Text: "hello", ByteLen: 5, CharLen: 5, SHA256: "hello", MetaJSON: "{}",
+			Text: "hello", ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}",
 		}},
 		Groups: []StoredGroup{
 			{ID: 1, Name: "Dup", ParentID: 0, CreatedAt: now},

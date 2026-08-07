@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sync"
 )
 
@@ -77,7 +78,7 @@ func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logge
 	return r
 }
 
-func (r *Recorder) ProcessClipboardUpdate(source SourceInfo) {
+func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -86,8 +87,12 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo) {
 	}
 
 	cfg := r.cfgMgr.Get()
-	snapshot, err := ReadClipboardSnapshot(cfg)
+	snapshot, err := readClipboardSnapshotForSequence(cfg, sequence)
 	if err != nil {
+		if errors.Is(err, ErrClipboardSuperseded) {
+			r.logger.Info("clipboard_event_coalesced", map[string]any{"sequence": sequence})
+			return
+		}
 		r.logger.Error("clipboard_read_failed", err, nil)
 		return
 	}

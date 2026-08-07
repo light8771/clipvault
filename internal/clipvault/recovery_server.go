@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -349,15 +350,17 @@ document.getElementById('password').addEventListener('keydown', function(event) 
 
 // RecoveryServer is a minimal HTTP server for database recovery.
 type RecoveryServer struct {
-	dataDir string
-	server  *http.Server
-	url     string
-	done    chan struct{}
-	success bool
-	token   string
-	port    int
-	once    sync.Once
-	timer   *time.Timer
+	dataDir  string
+	server   *http.Server
+	url      string
+	done     chan struct{}
+	success  bool
+	token    string
+	port     int
+	once     sync.Once
+	opMu     sync.Mutex
+	complete bool
+	timer    *time.Timer
 }
 
 // NewRecoveryServer creates a recovery server bound to localhost on a dynamic port.
@@ -388,7 +391,7 @@ func (rs *RecoveryServer) Start() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("recovery server bind: %w", err)
 	}
-	rs.port = tcpPort(ln.Addr(), 0)
+	rs.port = ln.Addr().(*net.TCPAddr).Port
 	rs.url = "http://" + ln.Addr().String() + "/#" + rs.token
 	rs.server = &http.Server{
 		Handler:           rs.secureHTTP(mux),
@@ -399,10 +402,12 @@ func (rs *RecoveryServer) Start() (string, error) {
 		MaxHeaderBytes:    16 << 10,
 	}
 	go func() {
-		_ = rs.server.Serve(ln)
+		if err := rs.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			rs.fail()
+		}
 	}()
 	rs.timer = time.AfterFunc(15*time.Minute, func() {
-		rs.finish(false)
+		rs.fail()
 		rs.Close()
 	})
 	return rs.url, nil
@@ -434,6 +439,16 @@ func (rs *RecoveryServer) finish(success bool) {
 		rs.success = success
 		close(rs.done)
 	})
+}
+
+func (rs *RecoveryServer) fail() {
+	rs.opMu.Lock()
+	defer rs.opMu.Unlock()
+	if rs.complete {
+		return
+	}
+	rs.complete = true
+	rs.finish(false)
 }
 
 func (rs *RecoveryServer) secureHTTP(next http.Handler) http.Handler {
@@ -542,31 +557,44 @@ func (rs *RecoveryServer) handleRecover(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil {
 		writeRecoveryJSON(w, false, "请求格式无效")
+		return
+	}
+	rs.opMu.Lock()
+	defer rs.opMu.Unlock()
+	if rs.complete {
+		writeRecoveryJSON(w, false, "恢复操作已完成")
 		return
 	}
 	if err := RecoverWithPassword(rs.dataDir, req.Password); err != nil {
 		writeRecoveryJSON(w, false, "恢复失败：密码不正确，或恢复文件已经损坏")
 		return
 	}
+	rs.complete = true
 	writeRecoveryJSON(w, true, "")
 	rs.finish(true)
 }
 
 func (rs *RecoveryServer) handleNew(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	var req struct {
 		Confirmation string `json:"confirmation"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Confirmation) != "CREATE NEW" {
+	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil || strings.TrimSpace(req.Confirmation) != "CREATE NEW" {
 		writeRecoveryJSON(w, false, "确认文字不匹配")
+		return
+	}
+	rs.opMu.Lock()
+	defer rs.opMu.Unlock()
+	if rs.complete {
+		writeRecoveryJSON(w, false, "恢复操作已完成")
 		return
 	}
 	if err := CreateNewDatabase(rs.dataDir); err != nil {
 		writeRecoveryJSON(w, false, "创建新数据库失败，原数据未被覆盖")
 		return
 	}
+	rs.complete = true
 	writeRecoveryJSON(w, true, "")
 	rs.finish(true)
 }

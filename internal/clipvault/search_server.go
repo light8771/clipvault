@@ -29,28 +29,34 @@ import (
 	"clipboard_ext/internal/licensing"
 )
 
-const maxBackupIntervalHours = 720
-
 //go:embed web/*
 var webFS embed.FS
 
 type SearchServer struct {
-	cfgMgr    *ConfigManager
-	store     *Store
-	state     *RuntimeState
-	logger    *DailyLogger
-	auth      *AuthManager
-	env       Environment
-	server    *http.Server
-	url       string
-	restartCh chan struct{}
-	backup    *BackupService
-	csrfToken string
-	license   *licensing.Manager
-	assetMu   sync.Mutex
+	cfgMgr     *ConfigManager
+	store      *Store
+	state      *RuntimeState
+	logger     *DailyLogger
+	auth       *AuthManager
+	env        Environment
+	server     *http.Server
+	url        string
+	restartCh  chan struct{}
+	backup     *BackupService
+	csrfToken  string
+	license    *licensing.Manager
+	assetMu    sync.Mutex
+	recoveryMu sync.Mutex
 }
 
 type freshSecondaryContextKey struct{}
+
+func (s *SearchServer) configuredTimeZone() string {
+	if s.cfgMgr == nil {
+		return "system"
+	}
+	return s.cfgMgr.Get().Search.TimeZone
+}
 
 func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger, env Environment, backup *BackupService, license *licensing.Manager) *SearchServer {
 	am := NewAuthManager()
@@ -60,9 +66,6 @@ func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, l
 
 func (s *SearchServer) Start() (string, error) {
 	cfg := s.cfgMgr.Get()
-	if !cfg.Search.Enabled {
-		return "", nil
-	}
 	host, port, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		return "", err
@@ -85,9 +88,6 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /script.js", s.handleStatic)
 	mux.HandleFunc("GET /api/csrf", s.handleCSRF)
 	mux.HandleFunc("GET /api/appearance", s.handlePublicAppearance)
-	mux.HandleFunc("GET /api/license/status", s.handleLicenseStatus)
-	mux.HandleFunc("GET /api/license/machine", s.handleLicenseMachine)
-	mux.HandleFunc("POST /api/license/activate", s.handleLicenseActivate)
 	mux.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
@@ -103,6 +103,9 @@ func (s *SearchServer) Start() (string, error) {
 
 	// 需要锁屏认证的端点
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
+	mux.HandleFunc("GET /api/license/status", s.requireAuth(s.handleLicenseStatus))
+	mux.HandleFunc("GET /api/license/machine", s.requireAuth(s.handleLicenseMachine))
+	mux.HandleFunc("POST /api/license/activate", s.requireAuth(s.handleLicenseActivate))
 	mux.HandleFunc("GET /api/source-exes", s.requireAuth(s.handleSourceExes))
 	mux.HandleFunc("GET /api/state", s.requireAuth(s.handleState))
 	mux.HandleFunc("POST /api/pause", s.requireAuth(s.handlePause))
@@ -140,9 +143,8 @@ func (s *SearchServer) Start() (string, error) {
 
 	// 恢复密码管理端点（需二次认证）
 	mux.HandleFunc("GET /api/recovery/status", s.requireSecondary(s.handleRecoveryStatus))
-	mux.HandleFunc("POST /api/recovery/set", s.requireSecondary(s.handleRecoverySet))
 	mux.HandleFunc("POST /api/recovery/change", s.requireSecondary(s.handleRecoveryChange))
-	mux.HandleFunc("POST /api/recovery/remove", s.requireSecondary(s.handleRecoveryRemove))
+	mux.HandleFunc("POST /api/recovery/reset", s.requireSecondary(s.handleRecoveryReset))
 
 	// 备份管理端点（需二次认证）
 	mux.HandleFunc("GET /api/backup/status", s.requireAuth(s.handleBackupStatus))
@@ -175,7 +177,7 @@ func (s *SearchServer) Start() (string, error) {
 	}
 	s.url = "http://" + addr + "/"
 	s.server = &http.Server{
-		Handler:           s.secureHTTP(mux, host, tcpPort(ln.Addr(), port)),
+		Handler:           s.secureHTTP(mux, host, ln.Addr().(*net.TCPAddr).Port),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      5 * time.Minute,
@@ -189,13 +191,6 @@ func (s *SearchServer) Start() (string, error) {
 	}()
 	s.logger.Info("search_server_started", map[string]any{"url": s.url})
 	return s.url, nil
-}
-
-func tcpPort(addr net.Addr, fallback int) int {
-	if tcp, ok := addr.(*net.TCPAddr); ok {
-		return tcp.Port
-	}
-	return fallback
 }
 
 func (s *SearchServer) URL() string {
@@ -238,9 +233,7 @@ func (s *SearchServer) handleStorageRelocate(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		DataDir string `json:"dataDir"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&req); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+	if err := decodeJSONRequest(w, r, &req, 4<<10); err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)
 		s.writeJSON(w, map[string]any{"ok": false, "error": "数据目录请求无效"})
@@ -407,7 +400,7 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	}
 	cfg.Background.ContentType = contentType
 	cfg.Background.Version = version
-	hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
 	if err != nil {
 		_ = os.Remove(filepath.Join(s.env.DataDir, fileName))
 		s.writeError(w, err)
@@ -416,7 +409,9 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	if previousVersion > 0 {
 		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(backgroundMediaAsset, previousVersion)))
 	}
-	s.writeJSON(w, map[string]any{"ok": true, "background": s.cfgMgr.Get().Background, "hotkeyError": hotkeyError})
+	response := map[string]any{"ok": true, "background": s.cfgMgr.Get().Background}
+	addRuntimeWarnings(response, runtimeError, hotkeyError)
+	s.writeJSON(w, response)
 }
 
 func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Request, kind string) {
@@ -456,7 +451,7 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 		cfg.Brand.LogoContentType = contentType
 		cfg.Brand.LogoVersion = version
 	}
-	hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
 	if err != nil {
 		_ = os.Remove(filepath.Join(s.env.DataDir, fileName))
 		s.writeError(w, err)
@@ -465,7 +460,9 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 	if previousVersion > 0 {
 		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(assetKind, previousVersion)))
 	}
-	s.writeJSON(w, map[string]any{"ok": true, "brand": s.cfgMgr.Get().Brand, "hotkeyError": hotkeyError})
+	response := map[string]any{"ok": true, "brand": s.cfgMgr.Get().Brand}
+	addRuntimeWarnings(response, runtimeError, hotkeyError)
+	s.writeJSON(w, response)
 }
 
 func (s *SearchServer) handleBrandLogoReset(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +480,7 @@ func (s *SearchServer) handleBackgroundMediaReset(w http.ResponseWriter, r *http
 	previousVersion := cfg.Background.Version
 	cfg.Background.ContentType = ""
 	cfg.Background.Version = 0
-	hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -491,7 +488,9 @@ func (s *SearchServer) handleBackgroundMediaReset(w http.ResponseWriter, r *http
 	if previousVersion > 0 {
 		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(backgroundMediaAsset, previousVersion)))
 	}
-	s.writeJSON(w, map[string]any{"ok": true, "background": s.cfgMgr.Get().Background, "hotkeyError": hotkeyError})
+	response := map[string]any{"ok": true, "background": s.cfgMgr.Get().Background}
+	addRuntimeWarnings(response, runtimeError, hotkeyError)
+	s.writeJSON(w, response)
 }
 
 func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string) {
@@ -509,7 +508,7 @@ func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string)
 		cfg.Brand.LogoContentType = ""
 		cfg.Brand.LogoVersion = 0
 	}
-	hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -517,21 +516,36 @@ func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string)
 	if previousVersion > 0 {
 		_ = os.Remove(filepath.Join(s.env.DataDir, assetFileName(assetKind, previousVersion)))
 	}
-	s.writeJSON(w, map[string]any{"ok": true, "brand": s.cfgMgr.Get().Brand, "hotkeyError": hotkeyError})
+	response := map[string]any{"ok": true, "brand": s.cfgMgr.Get().Brand}
+	addRuntimeWarnings(response, runtimeError, hotkeyError)
+	s.writeJSON(w, response)
 }
 
-// updateAssetConfig keeps the new asset when persistence succeeds but Windows
-// cannot immediately re-register a hotkey.
-func (s *SearchServer) updateAssetConfig(cfg Config) (string, error) {
-	err := s.cfgMgr.Update(cfg)
+// updateAssetConfig distinguishes persistence failures from post-commit runtime
+// listener failures so callers never delete an asset referenced by saved config.
+func (s *SearchServer) updateAssetConfig(cfg Config) (runtimeError, hotkeyError string, err error) {
+	err = s.cfgMgr.Update(cfg)
 	if err == nil {
-		return "", nil
+		return "", "", nil
 	}
-	var hotkeyError *HotkeyError
-	if errors.As(err, &hotkeyError) {
-		return hotkeyError.Error(), nil
+	var applyError *ConfigRuntimeApplyError
+	if !errors.As(err, &applyError) {
+		return "", "", err
 	}
-	return "", err
+	var hkErr *HotkeyError
+	if errors.As(applyError, &hkErr) {
+		hotkeyError = hkErr.Error()
+	}
+	return applyError.Error(), hotkeyError, nil
+}
+
+func addRuntimeWarnings(response map[string]any, runtimeError, hotkeyError string) {
+	if runtimeError != "" {
+		response["runtimeError"] = runtimeError
+	}
+	if hotkeyError != "" {
+		response["hotkeyError"] = hotkeyError
+	}
 }
 
 func isValidBrandImage(data []byte, contentType string) bool {
@@ -661,11 +675,10 @@ func (s *SearchServer) handleLicenseActivate(w http.ResponseWriter, r *http.Requ
 		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", "授权管理器不可用", nil)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	var req struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Token) == "" {
+	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil || strings.TrimSpace(req.Token) == "" {
 		s.writeJSON(w, map[string]any{"ok": false, "error": "license_bad_format"})
 		return
 	}
@@ -721,21 +734,48 @@ func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string
 }
 
 func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+	limit, offset, sourceExeNames, err := parseSearchParameters(r)
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_search_parameters", "搜索参数无效", err)
+		return
+	}
+	groupID, err := parseOptionalPositiveInt64(r.URL.Query().Get("group_id"), "group_id")
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "分组 id 无效", err)
+		return
+	}
+	cfg := s.cfgMgr.Get()
+	token := GetSessionToken(r)
+	secondaryReadable := !s.auth.HasSecondaryPassword(cfg) || s.auth.HasSecondaryAuth(token)
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	kind := r.URL.Query().Get("kind")
+	starredOnly, err := parseOptionalFlag(r.URL.Query().Get("starred"), "starred")
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", "收藏筛选参数无效", err)
+		return
+	}
+	dateFrom := r.URL.Query().Get("date_from")
+	dateTo := r.URL.Query().Get("date_to")
+	createdFrom, createdBefore, err := localDateFilterBounds(r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"), s.configuredTimeZone())
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "日期范围无效", err)
+		return
+	}
+	hasContentOracleFilter := query != "" || kind != "" || starredOnly || dateFrom != "" || dateTo != "" || groupID != 0 || len(sourceExeNames) != 0
 	opts := SearchOptions{
-		Query:            r.URL.Query().Get("q"),
-		Limit:            limit,
-		Offset:           offset,
-		StarredOnly:      r.URL.Query().Get("starred") == "1",
-		Kind:             r.URL.Query().Get("kind"),
-		DateFrom:         r.URL.Query().Get("date_from"),
-		DateTo:           r.URL.Query().Get("date_to"),
-		IncludeSensitive: true,
+		Query:         query,
+		Limit:         limit,
+		Offset:        offset,
+		StarredOnly:   starredOnly,
+		Kind:          kind,
+		CreatedFrom:   createdFrom,
+		CreatedBefore: createdBefore,
+		// 未完成二次认证时，无筛选列表仍显示遮蔽占位；任何搜索或筛选
+		// 都排除敏感记录，避免通过“是否命中”或计数推断敏感内容。
+		IncludeSensitive: secondaryReadable || !hasContentOracleFilter,
 		GroupID:          groupID,
-		SourceExeNames:   limitSourceExes(r.URL.Query()["source_exe"]), // 可重复参数，值为真实 exe 名；限制条数防超长 IN
-		ExeAliases:       s.cfgMgr.Get().Source.ExeAliases, // 注入当前别名
+		SourceExeNames:   sourceExeNames,        // 可重复参数，值为真实 exe 名；限制条数防超长 IN
+		ExeAliases:       cfg.Source.ExeAliases, // 注入当前别名
 	}
 	resp := map[string]any{}
 	// 未激活（免费版）：读取窗口限制为最近 FreeTierVisibleLimit 条，
@@ -752,8 +792,6 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 未设置二次密码时不需要遮蔽；已通过二次认证时也不遮蔽
-	cfg := s.cfgMgr.Get()
-	token := GetSessionToken(r)
 	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
 		for i := range items {
 			if items[i].Sensitive {
@@ -781,7 +819,13 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // handleSourceExes 返回所有来源应用（原始 exe 名）及其记录数，供搜索下拉与别名/白名单编辑使用。
 func (s *SearchServer) handleSourceExes(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.store.SourceExeStats(r.Context())
+	cfg := s.cfgMgr.Get()
+	includeSensitive := !s.auth.HasSecondaryPassword(cfg) || s.auth.HasSecondaryAuth(GetSessionToken(r))
+	restrictToLatestN := 0
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		restrictToLatestN = FreeTierVisibleLimit
+	}
+	stats, err := s.store.SourceExeStatsFiltered(r.Context(), includeSensitive, restrictToLatestN)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -795,30 +839,109 @@ func (s *SearchServer) handleSourceExes(w http.ResponseWriter, r *http.Request) 
 // maxSourceExeFilters 限制来源应用多选过滤参数的条数，防止构造超长 IN 列表。
 const maxSourceExeFilters = 50
 
-// limitSourceExes 截断来源应用过滤参数上限，避免恶意/意外超长 IN 子句。
-func limitSourceExes(xs []string) []string {
-	if len(xs) > maxSourceExeFilters {
-		return xs[:maxSourceExeFilters]
+const (
+	maxSearchQueryBytes    = 4096
+	maxSourceExeFilterSize = 260
+)
+
+func parseSearchParameters(r *http.Request) (limit, offset int, sourceExeNames []string, err error) {
+	query := r.URL.Query().Get("q")
+	if len(query) > maxSearchQueryBytes {
+		return 0, 0, nil, fmt.Errorf("q exceeds %d bytes", maxSearchQueryBytes)
 	}
-	return xs
+	if _, err := splitSearchTerms(query); err != nil {
+		return 0, 0, nil, err
+	}
+	limit, err = parseOptionalInt(r.URL.Query().Get("limit"), "limit", 1, 500)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	offset, err = parseOptionalInt(r.URL.Query().Get("offset"), "offset", 0, 0)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	sourceExeNames = r.URL.Query()["source_exe"]
+	if len(sourceExeNames) > maxSourceExeFilters {
+		return 0, 0, nil, fmt.Errorf("source_exe exceeds %d values", maxSourceExeFilters)
+	}
+	for _, name := range sourceExeNames {
+		if name == "" || len(name) > maxSourceExeFilterSize {
+			return 0, 0, nil, fmt.Errorf("invalid source_exe value")
+		}
+	}
+	return limit, offset, sourceExeNames, nil
+}
+
+func parseOptionalInt(raw, name string, minValue, maxValue int) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minValue || (maxValue > 0 && value > maxValue) {
+		return 0, fmt.Errorf("invalid %s", name)
+	}
+	return value, nil
+}
+
+func parseOptionalPositiveInt64(raw, name string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("invalid %s", name)
+	}
+	return value, nil
+}
+
+func parseOptionalFlag(raw, name string) (bool, error) {
+	switch raw {
+	case "", "0":
+		return false, nil
+	case "1":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid %s", name)
+	}
 }
 
 // handleSensitiveSearch 仅返回敏感记录，需要二次认证。
 func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, offset, sourceExeNames, err := parseSearchParameters(r)
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_search_parameters", "搜索参数无效", err)
+		return
+	}
+	cfg := s.cfgMgr.Get()
+	groupID, err := parseOptionalPositiveInt64(r.URL.Query().Get("group_id"), "group_id")
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "分组 id 无效", err)
+		return
+	}
+	starredOnly, err := parseOptionalFlag(r.URL.Query().Get("starred"), "starred")
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", "收藏筛选参数无效", err)
+		return
+	}
+	createdFrom, createdBefore, err := localDateFilterBounds(r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"), s.configuredTimeZone())
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "日期范围无效", err)
+		return
+	}
 	opts := SearchOptions{
 		Query:         r.URL.Query().Get("q"),
 		Limit:         limit,
 		Offset:        offset,
 		Kind:          r.URL.Query().Get("kind"),
-		DateFrom:      r.URL.Query().Get("date_from"),
-		DateTo:        r.URL.Query().Get("date_to"),
+		StarredOnly:   starredOnly,
+		CreatedFrom:   createdFrom,
+		CreatedBefore: createdBefore,
 		SensitiveOnly: true,
+		GroupID:       groupID,
 		// 敏感搜索同样支持来源应用过滤（#8）：显式 source_exe 参数按原始名精确筛选，
 		// 并注入当前别名配置，与 /api/search 行为一致。
-		SourceExeNames: limitSourceExes(r.URL.Query()["source_exe"]),
-		ExeAliases:     s.cfgMgr.Get().Source.ExeAliases,
+		SourceExeNames: sourceExeNames,
+		ExeAliases:     cfg.Source.ExeAliases,
 	}
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
 		opts.RestrictToLatestN = FreeTierVisibleLimit
@@ -841,7 +964,7 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 	}
 	item, err := s.store.GetByID(r.Context(), id)
 	if err != nil {
-		s.writeAPIError(w, http.StatusNotFound, "not_found", "记录不存在", nil)
+		s.writeItemLookupError(w, err)
 		return
 	}
 	if !item.Sensitive {
@@ -874,7 +997,7 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 	}
 	pos, err := s.store.GetPositionByID(r.Context(), id)
 	if err != nil {
-		s.writeError(w, err)
+		s.writeItemLookupError(w, err)
 		return
 	}
 	// 未激活时，窗口外的记录无法定位（前端列表里根本看不到）
@@ -895,7 +1018,7 @@ func (s *SearchServer) enforceFreeWindow(w http.ResponseWriter, r *http.Request,
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
 		pos, perr := s.store.GetPositionByID(r.Context(), id)
 		if perr != nil {
-			s.writeError(w, perr)
+			s.writeItemLookupError(w, perr)
 			return true
 		}
 		if pos >= FreeTierVisibleLimit {
@@ -942,12 +1065,11 @@ func (s *SearchServer) handleItems(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
 		return
 	}
-	// 免费版写门控：窗口外记录不允许删除（与读窗口语义一致，#21）
-	if s.enforceFreeWindow(w, r, id) {
+	if !s.authorizeItemAccess(w, r, id) {
 		return
 	}
 	if err := s.store.Delete(r.Context(), id); err != nil {
-		s.writeError(w, err)
+		s.writeItemLookupError(w, err)
 		return
 	}
 	s.writeJSON(w, map[string]any{"ok": true})
@@ -959,13 +1081,12 @@ func (s *SearchServer) handleStarItem(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
 		return
 	}
-	// 免费版写门控：窗口外记录不允许收藏/取消收藏（与读窗口语义一致，#21）
-	if s.enforceFreeWindow(w, r, id) {
+	if !s.authorizeItemAccess(w, r, id) {
 		return
 	}
 	starred := r.URL.Query().Get("starred") != "0"
 	if err := s.store.Star(r.Context(), id, starred); err != nil {
-		s.writeError(w, err)
+		s.writeItemLookupError(w, err)
 		return
 	}
 	s.writeJSON(w, map[string]any{"ok": true, "starred": starred})
@@ -1048,14 +1169,8 @@ func (s *SearchServer) handleSensitiveRules(w http.ResponseWriter, r *http.Reque
 // handlePutConfig 接收设置页面提交的配置并持久化，立即通知各组件。
 // 注意：search.listenAddr 变更需重启应用后生效。
 func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求体读取失败", err)
-		return
-	}
 	var cfg Config
-	if err := json.Unmarshal(body, &cfg); err != nil {
+	if err := decodeJSONRequest(w, r, &cfg, 1<<20); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "配置格式错误", err)
 		return
 	}
@@ -1066,6 +1181,10 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	listenHost, _, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", "监听地址无效: "+err.Error(), err)
+		return
+	}
+	if _, err := configuredLocation(cfg.Search.TimeZone); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_time_zone", "日期筛选时区无效，请填写 system 或有效 IANA 时区", err)
 		return
 	}
 	if !isLoopbackHost(listenHost) && (!s.auth.HasLockPassword(curCfg) || !s.auth.HasSecondaryPassword(curCfg)) {
@@ -1103,17 +1222,18 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_sensitive_rule", "敏感规则无效: "+err.Error(), err)
 		return
 	}
-	// 保留当前密码哈希，不被前端回传的空值覆盖
-	if cfg.Security.LockPasswordHash == "" {
-		cfg.Security.LockPasswordHash = curCfg.Security.LockPasswordHash
-	}
-	if cfg.Security.SecondaryPasswordHash == "" {
-		cfg.Security.SecondaryPasswordHash = curCfg.Security.SecondaryPasswordHash
-	}
+	// 密码只能通过专用密码端点修改，通用配置请求无权写入凭据哈希。
+	cfg.Security.LockPasswordHash = curCfg.Security.LockPasswordHash
+	cfg.Security.SecondaryPasswordHash = curCfg.Security.SecondaryPasswordHash
 	// 保留备份相关敏感密码，不被前端回传的占位符或空值覆盖。
 	cfg.Backup.DirBackup.Password = resolveSecretField(cfg.Backup.DirBackup.Password, curCfg.Backup.DirBackup.Password)
 	cfg.Backup.EmailBackup.SMTPPass = resolveSecretField(cfg.Backup.EmailBackup.SMTPPass, curCfg.Backup.EmailBackup.SMTPPass)
 	cfg.Backup.EmailBackup.Password = resolveSecretField(cfg.Backup.EmailBackup.Password, curCfg.Backup.EmailBackup.Password)
+	normalizeConfig(&cfg)
+	if err := validateConfig(cfg); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_config", "配置参数无效: "+err.Error(), err)
+		return
+	}
 	// 启用定时备份时校验配置完整性，避免启用后无法实际执行备份。
 	if cfg.Backup.DirBackup.Enabled {
 		if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
@@ -1129,15 +1249,19 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	response := map[string]any{"ok": true}
 	if err := s.cfgMgr.Update(cfg); err != nil {
-		var hkErr *HotkeyError
-		if errors.As(err, &hkErr) {
-			s.logger.Info("config_updated", map[string]any{"hotkey_error": hkErr.Error()})
-			s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get()), "hotkeyError": hkErr.Error()})
+		var runtimeErr *ConfigRuntimeApplyError
+		if !errors.As(err, &runtimeErr) {
+			s.writeError(w, err)
 			return
 		}
-		s.writeError(w, err)
-		return
+		response["runtimeError"] = runtimeErr.Error()
+		var hkErr *HotkeyError
+		if errors.As(runtimeErr, &hkErr) {
+			response["hotkeyError"] = hkErr.Error()
+		}
+		s.logger.Warn("config_runtime_apply_failed", map[string]any{"error": runtimeErr.Error()})
 	}
 	// 超时设置变更后立即对当前会话生效，避免要等到下次登录/验证才应用。
 	token := GetSessionToken(r)
@@ -1150,7 +1274,8 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		s.auth.RefreshSecondaryExpiry(token, cfg.Security.SecondaryAuthTimeout)
 	}
 	s.logger.Info("config_updated", nil)
-	s.writeJSON(w, map[string]any{"ok": true, "config": stripSecrets(s.cfgMgr.Get())})
+	response["config"] = stripSecrets(s.cfgMgr.Get())
+	s.writeJSON(w, response)
 }
 
 // Asset bytes and their metadata are owned by the dedicated media endpoints.
@@ -1188,21 +1313,33 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		scope.Mode = "full"
 	}
 	if sinceID := r.URL.Query().Get("sinceId"); sinceID != "" {
-		if id, err := strconv.ParseInt(sinceID, 10, 64); err == nil {
-			scope.SinceID = id
+		if scope.Mode != "incremental" {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_since_id", "sinceId 仅适用于 incremental 模式", nil)
+			return
 		}
+		id, err := strconv.ParseInt(sinceID, 10, 64)
+		if err != nil || id <= 0 {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_since_id", "sinceId 必须是正整数", err)
+			return
+		}
+		scope.SinceID = id
 	}
 	// 统一校验（与备份 resolveBackupScope 共用 validateExportScope），
 	// 修复 range 模式只查非空不查 From>=To 的静默空导出问题。
+	var err error
+	scope, err = normalizeExportRange(scope, s.configuredTimeZone())
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", "导出范围无效", err)
+		return
+	}
 	if err := validateExportScope(scope); err != nil {
-		s.writeError(w, err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", "导出范围无效", err)
 		return
 	}
 
 	switch format {
 	case "xlsx":
-		// XLSX 暂保留全量导出（流式改造在后续阶段）
-		data, err := s.store.ExportXLSX(r.Context())
+		data, err := s.store.ExportXLSXScope(r.Context(), scope)
 		if err != nil {
 			s.writeError(w, err)
 			return
@@ -1230,11 +1367,10 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 			s.writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "cvexport 导出需要 POST 请求", nil)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		var req struct {
 			Password string `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 			s.writeAPIError(w, http.StatusBadRequest, "invalid_request", "无效的请求", nil)
 			return
 		}
@@ -1322,14 +1458,12 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 
 	response := map[string]any{"ok": true}
 	if err := s.cfgMgr.Reload(); err != nil {
+		response["runtimeError"] = err.Error()
 		var hotkeyError *HotkeyError
 		if errors.As(err, &hotkeyError) {
 			response["hotkeyError"] = hotkeyError.Error()
-			s.logger.Warn("import_runtime_refresh_failed", map[string]any{"format": format, "error": hotkeyError.Error()})
-		} else {
-			response["runtimeError"] = err.Error()
-			s.logger.Warn("import_runtime_refresh_failed", map[string]any{"format": format, "error": err.Error()})
 		}
+		s.logger.Warn("import_runtime_refresh_failed", map[string]any{"format": format, "error": err.Error()})
 	}
 	s.logger.Info("data_imported", map[string]any{"format": format})
 	s.writeJSON(w, response)
@@ -1344,30 +1478,12 @@ func (s *SearchServer) writeImportError(w http.ResponseWriter, err error) {
 // ── Recovery password management ──────────────────────────────
 
 func (s *SearchServer) handleRecoveryStatus(w http.ResponseWriter, r *http.Request) {
-	hasRecovery := HasRecoveryPassword(s.env.DataDir)
+	hasRecovery, err := HasRecoveryPassword(s.env.DataDir)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
 	s.writeJSON(w, map[string]any{"hasRecovery": hasRecovery})
-}
-
-func (s *SearchServer) handleRecoverySet(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
-		return
-	}
-	if HasRecoveryPassword(s.env.DataDir) {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "恢复密码已设置，请使用修改功能"})
-		return
-	}
-	if err := SetRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.Password); err != nil {
-		s.logger.Error("recovery_set_failed", err, nil)
-		// 原始 err（scrypt/文件系统内部细节）只进日志，客户端给可读文案
-		s.writeAPIError(w, http.StatusBadRequest, "recovery_set_failed", "设置恢复密码失败", err)
-		return
-	}
-	s.logger.Info("recovery_password_set", nil)
-	s.writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Request) {
@@ -1375,19 +1491,28 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 		OldPassword string `json:"oldPassword"`
 		NewPassword string `json:"newPassword"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
+	s.recoveryMu.Lock()
+	defer s.recoveryMu.Unlock()
 	if err := ChangeRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.OldPassword, req.NewPassword); err != nil {
 		s.logger.Error("recovery_change_failed", err, nil)
-		// RecoveryPasswordError（wrong_password/not_set）是用户可理解的业务错误，
-		// 其 Error() 仅含业务码不含内部细节，可回传；其他错误只进日志。
 		var rpe *RecoveryPasswordError
 		if errors.As(err, &rpe) {
-			s.writeAPIError(w, http.StatusBadRequest, "recovery_change_failed", err.Error(), err)
+			message := "修改恢复密码失败"
+			switch rpe.Code {
+			case "wrong_password":
+				message = "当前恢复密码不正确"
+			case "not_set":
+				message = "尚未设置恢复密码"
+			case "weak_password":
+				message = "新恢复密码至少需要 12 个字符，且首尾不能有空格"
+			}
+			s.writeAPIError(w, http.StatusBadRequest, "recovery_change_failed", message, err)
 		} else {
-			s.writeAPIError(w, http.StatusBadRequest, "recovery_change_failed", "修改恢复密码失败", err)
+			s.writeInternalError(w, err)
 		}
 		return
 	}
@@ -1395,14 +1520,32 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
-func (s *SearchServer) handleRecoveryRemove(w http.ResponseWriter, r *http.Request) {
-	if err := RemoveRecoveryPassword(s.env.DataDir); err != nil {
-		s.logger.Error("recovery_remove_failed", err, nil)
-		// 原始 err（文件系统）只进日志
-		s.writeAPIError(w, http.StatusBadRequest, "recovery_remove_failed", "移除恢复密码失败", err)
+func (s *SearchServer) handleRecoveryReset(w http.ResponseWriter, r *http.Request) {
+	fresh, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
+	if !fresh {
+		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", "重置恢复密码需要重新输入二次密码", nil)
 		return
 	}
-	s.logger.Info("recovery_password_removed", nil)
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		return
+	}
+	s.recoveryMu.Lock()
+	defer s.recoveryMu.Unlock()
+	if err := ResetRecoveryPassword(s.env.DataDir, s.store.DBKey(), req.Password); err != nil {
+		s.logger.Error("recovery_reset_failed", err, nil)
+		var rpe *RecoveryPasswordError
+		if errors.As(err, &rpe) && rpe.Code == "weak_password" {
+			s.writeAPIError(w, http.StatusBadRequest, "recovery_reset_failed", "重置恢复密码失败：请使用至少 12 个字符且首尾无空格", err)
+		} else {
+			s.writeInternalError(w, err)
+		}
+		return
+	}
+	s.logger.Info("recovery_password_reset", nil)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -1507,6 +1650,9 @@ func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 	} else if eb.Format == "cvexport" && eb.Password == "" {
 		missing = append(missing, "加密密码")
 	}
+	if eb.MaxPartSize < 1<<20 || eb.MaxPartSize > 50<<20 {
+		missing = append(missing, "单封邮件上限")
+	}
 	missing = append(missing, emailTemplateErrors(eb)...)
 	if len(missing) == 0 {
 		return ""
@@ -1585,9 +1731,12 @@ func (s *SearchServer) writeFileRefError(w http.ResponseWriter, err error) {
 
 // handleFileCheck checks if a file exists and returns its metadata.
 func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
-	p, err := s.resolveRecordedFilePath(r)
+	p, sensitive, err := s.resolveRecordedFile(r)
 	if err != nil {
 		s.writeFileRefError(w, err)
+		return
+	}
+	if sensitive && !s.authorizeSecondaryRequest(w, r) {
 		return
 	}
 	info, err := os.Stat(p)
@@ -1603,9 +1752,12 @@ func (s *SearchServer) handleFileCheck(w http.ResponseWriter, r *http.Request) {
 
 // handleFileServe serves a file for inline viewing or download.
 func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
-	p, err := s.resolveRecordedFilePath(r)
+	p, sensitive, err := s.resolveRecordedFile(r)
 	if err != nil {
 		s.writeFileRefError(w, err)
+		return
+	}
+	if sensitive && !s.authorizeSecondaryRequest(w, r) {
 		return
 	}
 	info, err := os.Stat(p)
@@ -1621,9 +1773,12 @@ func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 
 // handleFileHash computes and returns the MD5 and SHA256 hashes of a file on demand.
 func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
-	p, err := s.resolveRecordedFilePath(r)
+	p, sensitive, err := s.resolveRecordedFile(r)
 	if err != nil {
 		s.writeFileRefError(w, err)
+		return
+	}
+	if sensitive && !s.authorizeSecondaryRequest(w, r) {
 		return
 	}
 	info, err := os.Stat(p)
@@ -1649,9 +1804,12 @@ func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 
 // handleFileOpenDir opens the file's containing directory in the system file explorer.
 func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request) {
-	p, err := s.resolveRecordedFilePath(r)
+	p, sensitive, err := s.resolveRecordedFile(r)
 	if err != nil {
 		s.writeFileRefError(w, err)
+		return
+	}
+	if sensitive && !s.authorizeSecondaryRequest(w, r) {
 		return
 	}
 	if err := openFolderAndSelectItem(p); err != nil {
@@ -1665,37 +1823,42 @@ func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request)
 // 调用方据此返回 402（与 enforceFreeWindow / handleItemPosition 语义一致，#2b）。
 var ErrFreeWindowOutside = errors.New("file record is outside the free-tier visible window")
 
-// ErrFileRefLookup 表示 resolveRecordedFilePath 在存储层/IO 查询（GetPositionByID、GetByID）
+// ErrFileRefLookup 表示 resolveRecordedFile 在存储层/IO 查询（GetPositionByID、GetByID）
 // 失败时返回。调用方据此返回 5xx（与 enforceFreeWindow / handleItemPosition 对同类错误的处理
 // 对齐），避免把 DuckDB 查询故障误报成 400 客户端参数错误。原始错误通过 %v 保留在链中便于日志。
 var ErrFileRefLookup = errors.New("file reference lookup failed")
 
-func (s *SearchServer) resolveRecordedFilePath(r *http.Request) (string, error) {
+// resolveRecordedFile 返回路径以及该记录是否为敏感记录。敏感属性必须和
+// 路径在同一次记录读取中取得，避免授权检查与实际读取之间发生错配。
+func (s *SearchServer) resolveRecordedFile(r *http.Request) (string, bool, error) {
 	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
-		return "", fmt.Errorf("invalid item_id")
+		return "", false, fmt.Errorf("invalid item_id")
+	}
+	fileIndex, err := strconv.Atoi(r.URL.Query().Get("file_index"))
+	if err != nil || fileIndex < 0 {
+		return "", false, fmt.Errorf("invalid file_index")
+	}
+	item, err := s.store.GetByID(r.Context(), itemID)
+	if errors.Is(err, ErrItemNotFound) {
+		return "", false, fmt.Errorf("item not found")
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("%w: load item: %v", ErrFileRefLookup, err)
 	}
 	// 免费版读窗口门控：未激活用户只能访问最近 FreeTierVisibleLimit 条记录，
 	// 窗口外的文件记录不允许定位/下载/校验/打开（与 enforceFreeWindow 一致，#2b）。
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
 		pos, perr := s.store.GetPositionByID(r.Context(), itemID)
 		if perr != nil {
-			return "", fmt.Errorf("%w: resolve position: %v", ErrFileRefLookup, perr)
+			return "", false, fmt.Errorf("%w: resolve position: %v", ErrFileRefLookup, perr)
 		}
 		if pos >= FreeTierVisibleLimit {
-			return "", ErrFreeWindowOutside
+			return "", false, ErrFreeWindowOutside
 		}
 	}
-	fileIndex, err := strconv.Atoi(r.URL.Query().Get("file_index"))
-	if err != nil || fileIndex < 0 {
-		return "", fmt.Errorf("invalid file_index")
-	}
-	item, err := s.store.GetByID(r.Context(), itemID)
-	if err != nil {
-		return "", fmt.Errorf("%w: item not found: %v", ErrFileRefLookup, err)
-	}
 	if item.Format != "CF_HDROP" || !isStoredFileKind(item.Kind) {
-		return "", fmt.Errorf("item is not a file record")
+		return "", false, fmt.Errorf("item is not a file record")
 	}
 	lines := strings.Split(strings.ReplaceAll(item.Text, "\r\n", "\n"), "\n")
 	paths := make([]string, 0, len(lines))
@@ -1705,9 +1868,9 @@ func (s *SearchServer) resolveRecordedFilePath(r *http.Request) (string, error) 
 		}
 	}
 	if fileIndex >= len(paths) {
-		return "", fmt.Errorf("file_index out of range")
+		return "", false, fmt.Errorf("file_index out of range")
 	}
-	return paths[fileIndex], nil
+	return paths[fileIndex], item.Sensitive, nil
 }
 
 func isStoredFileKind(kind string) bool {
@@ -1746,16 +1909,28 @@ func (s *SearchServer) handleGroupsCreate(w http.ResponseWriter, r *http.Request
 		Name     string `json:"name"`
 		ParentID int64  `json:"parentId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "分组名称不能为空"})
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能为空", nil)
 		return
 	}
 	g, err := s.store.CreateGroup(r.Context(), strings.TrimSpace(req.Name), req.ParentID)
 	if err != nil {
+		if errors.Is(err, ErrInvalidGroupName) {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能超过 100 个字符", err)
+			return
+		}
+		if errors.Is(err, ErrInvalidGroupParent) {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_parent_id", "父分组 ID 无效", err)
+			return
+		}
+		if errors.Is(err, ErrGroupParentMissing) {
+			s.writeAPIError(w, http.StatusNotFound, "parent_not_found", "父分组不存在", err)
+			return
+		}
 		s.writeError(w, err)
 		return
 	}
@@ -1774,17 +1949,25 @@ func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request
 		Name     string `json:"name"`
 		ParentID int64  `json:"parentId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "分组名称不能为空"})
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能为空", nil)
 		return
 	}
 	if err := s.store.UpdateGroup(r.Context(), id, strings.TrimSpace(req.Name), req.ParentID); err != nil {
-		// DB 内部错误只进日志（#19）
-		s.writeAPIError(w, http.StatusBadRequest, "group_update_failed", "更新分组失败", err)
+		switch {
+		case errors.Is(err, ErrInvalidGroupName):
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能超过 100 个字符", err)
+		case errors.Is(err, ErrGroupNotFound), errors.Is(err, ErrGroupParentMissing):
+			s.writeAPIError(w, http.StatusNotFound, "group_not_found", "分组或父分组不存在", err)
+		case errors.Is(err, ErrInvalidGroupParent), errors.Is(err, ErrGroupCycle):
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_parent_id", "父分组无效或会形成循环", err)
+		default:
+			s.writeError(w, err)
+		}
 		return
 	}
 	s.logger.Info("group_updated", map[string]any{"id": id, "name": req.Name, "parentId": req.ParentID})
@@ -1799,6 +1982,10 @@ func (s *SearchServer) handleGroupsDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.store.DeleteGroup(r.Context(), id); err != nil {
+		if errors.Is(err, ErrGroupNotFound) {
+			s.writeAPIError(w, http.StatusNotFound, "group_not_found", "分组不存在", err)
+			return
+		}
 		s.writeError(w, err)
 		return
 	}
@@ -1812,12 +1999,15 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 		ItemID  int64 `json:"itemId"`
 		GroupID int64 `json:"groupId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
 	if req.ItemID <= 0 || req.GroupID <= 0 {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "invalid itemId or groupId"})
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的条目或分组 id", nil)
+		return
+	}
+	if !s.authorizeItemAccess(w, r, req.ItemID) {
 		return
 	}
 	if err := s.store.AddItemToGroup(r.Context(), req.ItemID, req.GroupID); err != nil {
@@ -1843,6 +2033,9 @@ func (s *SearchServer) handleItemRemoveFromGroup(w http.ResponseWriter, r *http.
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "无效的分组 id", nil)
 		return
 	}
+	if !s.authorizeItemAccess(w, r, itemID) {
+		return
+	}
 	if err := s.store.RemoveItemFromGroup(r.Context(), itemID, groupID); err != nil {
 		s.writeError(w, err)
 		return
@@ -1857,6 +2050,9 @@ func (s *SearchServer) handleItemGroups(w http.ResponseWriter, r *http.Request) 
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", "无效的条目 id", nil)
 		return
 	}
+	if !s.authorizeItemAccess(w, r, itemID) {
+		return
+	}
 	ids, err := s.store.GetItemGroups(r.Context(), itemID)
 	if err != nil {
 		s.writeError(w, err)
@@ -1868,6 +2064,34 @@ func (s *SearchServer) handleItemGroups(w http.ResponseWriter, r *http.Request) 
 	s.writeJSON(w, map[string]any{"groupIds": ids})
 }
 
+func (s *SearchServer) authorizeItemAccess(w http.ResponseWriter, r *http.Request, itemID int64) bool {
+	item, err := s.store.GetByID(r.Context(), itemID)
+	if err != nil {
+		s.writeItemLookupError(w, err)
+		return false
+	}
+	if s.enforceFreeWindow(w, r, itemID) {
+		return false
+	}
+	return !item.Sensitive || s.authorizeSecondaryRequest(w, r)
+}
+
+func decodeJSONRequest(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("request body must contain exactly one JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
 func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(v)
@@ -1877,7 +2101,7 @@ func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {
 // 原始 err 只写日志，不回传客户端（防 SQL/DuckDB 内部细节泄漏，#19）。
 // 前端以 d.error 字段消费错误，message 保留为可读文案；code 供程序化判断。
 func (s *SearchServer) writeAPIError(w http.ResponseWriter, status int, code, userMsg string, err error) {
-	if err != nil {
+	if err != nil && s.logger != nil {
 		s.logger.Warn("api_error", map[string]any{"code": code, "error": err.Error()})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -1891,6 +2115,14 @@ func (s *SearchServer) writeInternalError(w http.ResponseWriter, err error) {
 }
 
 func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
+	s.writeInternalError(w, err)
+}
+
+func (s *SearchServer) writeItemLookupError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrItemNotFound) {
+		s.writeAPIError(w, http.StatusNotFound, "not_found", "记录不存在", nil)
+		return
+	}
 	s.writeInternalError(w, err)
 }
 
@@ -1959,42 +2191,54 @@ func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.cfgMgr.Get()
-		if !s.auth.HasLockPassword(cfg) {
-			// 未设置锁屏密码时，也不需要二次认证
-			if !s.auth.HasSecondaryPassword(cfg) {
-				next(w, r)
-				return
-			}
-		}
-		token := GetSessionToken(r)
-		sess := s.auth.GetSession(token)
-		if sess == nil || !sess.Authenticated {
-			if s.auth.HasLockPassword(cfg) {
+		if s.auth.HasLockPassword(cfg) {
+			sess := s.auth.GetSession(GetSessionToken(r))
+			if sess == nil || !sess.Authenticated {
 				s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
 				return
 			}
-			// 没有锁屏密码时，不需要会话认证，但仍需二次认证
 		}
-		if s.auth.HasSecondaryPassword(cfg) {
-			freshVerified := false
-			if freshToken := r.Header.Get(freshSecondaryHeaderName); freshToken != "" {
-				freshVerified = s.auth.ConsumeSecondaryToken(freshToken)
-				if freshVerified {
-					r = r.WithContext(context.WithValue(r.Context(), freshSecondaryContextKey{}, true))
-				}
-			}
-			// 先检查会话级二次认证缓存
-			if !freshVerified && !s.auth.HasSecondaryAuth(token) {
-				// 再检查一次性 token，避免把敏感 token 写入 URL 和浏览器历史。
-				oneTimeToken := r.Header.Get("X-ClipVault-Secondary-Token")
-				if !s.auth.ConsumeSecondaryToken(oneTimeToken) {
-					s.writeAPIError(w, http.StatusForbidden, "secondary_required", "需要二次认证", nil)
-					return
-				}
-			}
+		if !s.authorizeSecondaryRequest(w, r) {
+			return
 		}
 		next(w, r)
 	}
+}
+
+// authorizeSecondaryRequest 对单个请求执行二次认证检查。它既供中间件使用，
+// 也供“仅当目标记录敏感时才保护”的文件端点使用。
+func (s *SearchServer) authorizeSecondaryRequest(w http.ResponseWriter, r *http.Request) bool {
+	cfg := s.cfgMgr.Get()
+	if !s.auth.HasSecondaryPassword(cfg) {
+		return true
+	}
+	token := GetSessionToken(r)
+	sess := s.auth.GetSession(token)
+	if sess == nil || !sess.Authenticated {
+		if s.auth.HasLockPassword(cfg) {
+			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
+		} else {
+			s.writeAPIError(w, http.StatusForbidden, "secondary_required", "需要二次认证", nil)
+		}
+		return false
+	}
+	if freshToken := r.Header.Get(freshSecondaryHeaderName); freshToken != "" {
+		if s.auth.ConsumeSecondaryToken(freshToken, token) {
+			// WithContext 无法在 bool helper 中替换调用方的请求指针；fresh 语义
+			// 由独立 helper 判断请求头是否已成功消费，见 requireFreshSecondary。
+			*r = *r.WithContext(context.WithValue(r.Context(), freshSecondaryContextKey{}, true))
+			return true
+		}
+	}
+	if s.auth.HasSecondaryAuth(token) {
+		return true
+	}
+	oneTimeToken := r.Header.Get("X-ClipVault-Secondary-Token")
+	if s.auth.ConsumeSecondaryToken(oneTimeToken, token) {
+		return true
+	}
+	s.writeAPIError(w, http.StatusForbidden, "secondary_required", "需要二次认证", nil)
+	return false
 }
 
 // ── Auth endpoints ────────────────────────────────────────────
@@ -2024,7 +2268,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
@@ -2033,15 +2277,15 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, map[string]any{"ok": true, "message": "no lock password set"})
 		return
 	}
-	if status := s.auth.CheckRateLimit(); !status.Allowed {
+	if status := s.auth.CheckRateLimitFor(ratePurposeLock); !status.Allowed {
 		s.writeRateLimitBlocked(w, status)
 		return
 	}
 	if !s.auth.VerifyLockPassword(cfg, req.Password) {
-		s.writePasswordFailure(w, "密码错误", s.auth.RecordFailedAttempt())
+		s.writePasswordFailure(w, "密码错误", s.auth.RecordFailedAttemptFor(ratePurposeLock))
 		return
 	}
-	s.auth.ResetRateLimit()
+	s.auth.ResetRateLimitFor(ratePurposeLock)
 	token, err := s.auth.CreateSession(cfg.Security.LockSessionTimeout)
 	if err != nil {
 		s.writeError(w, err)
@@ -2065,7 +2309,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
@@ -2074,7 +2318,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		s.writeJSON(w, map[string]any{"ok": true, "message": "no secondary password set"})
 		return
 	}
-	if status := s.auth.CheckRateLimit(); !status.Allowed {
+	if status := s.auth.CheckRateLimitFor(ratePurposeSecondary); !status.Allowed {
 		s.writeRateLimitBlocked(w, status)
 		return
 	}
@@ -2085,7 +2329,15 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
 			return
 		}
-		// 没有锁屏密码时，创建一个临时会话用于二次认证
+	}
+	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
+		s.writePasswordFailure(w, "二次密码错误", s.auth.RecordFailedAttemptFor(ratePurposeSecondary))
+		return
+	}
+	s.auth.ResetRateLimitFor(ratePurposeSecondary)
+	if sess == nil || !sess.Authenticated {
+		// 无锁屏密码时，只在二次密码验证成功后创建会话。失败尝试不应
+		// 留下最长存活 24 小时的无用会话。
 		var err error
 		token, err = s.auth.CreateSession(cfg.Security.LockSessionTimeout)
 		if err != nil {
@@ -2094,11 +2346,6 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		}
 		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
 	}
-	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
-		s.writePasswordFailure(w, "二次密码错误", s.auth.RecordFailedAttempt())
-		return
-	}
-	s.auth.ResetRateLimit()
 	s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
 
 	// 无论 timeout 是否为 0，都生成一个一次性 token 供当前操作使用
@@ -2108,7 +2355,11 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	resp := map[string]any{"ok": true, "secondaryToken": oneTimeToken}
+	resp := map[string]any{
+		"ok":              true,
+		"secondaryToken":  oneTimeToken,
+		"secondaryCached": cfg.Security.SecondaryAuthTimeout > 0,
+	}
 	if cfg.Security.SecondaryAuthTimeout > 0 {
 		resp["message"] = fmt.Sprintf("二次验证成功，%d 分钟内无需重复验证", cfg.Security.SecondaryAuthTimeout)
 	} else {
@@ -2118,10 +2369,11 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	s.writeJSON(w, resp)
 }
 
-// handleAuthSetPassword 设置或修改锁屏密码和二次密码。
+// handleAuthSetPassword 设置、修改或删除锁屏密码，以及修改二次密码。
 // 请求体格式:
 //
-//	{ "type": "lock"|"secondary", "action": "set"|"change"|"remove", "oldPassword": "", "newPassword": "" }
+//	{ "type": "lock", "action": "set"|"change"|"remove", "oldPassword": "", "newPassword": "" }
+//	{ "type": "secondary", "action": "change", "oldPassword": "", "newPassword": "" }
 func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type        string `json:"type"`        // "lock" or "secondary"
@@ -2129,7 +2381,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		OldPassword string `json:"oldPassword"` // 旧密码（change/remove 时必填）
 		NewPassword string `json:"newPassword"` // 新密码
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
@@ -2142,35 +2394,36 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_action", "无效的操作", nil)
 		return
 	}
+	if req.Type == "secondary" && req.Action != "change" {
+		s.writeAPIError(w, http.StatusBadRequest, "secondary_password_required", "二次密码只能修改，无法重新设置或删除", nil)
+		return
+	}
 
 	cfg := s.cfgMgr.Get()
 
 	// 修改或删除前必须校验现有密码。
 	if req.Action == "change" || req.Action == "remove" {
-		if status := s.auth.CheckRateLimit(); !status.Allowed {
+		purpose := req.Type
+		if status := s.auth.CheckRateLimitFor(purpose); !status.Allowed {
 			s.writeRateLimitBlocked(w, status)
 			return
 		}
 		if req.Type == "lock" {
 			if !s.auth.VerifyLockPassword(cfg, req.OldPassword) {
-				s.writePasswordFailure(w, "当前锁屏密码错误", s.auth.RecordFailedAttempt())
+				s.writePasswordFailure(w, "当前锁屏密码错误", s.auth.RecordFailedAttemptFor(purpose))
 				return
 			}
 		} else {
 			if !s.auth.VerifySecondaryPassword(cfg, req.OldPassword) {
-				s.writePasswordFailure(w, "当前二次密码错误", s.auth.RecordFailedAttempt())
+				s.writePasswordFailure(w, "当前二次密码错误", s.auth.RecordFailedAttemptFor(purpose))
 				return
 			}
 		}
-		s.auth.ResetRateLimit()
+		s.auth.ResetRateLimitFor(purpose)
 	} else if req.Action == "set" {
 		// set 操作要求该密码尚未设置
-		if req.Type == "lock" && s.auth.HasLockPassword(cfg) {
+		if s.auth.HasLockPassword(cfg) {
 			s.writeJSON(w, map[string]any{"ok": false, "error": "锁屏密码已设置，请使用修改功能"})
-			return
-		}
-		if req.Type == "secondary" && s.auth.HasSecondaryPassword(cfg) {
-			s.writeJSON(w, map[string]any{"ok": false, "error": "二次密码已设置，请使用修改功能"})
 			return
 		}
 	}
@@ -2181,25 +2434,28 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 			s.writeJSON(w, map[string]any{"ok": false, "error": "当前已开放局域网监听，请先将监听地址改回 127.0.0.1 后再删除密码"})
 			return
 		}
-		if req.Type == "lock" {
-			cfg.Security.LockPasswordHash = ""
-		} else {
-			cfg.Security.SecondaryPasswordHash = ""
-		}
-		if err := s.cfgMgr.Update(cfg); err != nil {
-			s.writeError(w, err)
+		cfg.Security.LockPasswordHash = ""
+		updateErr := s.cfgMgr.Update(cfg)
+		var runtimeErr *ConfigRuntimeApplyError
+		if updateErr != nil && !errors.As(updateErr, &runtimeErr) {
+			s.writeError(w, updateErr)
 			return
 		}
-		if req.Type == "lock" {
-			s.auth.DestroyAllSessionsExcept(GetSessionToken(r))
-		} else {
-			s.auth.RevokeAllSecondaryAuth()
-		}
+		s.auth.DestroyAllSessionsExcept(GetSessionToken(r))
 		s.logger.Info("auth_password_removed", map[string]any{"type": req.Type})
-		s.writeJSON(w, map[string]any{"ok": true})
+		response := map[string]any{"ok": true}
+		if runtimeErr != nil {
+			response["runtimeError"] = runtimeErr.Error()
+			s.logger.Warn("auth_password_runtime_apply_failed", map[string]any{"type": req.Type, "error": runtimeErr.Error()})
+		}
+		s.writeJSON(w, response)
 		return
 	}
 
+	if err := validateAuthPassword(req.NewPassword); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "weak_password", err.Error(), nil)
+		return
+	}
 	hash, err := newPasswordHash(req.NewPassword)
 	if err != nil {
 		s.writeError(w, err)
@@ -2210,8 +2466,10 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	} else {
 		cfg.Security.SecondaryPasswordHash = hash
 	}
-	if err := s.cfgMgr.Update(cfg); err != nil {
-		s.writeError(w, err)
+	updateErr := s.cfgMgr.Update(cfg)
+	var runtimeErr *ConfigRuntimeApplyError
+	if updateErr != nil && !errors.As(updateErr, &runtimeErr) {
+		s.writeError(w, updateErr)
 		return
 	}
 
@@ -2225,5 +2483,10 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	}
 
 	s.logger.Info("auth_password_set", map[string]any{"type": req.Type, "action": req.Action})
-	s.writeJSON(w, map[string]any{"ok": true})
+	response := map[string]any{"ok": true}
+	if runtimeErr != nil {
+		response["runtimeError"] = runtimeErr.Error()
+		s.logger.Warn("auth_password_runtime_apply_failed", map[string]any{"type": req.Type, "error": runtimeErr.Error()})
+	}
+	s.writeJSON(w, response)
 }
