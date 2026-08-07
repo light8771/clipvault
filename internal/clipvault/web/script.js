@@ -53,6 +53,10 @@
   let locateActive = false; // 定位进行中，阻止 resetSearch 干扰
   let filterDateFrom = '', filterDateTo = '';
   let currentGroupID = 0; // 0 = no group filter
+  // 来源应用（exe）下拉与别名/白名单状态
+  let sourceAliases = {};      // { [rawExeName]: customName }
+  let allSourceExes = [];      // [{name,count}]
+  let currentSourceExes = [];  // 当前多选选中的真实 exe 名
 	// freeLimit 由后端 GET /api/license/status 下发，权威值是 Go 侧的 FreeTierVisibleLimit。
 	// 前端不再自带默认条数：取不到时保持 0（含义为"限额未知"），所有带具体数字的限额文案一律不渲染。
 	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '', freeLimit: 0 };
@@ -1124,11 +1128,12 @@
       const starTitle = it.starred ? '取消收藏' : '收藏';
       const sensHTML  = it.sensitive ? '<span class="msens">敏感</span>' : '';
       const sensAttr  = it.sensitive ? ' data-sensitive="1"' : '';
-      // 来源应用（前台窗口法）：exe 名直接显示，悬停看窗口标题与完整路径
+      // 来源应用（前台窗口法）：ShowExe 缺省视为 true；标签用别名（若有），悬停看窗口标题与完整路径
       let srcHTML = '';
-      if (it.sourceExeName) {
+      if (currentCfg?.source?.showExe !== false && it.sourceExeName) {
+        const srcLabel = sourceAliases[it.sourceExeName] || it.sourceExeName;
         const srcTip = esc([it.sourceWindowTitle, it.sourceExePath].filter(Boolean).join('\n'));
-        srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${esc(it.sourceExeName)}</span>`;
+        srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${esc(srcLabel)}</span>`;
       }
 
       let bodyHTML, charText, showView;
@@ -1239,6 +1244,9 @@
       }
       if (filterDateFrom) p.set('date_from', filterDateFrom);
       if (filterDateTo)   p.set('date_to',   filterDateTo);
+      if (url === '/api/search' || url === '/api/search/sensitive') {
+        currentSourceExes.forEach(n => p.append('source_exe', n));
+      }
       const request = url === '/api/search/sensitive' ? secondaryFetch : fetch;
       const d = await request(url + '?' + p).then(r => r.json());
       if (d.error === 'secondary_required') {
@@ -1252,6 +1260,94 @@
       render(d.items || [], q);
       updatePagination();
     } catch (_) {}
+  }
+
+  // ── 来源应用（exe）下拉 ─────────────────────────────────
+  async function loadSourceExes() {
+    try {
+      const data = await fetch('/api/source-exes').then(r => r.json());
+      allSourceExes = Array.isArray(data) ? data : [];
+    } catch (_) {
+      allSourceExes = [];
+    }
+    renderSrcExeDropdown();
+  }
+
+  function renderSrcExeDropdown() {
+    const wrap = document.getElementById('srcExeDropdown');
+    const list = document.getElementById('srcExeList');
+    const counter = document.getElementById('srcExeCount');
+    const filterInput = document.getElementById('srcExeFilter');
+    if (!wrap || !list) return;
+    const cfg = currentCfg || {};
+    const recordingOn = cfg.recordSourceInfo !== false;
+    if (!recordingOn) {
+      wrap.classList.add('disabled');
+      list.innerHTML = '<p class="src-exe-empty">来源采集已关闭</p>';
+      if (counter) counter.textContent = '';
+      return;
+    }
+    wrap.classList.remove('disabled');
+    const srcCfg = cfg.source || {};
+    const whitelist = srcCfg.exeWhitelist || [];
+    const showAll = !whitelist.length;
+    let items = showAll ? allSourceExes.slice() : allSourceExes.filter(e => whitelist.includes(e.name));
+    const q = (filterInput && filterInput.value || '').trim().toLowerCase();
+    if (q) {
+      items = items.filter(e => {
+        const label = (sourceAliases[e.name] || e.name).toLowerCase();
+        return label.includes(q) || e.name.toLowerCase().includes(q);
+      });
+    }
+    if (!items.length) {
+      list.innerHTML = '<p class="src-exe-empty">无可筛选来源应用</p>';
+    } else {
+      list.innerHTML = items.map(e => {
+        const label = sourceAliases[e.name] || e.name;
+        const checked = currentSourceExes.includes(e.name);
+        return `<label class="src-exe-opt"><input type="checkbox" value="${esc(e.name)}"${checked ? ' checked' : ''}><span class="src-exe-name">${esc(label)}</span><span class="src-exe-cnt">${e.count}</span></label>`;
+      }).join('');
+    }
+    if (counter) counter.textContent = currentSourceExes.length ? '(' + currentSourceExes.length + ')' : '';
+  }
+
+  function setupSrcExeUI() {
+    const btn = document.getElementById('srcExeBtn');
+    const pop = document.getElementById('srcExePop');
+    const list = document.getElementById('srcExeList');
+    const filterInput = document.getElementById('srcExeFilter');
+    if (btn && pop) {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pop.hidden = !pop.hidden;
+      });
+      document.addEventListener('click', (e) => {
+        if (pop.hidden) return;
+        if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+          pop.hidden = true;
+        }
+      });
+    }
+    if (filterInput) {
+      filterInput.addEventListener('input', () => renderSrcExeDropdown());
+    }
+    if (list) {
+      list.addEventListener('change', (e) => {
+        const cb = e.target.closest('input[type="checkbox"]');
+        if (!cb) return;
+        const name = cb.value;
+        if (cb.checked) {
+          if (!currentSourceExes.includes(name)) currentSourceExes.push(name);
+        } else {
+          currentSourceExes = currentSourceExes.filter(n => n !== name);
+        }
+        renderSrcExeDropdown();
+        search();
+      });
+    }
+    const rsi = document.getElementById('cfg-recordSourceInfo');
+    if (rsi) rsi.addEventListener('change', () => renderSrcExeDropdown());
   }
 
   function updatePagination() {
@@ -1932,6 +2028,7 @@
       const cfg = await fetch('/api/config').then(r => r.json());
       if (request === configRequestSequence && revision === configRevision && !hasPendingConfigSave()) {
         replaceCurrentConfig(cfg);
+        try { await loadSourceExes(); } catch (_) {}
         applyConfigToForm(cfg);
       }
     } catch (_) {
@@ -2153,6 +2250,13 @@
     // 缺省视为开启：与后端 DefaultConfig().RecordSourceInfo = true 对齐
     if (rsi) rsi.checked = cfg.recordSourceInfo !== false;
 
+    // 来源应用配置：ShowExe 缺省视为 true；别名/白名单编辑器依赖 allSourceExes（由 loadSourceExes 填充）
+    sourceAliases = cfg.source?.exeAliases || {};
+    const showExeEl = document.getElementById('cfg-sourceShowExe');
+    if (showExeEl) showExeEl.checked = cfg.source?.showExe !== false;
+    renderSourceAliases(sourceAliases);
+    renderSourceWhitelist(cfg.source?.exeWhitelist || []);
+
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
     updateListenAddressWarning();
 
@@ -2299,6 +2403,71 @@
     loadBackupStatus();
   }
 
+  // ── 来源应用别名 / 白名单编辑器 ─────────────────────────
+  function renderSourceAliases(exeAliases) {
+    const wrap = document.getElementById('srcAliases');
+    if (!wrap) return;
+    if (!allSourceExes.length) {
+      wrap.innerHTML = '<p class="src-empty-hint">暂无已记录的来源应用</p>';
+      return;
+    }
+    wrap.innerHTML = allSourceExes.map(e => {
+      const custom = (exeAliases && exeAliases[e.name]) || '';
+      return `<div class="src-alias-row" data-raw="${esc(e.name)}">
+        <span class="src-alias-raw" title="${esc(e.name)}">${esc(e.name)}</span>
+        <input type="text" class="src-alias-input" maxlength="40" placeholder="别名（可选）" value="${esc(custom)}">
+      </div>`;
+    }).join('');
+  }
+
+  function renderSourceWhitelist(whitelist) {
+    const wrap = document.getElementById('srcWhitelist');
+    if (!wrap) return;
+    if (!allSourceExes.length) {
+      wrap.innerHTML = '<p class="src-empty-hint">暂无已记录的来源应用</p>';
+      return;
+    }
+    const set = new Set(whitelist || []);
+    // 白名单为空/nil 表示显示全部；渲染时全部勾选
+    const showAll = set.size === 0;
+    wrap.innerHTML = allSourceExes.map(e => {
+      const checked = showAll || set.has(e.name);
+      return `<label class="src-whitelist-opt"><input type="checkbox" value="${esc(e.name)}"${checked ? ' checked' : ''}><span>${esc(sourceAliases[e.name] || e.name)}</span></label>`;
+    }).join('');
+  }
+
+  function collectSrcAliases() {
+    const wrap = document.getElementById('srcAliases');
+    const out = {};
+    if (!wrap) return out;
+    wrap.querySelectorAll('.src-alias-row').forEach(row => {
+      const raw = row.dataset.raw;
+      const input = row.querySelector('input');
+      if (!raw || !input) return;
+      const val = input.value.trim();
+      if (val) out[raw] = val;
+    });
+    return out;
+  }
+
+  function collectSrcWhitelist() {
+    const wrap = document.getElementById('srcWhitelist');
+    if (!wrap) return null;
+    const boxes = wrap.querySelectorAll('input[type="checkbox"]');
+    const total = boxes.length;
+    const selected = [];
+    const domNames = new Set();
+    boxes.forEach(cb => {
+      domNames.add(cb.value);
+      if (cb.checked) selected.push(cb.value);
+    });
+    // 全选或全不选均表示"显示全部"，提交 null（与后端"白名单为空=显示全部"对齐）
+    if (selected.length === 0 || selected.length === total) return null;
+    // 保留已配置但当前无记录（不在 DOM 中）的白名单条目，防部分选中保存时静默丢失
+    (currentCfg.source?.exeWhitelist || []).forEach(n => { if (!domNames.has(n)) selected.push(n); });
+    return selected;
+  }
+
   // ── Unlock filter rules (secondary auth) ────────────────
   const unlockFilterBtn = document.getElementById('unlockFilterBtn');
   if (unlockFilterBtn) {
@@ -2439,6 +2608,19 @@
       maxTextChars:     parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
       maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
       recordSourceInfo: !!(document.getElementById('cfg-recordSourceInfo')?.checked),
+      source: {
+        // 展开 currentCfg.source：未来新增字段在前端未渲染时也能保留，不会被覆盖成 undefined
+        ...currentCfg.source,
+        showExe: document.getElementById('cfg-sourceShowExe')?.checked !== false ? true : false,
+        // 编辑器仅在 allSourceExes 非空时渲染 row/checkbox；fetch 失败或空库时
+        // 不渲染，此时回退 currentCfg.source 已存值，避免自动保存静默清空别名/白名单。
+        exeAliases: document.querySelector('#srcAliases .src-alias-row')
+          ? collectSrcAliases()
+          : (currentCfg.source?.exeAliases || {}),
+        exeWhitelist: document.querySelector('#srcWhitelist input[type="checkbox"]')
+          ? collectSrcWhitelist()
+          : (currentCfg.source?.exeWhitelist ?? null),
+      },
       sensitive: { customPatterns: patterns },
       search: {
         ...currentCfg.search,
@@ -3842,6 +4024,8 @@
     setupAutoSave();
     await loadTheme();
     await loadLicenseStatus();
+    setupSrcExeUI();
+    await loadSourceExes();
     // 支持 URL 参数快速跳转：
     //   ?q=<text>      直接以文本搜索
     //   ?locate=<id>   定位到时间线中的指定词条（复用 doLocate 逻辑）

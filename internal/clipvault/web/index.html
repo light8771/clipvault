@@ -115,6 +115,13 @@
         </button>
       </div>
       <div class="ctrl-right">
+        <div class="src-exe-dropdown" id="srcExeDropdown">
+          <button type="button" class="src-exe-btn" id="srcExeBtn">来源应用 <span class="src-exe-count" id="srcExeCount"></span></button>
+          <div class="src-exe-pop" id="srcExePop" hidden>
+            <div class="src-exe-search"><input type="search" id="srcExeFilter" placeholder="筛选应用..."></div>
+            <div class="src-exe-list" id="srcExeList"></div>
+          </div>
+        </div>
         <label class="ar-toggle">
           <input type="checkbox" id="ar">
           <span>自动刷新</span>
@@ -411,6 +418,30 @@
                 <input type="checkbox" id="cfg-recordSourceInfo">
                 <span>启用</span>
               </label>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-sourceShowExe">显示来源应用</label>
+                <p class="field-hint">在列表卡片上展示每条内容来自哪个应用</p>
+              </div>
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-sourceShowExe">
+                <span>启用</span>
+              </label>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">来源应用别名</label>
+                <p class="field-hint">为原始 exe 名设置易读别名，用于列表标签与搜索</p>
+              </div>
+              <div class="src-aliases" id="srcAliases"></div>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">下拉白名单</label>
+                <p class="field-hint">勾选的应用才出现在搜索下拉；全部勾选或不勾选均表示显示全部</p>
+              </div>
+              <div class="src-whitelist" id="srcWhitelist"></div>
             </div>
             <div class="field-row">
               <div class="field-info">

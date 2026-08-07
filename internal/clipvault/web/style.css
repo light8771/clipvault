@@ -2856,3 +2856,140 @@ article.locate-highlight {
     bottom: calc(64px + env(safe-area-inset-bottom));
   }
 }
+
+/* ── 来源应用（exe）搜索下拉 ──────────────────────────── */
+.src-exe-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.src-exe-dropdown.disabled .src-exe-btn {
+  opacity: .55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.src-exe-btn {
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--card-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--sub);
+  font: 500 13px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.src-exe-btn:hover { border-color: var(--p); color: var(--p); }
+.src-exe-count {
+  font-size: 12px;
+  color: var(--p);
+  font-weight: 600;
+}
+.src-exe-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 240px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0,0,0,.28);
+  z-index: 40;
+  overflow: hidden;
+}
+.src-exe-pop[hidden] { display: none; }
+.src-exe-search {
+  padding: 8px;
+  border-bottom: 1px solid var(--card-border);
+}
+.src-exe-search input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  color: var(--tx);
+  font: 13px sans-serif;
+  outline: none;
+}
+.src-exe-search input:focus { border-color: var(--p); }
+.src-exe-list {
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.src-exe-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: 13px sans-serif;
+  color: var(--tx);
+}
+.src-exe-opt:hover { background: var(--bg2); }
+.src-exe-opt input { accent-color: var(--p); }
+.src-exe-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src-exe-cnt { color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+.src-exe-empty, .src-empty-hint {
+  padding: 10px;
+  color: var(--sub);
+  font: 12px sans-serif;
+  text-align: center;
+}
+
+/* ── 设置页来源应用别名 / 白名单 ───────────────────────── */
+.src-aliases, .src-whitelist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 260px;
+  max-width: 360px;
+}
+.src-alias-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.src-alias-raw {
+  flex: 0 0 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--sub);
+}
+.src-alias-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  color: var(--tx);
+  font: 13px sans-serif;
+  outline: none;
+}
+.src-alias-input:focus { border-color: var(--p); }
+.src-whitelist-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  cursor: pointer;
+  font: 13px sans-serif;
+  color: var(--tx);
+}
+.src-whitelist-opt input { accent-color: var(--p); }
+

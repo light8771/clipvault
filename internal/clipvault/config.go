@@ -153,6 +153,8 @@ type Config struct {
 	// RecordSourceInfo 记录每条剪贴板内容的来源进程（前台窗口法）。
 	// 关闭后不再捕获任何来源信息，隐私敏感环境可关闭。
 	RecordSourceInfo bool               `json:"recordSourceInfo"`
+	// Source 控制"来源应用"的展示、筛选与搜索；仅当顶层 RecordSourceInfo=true 时有意义。
+	Source          SourceAppConfig     `json:"source"`
 	Brand            BrandConfig        `json:"brand"`
 	Background       BackgroundConfig   `json:"background"`
 	Theme            ThemeConfig        `json:"theme"`
@@ -164,6 +166,26 @@ type Config struct {
 	Hotkey           HotkeyConfig       `json:"hotkey"`
 	SearchHotkey     HotkeyConfig       `json:"searchHotkey"`
 	Backup           BackupConfig       `json:"backup"`
+}
+
+// SourceAppConfig 控制"来源应用"的展示、筛选与搜索；仅当顶层 RecordSourceInfo=true 时有意义。
+// 列表标签展示由 ShowExe 控制（默认 true）；下拉白名单为空/nil 表示显示全部；
+// 别名键为数据库原始 source_exe_name（大小写敏感），别名值参与匹配时大小写不敏感。
+type SourceAppConfig struct {
+	ShowExe      bool              `json:"showExe"`      // 列表是否展示来源应用标签，默认 true
+	ExeAliases   map[string]string `json:"exeAliases"`   // 原始 exe 名 -> 自定义显示名，键大小写敏感
+	ExeWhitelist []string          `json:"exeWhitelist"` // 下拉白名单；nil/空 = 显示全部
+}
+
+// normalize 填充零值字段并收敛类型，保证持久化与读取口径一致：
+// 别名映射 nil 归一为 {}，白名单空切片归一为 nil（"显示全部"语义）。
+func (s *SourceAppConfig) normalize() {
+	if s.ExeAliases == nil {
+		s.ExeAliases = map[string]string{}
+	}
+	if len(s.ExeWhitelist) == 0 {
+		s.ExeWhitelist = nil
+	}
 }
 
 // BrandConfig stores the visible site identity. Image content itself is kept
@@ -311,6 +333,11 @@ func DefaultConfig() Config {
 		MaxTextChars:      0, // 0 表示不限制
 		MaxFileDropPaths:  0, // 0 表示不限制
 		RecordSourceInfo: true,
+		Source: SourceAppConfig{
+			ShowExe:      true,
+			ExeAliases:   map[string]string{},
+			ExeWhitelist: nil,
+		},
 		Search: SearchConfig{
 			Enabled:    true,
 			ListenAddr: "127.0.0.1:18765",
@@ -424,6 +451,7 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Backup.EmailBackup.MaxPartSize <= 0 {
 		cfg.Backup.EmailBackup.MaxPartSize = def.Backup.EmailBackup.MaxPartSize
 	}
+	cfg.Source.normalize()
 }
 
 func isBackupFormat(format string) bool {

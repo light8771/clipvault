@@ -125,6 +125,10 @@ type SearchOptions struct {
 	// RestrictToLatestN > 0 时，查询仅作用于按 id DESC 取最近 N 条的窗口。
 	// 未激活（免费版）由调用方填充 FreeTierVisibleLimit；0 表示不限制。
 	RestrictToLatestN int
+	// SourceExeNames 用于"来源应用"下拉多选精确过滤（原始 exe 名等值比较，IN 子句）；空=不过滤。
+	SourceExeNames []string
+	// ExeAliases 用于主搜索框按别名子串匹配时，把命中的原始名以精确匹配并入该 term 的 OR 组；空=不展开。
+	ExeAliases map[string]string
 }
 
 const maxSearchTerms = 8
@@ -383,6 +387,35 @@ func (s *Store) ListEmailBackupHistory(ctx context.Context, limit int) ([]EmailB
 	return history, rows.Err()
 }
 
+// ExeStat 是某个来源应用（原始 exe 名）的记录计数。
+type ExeStat struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+// SourceExeStats 返回所有非空来源应用及其记录数，按 count 降序、名称升序排列。
+// 供前端"来源应用"下拉与白名单/别名编辑使用。
+// 注意：统计全表（含免费版 100 条窗口之外、含敏感记录来源）是有意设计——下拉展示
+// 完整来源谱系可勾引未激活用户升级（转化钩子），与搜索结果窗口限制互不冲突（#3）。
+func (s *Store) SourceExeStats(ctx context.Context) ([]ExeStat, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT source_exe_name, COUNT(*) AS c FROM clipboard_items `+
+			`WHERE source_exe_name <> '' GROUP BY source_exe_name ORDER BY c DESC, source_exe_name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ExeStat{}
+	for rows.Next() {
+		var st ExeStat
+		if err := rows.Scan(&st.Name, &st.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, int, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = 50
@@ -407,14 +440,40 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 
 	for _, term := range splitSearchTerms(opts.Query) {
 		like := "%" + escapeLike(term) + "%"
-		// Each term may match the visible text, type, native format, metadata,
-		// or an assigned group. Terms are ANDed together so a broad query remains
-		// useful instead of returning every record that contains any one word.
-		conds = append(conds, `(text ILIKE ? ESCAPE '\' OR kind ILIKE ? ESCAPE '\' OR format ILIKE ? ESCAPE '\' OR sha256 ILIKE ? ESCAPE '\' OR meta_json ILIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM item_groups ig JOIN groups g ON g.id = ig.group_id WHERE ig.item_id = clipboard_items.id AND g.name ILIKE ? ESCAPE '\'))`)
+		// 每个 term 可匹配可见文本、类型、原生格式、元数据、分组名；多 term 之间 AND（语义同既有逻辑）。
+		// 别名命中的原始名以精确匹配（source_exe_name = ?）并入该 term 的 OR 组。
+		// 注意：来源应用名（source_exe_name）不参与主搜索的模糊匹配——只有显式使用 source_exe
+		// 过滤参数（SourceExeNames IN 子句）时才按来源筛选，避免关键词误命中来源列（#4）。
+		var aliasRaw []string
+		if len(opts.ExeAliases) > 0 {
+			lt := strings.ToLower(term)
+			for raw, alias := range opts.ExeAliases {
+				if strings.Contains(strings.ToLower(alias), lt) {
+					aliasRaw = append(aliasRaw, raw)
+				}
+			}
+		}
+		cond := `(text ILIKE ? ESCAPE '\' OR kind ILIKE ? ESCAPE '\' OR format ILIKE ? ESCAPE '\' ` +
+			`OR sha256 ILIKE ? ESCAPE '\' OR meta_json ILIKE ? ESCAPE '\' ` +
+			`OR EXISTS (SELECT 1 FROM item_groups ig JOIN groups g ON g.id = ig.group_id ` +
+			`WHERE ig.item_id = clipboard_items.id AND g.name ILIKE ? ESCAPE '\')`
 		args = append(args, like, like, like, like, like, like)
+		for _, raw := range aliasRaw {
+			cond += ` OR source_exe_name = ?`
+			args = append(args, raw)
+		}
+		cond += `)`
+		conds = append(conds, cond)
 	}
 	if opts.StarredOnly {
 		conds = append(conds, "starred = true")
+	}
+	if len(opts.SourceExeNames) > 0 {
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(opts.SourceExeNames)), ",")
+		conds = append(conds, "source_exe_name IN ("+ph+")")
+		for _, n := range opts.SourceExeNames {
+			args = append(args, n)
+		}
 	}
 	if opts.Kind != "" {
 		conds = append(conds, "kind = ?")

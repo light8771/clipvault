@@ -103,6 +103,7 @@ func (s *SearchServer) Start() (string, error) {
 
 	// 需要锁屏认证的端点
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
+	mux.HandleFunc("GET /api/source-exes", s.requireAuth(s.handleSourceExes))
 	mux.HandleFunc("GET /api/state", s.requireAuth(s.handleState))
 	mux.HandleFunc("POST /api/pause", s.requireAuth(s.handlePause))
 	mux.HandleFunc("DELETE /api/items", s.requireAuth(s.handleItems))
@@ -733,6 +734,8 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		DateTo:           r.URL.Query().Get("date_to"),
 		IncludeSensitive: true,
 		GroupID:          groupID,
+		SourceExeNames:   limitSourceExes(r.URL.Query()["source_exe"]), // 可重复参数，值为真实 exe 名；限制条数防超长 IN
+		ExeAliases:       s.cfgMgr.Get().Source.ExeAliases, // 注入当前别名
 	}
 	resp := map[string]any{}
 	// 未激活（免费版）：读取窗口限制为最近 FreeTierVisibleLimit 条，
@@ -776,6 +779,30 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, resp)
 }
 
+// handleSourceExes 返回所有来源应用（原始 exe 名）及其记录数，供搜索下拉与别名/白名单编辑使用。
+func (s *SearchServer) handleSourceExes(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.store.SourceExeStats(r.Context())
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if stats == nil {
+		stats = []ExeStat{}
+	}
+	s.writeJSON(w, stats)
+}
+
+// maxSourceExeFilters 限制来源应用多选过滤参数的条数，防止构造超长 IN 列表。
+const maxSourceExeFilters = 50
+
+// limitSourceExes 截断来源应用过滤参数上限，避免恶意/意外超长 IN 子句。
+func limitSourceExes(xs []string) []string {
+	if len(xs) > maxSourceExeFilters {
+		return xs[:maxSourceExeFilters]
+	}
+	return xs
+}
+
 // handleSensitiveSearch 仅返回敏感记录，需要二次认证。
 func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -788,6 +815,10 @@ func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Requ
 		DateFrom:      r.URL.Query().Get("date_from"),
 		DateTo:        r.URL.Query().Get("date_to"),
 		SensitiveOnly: true,
+		// 敏感搜索同样支持来源应用过滤（#8）：显式 source_exe 参数按原始名精确筛选，
+		// 并注入当前别名配置，与 /api/search 行为一致。
+		SourceExeNames: limitSourceExes(r.URL.Query()["source_exe"]),
+		ExeAliases:     s.cfgMgr.Get().Source.ExeAliases,
 	}
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
 		opts.RestrictToLatestN = FreeTierVisibleLimit
