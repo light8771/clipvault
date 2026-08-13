@@ -71,3 +71,14 @@ func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(data)
 }
+
+func serveEmbeddedWebFile(w http.ResponseWriter, name, contentType string) {
+	data, err := fs.ReadFile(webFS, name)
+	if err != nil {
+		http.Error(w, "resource not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(data)
+}

@@ -48,13 +48,15 @@ func (rs *RecoveryServer) Start() (string, error) {
 	}
 	rs.token = token
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", rs.handleIndex)
+	mux.HandleFunc("GET /{$}", rs.handleIndex)
+	mux.HandleFunc("GET /recovery.css", rs.handleAsset)
+	mux.HandleFunc("GET /recovery.js", rs.handleAsset)
 	mux.HandleFunc("GET /appearance", rs.handleAppearance)
 	mux.HandleFunc("GET /appearance/logo", rs.handleAppearanceLogo)
 	mux.HandleFunc("GET /appearance/favicon", rs.handleAppearanceFavicon)
 	mux.HandleFunc("GET /appearance/background", rs.handleAppearanceBackground)
-	mux.HandleFunc("POST /api/recovery/recover", rs.handleRecover)
-	mux.HandleFunc("POST /api/recovery/new", rs.handleNew)
+	mux.HandleFunc("POST /api/v1/recovery/unlock", rs.handleRecover)
+	mux.HandleFunc("POST /api/v1/recovery/reset", rs.handleNew)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -122,24 +124,24 @@ func (rs *RecoveryServer) fail() {
 
 func (rs *RecoveryServer) secureHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
 		if !hostMatchesLoopbackPort(r.Host, rs.port) {
-			http.Error(w, "invalid host", http.StatusForbidden)
+			writeStandaloneError(w, http.StatusForbidden, "invalid_host", "请求主机无效")
 			return
 		}
 		if isMutationMethod(r.Method) {
 			if !originMatchesRequest(r.Header.Get("Origin"), r.Host, rs.port) {
-				http.Error(w, "invalid origin", http.StatusForbidden)
+				writeStandaloneError(w, http.StatusForbidden, "invalid_origin", "请求来源无效")
 				return
 			}
 			capability := r.Header.Get("X-ClipVault-Recovery-Token")
 			csrf := r.Header.Get(csrfHeaderName)
 			if subtle.ConstantTimeCompare([]byte(capability), []byte(rs.token)) != 1 || subtle.ConstantTimeCompare([]byte(csrf), []byte(rs.token)) != 1 {
-				http.Error(w, "recovery authorization failed", http.StatusForbidden)
+				writeStandaloneError(w, http.StatusForbidden, "recovery_authorization_failed", "恢复授权验证失败")
 				return
 			}
 		}
@@ -150,6 +152,14 @@ func (rs *RecoveryServer) secureHTTP(next http.Handler) http.Handler {
 func (rs *RecoveryServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(recoveryHTML))
+}
+
+func (rs *RecoveryServer) handleAsset(w http.ResponseWriter, r *http.Request) {
+	contentType := "text/css; charset=utf-8"
+	if r.URL.Path == "/recovery.js" {
+		contentType = "application/javascript; charset=utf-8"
+	}
+	serveEmbeddedWebFile(w, "web"+r.URL.Path, contentType)
 }
 
 func (rs *RecoveryServer) handleAppearance(w http.ResponseWriter, r *http.Request) {
@@ -269,8 +279,11 @@ func (rs *RecoveryServer) handleNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeRecoveryJSON(w http.ResponseWriter, ok bool, errMsg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": ok, "error": errMsg})
+	if !ok {
+		writeStandaloneError(w, http.StatusBadRequest, "recovery_failed", errMsg)
+		return
+	}
+	writeStandaloneData(w, map[string]any{})
 }
 
 // openBrowser tries to open the default browser to the given URL.

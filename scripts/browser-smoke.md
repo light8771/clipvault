@@ -11,7 +11,7 @@ directory at shutdown.
 Before launching the browser, run `scripts/check-web.ps1`. The application
 feature sources under `web/app/` are ordered fragments of the single native ES
 module served at `/script.js`; the script checks that composed module plus the
-standalone `api.js` and `store.js` modules.
+standalone `api.js`, `store.js`, `startup.js`, and `recovery.js` modules.
 
 Required checks:
 

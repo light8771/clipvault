@@ -517,16 +517,16 @@ func TestRecoveryServerRejectsMutationAfterCompletion(t *testing.T) {
 	}
 	server := NewRecoveryServer(dir)
 	server.complete = true
-	request := httptest.NewRequest(http.MethodPost, "/api/recovery/new", strings.NewReader(`{"confirmation":"CREATE NEW"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/recovery/reset", strings.NewReader(`{"confirmation":"CREATE NEW"}`))
 	result := httptest.NewRecorder()
 	server.handleNew(result, request)
 	var response struct {
-		OK bool `json:"ok"`
+		Data map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.OK {
+	if response.Data != nil {
 		t.Fatalf("completed recovery server accepted another mutation: %s", result.Body.String())
 	}
 	data, err := os.ReadFile(keyPath)
@@ -716,7 +716,7 @@ func TestStartupGateSetsRecoveryAndSecondaryPasswordsTogether(t *testing.T) {
 	for _, tt := range invalid {
 		t.Run(tt.name, func(t *testing.T) {
 			result := httptest.NewRecorder()
-			gate.handleComplete(result, httptest.NewRequest(http.MethodPost, "/api/complete", bytes.NewBufferString(tt.body)))
+			gate.handleComplete(result, httptest.NewRequest(http.MethodPost, "/api/v1/startup/credentials", bytes.NewBufferString(tt.body)))
 			if !strings.Contains(result.Body.String(), tt.message) {
 				t.Fatalf("result=%s", result.Body.String())
 			}
@@ -733,10 +733,10 @@ func TestStartupGateSetsRecoveryAndSecondaryPasswordsTogether(t *testing.T) {
 		})
 	}
 
-	strong := httptest.NewRequest(http.MethodPost, "/api/complete", bytes.NewBufferString(`{"password":"`+recoveryPassword+`","confirm":"`+recoveryPassword+`","secondaryPassword":"`+secondaryPassword+`","secondaryConfirm":"`+secondaryPassword+`"}`))
+	strong := httptest.NewRequest(http.MethodPost, "/api/v1/startup/credentials", bytes.NewBufferString(`{"password":"`+recoveryPassword+`","confirm":"`+recoveryPassword+`","secondaryPassword":"`+secondaryPassword+`","secondaryConfirm":"`+secondaryPassword+`"}`))
 	result := httptest.NewRecorder()
 	gate.handleComplete(result, strong)
-	if exists, _ := HasRecoveryPassword(dir); !exists || !strings.Contains(result.Body.String(), `"ok":true`) {
+	if exists, _ := HasRecoveryPassword(dir); !exists || !strings.Contains(result.Body.String(), `"data":{}`) {
 		t.Fatalf("combined setup result=%s", result.Body.String())
 	}
 	if err := VerifyRecoveryPassword(dir, recoveryPassword); err != nil {
@@ -759,13 +759,15 @@ func TestStartupGateSetsRecoveryAndSecondaryPasswordsTogether(t *testing.T) {
 func TestStartupGatePublishesRecordURLOnce(t *testing.T) {
 	gate := NewStartupGate(nil, t.TempDir(), startupGateSetCredentials)
 	type statusResponse struct {
-		OK        bool   `json:"ok"`
-		RecordURL string `json:"recordURL"`
+		Data struct {
+			Ready     bool   `json:"ready"`
+			RecordURL string `json:"recordURL"`
+		} `json:"data"`
 	}
 	readStatus := func() statusResponse {
 		t.Helper()
 		result := httptest.NewRecorder()
-		gate.handleStatus(result, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+		gate.handleStatus(result, httptest.NewRequest(http.MethodGet, "/api/v1/startup/status", nil))
 		var status statusResponse
 		if err := json.NewDecoder(result.Body).Decode(&status); err != nil {
 			t.Fatalf("decode startup status: %v", err)
@@ -773,14 +775,14 @@ func TestStartupGatePublishesRecordURLOnce(t *testing.T) {
 		return status
 	}
 
-	if status := readStatus(); status.OK || status.RecordURL != "" {
+	if status := readStatus(); status.Data.Ready || status.Data.RecordURL != "" {
 		t.Fatalf("record URL was published before the main server was ready: %+v", status)
 	}
 
 	const firstURL = "http://127.0.0.1:18765/#first"
 	gate.SetRecordURL(firstURL)
 	gate.SetRecordURL("http://127.0.0.1:18765/#second")
-	if status := readStatus(); !status.OK || status.RecordURL != firstURL {
+	if status := readStatus(); !status.Data.Ready || status.Data.RecordURL != firstURL {
 		t.Fatalf("startup status = %+v, want first published URL %q", status, firstURL)
 	}
 }
@@ -818,7 +820,7 @@ func TestStartupGateRejectsInvalidHostOriginAndCapability(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "http://"+tt.host+"/api/complete", nil)
+			req := httptest.NewRequest(http.MethodPost, "http://"+tt.host+"/api/v1/startup/credentials", nil)
 			req.Host = tt.host
 			req.Header.Set("Origin", tt.origin)
 			req.Header.Set("X-ClipVault-Startup-Token", tt.token)
@@ -837,7 +839,7 @@ func TestStartupGateAcceptsSessionCookieAndRejectsMissingCapability(t *testing.T
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	request := func(cookie *http.Cookie) int {
-		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18766/api/complete", nil)
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18766/api/v1/startup/credentials", nil)
 		req.Header.Set("Origin", "http://127.0.0.1:18766")
 		if cookie != nil {
 			req.AddCookie(cookie)
@@ -910,9 +912,32 @@ func TestStartupGateCapabilityURLCompletesWithSessionCookie(t *testing.T) {
 	if strings.Count(html, `<form `) != 2 || strings.Count(html, `autocomplete="username"`) != 2 {
 		t.Fatalf("startup credential forms are not separated or lack usernames")
 	}
+	for path, contentType := range map[string]string{
+		"startup.css": "text/css; charset=utf-8",
+		"startup.js":  "application/javascript; charset=utf-8",
+	} {
+		response, err := client.Get(safeURL + path)
+		if err != nil {
+			t.Fatalf("get %s: %v", path, err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != contentType {
+			t.Fatalf("%s status=%d contentType=%q", path, response.StatusCode, response.Header.Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{"api/status", "api/session", "api/complete"} {
+		response, err := client.Get(safeURL + path)
+		if err != nil {
+			t.Fatalf("get old startup route %s: %v", path, err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("old startup route %s status=%d, want 404", path, response.StatusCode)
+		}
+	}
 
 	capability := strings.SplitN(capabilityURL, "#", 2)[1]
-	sessionRequest, err := http.NewRequest(http.MethodPost, safeURL+"api/session", nil)
+	sessionRequest, err := http.NewRequest(http.MethodPost, safeURL+"api/v1/startup/session", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -935,7 +960,7 @@ func TestStartupGateCapabilityURLCompletesWithSessionCookie(t *testing.T) {
 	}
 
 	body := bytes.NewBufferString(`{"password":"Recovery-Pass-2026","confirm":"Recovery-Pass-2026","secondaryPassword":"Secondary-Pass-2026","secondaryConfirm":"Secondary-Pass-2026"}`)
-	request, err := http.NewRequest(http.MethodPost, safeURL+"api/complete", body)
+	request, err := http.NewRequest(http.MethodPost, safeURL+"api/v1/startup/credentials", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -950,7 +975,7 @@ func TestStartupGateCapabilityURLCompletesWithSessionCookie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completeResponse.StatusCode != http.StatusOK || !strings.Contains(string(completeBody), `"ok":true`) {
+	if completeResponse.StatusCode != http.StatusOK || !strings.Contains(string(completeBody), `"data":{}`) {
 		t.Fatalf("complete status=%d body=%s", completeResponse.StatusCode, completeBody)
 	}
 	select {

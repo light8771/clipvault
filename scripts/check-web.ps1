@@ -22,6 +22,10 @@ $parts = @(
 if ($LASTEXITCODE -ne 0) { throw "api.js syntax check failed" }
 & $Node --check (Join-Path $web "store.js")
 if ($LASTEXITCODE -ne 0) { throw "store.js syntax check failed" }
+& $Node --check (Join-Path $web "startup.js")
+if ($LASTEXITCODE -ne 0) { throw "startup.js syntax check failed" }
+& $Node --check (Join-Path $web "recovery.js")
+if ($LASTEXITCODE -ne 0) { throw "recovery.js syntax check failed" }
 
 $temporaryModule = Join-Path ([IO.Path]::GetTempPath()) ("clipvault-app-{0}.mjs" -f [guid]::NewGuid().ToString("N"))
 try {

@@ -39,7 +39,7 @@ type startupGatePageData struct {
 // after proving possession of the recovery password.
 //
 // 密码设置完成后门禁不立即关闭：主流程在主服务就绪后调用 SetRecordURL
-// 把记录页地址写入门禁，前端轮询 /api/status 拿到后自动跳转，避免用户
+// 把记录页地址写入门禁，前端轮询启动状态拿到后自动跳转，避免用户
 // 停留在已失效的门禁端口上刷新出"拒绝连接"。
 type StartupGate struct {
 	store    *Store
@@ -82,10 +82,12 @@ func (g *StartupGate) Start() (string, error) {
 	}
 	g.port = ln.Addr().(*net.TCPAddr).Port
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", g.handleIndex)
-	mux.HandleFunc("GET /api/status", g.handleStatus)
-	mux.HandleFunc("POST /api/session", g.handleSession)
-	mux.HandleFunc("POST /api/complete", g.handleComplete)
+	mux.HandleFunc("GET /{$}", g.handleIndex)
+	mux.HandleFunc("GET /startup.css", g.handleAsset)
+	mux.HandleFunc("GET /startup.js", g.handleAsset)
+	mux.HandleFunc("GET /api/v1/startup/status", g.handleStatus)
+	mux.HandleFunc("POST /api/v1/startup/session", g.handleSession)
+	mux.HandleFunc("POST /api/v1/startup/credentials", g.handleComplete)
 	g.server = &http.Server{
 		Handler:           g.secureHTTP(mux),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -116,7 +118,7 @@ func (g *StartupGate) Close() {
 }
 
 // SetRecordURL 在主服务就绪后把记录页地址写入门禁。
-// 前端轮询 /api/status 拿到该地址后自动跳转，避免用户停留在已失效的
+// 前端轮询启动状态拿到该地址后自动跳转，避免用户停留在已失效的
 // 门禁端口上。调用后门禁 HTTP 服务保持 30 秒供前端轮询，随后自动关闭。
 func (g *StartupGate) SetRecordURL(url string) {
 	g.recordOnce.Do(func() {
@@ -151,14 +153,14 @@ func (g *StartupGate) secureHTTP(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
 		if !hostMatchesLoopbackPort(r.Host, g.port) {
-			http.Error(w, "invalid host", http.StatusForbidden)
+			writeStandaloneError(w, http.StatusForbidden, "invalid_host", "请求主机无效")
 			return
 		}
 		if isMutationMethod(r.Method) {
 			if !originMatchesRequest(r.Header.Get("Origin"), r.Host, g.port) || !g.hasStartupCapability(r) {
-				http.Error(w, "forbidden", http.StatusForbidden)
+				writeStandaloneError(w, http.StatusForbidden, "startup_authorization_failed", "启动授权验证失败")
 				return
 			}
 		}
@@ -178,9 +180,9 @@ func (g *StartupGate) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	select {
 	case <-g.recordDone:
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "recordURL": g.recordURL})
+		writeStandaloneData(w, map[string]any{"ready": true, "recordURL": g.recordURL})
 	default:
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false})
+		writeStandaloneData(w, map[string]any{"ready": false})
 	}
 }
 
@@ -217,6 +219,14 @@ func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		MinSecondaryRunes: minAuthPasswordRunes,
 		MaxSecondaryBytes: maxAuthPasswordBytes,
 	})
+}
+
+func (g *StartupGate) handleAsset(w http.ResponseWriter, r *http.Request) {
+	contentType := "text/css; charset=utf-8"
+	if r.URL.Path == "/startup.js" {
+		contentType = "application/javascript; charset=utf-8"
+	}
+	serveEmbeddedWebFile(w, "web"+r.URL.Path, contentType)
 }
 
 func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
@@ -317,39 +327,27 @@ func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword 
 }
 
 func writeStartupGateJSON(w http.ResponseWriter, ok bool, message string) {
+	if !ok {
+		writeStandaloneError(w, http.StatusBadRequest, "startup_failed", message)
+		return
+	}
+	writeStandaloneData(w, map[string]any{})
+}
+
+func writeStandaloneData(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": ok, "error": message})
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+}
+
+func writeStandaloneError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
 }
 
 var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{.Title}}</title><style>
-:root{color-scheme:light dark;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f172a;color:#e2e8f0;padding:40px 20px}
-.main{width:min(480px,100%)}
-h1{font-size:22px;margin:0 0 8px;font-weight:700}
-.desc{line-height:1.7;color:#94a3b8;margin:0 0 30px;font-size:14px}
-.section{margin-bottom:28px}
-.section-title{font-size:13.5px;font-weight:600;color:#cbd5e1;margin:0 0 3px;padding-bottom:9px;border-bottom:1px solid #263548}
-.section-hint{font-size:12.5px;color:#7d8ca3;margin:8px 0 16px;line-height:1.6}
-.field{margin-bottom:16px}
-.field label{display:block;font-size:13px;color:#cbd5e1;margin:0 0 6px}
-.wrap{position:relative}
-.wrap input{width:100%;box-sizing:border-box;border:1px solid #334155;background:#0f172a;color:#fff;border-radius:10px;padding:12px 52px 12px 14px;font:inherit;outline:none;transition:border-color .15s}
-.wrap input:focus{border-color:#10b981}
-.wrap input.bad{border-color:#b91c1c}
-.eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#64748b;cursor:pointer;padding:6px 9px;font:inherit;font-size:12px;border-radius:6px}
-.eye:hover{color:#cbd5e1;background:#1e293b}
-.msg{font-size:12px;margin-top:5px;min-height:15px;line-height:1.5}
-.msg.ok{color:#34d399}
-.msg.err{color:#f87171}
-.warn{background:#292524;border:1px solid #57534e;color:#fbbf24;font-size:12.5px;line-height:1.65;padding:12px 14px;border-radius:10px;margin:4px 0 22px}
-button.submit{width:100%;border:0;border-radius:10px;padding:13px 14px;font:inherit;font-weight:700;cursor:pointer;background:#10b981;color:#052e24;transition:opacity .15s}
-button.submit:disabled{opacity:.4;cursor:not-allowed}
-.error{color:#fca5a5;font-size:13px;margin-top:12px;min-height:20px;text-align:center;line-height:1.5}
-.credential-form{margin:0}
-</style></head><body><main class="main">
+<title>{{.Title}}</title><link rel="stylesheet" href="/startup.css"></head><body><main class="main" data-mode="{{.Mode}}" data-min-recovery-runes="{{.MinRecoveryRunes}}" data-max-recovery-bytes="{{.MaxRecoveryBytes}}" data-min-secondary-runes="{{.MinSecondaryRunes}}" data-max-secondary-bytes="{{.MaxSecondaryBytes}}">
 <h1>{{.Title}}</h1>
 <p class="desc">{{.Description}}</p>
 {{if eq .Mode "set_credentials"}}
@@ -380,78 +378,4 @@ button.submit:disabled{opacity:.4;cursor:not-allowed}
 {{end}}
 <button type="button" class="submit" id="submit" disabled>{{.Button}}</button>
 <div class="error" id="error"></div>
-</main><script>
-const startupToken=location.hash.slice(1);
-history.replaceState(null,'',location.pathname);
-const mode='{{.Mode}}',isSetup=mode==='set_credentials';
-const $=id=>document.getElementById(id);
-const els={password:$('password'),confirm:$('confirm'),secondaryPassword:$('secondaryPassword'),secondaryConfirm:$('secondaryConfirm')};
-const msgs={password:$('msg-password'),confirm:$('msg-confirm'),secondaryPassword:$('msg-secondaryPassword'),secondaryConfirm:$('msg-secondaryConfirm')};
-const submit=$('submit'),errBox=$('error');
-const MIN_REC={{.MinRecoveryRunes}},MAX_REC_BYTES={{.MaxRecoveryBytes}},MIN_SEC={{.MinSecondaryRunes}},MAX_SEC_BYTES={{.MaxSecondaryBytes}};
-const utf8Encoder=new TextEncoder();
-const edgeWhitespace=/^\p{White_Space}|\p{White_Space}$/u;
-let startupSessionReady=!startupToken;
-
-async function establishStartupSession(){
-  if(!startupToken)return;
-  try{
-    const res=await fetch('/api/session',{method:'POST',headers:{'X-ClipVault-Startup-Token':startupToken}});
-    startupSessionReady=res.ok;
-    if(!res.ok)errBox.textContent='安全设置链接已失效，请重启 ClipVault 后重试';
-  }catch(_){
-    startupSessionReady=false;
-    errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';
-  }
-  validate();
-}
-
-document.querySelectorAll('.eye').forEach(btn=>{btn.addEventListener('click',()=>{const input=$(btn.dataset.target);const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'隐藏':'显示';});});
-
-function setMsg(key,ok,text){const el=msgs[key];if(!el)return;el.textContent=text||'';el.className='msg'+(text?(ok?' ok':' err'):'');}
-function mark(key,bad){const el=els[key];if(el)el.classList.toggle('bad',bad);}
-function checkPassword(key,min,maxBytes){
-  const v=els[key].value;
-  if(!v){setMsg(key,false,'');mark(key,false);return false;}
-  if(edgeWhitespace.test(v)){setMsg(key,false,'首尾不能有空白字符');mark(key,true);return false;}
-  const runeCount=Array.from(v).length;
-  if(runeCount<min){setMsg(key,false,'至少 '+min+' 个字符，还差 '+(min-runeCount)+' 个');mark(key,true);return false;}
-  if(utf8Encoder.encode(v).length>maxBytes){setMsg(key,false,'密码过长');mark(key,true);return false;}
-  setMsg(key,true,'✓ 长度达标');mark(key,false);return true;
-}
-function checkPair(a,b){const va=els[a].value,vb=els[b].value;if(!vb){setMsg(b,false,'');mark(b,false);return false;}if(va!==vb){setMsg(b,false,'两次输入不一致');mark(b,true);return false;}setMsg(b,true,'✓ 一致');mark(b,false);return true;}
-
-function validate(){
-  let ok=true;
-  if(isSetup){
-    const recoveryOK=checkPassword('password',MIN_REC,MAX_REC_BYTES);
-    const recoveryPairOK=checkPair('password','confirm');
-    const secondaryOK=checkPassword('secondaryPassword',MIN_SEC,MAX_SEC_BYTES);
-    const secondaryPairOK=checkPair('secondaryPassword','secondaryConfirm');
-    ok=recoveryOK&&recoveryPairOK&&secondaryOK&&secondaryPairOK;
-  }else{
-    ok=els.password.value.length>0;
-  }
-  submit.disabled=!ok||!startupSessionReady;
-}
-Object.values(els).forEach(el=>{if(el)el.addEventListener('input',validate);});
-validate();
-establishStartupSession();
-
-async function submitCredentials(e){
-  if(e)e.preventDefault();
-  if(submit.disabled)return;
-  errBox.textContent='';submit.disabled=true;
-  try{
-    const res=await fetch('/api/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:els.password.value,confirm:els.confirm?els.confirm.value:'',secondaryPassword:els.secondaryPassword?els.secondaryPassword.value:'',secondaryConfirm:els.secondaryConfirm?els.secondaryConfirm.value:''})});
-    let data={};try{data=await res.json();}catch(_){data={};}
-    if(!res.ok){errBox.textContent=res.status===403?'安全会话已失效，请刷新页面后重试':(data.error||'本地服务请求失败');submit.disabled=false;return;}
-    if(!data.ok){errBox.textContent=data.error||'操作失败';submit.disabled=false;return;}
-    const card=document.querySelector('.main');
-    card.innerHTML='<h1>设置完成</h1><p class="desc">正在打开记录页面...</p><p class="warn">如未自动跳转，请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p>';
-    let polled=0;const poll=async()=>{try{const r=await fetch('/api/status');const d=await r.json();if(d.ok&&d.recordURL){location.href=d.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<h1>设置完成</h1><p class="desc">记录页面未自动打开。</p><p class="warn">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p>';return;}setTimeout(poll,500);};poll();
-  }catch(_){errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';submit.disabled=false;}
-}
-document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',submitCredentials));
-submit.addEventListener('click',submitCredentials);
-</script></body></html>`))
+</main><script src="/startup.js" defer></script></body></html>`))

@@ -37,18 +37,19 @@ func TestRecoveryPageIsChineseAndExplainsCredentials(t *testing.T) {
 
 func TestRecoveryHandlerAcceptsEmptyPassword(t *testing.T) {
 	rs := NewRecoveryServer(t.TempDir())
-	req := httptest.NewRequest("POST", "/api/recovery/recover", strings.NewReader(`{"password":""}`))
+	req := httptest.NewRequest("POST", "/api/v1/recovery/unlock", strings.NewReader(`{"password":""}`))
 	recorder := httptest.NewRecorder()
 	rs.handleRecover(recorder, req)
 
 	var response struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.OK || response.Error != "恢复失败：密码不正确，或恢复文件已经损坏" {
+	if response.Error.Message != "恢复失败：密码不正确，或恢复文件已经损坏" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
@@ -143,6 +144,29 @@ func TestRecoveryAppearanceRouteIsAvailableAfterStart(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "application/json; charset=utf-8" {
 		t.Fatalf("appearance route status=%d contentType=%q", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	for path, contentType := range map[string]string{
+		"recovery.css": "text/css; charset=utf-8",
+		"recovery.js":  "application/javascript; charset=utf-8",
+	} {
+		asset, err := http.Get(strings.SplitN(url, "#", 2)[0] + path)
+		if err != nil {
+			t.Fatalf("get %s: %v", path, err)
+		}
+		_ = asset.Body.Close()
+		if asset.StatusCode != http.StatusOK || asset.Header.Get("Content-Type") != contentType {
+			t.Fatalf("%s status=%d contentType=%q", path, asset.StatusCode, asset.Header.Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{"api/recovery/recover", "api/recovery/new"} {
+		legacy, err := http.Get(strings.SplitN(url, "#", 2)[0] + path)
+		if err != nil {
+			t.Fatalf("get old recovery route %s: %v", path, err)
+		}
+		_ = legacy.Body.Close()
+		if legacy.StatusCode != http.StatusNotFound {
+			t.Fatalf("old recovery route %s status=%d, want 404", path, legacy.StatusCode)
+		}
 	}
 }
 
