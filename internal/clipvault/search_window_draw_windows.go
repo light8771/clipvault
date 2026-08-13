@@ -88,7 +88,7 @@ func (sw *searchWindow) drawSearchButton(lParam uintptr) bool {
 	if lParam == 0 {
 		return false
 	}
-	item := (*searchDrawItem)(unsafe.Pointer(lParam))
+	item := (*searchDrawItem)(pointerFromWin32(lParam))
 	brush := sw.accentBrush
 	labelText := "搜索"
 	textColor := uintptr(searchColorBackground)

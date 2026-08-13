@@ -2,7 +2,8 @@
     [string]$Output = "dist\ClipVault.exe",
     [string]$KeyId = $env:CLIPVAULT_LICENSE_KEY_ID,
     [string]$PublicKey = $env:CLIPVAULT_LICENSE_PUBLIC_KEY,
-    [string]$GarbleSeed = $env:CLIPVAULT_GARBLE_SEED
+    [string]$GarbleSeed = $env:CLIPVAULT_GARBLE_SEED,
+    [switch]$Obfuscate
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,17 +29,18 @@ if ($publicBytes.Length -ne 32) {
     throw "CLIPVAULT_LICENSE_PUBLIC_KEY must decode to 32 bytes"
 }
 
-$garble = Get-Command garble -ErrorAction SilentlyContinue
-if (-not $garble) {
-    throw "garble is not installed or not available in PATH"
-}
-if ([string]::IsNullOrWhiteSpace($GarbleSeed)) {
-    throw "CLIPVAULT_GARBLE_SEED is required; keep the seed with the release artifacts"
+if ($Obfuscate) {
+    $garble = Get-Command garble -ErrorAction SilentlyContinue
+    if (-not $garble) {
+        throw "garble is not installed or not available in PATH"
+    }
+    if ([string]::IsNullOrWhiteSpace($GarbleSeed)) {
+        throw "CLIPVAULT_GARBLE_SEED is required when -Obfuscate is selected"
+    }
 }
 
 $env:CGO_ENABLED = "1"
 $env:CC = "gcc"
-$env:GOGARBLE = "clipboard_ext"
 
 $outputDir = Split-Path -Parent $Output
 if ($outputDir) { New-Item -ItemType Directory -Force -Path $outputDir | Out-Null }
@@ -47,19 +49,27 @@ $ldflags = "-s -w -H=windowsgui " +
     "-X clipboard_ext/internal/licensing.builtinKeyID=$KeyId " +
     "-X clipboard_ext/internal/licensing.builtinPublicKeyBase64=$PublicKey"
 
-# garble 的 warning（如 -seed 只用前 8 字节）输出到 stderr，在 $ErrorActionPreference="Stop"
-# 下会被当成终止性错误。临时切换到 Continue，仅靠 $LASTEXITCODE 判断成败。
-$prevEAP = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try {
-    & garble "-seed=$GarbleSeed" -literals build `
+if ($Obfuscate) {
+    $env:GOGARBLE = "clipboard_ext"
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & garble "-seed=$GarbleSeed" -literals build `
+            -trimpath `
+            -buildvcs=false `
+            "-ldflags=$ldflags" `
+            -o $Output `
+            .\cmd\clipvault 2>&1 | ForEach-Object { Write-Host $_ }
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+} else {
+    & go build `
         -trimpath `
         -buildvcs=false `
         "-ldflags=$ldflags" `
         -o $Output `
-        .\cmd\clipvault 2>&1 | ForEach-Object { Write-Host $_ }
-} finally {
-    $ErrorActionPreference = $prevEAP
+        .\cmd\clipvault
 }
 
 if ($LASTEXITCODE -ne 0) {

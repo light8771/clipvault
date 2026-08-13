@@ -98,7 +98,7 @@ func createClipboardIcon() uintptr {
 	procGdiSelectObject.Call(dc, hbmColor)
 
 	// 像素格式：BGRA（小端），每像素 4 字节，从上到下
-	pixels := (*[sz * sz]uint32)(unsafe.Pointer(pixelsPtr))
+	pixels := (*[sz * sz]uint32)(pointerFromWin32(pixelsPtr))
 
 	for y := 0; y < sz; y++ {
 		for x := 0; x < sz; x++ {

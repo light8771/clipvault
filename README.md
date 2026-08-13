@@ -256,47 +256,44 @@ New-Item -ItemType File "portable.flag"
 | 接口 | 方法 | 认证 | 说明 |
 |------|------|------|------|
 | `GET /` | GET | — | 搜索与设置页面 |
-| `POST /api/auth/login` | POST | — | 锁屏密码登录 |
-| `POST /api/auth/secondary` | POST | 锁屏（若已设置） | 二次密码验证 |
-| `GET /api/csrf` | GET | — | 获取本机页面的 CSRF token |
-| `GET /api/license/status` | GET | 锁屏 | 查询授权状态 |
-| `GET /api/license/machine` | GET | 锁屏 | 获取当前完整机器码 |
-| `POST /api/license/activate` | POST | 锁屏 + CSRF | 离线激活 |
-| `GET /api/search` | GET | 锁屏 | 搜索历史 |
-| `GET /api/state` | GET | 锁屏 | 返回运行状态 |
-| `POST /api/pause` | POST | 锁屏 | 暂停/恢复 |
-| `DELETE /api/items?id=N` | DELETE | 锁屏；敏感条目另需二次 | 删除指定记录 |
-| `PATCH /api/items?id=N&starred=1` | PATCH | 锁屏；敏感条目另需二次 | 收藏/取消收藏 |
-| `GET /api/items/groups?item_id=N` | GET | 锁屏；敏感条目另需二次 | 获取指定记录所属分组 |
-| `POST /api/items/group` | POST | 锁屏；敏感条目另需二次 | 将指定记录加入分组 |
-| `DELETE /api/items/group?item_id=N&group_id=N` | DELETE | 锁屏；敏感条目另需二次 | 将指定记录移出分组 |
-| `POST /api/clear` | POST | 二次 | 清除全部记录 |
-| `GET /api/config` | GET | 锁屏 | 获取配置 |
-| `PUT /api/config` | PUT | 二次 | 保存配置 |
-| `GET /api/storage/status` | GET | 锁屏 | 查看当前数据目录与是否允许迁移 |
-| `POST /api/storage/relocate` | POST | 二次 + CSRF | 校验并登记数据目录迁移，退出并重新启动后执行 |
-| `GET /api/diagnostics/export` | GET | 二次 | 导出最近 7 天的脱敏诊断日志 ZIP |
-| `GET /api/export/data?format=json` | GET | 二次 | 导出记录（json/xlsx，支持 full/range/incremental） |
-| `POST /api/export/data?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
-| `POST /api/import/data` | POST | 二次 | 导入数据（JSON / Excel / .cvexport；必须设置 `X-ClipVault-Import-Format`） |
-| `GET /api/recovery/status` | GET | 二次 | 查询恢复密码状态 |
-| `POST /api/recovery/change` | POST | 二次 | 修改恢复密码 |
-| `POST /api/recovery/reset` | POST | 刚刚完成的二次认证 | 忘记旧恢复密码时原子重置（数据库必须仍能通过 DPAPI 打开） |
-| `GET /api/backup/status` | GET | 锁屏 | 查看备份配置与最近状态 |
-| `GET /api/backup/email/history` | GET | 二次 | 只读查看最近 100 条成功发送的邮件备份历史 |
-| `POST /api/backup/dir/now` | POST | 二次 | 立即执行目录备份 |
-| `POST /api/backup/email/now` | POST | 二次 | 立即发送备份邮件 |
-| `POST /api/backup/email/test` | POST | 二次 | 发送测试邮件 |
-| `GET /api/groups` | GET | 锁屏 | 列出分组 |
-| `POST /api/groups` | POST | 锁屏 | 创建分组 |
-| `PUT /api/groups` | PUT | 锁屏 | 更新分组 |
-| `DELETE /api/groups` | DELETE | 锁屏 | 删除分组 |
+| `POST /api/v1/session/login` | POST | — | 锁屏密码登录 |
+| `POST /api/v1/session/secondary` | POST | 锁屏（若已设置） | 二次密码验证 |
+| `GET /api/v1/session/csrf` | GET | — | 获取本机页面的 CSRF token |
+| `GET /api/v1/license` | GET | 锁屏 | 查询授权状态 |
+| `GET /api/v1/license/machine` | GET | 锁屏 | 获取当前完整机器码 |
+| `POST /api/v1/license/activation` | POST | 锁屏 + CSRF | 离线激活 |
+| `GET /api/v1/items` | GET | 锁屏 | 搜索历史 |
+| `GET /api/v1/runtime` | GET | 锁屏 | 返回运行状态 |
+| `POST /api/v1/runtime/pause` | POST | 锁屏 + CSRF | 暂停/恢复 |
+| `DELETE /api/v1/items?id=N` | DELETE | 锁屏；敏感条目另需二次 | 删除指定记录 |
+| `PATCH /api/v1/items?id=N&starred=1` | PATCH | 锁屏；敏感条目另需二次 | 收藏/取消收藏 |
+| `GET /api/v1/items/groups?item_id=N` | GET | 锁屏；敏感条目另需二次 | 获取指定记录所属分组 |
+| `POST /api/v1/items/group` | POST | 锁屏 + CSRF；敏感条目另需二次 | 将指定记录加入分组 |
+| `DELETE /api/v1/items/group?item_id=N&group_id=N` | DELETE | 锁屏 + CSRF；敏感条目另需二次 | 将指定记录移出分组 |
+| `POST /api/v1/items/clear` | POST | 二次 + CSRF | 清除全部记录 |
+| `GET /api/v1/config` | GET | 锁屏 | 获取配置 |
+| `PUT /api/v1/config` | PUT | 二次 + CSRF | 保存配置 |
+| `GET /api/v1/storage` | GET | 锁屏 | 查看当前数据目录与是否允许迁移 |
+| `POST /api/v1/storage/relocation` | POST | 二次 + CSRF | 校验并登记数据目录迁移，退出并重新启动后执行 |
+| `GET /api/v1/diagnostics` | GET | 二次 | 导出最近 7 天的脱敏诊断日志 ZIP |
+| `GET /api/v1/transfer/export?format=json` | GET | 二次 | 导出记录（json/xlsx，支持 full/range/incremental） |
+| `POST /api/v1/transfer/export?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
+| `POST /api/v1/transfer/import` | POST | 二次 + CSRF | 导入数据（JSON / Excel / .cvexport；必须设置 `X-ClipVault-Import-Format`） |
+| `GET /api/v1/recovery` | GET | 二次 | 查询恢复密码状态 |
+| `POST /api/v1/recovery/password` | POST | 二次 + CSRF | 修改恢复密码 |
+| `POST /api/v1/recovery/reset` | POST | 刚刚完成的二次认证 + CSRF | 忘记旧恢复密码时原子重置 |
+| `GET /api/v1/backup` | GET | 锁屏 | 查看备份配置与最近状态 |
+| `GET /api/v1/backup/email-history` | GET | 二次 | 只读查看最近 100 条成功发送的邮件备份历史 |
+| `POST /api/v1/backup/directory` | POST | 二次 + CSRF | 立即执行目录备份 |
+| `POST /api/v1/backup/email` | POST | 二次 + CSRF | 立即发送备份邮件 |
+| `POST /api/v1/backup/email-test` | POST | 二次 + CSRF | 发送测试邮件 |
+| `/api/v1/groups` | GET/POST/PUT/DELETE | 锁屏；变更请求需 CSRF | 列出、创建、更新和删除分组 |
 
 导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveRules` 四个工作表，完整保存记录、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则；不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
-所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
+所有 API 成功响应使用 `{ "data": ... }`，错误统一使用 `{ "error": { "code": "...", "message": "..." } }`。所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/v1/session/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
 
-**`/api/search` 查询参数：**
+**`/api/v1/items` 查询参数：**
 
 | 参数 | 说明 |
 |------|------|
@@ -310,11 +307,11 @@ New-Item -ItemType File "portable.flag"
 | `group_id` | 按正整数分组 ID 筛选 |
 | `source_exe` | 按来源程序名精确筛选；可重复，最多 50 个 |
 
-`/api/search/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。`.cvexport` v1 严格校验版本、KDF、封装长度和解压上限，损坏或非当前格式的文件会被拒绝。
+`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v4，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
 
 ## 配置说明
 
-配置存储在 DuckDB 数据库的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+配置存储在 DuckDB schema v2 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {

@@ -18,6 +18,8 @@ screenshot*.png
 *.swo
 .catpaw/
 .workbuddy/
+.playwright-cli/
+output/playwright/
 
 # Windows
 Thumbs.db

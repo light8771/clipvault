@@ -126,7 +126,7 @@ func readUnicodeTextClipboard() (*ClipboardSnapshot, error) {
 
 	size, _, _ := procGlobalSize.Call(handle)
 	u16len := int(size / 2)
-	raw := unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), u16len)
+	raw := unsafe.Slice((*uint16)(pointerFromWin32(ptr)), u16len)
 	text := utf16PtrToString(raw)
 	byteLen := len([]byte(text))
 	return &ClipboardSnapshot{
