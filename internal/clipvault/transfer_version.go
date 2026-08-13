@@ -1,3 +1,5 @@
 package clipvault
 
-const currentExportVersion = 4
+import "clipboard_ext/internal/clipvault/transfer"
+
+const currentExportVersion = transfer.ExportVersion

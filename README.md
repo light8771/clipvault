@@ -253,6 +253,11 @@ New-Item -ItemType File "portable.flag"
 
 ## Web API
 
+后端采用模块化单体：`domain` 与 `application` 位于核心层，`storage/duckdb`、
+`transfer`、`backup`、`security` 提供基础设施和纯策略，`transport/httpui` 与
+`platform/windows` 负责外部适配，`bootstrap` 统一命令解析与生命周期装配。
+架构测试会校验这些包真实存在、被适配层消费且不存在由核心层指向外层的反向依赖。
+
 | 接口 | 方法 | 认证 | 说明 |
 |------|------|------|------|
 | `GET /` | GET | — | 搜索与设置页面 |

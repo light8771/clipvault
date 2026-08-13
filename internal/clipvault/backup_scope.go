@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	backuppolicy "clipboard_ext/internal/clipvault/backup"
 )
 
 // exportBackupData 导出单份数据（用于目录备份），按 scope 过滤。
@@ -28,41 +30,17 @@ func (bs *BackupService) exportBackupData(format, password string, scope ExportS
 // always runs full. Returns (scope, autoFallback) where autoFallback is true only
 // for automatic degradation (not manual forceFull).
 func resolveBackupScope(store *Store, kind string, configured ExportScope, fullInterval int, forceFull bool) (ExportScope, bool, error) {
+	if forceFull || (configured.Mode != "incremental" && configured.Mode != "") {
+		return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullInterval, forceFull)
+	}
 	if configured.Mode == "" {
-		configured.Mode = "full"
-	}
-	if forceFull {
-		configured.Mode = "full"
-		configured.From = ""
-		configured.To = ""
-		configured.SinceID = 0
-		configured.MaxID = 0
-		return configured, false, nil
-	}
-	if configured.Mode == "range" {
-
-		if err := validateExportScope(configured); err != nil {
-			return configured, false, fmt.Errorf("range 备份配置非法: %w", err)
-		}
-		return configured, false, nil
-	}
-	if configured.Mode != "incremental" {
-		return configured, false, nil
+		return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullInterval, false)
 	}
 	wm, err := store.GetBackupWatermark(context.Background(), kind)
 	if err != nil {
 		return configured, false, fmt.Errorf("读取备份水印失败: %w", err)
 	}
-	if wm.LastItemID <= 0 {
-		configured.Mode = "full"
-		return configured, true, nil
-	}
-	if fullInterval > 0 && wm.IncrementalCount >= fullInterval {
-		configured.Mode = "full"
-		return configured, true, nil
-	}
-	configured.SinceID = wm.LastItemID
-	return configured, false, nil
+	return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{LastItemID: wm.LastItemID, IncrementalCount: wm.IncrementalCount}, fullInterval, forceFull)
 }
 
 // updateBackupWatermark records the backup position from the id that was ACTUALLY

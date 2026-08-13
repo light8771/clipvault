@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"clipboard_ext/internal/clipvault/transfer"
 )
 
 // ExportData is the complete portable export structure.
@@ -67,48 +69,12 @@ type ItemGroupLink struct {
 // ExportScope describes the data range for export and backup operations.
 // It is persisted in backup config (DirBackupConfig/EmailBackupConfig.Scope)
 // but is not part of the exported document.
-type ExportScope struct {
-	Mode    string `json:"mode"` // "full" | "range" | "incremental"
-	From    string `json:"from"` // range: inclusive start (RFC3339 or YYYY-MM-DD)
-	To      string `json:"to"`   // range: exclusive end
-	SinceID int64  `json:"-"`    // internal incremental watermark / chunk lower bound
-	MaxID   int64  `json:"-"`    // internal chunk upper bound id <= MaxID
-}
+type ExportScope = transfer.Scope
 
 // validateExportScope 校验已归一化的导出范围。range 使用 RFC3339
 // [From,To) 边界；UI 的本地日期由 normalizeExportRange 先转换。
 func validateExportScope(scope ExportScope) error {
-	switch scope.Mode {
-	case "range":
-		if scope.From == "" || scope.To == "" {
-			return errors.New("range export requires from and to")
-		}
-		from, err := parseExportInstant(scope.From)
-		if err != nil {
-			return fmt.Errorf("range 时间 %q 格式非法（需 RFC3339）", scope.From)
-		}
-		to, err := parseExportInstant(scope.To)
-		if err != nil {
-			return fmt.Errorf("range 时间 %q 格式非法（需 RFC3339）", scope.To)
-		}
-		if !from.Before(to) {
-			return fmt.Errorf("range 起始时间 %q 必须早于结束时间 %q", scope.From, scope.To)
-		}
-	case "incremental":
-		if scope.SinceID <= 0 {
-			return errors.New("incremental export requires sinceId")
-		}
-		if scope.From != "" || scope.To != "" {
-			return errors.New("incremental export does not accept from or to")
-		}
-	case "full", "":
-		if scope.From != "" || scope.To != "" {
-			return errors.New("full export does not accept from or to")
-		}
-	default:
-		return fmt.Errorf("unsupported export mode %q", scope.Mode)
-	}
-	return nil
+	return transfer.ValidateScope(scope)
 }
 
 // ExportFullForJSON exports clipboard data, group hierarchy, and portable

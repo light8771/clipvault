@@ -1,4 +1,4 @@
-package clipvault
+package transfer
 
 import (
 	"bytes"

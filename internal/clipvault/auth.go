@@ -2,18 +2,13 @@ package clipvault
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
-	"golang.org/x/crypto/scrypt"
+	"clipboard_ext/internal/clipvault/security"
 )
 
 const (
@@ -29,14 +24,8 @@ const (
 	ratePurposeLock      = "lock"
 	ratePurposeSecondary = "secondary"
 
-	authScryptN          = 32768
-	authScryptR          = 8
-	authScryptP          = 1
-	authScryptKeyLen     = 32
-	authPasswordSalt     = 16
-	authHashPrefix       = "$scrypt$v=1$"
-	minAuthPasswordRunes = 8
-	maxAuthPasswordBytes = 1024
+	maxAuthPasswordBytes = security.MaxPasswordBytes
+	minAuthPasswordRunes = security.MinPasswordRunes
 )
 
 // Session 表示一个已认证的浏览器会话。
@@ -77,78 +66,26 @@ func NewAuthManager() *AuthManager {
 }
 
 func newPasswordHash(password string) (string, error) {
-	if err := validateAuthPassword(password); err != nil {
-		return "", err
-	}
-	salt := make([]byte, authPasswordSalt)
-	if _, err := rand.Read(salt); err != nil {
-		return "", fmt.Errorf("generate password salt: %w", err)
-	}
-	derived, err := scrypt.Key([]byte(password), salt, authScryptN, authScryptR, authScryptP, authScryptKeyLen)
-	if err != nil {
-		return "", fmt.Errorf("derive password hash: %w", err)
-	}
-	return fmt.Sprintf("%sn=%d$r=%d$p=%d$%s$%s", authHashPrefix, authScryptN, authScryptR, authScryptP, hex.EncodeToString(salt), hex.EncodeToString(derived)), nil
+	return security.HashPassword(password)
 }
 
 func validateAuthPassword(password string) error {
-	if strings.TrimSpace(password) != password {
-		return errors.New("密码首尾不能有空格")
-	}
-	if utf8.RuneCountInString(password) < minAuthPasswordRunes {
-		return fmt.Errorf("密码至少需要 %d 个字符", minAuthPasswordRunes)
-	}
-	if len(password) > maxAuthPasswordBytes {
-		return errors.New("密码过长")
-	}
-	return nil
+	return security.ValidatePassword(password)
 }
 
 func verifyPasswordHash(encoded, password string) bool {
-	salt, expected, err := parsePasswordHash(encoded)
-	if err != nil {
-		return false
-	}
-	actual, err := scrypt.Key([]byte(password), salt, authScryptN, authScryptR, authScryptP, len(expected))
-	return err == nil && subtle.ConstantTimeCompare(actual, expected) == 1
+	return security.VerifyPassword(encoded, password)
 }
 
 func parsePasswordHash(encoded string) (salt, expected []byte, err error) {
-	parts := strings.Split(encoded, "$")
-	if len(parts) != 8 || parts[1] != "scrypt" || parts[2] != "v=1" {
-		return nil, nil, errors.New("invalid password hash format")
-	}
-	parseParam := func(part, name string) (int, bool) {
-		prefix := name + "="
-		if !strings.HasPrefix(part, prefix) {
-			return 0, false
-		}
-		value, err := strconv.Atoi(strings.TrimPrefix(part, prefix))
-		return value, err == nil
-	}
-	n, okN := parseParam(parts[3], "n")
-	r, okR := parseParam(parts[4], "r")
-	p, okP := parseParam(parts[5], "p")
-	if !okN || !okR || !okP || n != authScryptN || r != authScryptR || p != authScryptP {
-		return nil, nil, errors.New("unsupported password hash parameters")
-	}
-	salt, err = hex.DecodeString(parts[6])
-	if err != nil || len(salt) != authPasswordSalt {
-		return nil, nil, errors.New("invalid password hash salt")
-	}
-	expected, err = hex.DecodeString(parts[7])
-	if err != nil || len(expected) != authScryptKeyLen {
-		return nil, nil, errors.New("invalid password hash digest")
-	}
-	return salt, expected, nil
+	return security.ParsePasswordHash(encoded)
 }
 
 func validateStoredPasswordHash(encoded string) error {
 	if encoded == "" {
 		return nil
 	}
-	_, _, err := parsePasswordHash(encoded)
-	return err
+	return security.ValidateStoredPasswordHash(encoded)
 }
 
 // generateToken 生成一个随机的会话令牌。
