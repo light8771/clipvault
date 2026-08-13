@@ -1,4 +1,4 @@
-import { apiFetch } from './api.js';
+import { apiFetch, handleSecondaryRequired } from './api.js';
 import { appStore } from './store.js';
 
 (function(){

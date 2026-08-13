@@ -87,6 +87,7 @@ const script = fs.readdirSync(path.join(__dirname, 'app'))
   .sort((a, b) => ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(a) - ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(b))
   .map(name => fs.readFileSync(path.join(__dirname, 'app', name), 'utf8'))
   .join('\n');
+const apiSource = fs.readFileSync(path.join(__dirname, 'api.js'), 'utf8');
 const syntaxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipvault-module-'));
 try {
   const syntaxFile = path.join(syntaxDir, 'application.mjs');
@@ -110,6 +111,12 @@ assert.doesNotMatch(
   /try\s*\{\s*new RegExp\(p\);\s*\}/,
   'sensitive rules must be validated by the Go RE2 backend, not JavaScript RegExp'
 );
+assert.match(
+  script,
+  /handleSecondaryRequired/,
+  'config autosave must decode the API error envelope and request secondary authentication before retrying'
+);
+assert.match(apiSource, /export function unwrapAPIEnvelope/, 'API error envelopes must have a directly testable decoder');
 
 const basePairs = selectedColors.length * surfaces.length;
 const palettePairs = selectedColors.length * paletteSurfaces.length * 3;

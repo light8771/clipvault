@@ -434,17 +434,19 @@
         body: JSON.stringify(newCfg),
       });
       if (!res.ok) {
-        const txt = await res.text();
-        let failure = {};
-        try { failure = JSON.parse(txt); } catch (_) {}
-        if (!secondaryRetried && res.status === 403 && failure.code === 'secondary_required') {
-          authState.secondaryAuthed = false;
-          appStore.update({ secondaryAuthenticated: false });
-          const ok = await requestSecondaryAuth();
-          if (ok) return saveConfigNow(true);
+        const secondary = await handleSecondaryRequired(
+          res,
+          secondaryRetried ? async () => false : requestSecondaryAuth,
+          () => {
+            authState.secondaryAuthed = false;
+            appStore.update({ secondaryAuthenticated: false });
+          },
+        );
+        if (secondary.required) {
+          if (secondary.retry) return saveConfigNow(true);
           toast('需要二次验证才能保存配置', 'err');
           return false;
         }
-        throw new Error(failure.error || txt || `HTTP ${res.status}`);
+        throw new Error(secondary.error);
       }
       const d = await res.json();

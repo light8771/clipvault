@@ -23,15 +23,25 @@ async function csrfToken(forceRefresh = false) {
   return csrfTokenPromise;
 }
 
+export function unwrapAPIEnvelope(envelope) {
+  if (envelope?.error) {
+    return { ok: false, code: envelope.error.code, error: envelope.error.message };
+  }
+  return Object.prototype.hasOwnProperty.call(envelope || {}, 'data') ? envelope.data : envelope;
+}
+
+export async function handleSecondaryRequired(response, requestSecondaryAuth, onExpired) {
+  const failure = await response.json().catch(() => ({}));
+  if (response.status !== 403 || failure.code !== 'secondary_required') {
+    return { required: false, retry: false, error: failure.error || `HTTP ${response.status}` };
+  }
+  onExpired();
+  return { required: true, retry: await requestSecondaryAuth(), error: failure.error };
+}
+
 function decorateJSON(response) {
   const decode = response.json.bind(response);
-  response.json = async () => {
-    const envelope = await decode();
-    if (envelope?.error) {
-      return { ok: false, code: envelope.error.code, error: envelope.error.message };
-    }
-    return Object.prototype.hasOwnProperty.call(envelope || {}, 'data') ? envelope.data : envelope;
-  };
+  response.json = async () => unwrapAPIEnvelope(await decode());
   return response;
 }
 

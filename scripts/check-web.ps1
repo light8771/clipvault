@@ -35,5 +35,11 @@ try {
     Remove-Item -LiteralPath $temporaryModule -Force -ErrorAction SilentlyContinue
 }
 
-& $Node --test (Join-Path $web "api_store_test.mjs") (Join-Path $web "theme_utils_test.js")
+$tests = @(
+    Get-ChildItem -LiteralPath $web -File |
+        Where-Object { $_.Name -match '(_test\.mjs|_test\.js)$' } |
+        Sort-Object Name |
+        ForEach-Object FullName
+)
+& $Node --test $tests
 if ($LASTEXITCODE -ne 0) { throw "web unit tests failed" }

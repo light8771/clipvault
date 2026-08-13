@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"clipboard_ext/internal/clipvault"
+	clipsecurity "clipboard_ext/internal/clipvault/security"
 	"clipboard_ext/internal/licensing"
 )
 
@@ -42,6 +43,17 @@ func main() {
 	}
 	cfg := manager.Get()
 	cfg.Search.ListenAddr = *listen
+	if password := os.Getenv("CLIPVAULT_PREVIEW_SECONDARY_PASSWORD"); password != "" {
+		if err := clipsecurity.ValidatePassword(password); err != nil {
+			panic(fmt.Errorf("invalid preview secondary password: %w", err))
+		}
+		hash, err := clipsecurity.HashPassword(password)
+		if err != nil {
+			panic(fmt.Errorf("hash preview secondary password: %w", err))
+		}
+		cfg.Security.SecondaryPasswordHash = hash
+		cfg.Security.SecondaryAuthTimeout = 0
+	}
 	if err := manager.Update(cfg); err != nil {
 		panic(err)
 	}

@@ -3,6 +3,10 @@
 Run the isolated preview with the repository CGO environment and a bounded
 `-lifetime` (for example `-lifetime 10m`), then drive the printed URL with the
 Playwright CLI. Store screenshots and traces only under `output/playwright/`.
+Set `CLIPVAULT_PREVIEW_SECONDARY_PASSWORD` to a strong disposable password when
+the smoke run needs to exercise secondary-authentication expiry and retry. The
+preview stores only its hash in the temporary data directory and removes that
+directory at shutdown.
 
 Before launching the browser, run `scripts/check-web.ps1`. The application
 feature sources under `web/app/` are ordered fragments of the single native ES
