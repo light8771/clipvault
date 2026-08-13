@@ -12,14 +12,26 @@ if (-not (Test-Path -LiteralPath $resolvedDataDir -PathType Container)) {
     throw "ClipVault data directory does not exist: $resolvedDataDir"
 }
 
+$clipVaultProcesses = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessName -match '^(?i:clipvault.*|isolated-preview)$'
+})
+
+if ($SkipStop -and $clipVaultProcesses.Count -ne 0) {
+    throw "ClipVault is running (PID: $($clipVaultProcesses.Id -join ', ')); -SkipStop cannot be used on an active data directory"
+}
+
 if (-not $SkipStop) {
-    Get-Process -Name 'ClipVault' -ErrorAction SilentlyContinue | ForEach-Object {
+    $clipVaultProcesses | ForEach-Object {
         $processId = $_.Id
         if ($PSCmdlet.ShouldProcess("ClipVault process $processId", 'Stop')) {
-            Stop-Process -Id $processId -Force
-            Wait-Process -Id $processId -Timeout 10 -ErrorAction SilentlyContinue
+            $null = $_.CloseMainWindow()
+            Wait-Process -Id $processId -Timeout 5 -ErrorAction SilentlyContinue
             if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
-                throw "ClipVault process $processId did not exit within 10 seconds"
+                Stop-Process -Id $processId -Force
+                Wait-Process -Id $processId -Timeout 10 -ErrorAction SilentlyContinue
+            }
+            if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+                throw "ClipVault process $processId did not exit"
             }
         }
     }
@@ -61,7 +73,10 @@ foreach ($pattern in $rootPatterns) {
 }
 
 if ($files.Count -eq 0) {
-    throw "No ClipVault database or asset files were found in: $resolvedDataDir"
+    Write-Host "ClipVault data directory is already empty: $resolvedDataDir"
+    Write-Host 'No rebuild backup was created.'
+    Write-Host 'Start ClipVault. It will create the current encrypted database schema and default settings.'
+    return
 }
 
 if ($PSCmdlet.ShouldProcess($backupDir, 'Create rebuild backup directory')) {

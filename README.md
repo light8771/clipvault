@@ -249,7 +249,7 @@ New-Item -ItemType File "portable.flag"
 
 在设置页迁移数据目录时，目标目录必须由用户预先创建、保持为空，并同时通过读取、创建和删除文件及子目录的权限检测。迁移数据库、密钥和应用数据，诊断日志继续保留在原位置。自定义位置记录必须是绝对路径，且不接受符号链接或联接点。返回默认位置时，目录中仅有 ClipVault 自身的控制文件和日志也可使用。迁移任务在应用完全退出后的下一次启动前执行，避免复制运行中的数据库文件；程序不会自动创建或合并用户文件。
 
-使用 `scripts/Rebuild-ClipVaultDatabase.ps1` 维护便携包时，若脚本不在 exe 同级目录的 `scripts` 中，请显式传入绝对路径的 `-DataDir <exe目录>\data`，避免操作错误的数据目录。
+使用 `scripts/Rebuild-ClipVaultDatabase.ps1` 维护便携包时，若脚本不在 exe 同级目录的 `scripts` 中，请显式传入绝对路径的 `-DataDir <exe目录>\data`，避免操作错误的数据目录。脚本可重复执行：数据目录已经没有数据库或品牌资源时会成功返回，不会创建空的 `rebuild-backup-*`；当前 schema 和默认设置由 ClipVault 下次启动创建。
 
 ## Web API
 
