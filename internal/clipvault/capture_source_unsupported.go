@@ -7,4 +7,6 @@ package clipvault
 
 func captureForegroundSourceFast() SourceInfo { return SourceInfo{} }
 
+func captureClipboardOwnerSourceFast() SourceInfo { return SourceInfo{} }
+
 func (s *SourceInfo) resolveDetails() {}

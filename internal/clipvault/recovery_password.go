@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 )
 
-const minRecoveryPasswordRunes = 12
+const (
+	minRecoveryPasswordRunes = 12
+	maxRecoveryPasswordBytes = 1024
+)
 
 // RecoveryPasswordError describes a recovery password operation failure.
 type RecoveryPasswordError struct {
@@ -29,7 +31,7 @@ func (e *RecoveryPasswordError) Unwrap() error { return e.Err }
 
 // HasRecoveryPassword checks if a recovery file exists in the data directory.
 func HasRecoveryPassword(dataDir string) (bool, error) {
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dataDir, databaseRecoveryFileName)
 	_, err := os.Stat(recPath)
 	if err == nil {
 		return true, nil
@@ -41,7 +43,7 @@ func HasRecoveryPassword(dataDir string) (bool, error) {
 }
 
 func hasRecoveryEnvelopeForKey(dataDir string, dbKey []byte) (bool, error) {
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dataDir, databaseRecoveryFileName)
 	fingerprint, err := readRecoveryFileFingerprint(recPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -62,7 +64,7 @@ func SetRecoveryPassword(dataDir string, dbKey []byte, password string) error {
 	if err := validateRecoveryPassword(password); err != nil {
 		return err
 	}
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dataDir, databaseRecoveryFileName)
 	if _, err := os.Stat(recPath); err == nil {
 		return errors.New("recovery password is already set")
 	} else if !os.IsNotExist(err) {
@@ -87,7 +89,7 @@ func SetRecoveryPassword(dataDir string, dbKey []byte, password string) error {
 // 任何失败路径都保留原 recovery 文件，避免"自检失败即删除"把用户
 // 唯一的恢复能力从"有"清零到"无"（原实现直接覆写 + os.Remove）。
 func ChangeRecoveryPassword(dataDir string, dbKey []byte, oldPassword, newPassword string) error {
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dataDir, databaseRecoveryFileName)
 	if _, err := os.Stat(recPath); err != nil {
 		if os.IsNotExist(err) {
 			return &RecoveryPasswordError{Code: "not_set"}
@@ -109,7 +111,7 @@ func ResetRecoveryPassword(dataDir string, dbKey []byte, newPassword string) err
 	if err := validateRecoveryPassword(newPassword); err != nil {
 		return err
 	}
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dataDir, databaseRecoveryFileName)
 
 	// 同目录临时文件保证 rename 不跨卷。
 	tmpPath := recPath + ".new"
@@ -137,7 +139,7 @@ func validateRecoveryPassword(password string) error {
 	if strings.TrimSpace(password) != password || utf8.RuneCountInString(password) < minRecoveryPasswordRunes {
 		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("恢复密码至少需要 %d 个字符，且首尾不能有空格", minRecoveryPasswordRunes)}
 	}
-	if len(password) > 1024 {
+	if len(password) > maxRecoveryPasswordBytes {
 		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("恢复密码过长")}
 	}
 	return nil
@@ -145,7 +147,7 @@ func validateRecoveryPassword(password string) error {
 
 // VerifyRecoveryPassword tests that the password can decrypt the db_key from the recovery file.
 func VerifyRecoveryPassword(dataDir, password string) error {
-	recPath := filepath.Join(dataDir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dataDir, databaseRecoveryFileName)
 	_, _, err := ReadRecoveryFile(recPath, []byte(password))
 	if err != nil {
 		return fmt.Errorf("verify recovery: %w", err)

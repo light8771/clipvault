@@ -32,21 +32,28 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
+const (
+	importReadTimeout       = 60 * time.Minute
+	importProcessingTimeout = 60 * time.Minute
+	exportWriteTimeout      = 60 * time.Minute
+)
+
 type SearchServer struct {
-	cfgMgr     *ConfigManager
-	store      *Store
-	state      *RuntimeState
-	logger     *DailyLogger
-	auth       *AuthManager
-	env        Environment
-	server     *http.Server
-	url        string
-	restartCh  chan struct{}
-	backup     *BackupService
-	csrfToken  string
-	license    *licensing.Manager
-	assetMu    sync.Mutex
-	recoveryMu sync.Mutex
+	cfgMgr       *ConfigManager
+	store        *Store
+	state        *RuntimeState
+	logger       *DailyLogger
+	auth         *AuthManager
+	env          Environment
+	server       *http.Server
+	url          string
+	restartCh    chan struct{}
+	backup       *BackupService
+	csrfToken    string
+	license      *licensing.Manager
+	assetMu      sync.Mutex
+	recoveryMu   sync.Mutex
+	reverseProxy ReverseProxyConfig
 }
 
 type freshSecondaryContextKey struct{}
@@ -66,6 +73,7 @@ func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, l
 
 func (s *SearchServer) Start() (string, error) {
 	cfg := s.cfgMgr.Get()
+	s.reverseProxy = cfg.Search.ReverseProxy
 	host, port, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		return "", err
@@ -85,6 +93,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
 	mux.HandleFunc("GET /style.css", s.handleStatic)
 	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
+	mux.HandleFunc("GET /hotkey-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
 	mux.HandleFunc("GET /api/csrf", s.handleCSRF)
 	mux.HandleFunc("GET /api/appearance", s.handlePublicAppearance)
@@ -145,6 +154,8 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /api/recovery/status", s.requireSecondary(s.handleRecoveryStatus))
 	mux.HandleFunc("POST /api/recovery/change", s.requireSecondary(s.handleRecoveryChange))
 	mux.HandleFunc("POST /api/recovery/reset", s.requireSecondary(s.handleRecoveryReset))
+	mux.HandleFunc("POST /api/recovery/isolated/switch", s.requireSecondary(s.handleIsolatedDatabaseSwitch))
+	mux.HandleFunc("DELETE /api/recovery/isolated/switch", s.requireSecondary(s.handleIsolatedDatabaseSwitchCancel))
 
 	// 备份管理端点（需二次认证）
 	mux.HandleFunc("GET /api/backup/status", s.requireAuth(s.handleBackupStatus))
@@ -1187,29 +1198,14 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_time_zone", "日期筛选时区无效，请填写 system 或有效 IANA 时区", err)
 		return
 	}
-	if !isLoopbackHost(listenHost) && (!s.auth.HasLockPassword(curCfg) || !s.auth.HasSecondaryPassword(curCfg)) {
+	if (!isLoopbackHost(listenHost) || cfg.Search.ReverseProxy.Enabled) && !s.auth.HasLockPassword(curCfg) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)
 		s.writeJSON(w, map[string]any{
 			"ok":    false,
-			"error": "开放局域网监听前，必须先设置锁屏密码和二次密码",
+			"error": "开放局域网或反向代理访问前，必须先设置锁屏密码",
 		})
 		return
-	}
-	curListenHost, _, curListenErr := validateListenAddr(curCfg.Search.ListenAddr)
-	openingLAN := curListenErr == nil && isLoopbackHost(curListenHost) && !isLoopbackHost(listenHost)
-	if openingLAN {
-		freshVerified, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
-		if !freshVerified {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(http.StatusForbidden)
-			s.writeJSON(w, map[string]any{
-				"ok":    false,
-				"error": "开放局域网监听需要重新输入一次二次密码确认",
-				"code":  "fresh_secondary_required",
-			})
-			return
-		}
 	}
 	// 前端可能在未通过二次认证时提交遮蔽后的 patterns（__masked__），保留原值
 	for _, p := range cfg.Sensitive.CustomPatterns {
@@ -1267,11 +1263,18 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	token := GetSessionToken(r)
 	if curCfg.Security.LockSessionTimeout != cfg.Security.LockSessionTimeout {
 		if s.auth.RefreshSessionExpiry(token, cfg.Security.LockSessionTimeout) {
-			SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
+			SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, s.requestUsesHTTPS(r))
 		}
 	}
 	if curCfg.Security.SecondaryAuthTimeout != cfg.Security.SecondaryAuthTimeout {
-		s.auth.RefreshSecondaryExpiry(token, cfg.Security.SecondaryAuthTimeout)
+		if cfg.Security.SecondaryAuthTimeout > 0 {
+			// PUT /api/config 已经通过 requireSecondary。即使旧配置为 0，
+			// 当前请求也是靠刚验证得到的一次性 token 放行的，因此应当
+			// 立即把当前会话升级为按新时长缓存，不能等用户下次再验证。
+			s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
+		} else {
+			s.auth.RefreshSecondaryExpiry(token, cfg.Security.SecondaryAuthTimeout)
+		}
 	}
 	s.logger.Info("config_updated", nil)
 	response["config"] = stripSecrets(s.cfgMgr.Get())
@@ -1336,31 +1339,44 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", "导出范围无效", err)
 		return
 	}
+	if err := setExportWriteDeadline(w, time.Now()); err != nil {
+		s.writeAPIError(w, http.StatusInternalServerError, "export_deadline_failed", "无法为大型导出设置传输期限", err)
+		return
+	}
 
 	switch format {
 	case "xlsx":
-		data, err := s.store.ExportXLSXScope(r.Context(), scope)
+		file, err := os.CreateTemp("", "clipvault-export-*.xlsx")
 		if err != nil {
 			s.writeError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.xlsx"`)
-		_, _ = w.Write(data)
+		defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+		if _, err := s.store.WriteXLSXScope(r.Context(), scope, file); err != nil {
+			s.writeError(w, err)
+			return
+		}
+		if err := serveExportFile(w, r, file, "clipvault-data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); err != nil {
+			s.logger.Error("data_export_failed", err, map[string]any{"format": "xlsx", "mode": scope.Mode})
+			return
+		}
 		s.logger.Info("data_exported", map[string]any{"format": "xlsx", "mode": scope.Mode})
 	case "json":
-		// 先缓冲导出到内存，成功后再写响应头与正文；
-		// 否则中途失败会让客户端收到 HTTP 200 的截断 JSON（误判导出成功）。
-		var buf bytes.Buffer
-		if _, err := s.store.StreamExport(r.Context(), scope, &buf); err != nil {
+		file, err := os.CreateTemp("", "clipvault-export-*.json")
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+		if _, err := s.store.StreamExport(r.Context(), scope, file); err != nil {
 			s.logger.Error("data_export_failed", err, map[string]any{"format": "json", "mode": scope.Mode})
 			s.writeError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.json"`)
-		w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
-		_, _ = w.Write(buf.Bytes())
+		if err := serveExportFile(w, r, file, "clipvault-data.json", "application/json; charset=utf-8"); err != nil {
+			s.logger.Error("data_export_failed", err, map[string]any{"format": "json", "mode": scope.Mode})
+			return
+		}
 		s.logger.Info("data_exported", map[string]any{"format": "json", "mode": scope.Mode})
 	case "cvexport":
 		if r.Method != http.MethodPost {
@@ -1379,21 +1395,27 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 			s.writeAPIError(w, http.StatusBadRequest, "password_required", "cvexport 格式需要加密密码", nil)
 			return
 		}
-		// AES-256-GCM 需要完整明文：先流式收集到 buffer 再加密
-		var buf bytes.Buffer
-		if _, err := s.store.StreamExport(r.Context(), scope, &buf); err != nil {
-			s.writeError(w, err)
-			return
-		}
-		encData, err := EncryptExport(buf.Bytes(), password)
+		file, err := os.CreateTemp("", "clipvault-export-*.cvexport")
 		if err != nil {
 			s.writeError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", `attachment; filename="clipvault-data.cvexport"`)
-		_, _ = w.Write(encData)
-		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "mode": scope.Mode, "size": len(encData)})
+		defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+		var maxID int64
+		err = WriteCVExport(file, password, func(plain io.Writer) error {
+			var streamErr error
+			maxID, streamErr = s.store.StreamExport(r.Context(), scope, plain)
+			return streamErr
+		})
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		if err := serveExportFile(w, r, file, "clipvault-data.cvexport", "application/octet-stream"); err != nil {
+			s.logger.Error("data_export_failed", err, map[string]any{"format": "cvexport", "mode": scope.Mode})
+			return
+		}
+		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "mode": scope.Mode, "maxID": maxID})
 	default:
 		s.writeAPIError(w, http.StatusBadRequest, "unsupported_format", "不支持的导出格式", nil)
 	}
@@ -1401,14 +1423,6 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 
 // handleImportData imports a JSON, XLSX, or encrypted .cvexport export file.
 func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) {
-	// Limit upload to 500MB (batched import can handle large files now)
-	r.Body = http.MaxBytesReader(w, r.Body, 500<<20)
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.writeImportError(w, fmt.Errorf("read body: %w", err))
-		return
-	}
-
 	format := r.Header.Get("X-ClipVault-Import-Format")
 	if format == "" {
 		s.writeImportError(w, errors.New("import format is required"))
@@ -1418,14 +1432,43 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 		s.writeImportError(w, errors.New("unsupported import format"))
 		return
 	}
+	if err := setImportTransferDeadlines(w, time.Now()); err != nil {
+		s.writeImportError(w, fmt.Errorf("extend import transfer deadlines: %w", err))
+		return
+	}
 
-	var importErr error
-	isCVExport := IsCVExport(data)
+	const (
+		maxStreamImportBytes = 520 << 20
+		maxXLSXImportBytes   = 64 << 20
+	)
+	maxBytes := int64(maxStreamImportBytes)
+	if format == "xlsx" {
+		maxBytes = maxXLSXImportBytes
+	}
+	file, err := spoolImportBody(w, r, maxBytes)
+	if err != nil {
+		s.writeImportError(w, err)
+		return
+	}
+	defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+	if err := setImportProcessingDeadline(w, time.Now()); err != nil {
+		s.writeImportError(w, fmt.Errorf("extend import processing deadline: %w", err))
+		return
+	}
+
+	prefix := make([]byte, cvexportMagicLen)
+	n, readErr := io.ReadFull(file, prefix)
+	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+		s.writeImportError(w, fmt.Errorf("inspect import: %w", readErr))
+		return
+	}
+	isCVExport := IsCVExport(prefix[:n])
 	if isCVExport && format != "cvexport" {
 		s.writeImportError(w, errors.New("import format does not match encrypted export"))
 		return
 	}
 
+	var importErr error
 	switch format {
 	case "cvexport":
 		if !isCVExport {
@@ -1437,18 +1480,45 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 			s.writeImportError(w, errors.New("password is required to decrypt .cvexport file"))
 			return
 		}
-		data, importErr = DecryptExport(data, password)
+		plain, err := os.CreateTemp("", "clipvault-import-*.json")
+		if err != nil {
+			s.writeImportError(w, err)
+			return
+		}
+		defer func() { _ = plain.Close(); _ = os.Remove(plain.Name()) }()
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			importErr = err
+		} else {
+			importErr = DecryptCVExport(plain, file, password)
+		}
 		if importErr != nil {
 			importErr = fmt.Errorf("decrypt cvexport: %w", importErr)
 			s.writeImportError(w, importErr)
 			s.logger.Error("import_failed", importErr, map[string]any{"format": format})
 			return
 		}
-		importErr = s.store.ImportFullJSON(r.Context(), data)
+		if _, err := plain.Seek(0, io.SeekStart); err != nil {
+			importErr = err
+		} else {
+			importErr = s.store.ImportFullJSONReader(r.Context(), plain)
+		}
 	case "xlsx":
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			importErr = err
+			break
+		}
+		data, err := io.ReadAll(file)
+		if err != nil {
+			importErr = err
+			break
+		}
 		importErr = s.store.ImportXLSX(r.Context(), data)
 	case "json":
-		importErr = s.store.ImportFullJSON(r.Context(), data)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			importErr = err
+		} else {
+			importErr = s.store.ImportFullJSONReader(r.Context(), file)
+		}
 	}
 	if importErr != nil {
 		s.writeImportError(w, importErr)
@@ -1469,6 +1539,84 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 	s.writeJSON(w, response)
 }
 
+func serveExportFile(w http.ResponseWriter, _ *http.Request, file *os.File, downloadName, contentType string) error {
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync export: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat export: %w", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind export: %w", err)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, downloadName))
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	if _, err := io.Copy(w, file); err != nil {
+		return fmt.Errorf("send export: %w", err)
+	}
+	return nil
+}
+
+func setImportTransferDeadlines(w http.ResponseWriter, now time.Time) error {
+	// The upload and database-processing phases each get their own 60-minute
+	// window. handleImportData refreshes the write deadline after spooling.
+	controller := http.NewResponseController(w)
+	if err := setReadDeadlineIfSupported(controller, now.Add(importReadTimeout)); err != nil {
+		return err
+	}
+	return setWriteDeadlineIfSupported(controller, now.Add(importReadTimeout))
+}
+
+func setImportProcessingDeadline(w http.ResponseWriter, now time.Time) error {
+	return setWriteDeadlineIfSupported(http.NewResponseController(w), now.Add(importProcessingTimeout))
+}
+
+func setExportWriteDeadline(w http.ResponseWriter, now time.Time) error {
+	return setWriteDeadlineIfSupported(http.NewResponseController(w), now.Add(exportWriteTimeout))
+}
+
+func setReadDeadlineIfSupported(controller *http.ResponseController, deadline time.Time) error {
+	if err := controller.SetReadDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+func setWriteDeadlineIfSupported(controller *http.ResponseController, deadline time.Time) error {
+	if err := controller.SetWriteDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+func spoolImportBody(w http.ResponseWriter, r *http.Request, maxBytes int64) (*os.File, error) {
+	file, err := os.CreateTemp("", "clipvault-upload-*")
+	if err != nil {
+		return nil, fmt.Errorf("create import staging file: %w", err)
+	}
+	success := false
+	defer func() {
+		if !success {
+			_ = file.Close()
+			_ = os.Remove(file.Name())
+		}
+	}()
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	if _, err := io.Copy(file, r.Body); err != nil {
+		return nil, fmt.Errorf("read import body: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return nil, fmt.Errorf("sync import body: %w", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("rewind import body: %w", err)
+	}
+	success = true
+	return file, nil
+}
+
 func (s *SearchServer) writeImportError(w http.ResponseWriter, err error) {
 	// 导入失败：原始 err 只进日志，客户端给可读文案
 	// （防解密/DB 内部错误细节泄漏，#19）
@@ -1483,7 +1631,66 @@ func (s *SearchServer) handleRecoveryStatus(w http.ResponseWriter, r *http.Reque
 		s.writeError(w, err)
 		return
 	}
-	s.writeJSON(w, map[string]any{"hasRecovery": hasRecovery})
+	isolated, err := ListIsolatedDatabases(s.env.DataDir)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{
+		"hasRecovery":       hasRecovery,
+		"isolatedDatabases": isolated.Databases,
+		"pendingSwitchId":   isolated.PendingID,
+	})
+}
+
+func (s *SearchServer) handleIsolatedDatabaseSwitch(w http.ResponseWriter, r *http.Request) {
+	fresh, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
+	if !fresh {
+		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", "切换数据库需要重新输入二次密码", nil)
+		return
+	}
+	var req struct {
+		ID       string `json:"id"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		return
+	}
+	if err := ScheduleIsolatedDatabaseSwitch(s.env.DataDir, strings.TrimSpace(req.ID), req.Password); err != nil {
+		s.logger.Error("isolated_database_switch_failed", err, nil)
+		switch {
+		case errors.Is(err, ErrIsolatedDatabaseNotFound):
+			s.writeAPIError(w, http.StatusNotFound, "isolated_database_not_found", "这份隔离数据已不存在，请刷新列表", err)
+		case errors.Is(err, ErrIsolatedDatabasePending):
+			s.writeAPIError(w, http.StatusConflict, "isolated_database_switch_pending", "已有数据库切换任务等待应用重启", err)
+		case errors.Is(err, ErrIsolatedDatabaseUnavailable):
+			s.writeAPIError(w, http.StatusBadRequest, "isolated_database_unavailable", "恢复密码不正确，或这份隔离数据已损坏", err)
+		default:
+			s.writeInternalError(w, err)
+		}
+		return
+	}
+	s.logger.Info("isolated_database_switch_scheduled", map[string]any{"isolationId": strings.TrimSpace(req.ID)})
+	s.writeJSON(w, map[string]any{
+		"ok":      true,
+		"message": "切换任务已准备完成，请退出 ClipVault 并重新打开",
+	})
+}
+
+func (s *SearchServer) handleIsolatedDatabaseSwitchCancel(w http.ResponseWriter, r *http.Request) {
+	fresh, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
+	if !fresh {
+		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", "取消数据库切换需要重新输入二次密码", nil)
+		return
+	}
+	if err := CancelIsolatedDatabaseSwitch(s.env.DataDir); err != nil {
+		s.logger.Error("isolated_database_switch_cancel_failed", err, nil)
+		s.writeInternalError(w, err)
+		return
+	}
+	s.logger.Info("isolated_database_switch_cancelled", nil)
+	s.writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Request) {
@@ -2291,7 +2498,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
+	SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, s.requestUsesHTTPS(r))
 	s.logger.Info("auth_login", nil)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
@@ -2300,7 +2507,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	token := GetSessionToken(r)
 	s.auth.DestroySession(token)
-	ClearSessionCookie(w)
+	ClearSessionCookie(w, s.requestUsesHTTPS(r))
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -2344,7 +2551,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 			s.writeError(w, err)
 			return
 		}
-		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout)
+		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, s.requestUsesHTTPS(r))
 	}
 	s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
 

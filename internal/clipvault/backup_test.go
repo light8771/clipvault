@@ -13,10 +13,36 @@ import (
 	"net/http/httptest"
 	"net/mail"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestEmailPartCandidateUpperBoundUsesAllRemainingRows(t *testing.T) {
+	total := maxEmailParts*5000 + 1
+	if got := emailPartCandidateUpperBound(total, 0); got != total {
+		t.Fatalf("candidate upper bound = %d, want %d", got, total)
+	}
+	if got := emailPartCandidateUpperBound(total, 1234); got != total-1234 {
+		t.Fatalf("remaining candidate upper bound = %d, want %d", got, total-1234)
+	}
+}
+
+func TestNextEmailPartProbeGrowsBeyondFormerRowCap(t *testing.T) {
+	remaining := maxEmailParts*initialEmailPartProbeRows + 1
+	probe := initialEmailPartProbeRows
+	for probe < remaining {
+		next := nextEmailPartProbe(probe, remaining)
+		if next <= probe || next > remaining {
+			t.Fatalf("next probe = %d after %d with %d remaining", next, probe, remaining)
+		}
+		probe = next
+	}
+	if probe != remaining {
+		t.Fatalf("final probe = %d, want %d", probe, remaining)
+	}
+}
 
 func TestBackupDataCanBeImported(t *testing.T) {
 	ctx := context.Background()
@@ -466,6 +492,26 @@ func TestEmailBackupMessageUsesPartFilenameAndCountsRenderedBody(t *testing.T) {
 	}
 }
 
+func TestStreamingEmailAttachmentSizeMatchesWrittenMessage(t *testing.T) {
+	cfg := completeScheduledBackupConfig().Backup.EmailBackup
+	attachmentPath := filepath.Join(t.TempDir(), "part.json")
+	if err := os.WriteFile(attachmentPath, bytes.Repeat([]byte("streamed attachment\n"), 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
+	var message bytes.Buffer
+	if err := writeEmailBackupMessage(&message, cfg, "json", now, 0, 1, attachmentPath); err != nil {
+		t.Fatal(err)
+	}
+	size, err := emailBackupFileMessageSize(cfg, "json", now, 0, 1, attachmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != int64(message.Len()) {
+		t.Fatalf("streaming MIME size=%d, written=%d", size, message.Len())
+	}
+}
+
 // TestExportEmailPartsEmptyStoreProducesOneImportablePart 验证无新数据时邮件备份
 // 仍产出一片可独立导入的空导出（与目录备份"总是写文件"的行为一致），
 // 且水印不被推进。
@@ -494,17 +540,21 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 			cfg.Format = test.format
 			cfg.Password = test.password
 			cfg.MaxPartSize = 64 << 20
-			parts, ext, exportedMaxID, err := backup.exportEmailPartsSized(cfg, ExportScope{Mode: "full"})
+			parts, ext, exportedMaxID, err := backup.exportEmailPartFilesSized(cfg, ExportScope{Mode: "full"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer cleanupEmailPartFiles(parts)
 			if len(parts) != 1 {
 				t.Fatalf("empty store should still produce 1 part, got %d", len(parts))
 			}
 			if exportedMaxID != 0 {
 				t.Fatalf("empty store should report exportedMaxID=0, got %d", exportedMaxID)
 			}
-			raw := parts[0]
+			raw, err := os.ReadFile(parts[0].path)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if test.format == "cvexport" {
 				if ext != "cvexport" {
 					t.Fatalf("ext = %q", ext)
@@ -538,7 +588,7 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 			if wm.LastItemID != 0 {
 				t.Fatalf("watermark should not advance on empty backup, got %#v", wm)
 			}
-			t.Logf("[OK] empty store produced 1 importable %s part (%d bytes)", ext, len(parts[0]))
+			t.Logf("[OK] empty store produced 1 importable %s part (%d bytes)", ext, len(raw))
 		})
 	}
 }

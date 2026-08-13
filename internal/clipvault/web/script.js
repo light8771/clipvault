@@ -55,6 +55,8 @@
   let currentGroupID = 0; // 0 = no group filter
   // 来源应用（exe）下拉与别名/白名单状态
   let sourceAliases = {};      // { [rawExeName]: customName }
+  let sourceWhitelist = null;  // null = 搜索下拉显示全部
+  let sourceAppsDraft = null;  // 弹窗草稿；取消时不污染当前配置
   let allSourceExes = [];      // [{name,count}]
   let currentSourceExes = [];  // 当前多选选中的真实 exe 名
 	// freeLimit 由后端 GET /api/license/status 下发，权威值是 Go 侧的 FreeTierVisibleLimit。
@@ -359,7 +361,7 @@
   }
 
   // ── Recovery password management ──────────────────────────
-  let recoveryState = { hasRecovery: false };
+  let recoveryState = { hasRecovery: false, isolatedDatabases: [], pendingSwitchId: '' };
 
   async function loadRecoveryStatus() {
     try {
@@ -370,7 +372,10 @@
       if (!res.ok) return;
       const d = await res.json();
       recoveryState.hasRecovery = d.hasRecovery;
+      recoveryState.isolatedDatabases = Array.isArray(d.isolatedDatabases) ? d.isolatedDatabases : [];
+      recoveryState.pendingSwitchId = String(d.pendingSwitchId || '');
       updateRecoveryPwdUI();
+      renderIsolatedDatabases();
     } catch (_) {}
   }
 
@@ -382,6 +387,181 @@
     if (changeBtn) changeBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
     if (resetBtn) resetBtn.classList.toggle('hidden', !recoveryState.hasRecovery);
   }
+
+  function formatIsolatedSize(bytes) {
+    const value = Number(bytes) || 0;
+    if (value < 1024) return value + ' B';
+    if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB';
+    if (value < 1024 * 1024 * 1024) return (value / 1024 / 1024).toFixed(1) + ' MiB';
+    return (value / 1024 / 1024 / 1024).toFixed(2) + ' GiB';
+  }
+
+  function formatIsolatedTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '时间未知';
+    return date.toLocaleString('zh-CN', { hour12: false });
+  }
+
+  function renderIsolatedDatabases() {
+    const list = document.getElementById('isolatedDatabaseList');
+    const count = document.getElementById('isolatedDatabaseCount');
+    const pending = document.getElementById('isolatedDatabasePending');
+    if (!list || !count || !pending) return;
+    const databases = recoveryState.isolatedDatabases;
+    count.textContent = databases.length + ' 份';
+    list.replaceChildren();
+
+    if (recoveryState.pendingSwitchId) {
+      pending.replaceChildren();
+      const pendingText = document.createElement('span');
+      pendingText.textContent = '数据库切换已准备完成。请从托盘退出 ClipVault，再重新打开；不要直接关闭这个浏览器页面代替退出应用。';
+      const cancelButton = document.createElement('button');
+      cancelButton.type = 'button';
+      cancelButton.className = 'btn-export';
+      cancelButton.textContent = '取消切换';
+      cancelButton.addEventListener('click', cancelIsolatedDatabaseSwitch);
+      pending.append(pendingText, cancelButton);
+      pending.classList.remove('hidden');
+    } else {
+      pending.replaceChildren();
+      pending.classList.add('hidden');
+    }
+
+    if (!databases.length) {
+      const empty = document.createElement('p');
+      empty.className = 'isolated-empty';
+      empty.textContent = '没有隔离的旧数据库。';
+      list.appendChild(empty);
+      return;
+    }
+
+    databases.forEach((database) => {
+      const row = document.createElement('div');
+      row.className = 'isolated-item' + (database.canSwitch ? '' : ' is-unavailable');
+
+      const main = document.createElement('div');
+      main.className = 'isolated-item-main';
+      const title = document.createElement('div');
+      title.className = 'isolated-item-title';
+      title.textContent = formatIsolatedTime(database.isolatedAt);
+      const meta = document.createElement('div');
+      meta.className = 'isolated-item-meta';
+      meta.textContent = formatIsolatedSize(database.sizeBytes) + (database.canSwitch ? ' · 可验证恢复' : ' · 缺少恢复文件，无法切换');
+      main.append(title, meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'isolated-item-actions';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn-export';
+      button.textContent = recoveryState.pendingSwitchId === database.id ? '等待重启' : '切换查看';
+      button.disabled = !database.canSwitch || Boolean(recoveryState.pendingSwitchId);
+      button.addEventListener('click', () => showIsolatedDatabaseDialog(database.id));
+      actions.appendChild(button);
+
+      row.append(main, actions);
+      list.appendChild(row);
+    });
+  }
+
+  async function cancelIsolatedDatabaseSwitch() {
+    try {
+      const verified = await requestSecondaryAuth(true);
+      if (!verified) return;
+      const res = await freshSecondaryFetch('/api/recovery/isolated/switch', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        toast(data.error || '无法取消数据库切换', 'err');
+        return;
+      }
+      recoveryState.pendingSwitchId = '';
+      renderIsolatedDatabases();
+      toast('数据库切换已取消');
+    } catch (_) {
+      toast('无法取消数据库切换', 'err');
+    }
+  }
+
+  window.showIsolatedDatabaseDialog = function(id) {
+    const database = recoveryState.isolatedDatabases.find((item) => item.id === id);
+    if (!database || !database.canSwitch || recoveryState.pendingSwitchId) return;
+    const html = `
+      <div class="modal-overlay" id="isolatedDatabaseOverlay">
+        <div class="modal-box secondary-box isolated-database-modal" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <span class="modal-title">切换到旧数据库</span>
+            <button class="modal-close" type="button" onclick="closeIsolatedDatabaseDialog()" aria-label="关闭">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="height:auto;padding:24px">
+            <div class="migrate-notes">
+              <p>验证成功后，本次切换会在下次完整启动时执行。当前数据库不会被覆盖，而是作为另一份隔离数据保留，之后可用它自己的恢复密码切回。</p>
+            </div>
+            <form id="isolatedDatabaseForm" class="lock-form">
+              <label class="migrate-label" for="isolatedDatabasePassword">这份旧数据库的数据恢复密码</label>
+              <input type="password" id="isolatedDatabasePassword" class="lock-input" placeholder="输入旧数据库的恢复密码" autocomplete="current-password">
+              <button type="submit" class="lock-btn" id="isolatedDatabaseSubmit">验证并准备切换</button>
+            </form>
+            <p class="lock-err hidden" id="isolatedDatabaseError"></p>
+          </div>
+        </div>
+      </div>`;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper.firstElementChild);
+    const overlay = document.getElementById('isolatedDatabaseOverlay');
+    const form = document.getElementById('isolatedDatabaseForm');
+    const input = document.getElementById('isolatedDatabasePassword');
+    const submit = document.getElementById('isolatedDatabaseSubmit');
+    const error = document.getElementById('isolatedDatabaseError');
+    window.closeIsolatedDatabaseDialog = function() { overlay.remove(); };
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) closeIsolatedDatabaseDialog(); });
+    setTimeout(() => input.focus(), 50);
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      error.classList.add('hidden');
+      if (!input.value) {
+        error.textContent = '请输入这份旧数据库的数据恢复密码';
+        error.classList.remove('hidden');
+        input.focus();
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = '正在验证...';
+      try {
+        const verified = await requestSecondaryAuth(true);
+        if (!verified) {
+          error.textContent = '需要重新输入二次密码才能切换数据库';
+          error.classList.remove('hidden');
+          return;
+        }
+        const res = await freshSecondaryFetch('/api/recovery/isolated/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: database.id, password: input.value }),
+        });
+        const data = await res.json().catch(() => ({}));
+        input.value = '';
+        if (!res.ok || !data.ok) {
+          error.textContent = data.error || '无法准备数据库切换';
+          error.classList.remove('hidden');
+          return;
+        }
+        recoveryState.pendingSwitchId = database.id;
+        closeIsolatedDatabaseDialog();
+        renderIsolatedDatabases();
+        toast('切换已准备，请退出 ClipVault 后重新打开');
+      } catch (_) {
+        error.textContent = '无法连接本机服务，请稍后重试';
+        error.classList.remove('hidden');
+      } finally {
+        submit.disabled = false;
+        submit.textContent = '验证并准备切换';
+      }
+    });
+  };
 
   window.showRecoveryDialog = function(action) {
     const isChange = action === 'change';
@@ -1525,6 +1705,10 @@
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      if (!document.getElementById('sourceAppsModal')?.classList.contains('hidden')) {
+        closeSourceAppsDialog();
+        return;
+      }
       if (document.getElementById('groupModalOverlay')) {
         closeGroupModal();
         return;
@@ -2239,8 +2423,19 @@
   function updateListenAddressWarning() {
     const input = document.getElementById('cfg-listenAddr');
     const warning = document.getElementById('listenAddrWarning');
+    const proxyEnabled = document.getElementById('cfg-reverseProxyEnabled')?.checked || false;
+    const title = document.getElementById('listenSecurityWarningTitle');
+    const text = document.getElementById('listenSecurityWarningText');
     if (!input || !warning) return;
-    warning.classList.toggle('hidden', isLoopbackListenAddress(input.value));
+    const directLAN = !isLoopbackListenAddress(input.value);
+    warning.classList.toggle('hidden', !directLAN && !proxyEnabled);
+    if (proxyEnabled) {
+      if (title) title.textContent = 'HTTPS 反向代理模式';
+      if (text) text.textContent = 'ClipVault 只信任来自本机回环连接且与外部 HTTPS 地址完全匹配的转发头。后端监听地址必须保持为 127.0.0.1 或其他回环地址。';
+    } else {
+      if (title) title.textContent = '局域网访问风险';
+      if (text) text.textContent = '非回环地址会通过明文 HTTP 暴露剪贴板服务。保存前必须设置锁屏密码；建议仅在可信网络中使用，并检查 Windows 防火墙规则。';
+    }
   }
 
   function applyConfigToForm(cfg) {
@@ -2255,14 +2450,19 @@
 
     // 来源应用配置：ShowExe 缺省视为 true；别名/白名单编辑器依赖 allSourceExes（由 loadSourceExes 填充）
     sourceAliases = cfg.source?.exeAliases || {};
+    sourceWhitelist = cfg.source?.exeWhitelist?.length ? cfg.source.exeWhitelist.slice() : null;
     const showExeEl = document.getElementById('cfg-sourceShowExe');
     if (showExeEl) showExeEl.checked = cfg.source?.showExe !== false;
-    renderSourceAliases(sourceAliases);
-    renderSourceWhitelist(cfg.source?.exeWhitelist || []);
+    updateSourceAppsSummary();
 
     document.getElementById('cfg-listenAddr').value = (cfg.search && cfg.search.listenAddr) || '127.0.0.1:18765';
-	const timeZoneEl = document.getElementById('cfg-timeZone');
-	if (timeZoneEl) timeZoneEl.value = (cfg.search && cfg.search.timeZone) || 'system';
+    const reverseProxy = cfg.search?.reverseProxy || {};
+    const reverseProxyEnabled = document.getElementById('cfg-reverseProxyEnabled');
+    const reverseProxyPublicUrl = document.getElementById('cfg-reverseProxyPublicUrl');
+    if (reverseProxyEnabled) reverseProxyEnabled.checked = !!reverseProxy.enabled;
+    if (reverseProxyPublicUrl) reverseProxyPublicUrl.value = reverseProxy.publicUrl || '';
+    const timeZoneEl = document.getElementById('cfg-timeZone');
+    if (timeZoneEl) timeZoneEl.value = (cfg.search && cfg.search.timeZone) || 'system';
     updateListenAddressWarning();
 
     // 全局快捷键
@@ -2407,70 +2607,150 @@
     loadBackupStatus();
   }
 
-  // ── 来源应用别名 / 白名单编辑器 ─────────────────────────
-  function renderSourceAliases(exeAliases) {
+  // ── 来源应用管理弹窗 ─────────────────────────────────────
+  function updateSourceAppsSummary() {
+    const summary = document.getElementById('sourceAppsSummary');
+    if (!summary) return;
+    const aliasCount = Object.keys(sourceAliases || {}).length;
+    const scope = sourceWhitelist?.length ? `下拉显示 ${sourceWhitelist.length} 个应用` : '下拉显示全部应用';
+    summary.textContent = `${scope}；已设置 ${aliasCount} 个别名`;
+  }
+
+  function renderSourceAppsDialog() {
     const wrap = document.getElementById('srcAliases');
-    if (!wrap) return;
+    if (!wrap || !sourceAppsDraft) return;
     if (!allSourceExes.length) {
       wrap.innerHTML = '<p class="src-empty-hint">暂无已记录的来源应用</p>';
+      updateSourceAppsSelectionHint();
       return;
     }
-    wrap.innerHTML = allSourceExes.map(e => {
-      const custom = (exeAliases && exeAliases[e.name]) || '';
+    const query = document.getElementById('sourceAppsFilter')?.value.trim().toLowerCase() || '';
+    const visible = allSourceExes.filter(e => {
+      const alias = sourceAppsDraft.aliases[e.name] || '';
+      return !query || e.name.toLowerCase().includes(query) || alias.toLowerCase().includes(query);
+    });
+    const selectedMode = sourceAppsDraft.mode === 'selected';
+    const selected = new Set(selectedMode
+      ? (sourceAppsDraft.whitelist || [])
+      : allSourceExes.map(e => e.name));
+    wrap.innerHTML = visible.map(e => {
+      const custom = sourceAppsDraft.aliases[e.name] || '';
       return `<div class="src-alias-row" data-raw="${esc(e.name)}">
+        <label class="src-app-check" title="控制是否出现在搜索下拉"><input type="checkbox"${selected.has(e.name) ? ' checked' : ''}${selectedMode ? '' : ' disabled'} aria-label="${esc(e.name)} 出现在搜索下拉"></label>
         <span class="src-alias-raw" title="${esc(e.name)}">${esc(e.name)}</span>
         <input type="text" class="src-alias-input" maxlength="40" placeholder="别名（可选）" value="${esc(custom)}">
       </div>`;
     }).join('');
+    if (!visible.length) wrap.innerHTML = '<p class="src-empty-hint">没有匹配的来源应用</p>';
+    updateSourceAppsSelectionHint();
   }
 
-  function renderSourceWhitelist(whitelist) {
-    const wrap = document.getElementById('srcWhitelist');
-    if (!wrap) return;
-    if (!allSourceExes.length) {
-      wrap.innerHTML = '<p class="src-empty-hint">暂无已记录的来源应用</p>';
+  function updateSourceAppsSelectionHint() {
+    const hint = document.getElementById('sourceAppsSelectionHint');
+    if (!hint || !sourceAppsDraft) return;
+    if (sourceAppsDraft.mode === 'all') {
+      hint.textContent = `共 ${allSourceExes.length} 个应用，全部显示在搜索下拉`;
       return;
     }
-    const set = new Set(whitelist || []);
-    // 白名单为空/nil 表示显示全部；渲染时全部勾选
-    const showAll = set.size === 0;
-    wrap.innerHTML = allSourceExes.map(e => {
-      const checked = showAll || set.has(e.name);
-      return `<label class="src-whitelist-opt"><input type="checkbox" value="${esc(e.name)}"${checked ? ' checked' : ''}><span>${esc(sourceAliases[e.name] || e.name)}</span></label>`;
-    }).join('');
+    const knownNames = new Set(allSourceExes.map(e => e.name));
+    const configured = sourceAppsDraft.whitelist || [];
+    const selectedKnown = configured.filter(name => knownNames.has(name)).length;
+    const unavailable = configured.length - selectedKnown;
+    hint.textContent = `已选择 ${selectedKnown} / ${allSourceExes.length} 个当前应用`
+      + (unavailable ? `；另保留 ${unavailable} 个历史应用` : '');
   }
 
-  function collectSrcAliases() {
-    const wrap = document.getElementById('srcAliases');
-    const out = {};
-    if (!wrap) return out;
-    wrap.querySelectorAll('.src-alias-row').forEach(row => {
+  function syncVisibleSourceAppsDraft() {
+    if (!sourceAppsDraft) return;
+    document.querySelectorAll('#srcAliases .src-alias-row').forEach(row => {
       const raw = row.dataset.raw;
-      const input = row.querySelector('input');
-      if (!raw || !input) return;
-      const val = input.value.trim();
-      if (val) out[raw] = val;
+      const input = row.querySelector('.src-alias-input');
+      const checkbox = row.querySelector('.src-app-check input');
+      if (!raw) return;
+      const alias = input?.value.trim() || '';
+      if (alias) sourceAppsDraft.aliases[raw] = alias;
+      else delete sourceAppsDraft.aliases[raw];
+      if (sourceAppsDraft.mode === 'selected' && checkbox) {
+        const selected = new Set(sourceAppsDraft.whitelist || []);
+        if (checkbox.checked) selected.add(raw); else selected.delete(raw);
+        const knownNames = new Set(allSourceExes.map(e => e.name));
+        const unavailableConfigured = (sourceAppsDraft.whitelist || []).filter(name => !knownNames.has(name));
+        sourceAppsDraft.whitelist = allSourceExes.map(e => e.name).filter(name => selected.has(name)).concat(unavailableConfigured);
+      }
     });
-    return out;
   }
 
-  function collectSrcWhitelist() {
-    const wrap = document.getElementById('srcWhitelist');
-    if (!wrap) return null;
-    const boxes = wrap.querySelectorAll('input[type="checkbox"]');
-    const total = boxes.length;
-    const selected = [];
-    const domNames = new Set();
-    boxes.forEach(cb => {
-      domNames.add(cb.value);
-      if (cb.checked) selected.push(cb.value);
+  window.openSourceAppsDialog = function() {
+    const existing = sourceWhitelist?.length ? sourceWhitelist.slice() : allSourceExes.map(e => e.name);
+    sourceAppsDraft = {
+      aliases: { ...sourceAliases },
+      whitelist: existing,
+      mode: sourceWhitelist?.length ? 'selected' : 'all',
+    };
+    const filter = document.getElementById('sourceAppsFilter');
+    if (filter) filter.value = '';
+    document.querySelectorAll('input[name="sourceAppsMode"]').forEach(radio => {
+      radio.checked = radio.value === sourceAppsDraft.mode;
     });
-    // 全选或全不选均表示"显示全部"，提交 null（与后端"白名单为空=显示全部"对齐）
-    if (selected.length === 0 || selected.length === total) return null;
-    // 保留已配置但当前无记录（不在 DOM 中）的白名单条目，防部分选中保存时静默丢失
-    (currentCfg.source?.exeWhitelist || []).forEach(n => { if (!domNames.has(n)) selected.push(n); });
-    return selected;
-  }
+    renderSourceAppsDialog();
+    document.getElementById('sourceAppsModal')?.classList.remove('hidden');
+    setTimeout(() => filter?.focus(), 50);
+  };
+
+  window.closeSourceAppsDialog = function() {
+    document.getElementById('sourceAppsModal')?.classList.add('hidden');
+    sourceAppsDraft = null;
+  };
+
+  window.saveSourceAppsDialog = async function() {
+    if (!sourceAppsDraft) return;
+    syncVisibleSourceAppsDraft();
+    const knownNames = new Set(allSourceExes.map(e => e.name));
+    const selectedKnown = (sourceAppsDraft.whitelist || []).filter(name => knownNames.has(name));
+    if (sourceAppsDraft.mode === 'selected' && selectedKnown.length === 0) {
+      toast('“仅显示选中”模式下请至少选择一个应用', 'err');
+      return;
+    }
+    const previousAliases = sourceAliases;
+    const previousWhitelist = sourceWhitelist;
+    sourceAliases = { ...sourceAppsDraft.aliases };
+    sourceWhitelist = sourceAppsDraft.mode === 'all' ? null : sourceAppsDraft.whitelist.slice();
+    const saveButton = document.getElementById('sourceAppsSaveBtn');
+    if (saveButton) saveButton.disabled = true;
+    pendingConfigRevision++;
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    const saved = await saveConfig();
+    if (!saved) {
+      sourceAliases = previousAliases;
+      sourceWhitelist = previousWhitelist;
+      if (saveButton) saveButton.disabled = false;
+      return;
+    }
+    updateSourceAppsSummary();
+    renderSrcExeDropdown();
+    closeSourceAppsDialog();
+  };
+
+  document.getElementById('sourceAppsFilter')?.addEventListener('input', () => {
+    syncVisibleSourceAppsDraft();
+    renderSourceAppsDialog();
+  });
+  document.querySelectorAll('input[name="sourceAppsMode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!sourceAppsDraft || !radio.checked) return;
+      syncVisibleSourceAppsDraft();
+      sourceAppsDraft.mode = radio.value;
+      if (radio.value === 'selected' && !sourceAppsDraft.whitelist?.length) {
+        sourceAppsDraft.whitelist = allSourceExes.map(e => e.name);
+      }
+      renderSourceAppsDialog();
+    });
+  });
+  document.getElementById('srcAliases')?.addEventListener('change', () => {
+    syncVisibleSourceAppsDraft();
+    updateSourceAppsSelectionHint();
+  });
 
   // ── Unlock filter rules (secondary auth) ────────────────
   const unlockFilterBtn = document.getElementById('unlockFilterBtn');
@@ -2551,18 +2831,7 @@
     return pendingConfigRevision !== savedConfigRevision || saveInFlight;
   }
 
-  // VK 码与显示文本互转：Space(0x20) 显示为 "Space"，避免空格字符在输入框中不可见
-  function vkToDisplay(vk) {
-    if (!vk) return '';
-    if (vk === 0x20) return 'Space';
-    return String.fromCharCode(vk);
-  }
-  function parseVkInput(val) {
-    const s = (val || '').trim().toUpperCase();
-    if (!s) return 0;
-    if (s === 'SPACE' || s === '空格') return 0x20;
-    return s.charCodeAt(0);
-  }
+	const { vkToDisplay, parseVkInput } = window.ClipVaultHotkey;
 
   let pendingRestart = false;
 
@@ -2581,7 +2850,11 @@
     document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
       if (cb.checked) hkMods |= parseInt(cb.value);
     });
-    const hkKeyChar = parseVkInput(document.getElementById('cfg-hotkeyKey')?.value);
+	const hkKeyChar = parseVkInput(document.getElementById('cfg-hotkeyKey')?.value);
+	if (hkKeyChar === null) {
+	  toast('全局快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
+	  return null;
+	}
     if (hkEnabled && (hkMods === 0 || hkKeyChar === 0)) {
       toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
       return null;
@@ -2591,7 +2864,11 @@
     document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
       if (cb.checked) shkMods |= parseInt(cb.value);
     });
-    const shkKeyChar = parseVkInput(document.getElementById('cfg-searchHotkeyKey')?.value);
+	const shkKeyChar = parseVkInput(document.getElementById('cfg-searchHotkeyKey')?.value);
+	if (shkKeyChar === null) {
+	  toast('搜索框快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
+	  return null;
+	}
     if (shkEnabled && (shkMods === 0 || shkKeyChar === 0)) {
       toast('启用搜索框快捷键时需选择至少一个修饰键并输入一个按键', 'err');
       return null;
@@ -2616,20 +2893,18 @@
         // 展开 currentCfg.source：未来新增字段在前端未渲染时也能保留，不会被覆盖成 undefined
         ...currentCfg.source,
         showExe: document.getElementById('cfg-sourceShowExe')?.checked !== false ? true : false,
-        // 编辑器仅在 allSourceExes 非空时渲染 row/checkbox；fetch 失败或空库时
-        // 不渲染，此时回退 currentCfg.source 已存值，避免自动保存静默清空别名/白名单。
-        exeAliases: document.querySelector('#srcAliases .src-alias-row')
-          ? collectSrcAliases()
-          : (currentCfg.source?.exeAliases || {}),
-        exeWhitelist: document.querySelector('#srcWhitelist input[type="checkbox"]')
-          ? collectSrcWhitelist()
-          : (currentCfg.source?.exeWhitelist ?? null),
+        exeAliases: sourceAliases,
+        exeWhitelist: sourceWhitelist,
       },
       sensitive: { customPatterns: patterns },
       search: {
         ...currentCfg.search,
         listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
-		timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system',
+        timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system',
+        reverseProxy: {
+          enabled: document.getElementById('cfg-reverseProxyEnabled')?.checked || false,
+          publicUrl: document.getElementById('cfg-reverseProxyPublicUrl')?.value.trim() || '',
+        },
       },
       security: {
         ...currentCfg.security,
@@ -2747,13 +3022,8 @@
       return false;
     }
 
-    // 验证正则合法性
-    for (const p of newCfg.sensitive.customPatterns) {
-      try { new RegExp(p); } catch (_) {
-        toast(`正则无效：${p}`, 'err');
-        return false;
-      }
-    }
+    // 敏感规则以服务端 Go RE2 为唯一语法标准。不要在浏览器中用
+    // JavaScript RegExp 预校验；两种引擎的语法不同（例如 Go 支持 (?i)）。
 
     // 启用定时备份时，先在前端校验配置完整性，避免发送必然失败请求造成"切格式不生效"的错觉。
     if (newCfg.backup?.dirBackup?.enabled) {
@@ -2771,32 +3041,55 @@
       }
     }
 
-    // 检测 listenAddr 是否变更
-    const addrChanged = currentCfg.search && currentCfg.search.listenAddr !== newCfg.search.listenAddr;
-    const openingLAN = addrChanged && isLoopbackListenAddress(currentCfg.search.listenAddr) && !isLoopbackListenAddress(newCfg.search.listenAddr);
+    const previousSearch = currentCfg.search || {};
+    const previousProxy = previousSearch.reverseProxy || {};
+    const nextProxy = newCfg.search.reverseProxy;
+    const addrChanged = previousSearch.listenAddr !== newCfg.search.listenAddr;
+    const proxyChanged = !!previousProxy.enabled !== nextProxy.enabled
+      || (previousProxy.publicUrl || '') !== nextProxy.publicUrl;
+    const openingLAN = addrChanged
+      && isLoopbackListenAddress(previousSearch.listenAddr)
+      && !isLoopbackListenAddress(newCfg.search.listenAddr);
+    const enablingProxy = !previousProxy.enabled && nextProxy.enabled;
 
-    if (openingLAN) {
-      if (!authState.hasLockPassword || !authState.hasSecondaryPassword) {
-        toast('开放局域网监听前，请先设置锁屏密码和二次密码', 'err');
+    if (nextProxy.enabled && !isLoopbackListenAddress(newCfg.search.listenAddr)) {
+      toast('启用 HTTPS 反向代理时，Web 监听地址必须是回环地址', 'err');
+      return false;
+    }
+    if (nextProxy.enabled || nextProxy.publicUrl) {
+      try {
+        const publicURL = new URL(nextProxy.publicUrl);
+        const rootPath = publicURL.pathname === '' || publicURL.pathname === '/';
+        if (publicURL.protocol !== 'https:' || publicURL.username || publicURL.password
+          || !publicURL.hostname || !rootPath || publicURL.search || publicURL.hash) {
+          throw new Error('invalid public URL');
+        }
+      } catch (_) {
+        toast('外部 HTTPS 地址必须是完整的 https:// 主机地址，不能包含路径、账号、查询参数或片段', 'err');
         return false;
       }
-      const confirmed = window.confirm('安全警告：非回环地址会让同一网络中的设备访问 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？');
-      if (!confirmed) {
-        document.getElementById('cfg-listenAddr').value = currentCfg.search.listenAddr;
+    }
+
+    if (openingLAN || enablingProxy) {
+      if (!authState.hasLockPassword) {
+        toast('开放远程访问前，请先设置锁屏密码', 'err');
+        return false;
+      }
+      const message = enablingProxy
+        ? '安全确认：反向代理必须运行在本机，并将请求转发到当前回环监听地址。ClipVault 只接受与配置地址完全匹配的 HTTPS 转发头。是否继续？'
+        : '安全警告：非回环地址会通过明文 HTTP 向同一网络开放 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？';
+      if (!window.confirm(message)) {
+        document.getElementById('cfg-listenAddr').value = previousSearch.listenAddr;
+        document.getElementById('cfg-reverseProxyEnabled').checked = !!previousProxy.enabled;
+        document.getElementById('cfg-reverseProxyPublicUrl').value = previousProxy.publicUrl || '';
         updateListenAddressWarning();
-        toast('已取消开放局域网监听');
-        return false;
-      }
-      const verified = await requestSecondaryAuth(true);
-      if (!verified) {
-        toast('需要重新输入二次密码才能开放局域网监听', 'err');
+        toast('已取消开放远程访问');
         return false;
       }
     }
 
     try {
-      const configFetch = openingLAN ? freshSecondaryFetch : secondaryFetch;
-      const res = await configFetch('/api/config', {
+      const res = await secondaryFetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCfg),
@@ -2805,7 +3098,7 @@
         const txt = await res.text();
         let failure = {};
         try { failure = JSON.parse(txt); } catch (_) {}
-        if (!openingLAN && !secondaryRetried && res.status === 403 && failure.code === 'secondary_required') {
+        if (!secondaryRetried && res.status === 403 && failure.code === 'secondary_required') {
           authState.secondaryAuthed = false;
           const ok = await requestSecondaryAuth();
           if (ok) return saveConfigNow(true);
@@ -2823,7 +3116,7 @@
         toast('设置已保存');
       }
 
-      if (addrChanged) {
+      if (addrChanged || proxyChanged) {
         showRestartConfirm();
       }
       return true;
@@ -2898,7 +3191,9 @@
     if (autoSaveBound) return;
     autoSaveBound = true;
     const listenAddrEl = document.getElementById('cfg-listenAddr');
-	const timeZoneEl = document.getElementById('cfg-timeZone');
+    const reverseProxyEnabledEl = document.getElementById('cfg-reverseProxyEnabled');
+    const reverseProxyPublicUrlEl = document.getElementById('cfg-reverseProxyPublicUrl');
+    const timeZoneEl = document.getElementById('cfg-timeZone');
     const brandTitleEl = document.getElementById('cfg-brandTitle');
     brandTitleEl?.addEventListener('input', () => applyBrand({ ...currentCfg?.brand, title: brandTitleEl.value }));
     ['logo', 'favicon'].forEach(kind => {
@@ -2958,11 +3253,11 @@
 	  applyTheme(themeFromForm());
 	});
     settingsEl.addEventListener('input', (e) => {
-	  if (e.target === listenAddrEl || e.target === timeZoneEl || e.target?.type === 'file') return;
+      if (e.target === listenAddrEl || e.target === reverseProxyPublicUrlEl || e.target === timeZoneEl || e.target?.type === 'file') return;
       scheduleConfigSave(800);
     });
     settingsEl.addEventListener('change', (e) => {
-	  if (e.target === listenAddrEl || e.target === timeZoneEl || e.target?.type === 'file') return;
+      if (e.target === listenAddrEl || e.target === reverseProxyPublicUrlEl || e.target === timeZoneEl || e.target?.type === 'file') return;
       scheduleConfigSave(300);
     });
     // 监听地址失焦时立即保存（触发重启确认）
@@ -2972,9 +3267,15 @@
         scheduleConfigSave(0);
       });
     }
-	if (timeZoneEl) {
-	  timeZoneEl.addEventListener('blur', () => scheduleConfigSave(0));
-	}
+    if (reverseProxyEnabledEl) {
+      reverseProxyEnabledEl.addEventListener('change', updateListenAddressWarning);
+    }
+    if (reverseProxyPublicUrlEl) {
+      reverseProxyPublicUrlEl.addEventListener('blur', () => scheduleConfigSave(0));
+    }
+    if (timeZoneEl) {
+      timeZoneEl.addEventListener('blur', () => scheduleConfigSave(0));
+    }
     // 过滤规则增删也触发保存
     const addBtn = document.getElementById('addPatternBtn');
     if (addBtn) {

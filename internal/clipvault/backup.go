@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -35,8 +36,9 @@ const (
 	emailBackupModeManual    = "manual"
 	smtpOperationTimeout     = 5 * time.Minute
 	// maxEmailParts 是单次邮件备份分片总数的硬上限，防止数据量异常时
-	// 产生海量空分片（SMTP 滥发 / 账号封禁）。
-	maxEmailParts = 60
+	// 连续发送海量邮件，触发 SMTP 限流、账号封禁或收件箱轰炸。
+	maxEmailParts             = 60
+	initialEmailPartProbeRows = 5000
 )
 
 // BackupStatus 记录最近一次备份的状态。
@@ -395,15 +397,15 @@ func (bs *BackupService) doDirBackup(cfg Config, forceFull bool) error {
 		bs.setDirStatus(makeBackupStatus(time.Now(), false, db.Scope, false, wm, db.IncrementalFullInterval, err.Error(), ""))
 		return err
 	}
-	data, ext, exportedMaxID, err := bs.exportBackupData(db.Format, db.Password, scope)
-	if err != nil {
+	now := time.Now()
+	ext := db.Format
+	if ext != "json" && ext != "xlsx" && ext != "cvexport" {
+		err := fmt.Errorf("不支持的备份格式: %s", ext)
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
-		bs.setDirStatus(makeBackupStatus(time.Now(), false, scope, autoFallback, wm, db.IncrementalFullInterval, err.Error(), ""))
+		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, db.IncrementalFullInterval, err.Error(), ""))
 		return err
 	}
-
-	now := time.Now()
-	fullPath, err := writeBackupFile(db.Dir, now, ext, data)
+	fullPath, size, exportedMaxID, err := bs.writeBackupFileStream(db.Dir, now, ext, db.Password, scope)
 	if err != nil {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
 		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, db.IncrementalFullInterval, err.Error(), ""))
@@ -417,8 +419,75 @@ func (bs *BackupService) doDirBackup(cfg Config, forceFull bool) error {
 		return wmErr
 	}
 	bs.setDirStatus(makeBackupStatus(now, true, scope, autoFallback, wm, db.IncrementalFullInterval, "", fullPath))
-	bs.logger.Info("dir_backup_ok", map[string]any{"file": fullPath, "size": len(data), "mode": scope.Mode, "autoFallback": autoFallback})
+	bs.logger.Info("dir_backup_ok", map[string]any{"file": fullPath, "size": size, "mode": scope.Mode, "autoFallback": autoFallback})
 	return nil
+}
+
+func (bs *BackupService) writeBackupFileStream(dir string, now time.Time, format, password string, scope ExportScope) (string, int64, int64, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", 0, 0, fmt.Errorf("创建目录失败: %w", err)
+	}
+	file, err := os.CreateTemp(dir, fmt.Sprintf("clipvault-backup-%s-*.%s", now.Format("20060102-150405"), format))
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("创建备份文件失败: %w", err)
+	}
+	path := file.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = file.Close()
+			_ = os.Remove(path)
+		}
+	}()
+	maxID, err := bs.exportBackupTo(file, format, password, scope)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	if err := file.Sync(); err != nil {
+		return "", 0, 0, fmt.Errorf("同步文件失败: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("读取备份文件信息失败: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", 0, 0, fmt.Errorf("关闭文件失败: %w", err)
+	}
+	success = true
+	return path, info.Size(), maxID, nil
+}
+
+func (bs *BackupService) exportBackupTo(dst io.Writer, format, password string, scope ExportScope) (int64, error) {
+	switch format {
+	case "json":
+		maxID, err := bs.store.StreamExport(context.Background(), scope, dst)
+		if err != nil {
+			return 0, fmt.Errorf("导出数据失败: %w", err)
+		}
+		return maxID, nil
+	case "cvexport":
+		if password == "" {
+			return 0, errors.New("cvexport 格式需要加密密码")
+		}
+		var maxID int64
+		err := WriteCVExport(dst, password, func(plain io.Writer) error {
+			var streamErr error
+			maxID, streamErr = bs.store.StreamExport(context.Background(), scope, plain)
+			return streamErr
+		})
+		if err != nil {
+			return 0, fmt.Errorf("加密失败: %w", err)
+		}
+		return maxID, nil
+	case "xlsx":
+		maxID, err := bs.store.WriteXLSXScope(context.Background(), scope, dst)
+		if err != nil {
+			return 0, fmt.Errorf("Excel 导出失败: %w", err)
+		}
+		return maxID, nil
+	default:
+		return 0, fmt.Errorf("不支持的备份格式: %s", format)
+	}
 }
 
 func writeBackupFile(dir string, now time.Time, ext string, data []byte) (string, error) {
@@ -476,20 +545,25 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 		bs.setEmailStatus(makeBackupStatus(time.Now(), false, eb.Scope, false, wm, eb.IncrementalFullInterval, err.Error(), ""))
 		return err
 	}
-	parts, ext, exportedMaxID, err := bs.exportEmailPartsSized(eb, scope)
+	parts, ext, exportedMaxID, err := bs.exportEmailPartFilesSized(eb, scope)
 	if err != nil {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
 		bs.setEmailStatus(makeBackupStatus(time.Now(), false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
 		return err
 	}
+	defer cleanupEmailPartFiles(parts)
 
 	now := time.Now()
 	total := len(parts)
 
-	messages := make([]emailBackupMessage, total)
 	for i, part := range parts {
-		messages[i] = buildEmailBackupMessage(eb, ext, now, i, total, part)
-		if size := len(messages[i].data); size > eb.MaxPartSize {
+		size, err := emailBackupFileMessageSize(eb, ext, now, i, total, part.path)
+		if err != nil {
+			wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
+			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
+			return err
+		}
+		if size > int64(eb.MaxPartSize) {
 			err := fmt.Errorf("第 %d/%d 封邮件为 %d 字节，超过阈值 %d，请缩小备份范围或减少单条记录大小", i+1, total, size, eb.MaxPartSize)
 			wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
 			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
@@ -498,8 +572,11 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 	}
 
 	lastFilename := ""
-	for i, message := range messages {
-		if err := sendSMTPMessage(eb, message.data); err != nil {
+	for i, part := range parts {
+		filename := emailBackupFilename(ext, now, i, total)
+		if err := sendSMTPMessageStream(eb, func(w io.Writer) error {
+			return writeEmailBackupMessage(w, eb, ext, now, i, total, part.path)
+		}); err != nil {
 			// 部分片已发出无法撤回，发一封通知邮件告知收件人不完整
 			bs.sendBackupFailureNotice(eb, now, i, total, ext, err)
 			err = fmt.Errorf("发送邮件失败(第%d封/%d): %w", i+1, total, err)
@@ -507,7 +584,7 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
 			return err
 		}
-		lastFilename = message.filename
+		lastFilename = filename
 	}
 
 	if err := bs.store.AddEmailBackupHistory(context.Background(), EmailBackupHistory{
@@ -537,6 +614,13 @@ func (bs *BackupService) isStopped() bool {
 }
 
 func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
+	return sendSMTPMessageStream(cfg, func(w io.Writer) error {
+		_, err := w.Write(msg)
+		return err
+	})
+}
+
+func sendSMTPMessageStream(cfg EmailBackupConfig, writeMessage func(io.Writer) error) error {
 	if problems := smtpDeliveryErrors(cfg); len(problems) > 0 {
 		return fmt.Errorf("SMTP 配置不完整: %s", strings.Join(problems, "、"))
 	}
@@ -607,7 +691,7 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 	if err != nil {
 		return fmt.Errorf("SMTP DATA 失败: %w", err)
 	}
-	if _, err := w.Write(msg); err != nil {
+	if err := writeMessage(w); err != nil {
 		w.Close()
 		return fmt.Errorf("SMTP 邮件写入失败: %w", err)
 	}
@@ -622,37 +706,15 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 // 返回 (data, ext, exportedMaxID)：exportedMaxID 是该次导出快照包含的
 // 最后一条记录的 id（无数据时为 0），供写水印使用，避免二次查询竞态。
 func (bs *BackupService) exportBackupData(format, password string, scope ExportScope) ([]byte, string, int64, error) {
-	switch format {
-	case "xlsx":
-		data, maxID, err := bs.store.exportXLSXScope(context.Background(), scope)
-		if err != nil {
-			return nil, "", 0, fmt.Errorf("Excel 导出失败: %w", err)
-		}
-		return data, "xlsx", maxID, nil
-	case "cvexport":
-		if password == "" {
-			return nil, "", 0, fmt.Errorf("cvexport 格式需要加密密码")
-		}
-		var buf bytes.Buffer
-		maxID, err := bs.store.StreamExport(context.Background(), scope, &buf)
-		if err != nil {
-			return nil, "", 0, fmt.Errorf("导出数据失败: %w", err)
-		}
-		encData, err := EncryptExport(buf.Bytes(), password)
-		if err != nil {
-			return nil, "", 0, fmt.Errorf("加密失败: %w", err)
-		}
-		return encData, "cvexport", maxID, nil
-	case "json":
-		var buf bytes.Buffer
-		maxID, err := bs.store.StreamExport(context.Background(), scope, &buf)
-		if err != nil {
-			return nil, "", 0, fmt.Errorf("导出数据失败: %w", err)
-		}
-		return buf.Bytes(), "json", maxID, nil
-	default:
+	if format != "json" && format != "xlsx" && format != "cvexport" {
 		return nil, "", 0, fmt.Errorf("不支持的备份格式: %s", format)
 	}
+	var buf bytes.Buffer
+	maxID, err := bs.exportBackupTo(&buf, format, password, scope)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	return buf.Bytes(), format, maxID, nil
 }
 
 // resolveBackupScope resolves the actual scope to run: for incremental mode it
@@ -757,124 +819,196 @@ func makeBackupStatus(now time.Time, ok bool, scope ExportScope, autoFallback bo
 // computed from the same snapshot that produced the parts, so the caller can
 // persist the backup watermark from the exported data (not from a later query —
 // that would race with concurrent clipboard writes and silently skip rows).
-// exportEmailPartsSized adaptively chooses the largest row count whose final
+// exportEmailPartFilesSized adaptively chooses the largest row count whose final
 // attachment (including XLSX packaging or cvexport encryption) fits the
 // configured final MIME size. A single oversized record is reported
 // explicitly instead of producing a partially sent backup set.
-func (bs *BackupService) exportEmailPartsSized(cfg EmailBackupConfig, scope ExportScope) ([][]byte, string, int64, error) {
+type emailBackupPartFile struct {
+	path string
+}
+
+func cleanupEmailPartFiles(parts []emailBackupPartFile) {
+	for _, part := range parts {
+		_ = os.Remove(part.path)
+	}
+}
+
+// exportEmailPartFilesSized is the production email path. Attachments are
+// staged on disk and later streamed one message at a time, so total backup size
+// no longer multiplies heap usage.
+func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope ExportScope) (_ []emailBackupPartFile, ext string, maxID int64, resultErr error) {
 	format := cfg.Format
-	ext := "json"
-	if format == "cvexport" {
-		ext = "cvexport"
-	} else if format == "xlsx" {
-		ext = "xlsx"
-	} else if format != "json" {
+	ext = format
+	if format != "json" && format != "xlsx" && format != "cvexport" {
 		return nil, "", 0, fmt.Errorf("不支持的备份格式: %s", format)
 	}
 	if cfg.MaxPartSize <= 0 {
-		return nil, "", 0, fmt.Errorf("单封邮件大小上限必须大于 0")
+		return nil, "", 0, errors.New("单封邮件大小上限必须大于 0")
 	}
-
-	// Chunk by actual row count (not by id range): id holes from deletes would
-	// otherwise explode the part count into mostly-empty emails.
-	partRows := defaultItemsPerPart
-	if partRows <= 0 {
-		partRows = 5000
-	}
+	var parts []emailBackupPartFile
+	defer func() {
+		if resultErr != nil {
+			cleanupEmailPartFiles(parts)
+		}
+	}()
 	total, err := bs.store.CountInScope(context.Background(), scope)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("统计分片行数失败: %w", err)
 	}
-	// 空数据：产出一片自包含的空导出（与目录备份一致），maxID=0 表示不推进水印。
 	if total <= 0 {
-		raw, err := bs.exportEmailPart(format, cfg.Password, scope)
+		part, err := bs.exportEmailPartFile(format, cfg.Password, scope)
 		if err != nil {
 			return nil, "", 0, fmt.Errorf("导出空备份失败: %w", err)
 		}
-		if emailBackupMessageSize(cfg, ext, raw) > cfg.MaxPartSize {
+		parts = append(parts, part)
+		size, err := emailBackupFileMessageSize(cfg, ext, time.Unix(0, 0), maxEmailParts-1, maxEmailParts, part.path)
+		if err != nil {
+			return nil, "", 0, err
+		}
+		if size > int64(cfg.MaxPartSize) {
 			return nil, "", 0, fmt.Errorf("空备份邮件仍超过上限 %d 字节", cfg.MaxPartSize)
 		}
-		return [][]byte{raw}, ext, 0, nil
+		return parts, ext, 0, nil
 	}
 
-	var parts [][]byte
-	// 游标从原始 scope 的下界开始（增量备份 = 已有水印，全量 = 0），
-	// 每个分片取一个连续的 id 窗口：起点为上一片末尾（keyset 游标），
-	// 终点为本片最后一条记录的 id。分片只在 id 上叠加窗口，保留原始
-	// Mode 的过滤条件（range 的 created_at 过滤、incremental 的 SinceID
-	// 都继续生效），窗口下界由 exportScopeWhere 与原始条件 AND 叠加。
 	lastID := scope.SinceID
 	if scope.Mode == "range" || scope.Mode == "" || scope.Mode == "full" {
-		lastID = 0 // 全量/range 分片的 id 下界是 0
+		lastID = 0
 	}
 	consumed := 0
 	for consumed < total {
 		if len(parts) >= maxEmailParts {
 			return nil, "", 0, fmt.Errorf("备份需要超过 %d 封邮件，请提高单封大小上限、改用目录备份或缩小范围", maxEmailParts)
 		}
-		high := min(partRows, total-consumed)
-		low := 1
-		var bestData []byte
-		var bestEndID int64
+		// Grow candidate row counts exponentially before binary-searching the
+		// final bracket. This can exceed the initial probe without first creating
+		// an attachment containing half of a very large database.
+		remaining := emailPartCandidateUpperBound(total, consumed)
 		bestRows := 0
-		for low <= high {
-			rows := low + (high-low)/2
+		bestEndID := int64(0)
+		bestPart := emailBackupPartFile{}
+		removeBest := func() {
+			if bestPart.path != "" {
+				_ = os.Remove(bestPart.path)
+				bestPart.path = ""
+			}
+		}
+		tryRows := func(rows int) (bool, error) {
 			endID, err := bs.store.NthIDInScopeAfter(context.Background(), scope, lastID, rows-1)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					high = rows - 1
-					continue
+					return false, nil
 				}
-				return nil, "", 0, fmt.Errorf("定位分片边界失败: %w", err)
+				return false, fmt.Errorf("定位分片边界失败: %w", err)
 			}
 			partScope := scope
 			partScope.SinceID = lastID
 			partScope.MaxID = endID
-			data, err := bs.exportEmailPart(format, cfg.Password, partScope)
+			candidate, err := bs.exportEmailPartFile(format, cfg.Password, partScope)
 			if err != nil {
+				return false, err
+			}
+			size, err := emailBackupFileMessageSize(cfg, ext, time.Unix(0, 0), maxEmailParts-1, maxEmailParts, candidate.path)
+			if err != nil {
+				_ = os.Remove(candidate.path)
+				return false, err
+			}
+			if size <= int64(cfg.MaxPartSize) {
+				if bestPart.path != "" {
+					_ = os.Remove(bestPart.path)
+				}
+				bestPart, bestEndID, bestRows = candidate, endID, rows
+				return true, nil
+			}
+			_ = os.Remove(candidate.path)
+			return false, nil
+		}
+
+		probe := min(initialEmailPartProbeRows, remaining)
+		failedRows := 0
+		for {
+			fits, err := tryRows(probe)
+			if err != nil {
+				removeBest()
 				return nil, "", 0, err
 			}
-			if emailBackupMessageSize(cfg, ext, data) <= cfg.MaxPartSize {
-				bestData, bestEndID, bestRows = data, endID, rows
-				low = rows + 1
-			} else {
-				high = rows - 1
+			if !fits {
+				failedRows = probe
+				break
+			}
+			if probe == remaining {
+				break
+			}
+			probe = nextEmailPartProbe(probe, remaining)
+		}
+		if failedRows > 0 {
+			low, high := bestRows+1, failedRows-1
+			for low <= high {
+				rows := low + (high-low)/2
+				fits, err := tryRows(rows)
+				if err != nil {
+					removeBest()
+					return nil, "", 0, err
+				}
+				if fits {
+					low = rows + 1
+				} else {
+					high = rows - 1
+				}
 			}
 		}
 		if bestRows == 0 {
+			removeBest()
 			return nil, "", 0, fmt.Errorf("至少一条记录单独导出后邮件仍超过上限 %d 字节；请提高上限或改用目录备份", cfg.MaxPartSize)
 		}
-		parts = append(parts, bestData)
+		parts = append(parts, bestPart)
 		lastID = bestEndID
 		consumed += bestRows
 	}
 	return parts, ext, lastID, nil
 }
 
-func (bs *BackupService) exportEmailPart(format, password string, scope ExportScope) ([]byte, error) {
-	if format == "xlsx" {
-		data, err := bs.store.ExportXLSXScope(context.Background(), scope)
-		if err != nil {
-			return nil, fmt.Errorf("Excel 分片导出失败: %w", err)
-		}
-		return data, nil
+func emailPartCandidateUpperBound(total, consumed int) int {
+	if total <= consumed {
+		return 0
 	}
-	var buf bytes.Buffer
-	if _, err := bs.store.StreamExport(context.Background(), scope, &buf); err != nil {
-		return nil, fmt.Errorf("导出分片失败: %w", err)
+	return total - consumed
+}
+
+func nextEmailPartProbe(current, remaining int) int {
+	if current >= remaining {
+		return remaining
 	}
-	raw := buf.Bytes()
-	if format == "cvexport" {
-		if password == "" {
-			return nil, fmt.Errorf("cvexport 格式需要加密密码")
-		}
-		enc, err := EncryptExport(raw, password)
-		if err != nil {
-			return nil, fmt.Errorf("加密分片失败: %w", err)
-		}
-		raw = enc
+	if current > remaining/2 {
+		return remaining
 	}
-	return raw, nil
+	return current * 2
+}
+
+func (bs *BackupService) exportEmailPartFile(format, password string, scope ExportScope) (_ emailBackupPartFile, resultErr error) {
+	file, err := os.CreateTemp("", "clipvault-email-part-*."+format)
+	if err != nil {
+		return emailBackupPartFile{}, fmt.Errorf("创建邮件分片文件失败: %w", err)
+	}
+	path := file.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = file.Close()
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err := bs.exportBackupTo(file, format, password, scope); err != nil {
+		return emailBackupPartFile{}, err
+	}
+	if err := file.Sync(); err != nil {
+		return emailBackupPartFile{}, fmt.Errorf("同步邮件分片失败: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return emailBackupPartFile{}, fmt.Errorf("关闭邮件分片失败: %w", err)
+	}
+	success = true
+	return emailBackupPartFile{path: path}, nil
 }
 
 // sendBackupFailureNotice sends a notification email when a multi-part backup
@@ -948,11 +1082,16 @@ type emailBackupMessage struct {
 	data     []byte
 }
 
-func buildEmailBackupMessage(cfg EmailBackupConfig, ext string, now time.Time, index, total int, attachment []byte) emailBackupMessage {
+func emailBackupFilename(ext string, now time.Time, index, total int) string {
 	filename := fmt.Sprintf("clipvault-backup-%s.%s", now.Format("20060102-150405"), ext)
 	if total > 1 {
 		filename = fmt.Sprintf("clipvault-backup-%s-%dof%d.%s", now.Format("20060102-150405"), index+1, total, ext)
 	}
+	return filename
+}
+
+func buildEmailBackupMessage(cfg EmailBackupConfig, ext string, now time.Time, index, total int, attachment []byte) emailBackupMessage {
+	filename := emailBackupFilename(ext, now, index, total)
 	subject, body, htmlBody := renderEmailTemplate(cfg, filename, ext, now)
 	if total > 1 {
 		subject = fmt.Sprintf("[%d/%d] %s", index+1, total, subject)
@@ -968,6 +1107,122 @@ func buildEmailBackupMessage(cfg EmailBackupConfig, ext string, now time.Time, i
 		filename: filename,
 		data:     buildMIMEWithAttachment(cfg.From, cfg.To, subject, body, htmlBody, filename, contentType, attachment),
 	}
+}
+
+func emailBackupFileMessageSize(cfg EmailBackupConfig, ext string, now time.Time, index, total int, attachmentPath string) (int64, error) {
+	var counter byteCounter
+	if err := writeEmailBackupMessage(&counter, cfg, ext, now, index, total, attachmentPath); err != nil {
+		return 0, err
+	}
+	return counter.n, nil
+}
+
+func writeEmailBackupMessage(dst io.Writer, cfg EmailBackupConfig, ext string, now time.Time, index, total int, attachmentPath string) error {
+	filename := emailBackupFilename(ext, now, index, total)
+	subject, body, htmlBody := renderEmailTemplate(cfg, filename, ext, now)
+	if total > 1 {
+		subject = fmt.Sprintf("[%d/%d] %s", index+1, total, subject)
+	}
+	contentType := "application/json"
+	switch ext {
+	case "cvexport":
+		contentType = "application/octet-stream"
+	case "xlsx":
+		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	}
+	attachment, err := os.Open(attachmentPath)
+	if err != nil {
+		return fmt.Errorf("打开邮件分片失败: %w", err)
+	}
+	defer attachment.Close()
+	return writeMIMEAttachmentStream(dst, cfg.From, cfg.To, subject, body, htmlBody, filename, contentType, attachment)
+}
+
+func writeMIMEAttachmentStream(dst io.Writer, from, to, subject, body, htmlBody, filename, contentType string, attachment io.Reader) error {
+	mixed := multipart.NewWriter(dst)
+	if _, err := fmt.Fprintf(dst, "From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: %s\r\n\r\n",
+		from, to, mime.QEncoding.Encode("UTF-8", subject), mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": mixed.Boundary()})); err != nil {
+		return err
+	}
+	alternativeBody, boundary := buildAlternativeBody(body, htmlBody)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": boundary}))
+	part, err := mixed.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(alternativeBody); err != nil {
+		return err
+	}
+	header = textproto.MIMEHeader{}
+	header.Set("Content-Type", contentType)
+	header.Set("Content-Transfer-Encoding", "base64")
+	header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	part, err = mixed.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	lineWriter := &streamBase64LineWriter{dst: part}
+	encoder := base64.NewEncoder(base64.StdEncoding, lineWriter)
+	if _, err := io.Copy(encoder, attachment); err != nil {
+		_ = encoder.Close()
+		return err
+	}
+	if err := encoder.Close(); err != nil {
+		return err
+	}
+	if err := lineWriter.Flush(); err != nil {
+		return err
+	}
+	return mixed.Close()
+}
+
+type byteCounter struct{ n int64 }
+
+func (w *byteCounter) Write(p []byte) (int, error) {
+	w.n += int64(len(p))
+	return len(p), nil
+}
+
+type streamBase64LineWriter struct {
+	dst  io.Writer
+	line []byte
+}
+
+func (w *streamBase64LineWriter) Write(p []byte) (int, error) {
+	total := len(p)
+	for len(p) > 0 {
+		space := base64MIMELineWidth - len(w.line)
+		if space > len(p) {
+			space = len(p)
+		}
+		w.line = append(w.line, p[:space]...)
+		p = p[space:]
+		if len(w.line) == base64MIMELineWidth {
+			if err := w.flushLine(); err != nil {
+				return total - len(p), err
+			}
+		}
+	}
+	return total, nil
+}
+
+func (w *streamBase64LineWriter) Flush() error {
+	if len(w.line) == 0 {
+		return nil
+	}
+	return w.flushLine()
+}
+
+func (w *streamBase64LineWriter) flushLine() error {
+	if _, err := w.dst.Write(w.line); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w.dst, "\r\n"); err != nil {
+		return err
+	}
+	w.line = w.line[:0]
+	return nil
 }
 
 func emailBackupMessageSize(cfg EmailBackupConfig, ext string, attachment []byte) int {

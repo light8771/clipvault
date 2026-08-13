@@ -10,6 +10,7 @@ import (
 
 var (
 	procGetForegroundWindow        = user32.NewProc("GetForegroundWindow")
+	procGetClipboardOwner          = user32.NewProc("GetClipboardOwner")
 	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
 	procIsHungAppWindow            = user32.NewProc("IsHungAppWindow")
 	procGetWindowTextLengthW       = user32.NewProc("GetWindowTextLengthW")
@@ -41,6 +42,22 @@ func captureForegroundSourceFast() SourceInfo {
 		return SourceInfo{}
 	}
 	return SourceInfo{PID: pid, hwnd: hwnd, Method: "foreground"}
+}
+
+// captureClipboardOwnerSourceFast 用于启动时补捕监听器启动前已存在的剪贴板内容。
+// 此时前台窗口通常已经是安全设置页，无法代表最初执行复制的应用；Windows
+// 保存的剪贴板所有者窗口则仍指向最后一次成功写入剪贴板的进程。
+func captureClipboardOwnerSourceFast() SourceInfo {
+	hwnd, _, _ := procGetClipboardOwner.Call()
+	if hwnd == 0 {
+		return SourceInfo{}
+	}
+	var pid uint32
+	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	if pid == 0 {
+		return SourceInfo{}
+	}
+	return SourceInfo{PID: pid, hwnd: hwnd, Method: "clipboard_owner"}
 }
 
 // resolveDetails 在 worker goroutine 里把 captureForegroundSourceFast 捕获的

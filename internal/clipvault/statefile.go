@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -17,21 +16,26 @@ type AppState struct {
 	LastOpenedAt   string `json:"lastOpenedAt"`   // ISO 8601
 }
 
-const stateFileName = "clipvault.state"
-
-// StateFilePath 返回 dataDir 下的 state 文件路径。
+// StateFilePath 返回活动数据库的 state 文件路径。
 func StateFilePath(dataDir string) string {
-	return filepath.Join(dataDir, stateFileName)
+	return activeDatabaseFile(dataDir, databaseStateFileName)
 }
 
 // WriteStateFile 原子写入 state 文件。
 func WriteStateFile(dataDir string, state AppState) error {
+	return writeDatabaseStateFile(activeDatabaseDirectory(dataDir), state)
+}
+
+func writeDatabaseStateFile(databaseDir string, state AppState) error {
+	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
+		return fmt.Errorf("create database directory: %w", err)
+	}
 	state.LastOpenedAt = time.Now().UTC().Format(time.RFC3339)
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	return atomicWriteFile(StateFilePath(dataDir), data)
+	return atomicWriteFile(databaseGroupFile(databaseDir, databaseStateFileName), data)
 }
 
 // ReadStateFile 读取 state 文件。

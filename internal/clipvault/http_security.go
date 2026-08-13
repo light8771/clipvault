@@ -15,7 +15,44 @@ import (
 const (
 	csrfHeaderName           = "X-ClipVault-CSRF"
 	freshSecondaryHeaderName = "X-ClipVault-Fresh-Secondary"
+	forwardedProtoHeaderName = "X-Forwarded-Proto"
+	forwardedHostHeaderName  = "X-Forwarded-Host"
 )
+
+func validateReverseProxyConfig(search SearchConfig) error {
+	proxy := search.ReverseProxy
+	if proxy.PublicURL != "" {
+		if _, err := parseReverseProxyPublicURL(proxy.PublicURL); err != nil {
+			return err
+		}
+	}
+	if !proxy.Enabled {
+		return nil
+	}
+	if proxy.PublicURL == "" {
+		return fmt.Errorf("reverse proxy publicUrl is required when enabled")
+	}
+	host, _, err := validateListenAddr(search.ListenAddr)
+	if err != nil {
+		return err
+	}
+	if !isLoopbackHost(host) {
+		return fmt.Errorf("reverse proxy mode requires a loopback listen address")
+	}
+	return nil
+}
+
+func parseReverseProxyPublicURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("reverse proxy publicUrl must be an absolute https URL without path, query, user info, or fragment")
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsUnspecified() {
+		return nil, fmt.Errorf("reverse proxy publicUrl must identify an address clients can connect to")
+	}
+	return u, nil
+}
 
 func validateListenAddr(addr string) (string, int, error) {
 	host, portText, err := net.SplitHostPort(strings.TrimSpace(addr))
@@ -145,6 +182,53 @@ func originMatchesAllowedRequest(origin, requestHost, listenHost string, port in
 	return u.Host == requestHost && hostAllowedForListen(u.Host, listenHost, port)
 }
 
+func originMatchesEndpoint(origin, scheme, host string) bool {
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Scheme == scheme && strings.EqualFold(u.Host, host) && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == ""
+}
+
+type requestEndpoint struct {
+	scheme  string
+	host    string
+	proxied bool
+}
+
+func (s *SearchServer) effectiveRequestEndpoint(r *http.Request) (requestEndpoint, bool) {
+	directScheme := "http"
+	if r.TLS != nil {
+		directScheme = "https"
+	}
+	forwardedProtoValues := r.Header.Values(forwardedProtoHeaderName)
+	forwardedHostValues := r.Header.Values(forwardedHostHeaderName)
+	forwardedProto := strings.TrimSpace(r.Header.Get(forwardedProtoHeaderName))
+	forwardedHost := strings.TrimSpace(r.Header.Get(forwardedHostHeaderName))
+	if forwardedProto == "" && forwardedHost == "" {
+		return requestEndpoint{scheme: directScheme, host: r.Host}, true
+	}
+	if !s.reverseProxy.Enabled || len(forwardedProtoValues) != 1 || len(forwardedHostValues) != 1 ||
+		forwardedProto == "" || forwardedHost == "" ||
+		strings.ContainsAny(forwardedProto, ", \t") || strings.ContainsAny(forwardedHost, ", \t") {
+		return requestEndpoint{}, false
+	}
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || !isLoopbackHost(remoteHost) {
+		return requestEndpoint{}, false
+	}
+	publicURL, err := parseReverseProxyPublicURL(s.reverseProxy.PublicURL)
+	if err != nil || forwardedProto != "https" || !strings.EqualFold(forwardedHost, publicURL.Host) {
+		return requestEndpoint{}, false
+	}
+	return requestEndpoint{scheme: "https", host: publicURL.Host, proxied: true}, true
+}
+
+func (s *SearchServer) requestUsesHTTPS(r *http.Request) bool {
+	endpoint, ok := s.effectiveRequestEndpoint(r)
+	return ok && endpoint.scheme == "https"
+}
+
 func (s *SearchServer) secureHTTP(next http.Handler, listenHost string, port int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
@@ -153,12 +237,13 @@ func (s *SearchServer) secureHTTP(next http.Handler, listenHost string, port int
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
-		if !hostAllowedForListen(r.Host, listenHost, port) {
+		endpoint, endpointOK := s.effectiveRequestEndpoint(r)
+		if !endpointOK || (!endpoint.proxied && !hostAllowedForListen(r.Host, listenHost, port)) {
 			http.Error(w, "invalid host", http.StatusForbidden)
 			return
 		}
 		if isMutationMethod(r.Method) {
-			if !originMatchesAllowedRequest(r.Header.Get("Origin"), r.Host, listenHost, port) {
+			if !originMatchesEndpoint(r.Header.Get("Origin"), endpoint.scheme, endpoint.host) {
 				http.Error(w, "invalid origin", http.StatusForbidden)
 				return
 			}

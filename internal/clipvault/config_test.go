@@ -15,6 +15,175 @@ func TestNotificationsDefault(t *testing.T) {
 	}
 }
 
+func TestValidateReverseProxyConfig(t *testing.T) {
+	lockHash, err := newPasswordHash("Lock-Pass-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := DefaultConfig()
+	valid.Security.LockPasswordHash = lockHash
+	valid.Search.ReverseProxy = ReverseProxyConfig{
+		Enabled:   true,
+		PublicURL: "https://clipvault.example.com",
+	}
+	if err := validateConfig(valid); err != nil {
+		t.Fatalf("valid reverse proxy config rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		match  string
+	}{
+		{name: "missing lock password", mutate: func(cfg *Config) {
+			cfg.Security.LockPasswordHash = ""
+		}, match: "lock password"},
+		{name: "non loopback backend", mutate: func(cfg *Config) {
+			cfg.Search.ListenAddr = "0.0.0.0:18765"
+		}, match: "loopback"},
+		{name: "missing public URL", mutate: func(cfg *Config) {
+			cfg.Search.ReverseProxy.PublicURL = ""
+		}, match: "publicUrl is required"},
+		{name: "plain HTTP public URL", mutate: func(cfg *Config) {
+			cfg.Search.ReverseProxy.PublicURL = "http://clipvault.example.com"
+		}, match: "absolute https URL"},
+		{name: "public URL path", mutate: func(cfg *Config) {
+			cfg.Search.ReverseProxy.PublicURL = "https://clipvault.example.com/app"
+		}, match: "without path"},
+		{name: "public URL credentials", mutate: func(cfg *Config) {
+			cfg.Search.ReverseProxy.PublicURL = "https://user:pass@clipvault.example.com"
+		}, match: "user info"},
+		{name: "public URL query", mutate: func(cfg *Config) {
+			cfg.Search.ReverseProxy.PublicURL = "https://clipvault.example.com?mode=proxy"
+		}, match: "query"},
+		{name: "unspecified public address", mutate: func(cfg *Config) {
+			cfg.Search.ReverseProxy.PublicURL = "https://0.0.0.0"
+		}, match: "clients can connect"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := valid
+			tt.mutate(&cfg)
+			err := validateConfig(cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.match) {
+				t.Fatalf("validation error=%v, want substring %q", err, tt.match)
+			}
+		})
+	}
+}
+
+func TestValidateConfigRequiresLockPasswordForDirectLAN(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Search.ListenAddr = "0.0.0.0:18765"
+	if err := validateConfig(cfg); err == nil || !strings.Contains(err.Error(), "lock password") {
+		t.Fatalf("validation error=%v, want lock password requirement", err)
+	}
+	lockHash, err := newPasswordHash("Lock-Pass-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Security.LockPasswordHash = lockHash
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("LAN config with lock password rejected: %v", err)
+	}
+}
+
+func TestConfigJSONRequiresReverseProxyFields(t *testing.T) {
+	encoded, err := json.Marshal(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		t.Fatal(err)
+	}
+	search := object["search"].(map[string]any)
+	delete(search, "reverseProxy")
+	encoded, err = json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Config
+	if err := json.Unmarshal(encoded, &decoded); err == nil || !strings.Contains(err.Error(), "config.search.reverseProxy is required") {
+		t.Fatalf("decode error=%v, want required reverseProxy", err)
+	}
+}
+
+func TestPutConfigLANAccessUsesPersistedLockPassword(t *testing.T) {
+	newServer := func(t *testing.T, withLockPassword bool) (*SearchServer, *ConfigManager) {
+		t.Helper()
+		store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		manager, err := NewConfigManager(store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if withLockPassword {
+			cfg := manager.Get()
+			cfg.Security.LockPasswordHash, err = newPasswordHash("Lock-Pass-2026")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.Update(cfg); err != nil {
+				t.Fatal(err)
+			}
+		}
+		logger, err := NewDailyLogger(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = logger.Close() })
+		return &SearchServer{cfgMgr: manager, logger: logger, auth: NewAuthManager()}, manager
+	}
+
+	t.Run("lock password only is sufficient", func(t *testing.T) {
+		server, manager := newServer(t, true)
+		cfg := manager.Get()
+		if cfg.Security.SecondaryPasswordHash != "" {
+			t.Fatal("test precondition: secondary password must be unset")
+		}
+		cfg.Search.ListenAddr = "0.0.0.0:18765"
+		body, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := httptest.NewRecorder()
+		server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+		if result.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+		}
+		if manager.Get().Search.ListenAddr != cfg.Search.ListenAddr {
+			t.Fatal("LAN listen address was not persisted")
+		}
+	})
+
+	t.Run("submitted hash cannot authorize LAN access", func(t *testing.T) {
+		server, manager := newServer(t, false)
+		cfg := manager.Get()
+		var err error
+		cfg.Security.LockPasswordHash, err = newPasswordHash("Injected-Lock-2026")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Search.ListenAddr = "0.0.0.0:18765"
+		body, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := httptest.NewRecorder()
+		server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+		if result.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+		}
+		if manager.Get().Search.ListenAddr != DefaultConfig().Search.ListenAddr {
+			t.Fatal("unauthorized LAN listen address was persisted")
+		}
+	})
+}
+
 func TestNotificationContentIsNormalized(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Notifications = NotificationConfig{
@@ -106,6 +275,117 @@ func TestBackgroundSizingIsNormalized(t *testing.T) {
 	normalizeConfig(&cfg)
 	if cfg.Background.Fit != "contain" || cfg.Background.Scale != 200 {
 		t.Fatalf("normalized background = %#v", cfg.Background)
+	}
+}
+
+func TestValidateHotkeyConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		hotkey  HotkeyConfig
+		wantErr bool
+	}{
+		{name: "disabled empty", hotkey: HotkeyConfig{}},
+		{name: "disabled retained key", hotkey: HotkeyConfig{Modifiers: 0x0002, Key: 'P'}},
+		{name: "enabled letter", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0002, Key: 'P'}},
+		{name: "enabled digit", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0001, Key: '7'}},
+		{name: "enabled space", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0002 | 0x0004, Key: vkSpace}},
+		{name: "enabled function key", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0004 | 0x0008, Key: vkFunctionLast}},
+		{name: "enabled missing modifier", hotkey: HotkeyConfig{Enabled: true, Key: 'P'}, wantErr: true},
+		{name: "enabled missing key", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0002}, wantErr: true},
+		{name: "unsupported modifier bit", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x4000, Key: 'P'}, wantErr: true},
+		{name: "negative modifier", hotkey: HotkeyConfig{Modifiers: -1}, wantErr: true},
+		{name: "negative key", hotkey: HotkeyConfig{Key: -1}, wantErr: true},
+		{name: "escape is unsupported", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0002, Key: 0x1B}, wantErr: true},
+		{name: "F25 is unsupported", hotkey: HotkeyConfig{Enabled: true, Modifiers: 0x0002, Key: vkFunctionLast + 1}, wantErr: true},
+		{name: "OEM key is unsupported while disabled", hotkey: HotkeyConfig{Key: 0xBA}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateHotkeyConfig("hotkey", tc.hotkey)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateConfigRejectsDuplicateEnabledHotkeys(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SearchHotkey = cfg.Hotkey
+	if err := validateConfig(cfg); err == nil || !strings.Contains(err.Error(), "same key combination") {
+		t.Fatalf("duplicate enabled hotkeys error = %v", err)
+	}
+	cfg.SearchHotkey.Enabled = false
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("disabled duplicate hotkey was rejected: %v", err)
+	}
+}
+
+func TestNormalizeConfigDoesNotReplaceInvalidEnabledHotkey(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Hotkey = HotkeyConfig{Enabled: true}
+	normalizeConfig(&cfg)
+	if cfg.Hotkey.Modifiers != 0 || cfg.Hotkey.Key != 0 {
+		t.Fatalf("invalid hotkey was silently replaced: %#v", cfg.Hotkey)
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("invalid enabled hotkey was accepted")
+	}
+}
+
+func TestInvalidHotkeyConfigIsRejectedBeforePersistence(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{cfgMgr: manager, logger: logger}
+	original := manager.Get()
+
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "unsupported key", mutate: func(cfg *Config) { cfg.Hotkey.Key = 0x1B }},
+		{name: "duplicate combination", mutate: func(cfg *Config) { cfg.SearchHotkey = cfg.Hotkey }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := original
+			test.mutate(&invalid)
+			body, err := json.Marshal(invalid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := httptest.NewRecorder()
+			server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+			if result.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+			}
+			current := manager.Get()
+			if current.Hotkey != original.Hotkey || current.SearchHotkey != original.SearchHotkey {
+				t.Fatalf("invalid update changed hotkeys: hotkey=%#v search=%#v", current.Hotkey, current.SearchHotkey)
+			}
+			persisted, err := store.GetConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if persisted.Hotkey != original.Hotkey || persisted.SearchHotkey != original.SearchHotkey {
+				t.Fatalf("invalid update changed persisted hotkeys: hotkey=%#v search=%#v", persisted.Hotkey, persisted.SearchHotkey)
+			}
+		})
 	}
 }
 

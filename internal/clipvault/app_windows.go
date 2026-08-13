@@ -36,6 +36,12 @@ func Run(env Environment) error {
 	if storageWarning != "" {
 		logger.Warn("storage_relocation_cleanup_pending", map[string]any{"warning": storageWarning})
 	}
+	if switchedID, switchErr := applyPendingIsolatedDatabaseSwitch(env.DataDir); switchErr != nil {
+		logger.Error("isolated_database_switch_failed", switchErr, nil)
+		return fmt.Errorf("switch isolated database: %w", switchErr)
+	} else if switchedID != "" {
+		logger.Info("isolated_database_switched", map[string]any{"isolationId": switchedID})
+	}
 
 	// Determine startup mode via state file
 	startupMode := determineStartupMode(env.DataDir)
@@ -82,13 +88,23 @@ func Run(env Environment) error {
 		return err
 	}
 
+	var gate *StartupGate
+	// gate 在首次设置或配置修复流程中才会赋值。在这里统一注册清理，
+	// 保证赋值后的任何返回路径都会关闭门禁 HTTP 服务。
+	defer func() {
+		if gate != nil {
+			gate.Close()
+		}
+	}()
 	cfgMgr, err := NewConfigManager(store)
 	if errors.Is(err, ErrConfigCorrupt) {
 		logger.Error("config_corrupt", err, nil)
 		if !hasRecovery {
 			return fmt.Errorf("configuration is corrupt before security credentials were initialized: %w", err)
 		}
-		if gateErr := runStartupGate(store, env, startupGateRepairConfig, logger); gateErr != nil {
+		var gateErr error
+		gate, gateErr = runStartupGate(store, env, startupGateRepairConfig, logger)
+		if gateErr != nil {
 			return gateErr
 		}
 		cfgMgr, err = NewConfigManager(store)
@@ -103,8 +119,10 @@ func Run(env Environment) error {
 		return errors.New("security credential initialization is incomplete")
 	}
 	if !hasRecovery {
-		if err := runStartupGate(store, env, startupGateSetCredentials, logger); err != nil {
-			return err
+		var gateErr error
+		gate, gateErr = runStartupGate(store, env, startupGateSetCredentials, logger)
+		if gateErr != nil {
+			return gateErr
 		}
 		if err := cfgMgr.Reload(); err != nil {
 			return fmt.Errorf("reload security configuration: %w", err)
@@ -165,6 +183,12 @@ func Run(env Environment) error {
 	}()
 	fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
 
+	// 首次启动门禁存在时，发布记录页地址供当前门禁页自动跳转。
+	// 不再额外打开浏览器，避免成功后出现两个相同的记录页。
+	if gate != nil {
+		gate.SetRecordURL(searchURL)
+	}
+
 	backup.Start()
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, store, searchURL, licenseMgr)
 
@@ -219,23 +243,26 @@ func Run(env Environment) error {
 	}
 }
 
-func runStartupGate(store *Store, env Environment, mode startupGateMode, logger *DailyLogger) error {
+func runStartupGate(store *Store, env Environment, mode startupGateMode, logger *DailyLogger) (*StartupGate, error) {
 	gate := NewStartupGate(store, env.DataDir, mode)
 	url, err := gate.Start()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer gate.Close()
 	safeURL := strings.SplitN(url, "#", 2)[0]
 	logger.Info("startup_gate_started", map[string]any{"mode": mode, "url": safeURL})
 	fmt.Printf("安全设置页面: %s\n", safeURL)
 	openBrowser(url)
 	<-gate.Done()
 	if !gate.Success() {
-		return fmt.Errorf("startup security setup was not completed")
+		gate.Close()
+		return nil, fmt.Errorf("startup security setup was not completed")
 	}
 	logger.Info("startup_gate_completed", map[string]any{"mode": mode})
-	return nil
+	// 不在此处关闭 gate：主流程在主服务就绪后调用 gate.SetRecordURL
+	// 把记录页地址写入门禁，前端轮询拿到后自动跳转。SetRecordURL 内部
+	// 会在 30 秒后自动关闭 gate HTTP 服务。
+	return gate, nil
 }
 
 var errAppQuit = fmt.Errorf("app quit")
@@ -256,7 +283,7 @@ func (e *RecoveryError) Unwrap() error { return e.Err }
 // determineStartupMode checks the state file and key file to determine startup flow.
 func determineStartupMode(dataDir string) string {
 	stateExists := StateExists(dataDir)
-	keyPath := filepath.Join(dataDir, "clipvault.key")
+	keyPath := activeDatabaseFile(dataDir, databaseKeyFileName)
 	_, keyErr := os.Stat(keyPath)
 
 	if !stateExists {

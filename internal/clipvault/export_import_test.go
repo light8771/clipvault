@@ -14,6 +14,75 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+type importDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	readDeadline  time.Time
+	writeDeadline time.Time
+}
+
+func (w *importDeadlineRecorder) SetReadDeadline(deadline time.Time) error {
+	w.readDeadline = deadline
+	return nil
+}
+
+func (w *importDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.writeDeadline = deadline
+	return nil
+}
+
+func TestSetImportTransferDeadlines(t *testing.T) {
+	now := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
+	w := &importDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	if err := setImportTransferDeadlines(w, now); err != nil {
+		t.Fatalf("setImportTransferDeadlines: %v", err)
+	}
+	wantRead := now.Add(importReadTimeout)
+	if !w.readDeadline.Equal(wantRead) {
+		t.Fatalf("read deadline = %v, want %v", w.readDeadline, wantRead)
+	}
+	wantWrite := now.Add(importReadTimeout)
+	if !w.writeDeadline.Equal(wantWrite) {
+		t.Fatalf("write deadline = %v, want %v", w.writeDeadline, wantWrite)
+	}
+}
+
+func TestSetImportProcessingDeadline(t *testing.T) {
+	now := time.Date(2026, time.August, 11, 13, 0, 0, 0, time.UTC)
+	w := &importDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	if err := setImportProcessingDeadline(w, now); err != nil {
+		t.Fatalf("setImportProcessingDeadline: %v", err)
+	}
+	want := now.Add(importProcessingTimeout)
+	if !w.writeDeadline.Equal(want) {
+		t.Fatalf("write deadline = %v, want %v", w.writeDeadline, want)
+	}
+}
+
+func TestSetExportWriteDeadline(t *testing.T) {
+	now := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
+	w := &importDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	if err := setExportWriteDeadline(w, now); err != nil {
+		t.Fatalf("setExportWriteDeadline: %v", err)
+	}
+	want := now.Add(exportWriteTimeout)
+	if !w.writeDeadline.Equal(want) {
+		t.Fatalf("write deadline = %v, want %v", w.writeDeadline, want)
+	}
+}
+
+func TestTransferDeadlinesAllowUnsupportedResponseWriter(t *testing.T) {
+	w := httptest.NewRecorder()
+	if err := setImportTransferDeadlines(w, time.Now()); err != nil {
+		t.Fatalf("setImportTransferDeadlines unsupported writer: %v", err)
+	}
+	if err := setImportProcessingDeadline(w, time.Now()); err != nil {
+		t.Fatalf("setImportProcessingDeadline unsupported writer: %v", err)
+	}
+	if err := setExportWriteDeadline(w, time.Now()); err != nil {
+		t.Fatalf("setExportWriteDeadline unsupported writer: %v", err)
+	}
+}
+
 func TestExportImportRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(StoreOptions{DataDir: dir})

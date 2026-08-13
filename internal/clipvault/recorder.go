@@ -35,8 +35,8 @@ type ClipboardSnapshot struct {
 // SourceInfo 记录一条剪贴板内容的来源进程信息（前台窗口法）。
 // PID 与 hwnd 在 WM_CLIPBOARDUPDATE 派发现场同步捕获（captureForegroundSourceFast），
 // exe 路径/窗口标题由 worker 异步惰性解析（resolveDetails）。
-// Method 标记识别方法，当前固定为 "foreground"；空 Method 表示未捕获
-// （启动补捕、配置关闭、非 Windows 平台）。
+// Method 标记识别方法：实时事件为 "foreground"，启动补捕为
+// "clipboard_owner"；空 Method 表示未捕获（配置关闭或非 Windows 平台）。
 type SourceInfo struct {
 	PID         uint32
 	ExePath     string

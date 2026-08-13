@@ -203,7 +203,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
 		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
 		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity"}},
-		{"search", []string{"listenAddr", "timeZone"}},
+		{"search", []string{"listenAddr", "timeZone", "reverseProxy"}},
 		{"autostart", []string{"enabled", "appName"}},
 		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
 		{"security", []string{"lockPasswordHash", "secondaryPasswordHash", "lockSessionTimeout", "secondaryAuthTimeout"}},
@@ -214,6 +214,13 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {
 			return err
 		}
+	}
+	var searchObject map[string]json.RawMessage
+	if err := json.Unmarshal(top["search"], &searchObject); err != nil {
+		return fmt.Errorf("config.search: %w", err)
+	}
+	if _, err := requiredJSONObject(searchObject["reverseProxy"], "config.search.reverseProxy", "enabled", "publicUrl"); err != nil {
+		return err
 	}
 	if _, err := requiredJSONObjectAllowingNull(top["source"], "config.source", map[string]struct{}{"exeWhitelist": {}},
 		"showExe", "exeAliases", "exeWhitelist"); err != nil {
@@ -330,8 +337,17 @@ type ThemeConfig struct {
 }
 
 type SearchConfig struct {
-	ListenAddr string `json:"listenAddr"`
-	TimeZone   string `json:"timeZone"` // "system" 或 IANA 时区（如 Asia/Shanghai）
+	ListenAddr   string             `json:"listenAddr"`
+	TimeZone     string             `json:"timeZone"` // "system" 或 IANA 时区（如 Asia/Shanghai）
+	ReverseProxy ReverseProxyConfig `json:"reverseProxy"`
+}
+
+// ReverseProxyConfig enables an HTTPS front end operated by the user. The
+// ClipVault backend remains HTTP on a loopback listener and trusts forwarded
+// scheme/host metadata only from loopback connections.
+type ReverseProxyConfig struct {
+	Enabled   bool   `json:"enabled"`
+	PublicURL string `json:"publicUrl"`
 }
 
 // SensitiveConfig 敏感规则：匹配内容仍会加密保存，读取时受二次认证保护。
@@ -362,6 +378,17 @@ type HotkeyConfig struct {
 	Modifiers int  `json:"modifiers"`
 	Key       int  `json:"key"`
 }
+
+const (
+	validHotkeyModifierMask = 0x0001 | 0x0002 | 0x0004 | 0x0008 // ALT | CONTROL | SHIFT | WIN
+	vkSpace                 = 0x20
+	vkDigitFirst            = 0x30
+	vkDigitLast             = 0x39
+	vkLetterFirst           = 0x41
+	vkLetterLast            = 0x5A
+	vkFunctionFirst         = 0x70
+	vkFunctionLast          = 0x87 // F1-F24
+)
 
 // SecurityConfig stores scrypt password hashes for lock and secondary authentication.
 type SecurityConfig struct {
@@ -445,6 +472,10 @@ func DefaultConfig() Config {
 		Search: SearchConfig{
 			ListenAddr: "127.0.0.1:18765",
 			TimeZone:   "system",
+			ReverseProxy: ReverseProxyConfig{
+				Enabled:   false,
+				PublicURL: "",
+			},
 		},
 		Sensitive: SensitiveConfig{
 			CustomPatterns: nil,
@@ -531,6 +562,9 @@ func validateConfig(cfg Config) error {
 	if _, err := configuredLocation(cfg.Search.TimeZone); err != nil {
 		return err
 	}
+	if err := validateReverseProxyConfig(cfg.Search); err != nil {
+		return err
+	}
 	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
 		return fmt.Errorf("invalid sensitive rule: %w", err)
 	}
@@ -543,6 +577,20 @@ func validateConfig(cfg Config) error {
 	}
 	if err := validateStoredPasswordHash(cfg.Security.SecondaryPasswordHash); err != nil {
 		return fmt.Errorf("invalid secondary password hash: %w", err)
+	}
+	listenHost, _, _ := validateListenAddr(cfg.Search.ListenAddr)
+	if (!isLoopbackHost(listenHost) || cfg.Search.ReverseProxy.Enabled) && cfg.Security.LockPasswordHash == "" {
+		return fmt.Errorf("lock password is required for LAN or reverse-proxy access")
+	}
+	if err := validateHotkeyConfig("hotkey", cfg.Hotkey); err != nil {
+		return err
+	}
+	if err := validateHotkeyConfig("searchHotkey", cfg.SearchHotkey); err != nil {
+		return err
+	}
+	if cfg.Hotkey.Enabled && cfg.SearchHotkey.Enabled &&
+		cfg.Hotkey.Modifiers == cfg.SearchHotkey.Modifiers && cfg.Hotkey.Key == cfg.SearchHotkey.Key {
+		return fmt.Errorf("hotkey and searchHotkey must not use the same key combination")
 	}
 	if cfg.Backup.DirBackup.Interval < 1 || cfg.Backup.DirBackup.Interval > maxBackupIntervalHours ||
 		cfg.Backup.EmailBackup.Interval < 1 || cfg.Backup.EmailBackup.Interval > maxBackupIntervalHours {
@@ -567,6 +615,26 @@ func validateConfig(cfg Config) error {
 	return nil
 }
 
+func validateHotkeyConfig(name string, hotkey HotkeyConfig) error {
+	if hotkey.Modifiers < 0 || hotkey.Modifiers&^validHotkeyModifierMask != 0 {
+		return fmt.Errorf("%s.modifiers contains unsupported Win32 modifier bits", name)
+	}
+	if hotkey.Key != 0 && !isSupportedHotkeyKey(hotkey.Key) {
+		return fmt.Errorf("%s.key must be A-Z, 0-9, F1-F24, or Space", name)
+	}
+	if hotkey.Enabled && (hotkey.Modifiers == 0 || hotkey.Key == 0) {
+		return fmt.Errorf("%s requires at least one modifier and a virtual-key code when enabled", name)
+	}
+	return nil
+}
+
+func isSupportedHotkeyKey(key int) bool {
+	return key == vkSpace ||
+		(key >= vkDigitFirst && key <= vkDigitLast) ||
+		(key >= vkLetterFirst && key <= vkLetterLast) ||
+		(key >= vkFunctionFirst && key <= vkFunctionLast)
+}
+
 func validateConfiguredBackupScope(scope ExportScope, timeZone string) error {
 	switch scope.Mode {
 	case "", "full":
@@ -586,22 +654,22 @@ func validateConfiguredBackupScope(scope ExportScope, timeZone string) error {
 
 // DatabaseFile 返回 DuckDB 数据库文件的绝对路径。
 func (e Environment) DatabaseFile() string {
-	return filepath.Join(e.DataDir, "clipvault.duckdb")
+	return activeDatabaseFile(e.DataDir, databaseFileName)
 }
 
 // KeyFile 返回 DPAPI 保护的密钥文件路径。
 func (e Environment) KeyFile() string {
-	return filepath.Join(e.DataDir, "clipvault.key")
+	return activeDatabaseFile(e.DataDir, databaseKeyFileName)
 }
 
 // RecoveryFile 返回恢复密码加密的密钥文件路径。
 func (e Environment) RecoveryFile() string {
-	return filepath.Join(e.DataDir, "clipvault.recovery")
+	return activeDatabaseFile(e.DataDir, databaseRecoveryFileName)
 }
 
 // StateFile 返回应用状态文件路径。
 func (e Environment) StateFile() string {
-	return filepath.Join(e.DataDir, "clipvault.state")
+	return activeDatabaseFile(e.DataDir, databaseStateFileName)
 }
 
 // LogDirectory 返回日志目录路径。
@@ -623,14 +691,12 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Search.TimeZone == "" {
 		cfg.Search.TimeZone = def.Search.TimeZone
 	}
+	cfg.Search.ReverseProxy.PublicURL = strings.TrimSpace(cfg.Search.ReverseProxy.PublicURL)
+	if strings.HasSuffix(cfg.Search.ReverseProxy.PublicURL, "/") {
+		cfg.Search.ReverseProxy.PublicURL = strings.TrimSuffix(cfg.Search.ReverseProxy.PublicURL, "/")
+	}
 	if cfg.Autostart.AppName == "" {
 		cfg.Autostart.AppName = def.Autostart.AppName
-	}
-	if cfg.Hotkey.Enabled && (cfg.Hotkey.Modifiers == 0 || cfg.Hotkey.Key == 0) {
-		cfg.Hotkey = def.Hotkey
-	}
-	if cfg.SearchHotkey.Enabled && (cfg.SearchHotkey.Modifiers == 0 || cfg.SearchHotkey.Key == 0) {
-		cfg.SearchHotkey = def.SearchHotkey
 	}
 	if cfg.Backup.DirBackup.Format == "" {
 		cfg.Backup.DirBackup.Format = def.Backup.DirBackup.Format

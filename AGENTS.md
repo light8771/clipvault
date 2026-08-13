@@ -4,11 +4,15 @@
 
 - Go: `C:\Program Files\Go\bin\go.exe` (Go 1.26.3, windows/amd64)
 - gofmt: `C:\Program Files\Go\bin\gofmt.exe`
+- MinGW-w64 root: `D:\mingw64`
+- GCC: `D:\mingw64\bin\gcc.exe`
+- For any Go build/test that reaches DuckDB, use this repository-local command setup:
+  `$env:PATH='D:\mingw64\bin;' + $env:PATH; $env:CGO_ENABLED='1'; $env:CC='D:\mingw64\bin\gcc.exe'`
 - The `internal/clipvault` package imports DuckDB (`github.com/duckdb/duckdb-go/v2`) via `store.go`.
   DuckDB bindings require **CGO_ENABLED=1** and a C compiler (gcc/mingw).
-  In environments without a C compiler, `go build`/`go test` for this package will fail with
+  This workstation has the required compiler at the path above; use it before concluding that
+  CGO is unavailable. In other environments without a C compiler, `go build`/`go test` will fail with
   "build constraints exclude all Go files in .../duckdb-go-bindings/lib/windows-amd64".
-  This is a pre-existing environment limitation, not a code issue.
 - To verify Go syntax without building: `gofmt -e <file.go>` (prints formatted code if syntax is valid).
 - To verify JS syntax: `node --check internal/clipvault/web/script.js`
 - CSS/HTML have no build step; verify by serving `internal/clipvault/web/` and loading in a browser.

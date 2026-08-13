@@ -2,7 +2,6 @@ package clipvault
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -45,7 +44,7 @@ func TestStateFileRoundtrip(t *testing.T) {
 	}
 
 	// 确认文件名
-	if _, err := os.Stat(filepath.Join(tmpDir, "clipvault.state")); err != nil {
+	if _, err := os.Stat(activeDatabaseFile(tmpDir, databaseStateFileName)); err != nil {
 		t.Fatalf("state file not at expected path: %v", err)
 	}
 }

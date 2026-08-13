@@ -16,7 +16,6 @@ import (
 const (
 	storageLocationFile = "storage-location.json"
 	storageMoveFile     = "storage-move.json"
-	storageKeyFileName  = "clipvault.key"
 )
 
 type storageLocation struct {
@@ -444,21 +443,21 @@ func removeMovedData(sourceDir, controlDir string) error {
 	if err != nil {
 		return err
 	}
-	removeKey := false
+	removeDatabase := false
 	for _, entry := range entries {
 		if samePath(sourceDir, controlDir) && isControlFile(entry.Name()) {
 			continue
 		}
-		if entry.Name() == storageKeyFileName {
-			removeKey = true
+		if entry.Name() == activeDatabaseDirectoryName {
+			removeDatabase = true
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(sourceDir, entry.Name())); err != nil {
 			return err
 		}
 	}
-	if removeKey {
-		if err := os.Remove(filepath.Join(sourceDir, storageKeyFileName)); err != nil && !os.IsNotExist(err) {
+	if removeDatabase {
+		if err := os.RemoveAll(activeDatabaseDirectory(sourceDir)); err != nil {
 			return err
 		}
 	}
@@ -513,7 +512,7 @@ func copyStorageEntry(source, target string) error {
 }
 
 func storageKeyDigest(dir string) (string, error) {
-	path := filepath.Join(dir, storageKeyFileName)
+	path := activeDatabaseFile(dir, databaseKeyFileName)
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "", fmt.Errorf("read source identity file failed: %w", err)

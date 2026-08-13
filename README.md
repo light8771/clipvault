@@ -50,7 +50,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 分区 | 可配置项 |
 |------|---------|
 | 基本 | 最大文字长度（0 = 不限）、最大文件路径数（0 = 不限）、来源应用采集与展示 |
-| 服务 | Web 监听地址、日期筛选时区；管理服务始终启动，避免配置死路 |
+| 服务 | Web 监听地址、本机 HTTPS 反向代理、日期筛选时区；管理服务始终启动，避免配置死路 |
 | 存储与诊断 | 查看并迁移数据库、密钥和应用数据（目标必须由用户提前创建、为空且可读写；诊断日志保留原位置）；导出最近 7 天、最多 8 MiB 的脱敏诊断日志 |
 | 安全 | 锁屏密码、二次密码、数据恢复密码（必需，可修改；忘记旧密码时需刚刚完成二次认证后重置）、锁屏会话超时、二次认证缓存时长 |
 | 授权 | 查看授权状态与机器码、复制购买信息、粘贴激活码并即时激活 |
@@ -59,9 +59,28 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 导出 | 按全部或日期范围导出（JSON / Excel / 加密 .cvexport）、导入数据（JSON / Excel / .cvexport）；Excel 保留来源应用信息 |
 | 备份 | 目录和邮件定时备份（可选启动后自动执行）、SMTP 与安全邮件模板、立即备份/发送、测试邮件、最近备份状态；邮件发送历史以只读弹窗展示最近 100 条成功记录（自动/手动、收发账号、时间、文件类型） |
 
-> 过滤规则和文字限制**即时生效**；监听地址变更需**重启应用**后生效。
+> 过滤规则和文字限制**即时生效**；监听地址或反向代理配置变更需**重启应用**后生效。
 
 > 端口被占时，自动尝试下 5 个端口（如 18765 → 18769），日志记录实际使用的端口。
+
+### 局域网与 HTTPS 反向代理
+
+- 直接局域网访问继续使用 HTTP。监听非回环地址前必须先设置锁屏密码；二次密码不是开启局域网的前置条件。
+- ClipVault 不内置证书管理。需要 HTTPS 时，在同一台电脑上运行 Caddy、Nginx 等反向代理，ClipVault 后端保持监听 `127.0.0.1` 或其他回环地址。
+- 在设置页启用「HTTPS 反向代理」并填写客户端实际访问的完整地址，例如 `https://clipvault.example.com`。地址不能包含路径、账号、查询参数或片段。
+- ClipVault 只信任来自回环 TCP 连接的 `X-Forwarded-Proto: https` 和与配置地址完全匹配的 `X-Forwarded-Host`。其他来源的转发头会被拒绝；HTTPS 会话 Cookie 自动带 `Secure`。
+- 本机直接访问 `http://127.0.0.1:18765` 仍然可用。该模式不增加自定义“接口加密层”，传输机密性由标准 HTTPS 负责。
+
+Caddy 示例（代理与 ClipVault 必须在同一台电脑）：
+
+```caddyfile
+clipvault.example.com {
+    reverse_proxy 127.0.0.1:18765 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+}
+```
 
 ## 安全架构
 
@@ -304,7 +323,11 @@ New-Item -ItemType File "portable.flag"
   "maxFileDropPaths": 0,
   "search": {
     "listenAddr": "127.0.0.1:18765",
-    "timeZone": "system"
+    "timeZone": "system",
+    "reverseProxy": {
+      "enabled": false,
+      "publicUrl": ""
+    }
   },
   "sensitive": {
     "customPatterns": []
@@ -353,8 +376,10 @@ New-Item -ItemType File "portable.flag"
 | `version` | 配置结构版本；必须与当前程序一致 |
 | `maxTextChars` | 超过此字符数的文本直接跳过；`0` 表示不限制 |
 | `maxFileDropPaths` | 文件拖放时最多记录的路径数；`0` 表示不限制 |
-| `search.listenAddr` | Web 服务监听地址；默认仅 localhost/回环地址。开放局域网监听必须先设置锁屏与二次密码，并经风险确认和一次新的二次验证；端口被占时自动尝试下 5 个端口 |
+| `search.listenAddr` | Web 服务监听地址；默认仅 localhost/回环地址。开放局域网监听必须先设置锁屏密码并确认风险；端口被占时自动尝试下 5 个端口 |
 | `search.timeZone` | 日期筛选和范围导出的时区；`system` 表示 Windows 当前时区，也可填 IANA 时区名 |
+| `search.reverseProxy.enabled` | 是否信任同机回环反向代理传入的 HTTPS 主机信息；启用时必须设置锁屏密码且 `listenAddr` 必须保持为回环地址 |
+| `search.reverseProxy.publicUrl` | 客户端实际访问的 HTTPS 根地址；主机和非默认端口必须与 `X-Forwarded-Host` 完全匹配 |
 | `sensitive.customPatterns` | 自定义正则列表；匹配记录仍加密保存，搜索、查看和文件操作受二次认证保护 |
 | `autostart.enabled` | 是否开机自启动 |
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |

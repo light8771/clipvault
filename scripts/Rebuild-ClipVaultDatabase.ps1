@@ -28,24 +28,33 @@ if (-not $SkipStop) {
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupDir = Join-Path $resolvedDataDir "rebuild-backup-$timestamp"
 
-$names = @(
+# database_layout.go 把数据库文件放到 dataDir/database/ 子目录下。
+# 根目录仅保留 recovery-appearance.json 和品牌/背景资源。
+$databaseDir = Join-Path $resolvedDataDir 'database'
+$databaseNames = @(
     'clipvault.duckdb',
     'clipvault.duckdb.wal',
     'clipvault.key',
     'clipvault.recovery',
-    'clipvault.state',
-    'recovery-appearance.json'
+    'clipvault.state'
 )
-$patterns = @('brand-logo-*', 'brand-favicon-*', 'background-media-*')
+$rootNames = @('recovery-appearance.json')
+$rootPatterns = @('brand-logo-*', 'brand-favicon-*', 'background-media-*')
 $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
 
-foreach ($name in $names) {
+foreach ($name in $databaseNames) {
+    $path = Join-Path $databaseDir $name
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        $files.Add((Get-Item -LiteralPath $path))
+    }
+}
+foreach ($name in $rootNames) {
     $path = Join-Path $resolvedDataDir $name
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         $files.Add((Get-Item -LiteralPath $path))
     }
 }
-foreach ($pattern in $patterns) {
+foreach ($pattern in $rootPatterns) {
     Get-ChildItem -LiteralPath $resolvedDataDir -File -Filter $pattern | ForEach-Object {
         $files.Add($_)
     }

@@ -21,7 +21,10 @@ import (
 
 func writeStorageKey(t *testing.T, dir, value string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "clipvault.key"), []byte(value), 0o600); err != nil {
+	if err := os.MkdirAll(activeDatabaseDirectory(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(activeDatabaseFile(dir, databaseKeyFileName), []byte(value), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -49,13 +52,19 @@ func TestPrepareEnvironmentForRunAppliesDataDirectoryMove(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", controlRoot)
 	source := t.TempDir()
 	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "key")
 	if err := os.Mkdir(filepath.Join(source, "license"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(source, "license", "clipvault.lic"), []byte("license"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	isolatedID := "20260810-120000.000000000"
+	isolatedFile := databaseGroupFile(isolatedDatabaseDirectory(source, isolatedID), databaseFileName)
+	if err := os.MkdirAll(filepath.Dir(isolatedFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(isolatedFile, []byte("isolated database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,11 +83,18 @@ func TestPrepareEnvironmentForRunAppliesDataDirectoryMove(t *testing.T) {
 	if !samePath(prepared.DataDir, target) || prepared.Source != "configured" {
 		t.Fatalf("prepared environment = %+v", prepared)
 	}
-	if data, err := os.ReadFile(filepath.Join(target, "clipvault.key")); err != nil || string(data) != "key" {
+	if data, err := os.ReadFile(activeDatabaseFile(target, databaseKeyFileName)); err != nil || string(data) != "key" {
 		t.Fatalf("moved key = %q, %v", data, err)
 	}
-	if _, err := os.Stat(filepath.Join(source, "clipvault.key")); !os.IsNotExist(err) {
+	if _, err := os.Stat(activeDatabaseFile(source, databaseKeyFileName)); !os.IsNotExist(err) {
 		t.Fatalf("source key should be removed, got %v", err)
+	}
+	movedIsolatedFile := databaseGroupFile(isolatedDatabaseDirectory(target, isolatedID), databaseFileName)
+	if data, err := os.ReadFile(movedIsolatedFile); err != nil || string(data) != "isolated database" {
+		t.Fatalf("moved isolated database = %q, %v", data, err)
+	}
+	if _, err := os.Stat(isolatedFile); !os.IsNotExist(err) {
+		t.Fatalf("source isolated database should be removed, got %v", err)
 	}
 	configured, err := configuredDataDirectory(controlDir)
 	if err != nil || !samePath(configured, target) {
@@ -141,9 +157,7 @@ func TestPrepareEnvironmentForRunCanReturnToControlDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "key")
 	location, err := json.Marshal(storageLocation{DataDir: source})
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +177,7 @@ func TestPrepareEnvironmentForRunCanReturnToControlDirectory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(controlDir, "logs", "existing.log")); err != nil {
 		t.Fatalf("control logs were not retained: %v", err)
 	}
-	if data, err := os.ReadFile(filepath.Join(controlDir, "clipvault.key")); err != nil || string(data) != "key" {
+	if data, err := os.ReadFile(activeDatabaseFile(controlDir, databaseKeyFileName)); err != nil || string(data) != "key" {
 		t.Fatalf("moved key = %q, %v", data, err)
 	}
 }
@@ -438,12 +452,8 @@ func TestPendingMoveWithActiveTargetOnlyFinalizesCleanup(t *testing.T) {
 	}
 	source := t.TempDir()
 	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(target, "clipvault.key"), []byte("new"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "old")
+	writeStorageKey(t, target, "new")
 	location, err := json.Marshal(storageLocation{DataDir: target, CleanupSourceDir: source})
 	if err != nil {
 		t.Fatal(err)
@@ -464,10 +474,10 @@ func TestPendingMoveWithActiveTargetOnlyFinalizesCleanup(t *testing.T) {
 	if warning != "" {
 		t.Fatalf("unexpected relocation warning: %s", warning)
 	}
-	if data, err := os.ReadFile(filepath.Join(target, "clipvault.key")); err != nil || string(data) != "new" {
+	if data, err := os.ReadFile(activeDatabaseFile(target, databaseKeyFileName)); err != nil || string(data) != "new" {
 		t.Fatalf("target data changed during finalization: %q, %v", data, err)
 	}
-	if _, err := os.Stat(filepath.Join(source, "clipvault.key")); !os.IsNotExist(err) {
+	if _, err := os.Stat(activeDatabaseFile(source, databaseKeyFileName)); !os.IsNotExist(err) {
 		t.Fatalf("source data should be removed, got %v", err)
 	}
 	if _, err := os.Stat(pendingPath); !os.IsNotExist(err) {
@@ -488,9 +498,7 @@ func TestPendingMoveWithNonEmptyTargetCancelsWithoutDeletingData(t *testing.T) {
 	}
 	source := t.TempDir()
 	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("source"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "source")
 	if err := os.WriteFile(filepath.Join(target, "unrelated.txt"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +515,7 @@ func TestPendingMoveWithNonEmptyTargetCancelsWithoutDeletingData(t *testing.T) {
 	if !samePath(prepared.DataDir, source) || warning == "" {
 		t.Fatalf("prepared=%+v warning=%q", prepared, warning)
 	}
-	if data, err := os.ReadFile(filepath.Join(source, "clipvault.key")); err != nil || string(data) != "source" {
+	if data, err := os.ReadFile(activeDatabaseFile(source, databaseKeyFileName)); err != nil || string(data) != "source" {
 		t.Fatalf("source data changed: %q, %v", data, err)
 	}
 	if data, err := os.ReadFile(filepath.Join(target, "unrelated.txt")); err != nil || string(data) != "keep" {
@@ -526,9 +534,7 @@ func TestPendingMoveWithConfiguredTargetAndMissingSourceCompletesCleanup(t *test
 		t.Fatal(err)
 	}
 	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(target, "clipvault.key"), []byte("target"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, target, "target")
 	missingSource := filepath.Join(t.TempDir(), "missing")
 	location, err := json.Marshal(storageLocation{DataDir: target, CleanupSourceDir: missingSource})
 	if err != nil {
@@ -550,7 +556,7 @@ func TestPendingMoveWithConfiguredTargetAndMissingSourceCompletesCleanup(t *test
 	if err != nil || warning == "" {
 		t.Fatalf("warning=%q err=%v", warning, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(target, "clipvault.key")); err != nil || string(data) != "target" {
+	if data, err := os.ReadFile(activeDatabaseFile(target, databaseKeyFileName)); err != nil || string(data) != "target" {
 		t.Fatalf("target data changed: %q, %v", data, err)
 	}
 	if _, err := os.Stat(pendingPath); !os.IsNotExist(err) {
@@ -568,18 +574,12 @@ func TestPendingMoveRejectsMismatchedCommittedCleanupSource(t *testing.T) {
 	committedSource := t.TempDir()
 	untrustedSource := t.TempDir()
 	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(committedSource, "clipvault.key"), []byte("committed"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(untrustedSource, "clipvault.key"), []byte("untrusted"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, committedSource, "committed")
+	writeStorageKey(t, untrustedSource, "untrusted")
 	if err := os.WriteFile(filepath.Join(untrustedSource, "keep.txt"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(target, "clipvault.key"), []byte("target"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, target, "target")
 	location, err := json.Marshal(storageLocation{DataDir: target, CleanupSourceDir: committedSource})
 	if err != nil {
 		t.Fatal(err)
@@ -608,7 +608,7 @@ func TestPendingMoveRejectsMismatchedCommittedCleanupSource(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(untrustedSource, "keep.txt")); err != nil || string(data) != "keep" {
 		t.Fatalf("untrusted source changed: %q, %v", data, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(committedSource, "clipvault.key")); err != nil || string(data) != "committed" {
+	if data, err := os.ReadFile(activeDatabaseFile(committedSource, databaseKeyFileName)); err != nil || string(data) != "committed" {
 		t.Fatalf("committed source changed: %q, %v", data, err)
 	}
 	if _, err := os.Stat(pendingPath); err != nil {
@@ -624,9 +624,7 @@ func TestPendingMoveWithUnavailableTargetCancelsWithoutTouchingSource(t *testing
 		t.Fatal(err)
 	}
 	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("source"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "source")
 	target := filepath.Join(t.TempDir(), "missing")
 	move := mustStorageMoveJSON(t, source, target)
 	pendingPath := filepath.Join(controlDir, storageMoveFile)
@@ -638,7 +636,7 @@ func TestPendingMoveWithUnavailableTargetCancelsWithoutTouchingSource(t *testing
 	if err != nil || warning == "" || !samePath(prepared.DataDir, source) {
 		t.Fatalf("prepared=%+v warning=%q err=%v", prepared, warning, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(source, "clipvault.key")); err != nil || string(data) != "source" {
+	if data, err := os.ReadFile(activeDatabaseFile(source, databaseKeyFileName)); err != nil || string(data) != "source" {
 		t.Fatalf("source data changed: %q, %v", data, err)
 	}
 	if _, err := os.Stat(pendingPath); !os.IsNotExist(err) {
@@ -695,9 +693,7 @@ func TestPendingMoveRejectsSourceDirectoryReplacedWithLink(t *testing.T) {
 	if err := os.Mkdir(source, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("source"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "source")
 	target := t.TempDir()
 	if err := ScheduleDataDirectoryMove(Environment{DataDir: source, Source: "default"}, target); err != nil {
 		t.Fatal(err)
@@ -723,7 +719,7 @@ func TestPendingMoveRejectsSourceDirectoryReplacedWithLink(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(external, "keep.txt")); err != nil || string(data) != "keep" {
 		t.Fatalf("linked directory target changed: %q, %v", data, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(originalSource, "clipvault.key")); err != nil || string(data) != "source" {
+	if data, err := os.ReadFile(activeDatabaseFile(originalSource, databaseKeyFileName)); err != nil || string(data) != "source" {
 		t.Fatalf("original source changed: %q, %v", data, err)
 	}
 	if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
@@ -742,9 +738,7 @@ func TestPendingMoveRejectsSourceDirectoryReplacedWithOrdinaryDirectory(t *testi
 	if err := os.Mkdir(source, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("source"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "source")
 	target := t.TempDir()
 	if err := ScheduleDataDirectoryMove(Environment{DataDir: source, Source: "default"}, target); err != nil {
 		t.Fatal(err)
@@ -756,9 +750,7 @@ func TestPendingMoveRejectsSourceDirectoryReplacedWithOrdinaryDirectory(t *testi
 	if err := os.Mkdir(source, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(source, "clipvault.key"), []byte("replacement"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, source, "replacement")
 	if err := os.WriteFile(filepath.Join(source, "keep.txt"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -769,7 +761,7 @@ func TestPendingMoveRejectsSourceDirectoryReplacedWithOrdinaryDirectory(t *testi
 	if data, err := os.ReadFile(filepath.Join(source, "keep.txt")); err != nil || string(data) != "keep" {
 		t.Fatalf("replacement directory changed: %q, %v", data, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(originalSource, "clipvault.key")); err != nil || string(data) != "source" {
+	if data, err := os.ReadFile(activeDatabaseFile(originalSource, databaseKeyFileName)); err != nil || string(data) != "source" {
 		t.Fatalf("original source changed: %q, %v", data, err)
 	}
 	if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
@@ -802,9 +794,7 @@ func TestDataMovePreservesControlFilesThroughControlDirectoryLink(t *testing.T) 
 	}
 	t.Setenv("LOCALAPPDATA", controlRoot)
 	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(actualControlDir, "clipvault.key"), []byte("key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeStorageKey(t, actualControlDir, "key")
 
 	env := Environment{DataDir: actualControlDir, Source: "default"}
 	if err := ScheduleDataDirectoryMove(env, target); err != nil {
@@ -820,7 +810,7 @@ func TestDataMovePreservesControlFilesThroughControlDirectoryLink(t *testing.T) 
 	if _, err := os.Stat(filepath.Join(actualControlDir, storageMoveFile)); !os.IsNotExist(err) {
 		t.Fatalf("pending move should be removed, got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(target, "clipvault.key")); err != nil {
+	if _, err := os.Stat(activeDatabaseFile(target, databaseKeyFileName)); err != nil {
 		t.Fatalf("key was not moved: %v", err)
 	}
 }

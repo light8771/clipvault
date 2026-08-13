@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const theme = require('./theme-utils.js');
+const hotkey = require('./hotkey-utils.js');
 
 const surfaces = ['#FFFFFF', '#101820', '#102038', '#2B1C10', '#182230'];
 const paletteSurfaces = [
@@ -67,6 +68,17 @@ for (const themeSurfaces of paletteSurfaces) {
 assert.equal(theme.validHex('#abcdef', '#000000'), '#abcdef');
 assert.equal(theme.validHex('not-a-color', '#000000'), '#000000');
 assert.equal(theme.blendHex('#000000', '#FFFFFF', 0.5), '#808080');
+assert.equal(hotkey.parseVkInput('a'), 0x41);
+assert.equal(hotkey.parseVkInput('9'), 0x39);
+assert.equal(hotkey.parseVkInput('F24'), 0x87);
+assert.equal(hotkey.parseVkInput('space'), 0x20);
+assert.equal(hotkey.parseVkInput(''), 0);
+assert.equal(hotkey.parseVkInput('Escape'), null);
+assert.equal(hotkey.parseVkInput('F25'), null);
+assert.equal(hotkey.vkToDisplay(0x20), 'Space');
+assert.equal(hotkey.vkToDisplay(0x70), 'F1');
+assert.equal(hotkey.vkToDisplay(0x87), 'F24');
+assert.equal(hotkey.vkToDisplay(0x1B), '');
 
 const script = fs.readFileSync(path.join(__dirname, 'script.js'), 'utf8');
 const stylesheet = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
@@ -75,6 +87,11 @@ assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.accent/);
 assert.match(script, /--on-p/, 'the primary foreground token must be set at runtime');
 assert.match(stylesheet, /color:\s*var\(--on-p\)/, 'solid primary controls must use the calculated foreground');
 assert.match(stylesheet, /\.background-range input\[type=range\]\s*\{[^}]*accent-color:\s*var\(--p\)/, 'background adjustment sliders must use the theme primary color');
+assert.doesNotMatch(
+  script,
+  /try\s*\{\s*new RegExp\(p\);\s*\}/,
+  'sensitive rules must be validated by the Go RE2 backend, not JavaScript RegExp'
+);
 
 const basePairs = selectedColors.length * surfaces.length;
 const palettePairs = selectedColors.length * paletteSurfaces.length * 3;

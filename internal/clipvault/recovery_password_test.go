@@ -2,7 +2,6 @@ package clipvault
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -104,7 +103,7 @@ func TestRecoveryFileDoesNotLeakPassword(t *testing.T) {
 	}
 
 	// Read raw recovery file and check it doesn't contain the password
-	recPath := filepath.Join(dir, "clipvault.recovery")
+	recPath := activeDatabaseFile(dir, databaseRecoveryFileName)
 	raw, err := os.ReadFile(recPath)
 	if err != nil {
 		t.Fatal(err)

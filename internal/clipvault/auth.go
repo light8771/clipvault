@@ -417,13 +417,14 @@ func GetSessionToken(r *http.Request) string {
 
 // SetSessionCookie 设置会话 cookie。
 // timeoutMin 为超时分钟数：0 表示浏览器会话 cookie（关闭浏览器后失效），N 表示 N 分钟持久 cookie。
-func SetSessionCookie(w http.ResponseWriter, token string, timeoutMin int) {
+func SetSessionCookie(w http.ResponseWriter, token string, timeoutMin int, secure bool) {
 	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
 	}
 	if timeoutMin > 0 {
 		cookie.MaxAge = timeoutMin * 60
@@ -433,13 +434,14 @@ func SetSessionCookie(w http.ResponseWriter, token string, timeoutMin int) {
 }
 
 // ClearSessionCookie 清除会话 cookie。
-func ClearSessionCookie(w http.ResponseWriter) {
+func ClearSessionCookie(w http.ResponseWriter, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
 		MaxAge:   -1,
 	})
 }

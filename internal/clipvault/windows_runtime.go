@@ -137,7 +137,7 @@ type WindowsRuntime struct {
 }
 
 // clipEvent 是一次剪贴板变化信号。source 在消息派发现场捕获（此时前台窗口
-// 还是复制动作的来源进程）；启动补捕事件 source 为零值。
+// 还是复制动作的来源进程）；启动补捕事件使用剪贴板所有者进程。
 type clipEvent struct {
 	source   SourceInfo
 	sequence uint32
@@ -247,9 +247,14 @@ func (r *WindowsRuntime) Run() error {
 		r.updateTrayIcon()
 		r.showPauseNotification(paused)
 	})
-	// 启动时补捕一次当前剪贴板内容，交由 worker 串行处理。
-	// 此刻前台窗口与复制来源无关，来源信息留空。
-	r.notifyClipboardUpdate(SourceInfo{})
+	// 启动时补捕一次当前剪贴板内容，交由 worker 串行处理。首次安全设置期间
+	// 监听器尚未启动，因此不能依赖 WM_CLIPBOARDUPDATE 的前台窗口快照；改从
+	// Windows 保留的剪贴板所有者窗口解析最后一次写入内容的应用。
+	var startupSource SourceInfo
+	if r.cfgMgr.Get().RecordSourceInfo {
+		startupSource = captureClipboardOwnerSourceFast()
+	}
+	r.notifyClipboardUpdate(startupSource)
 
 	var m msg
 	for {
@@ -643,7 +648,10 @@ func (r *WindowsRuntime) cleanup() {
 }
 
 func (r *WindowsRuntime) doRegisterHotkey(id int, hk HotkeyConfig) error {
-	if !hk.Enabled || hk.Modifiers == 0 || hk.Key == 0 {
+	if err := validateHotkeyConfig("runtime hotkey", hk); err != nil {
+		return &HotkeyError{Msg: "快捷键配置无效: " + err.Error()}
+	}
+	if !hk.Enabled {
 		r.logger.Info("hotkey_disabled", map[string]any{"id": id})
 		return nil
 	}

@@ -329,6 +329,63 @@ func TestPutConfigRefreshesAuthTimeoutsAfterRuntimeApplyFailure(t *testing.T) {
 	}
 }
 
+func TestPutConfigEnablesSecondaryCacheImmediatelyFromOneTimeAuthorization(t *testing.T) {
+	initial := DefaultConfig()
+	var err error
+	initial.Security.SecondaryPasswordHash, err = newPasswordHash("secondary-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial.Security.SecondaryAuthTimeout = 0
+	store := &memoryConfigStore{cfg: initial}
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	auth := NewAuthManager()
+	defer auth.Close()
+	session, err := auth.CreateSession(initial.Security.LockSessionTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oneTimeToken, err := auth.GenerateSecondaryToken(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	server := &SearchServer{cfgMgr: manager, auth: auth, logger: logger}
+
+	updated := manager.Get()
+	updated.Security.SecondaryAuthTimeout = 1111
+	body, err := json.Marshal(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body))
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+	request.Header.Set("X-ClipVault-Secondary-Token", oneTimeToken)
+	result := httptest.NewRecorder()
+	server.requireSecondary(server.handlePutConfig)(result, request)
+	if result.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+	}
+
+	snapshot := auth.GetSession(session)
+	if snapshot == nil || !snapshot.SecondaryAuth {
+		t.Fatal("new secondary cache duration did not take effect for the authorized session")
+	}
+	remaining := time.Until(snapshot.SecondaryExpiry)
+	want := 1111 * time.Minute
+	if remaining < want-time.Minute || remaining > want+time.Minute {
+		t.Fatalf("secondary cache remaining=%v, want about %v", remaining, want)
+	}
+}
+
 func TestStoreDBKeyReturnsIndependentCopy(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
@@ -386,7 +443,10 @@ func TestJSONRequestDecoderRejectsUnknownAndTrailingValues(t *testing.T) {
 
 func TestStoreRejectsIncompleteOrUnsupportedSchema(t *testing.T) {
 	incompleteDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(incompleteDir, "clipvault.duckdb"), []byte("not-a-database"), 0o600); err != nil {
+	if err := os.MkdirAll(activeDatabaseDirectory(incompleteDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(activeDatabaseFile(incompleteDir, databaseFileName), []byte("not-a-database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := OpenStore(StoreOptions{DataDir: incompleteDir}); err == nil || !strings.Contains(err.Error(), "must either both exist or both be absent") {
@@ -416,7 +476,7 @@ func TestNewStoreInitializationFailureRemovesCreatedFiles(t *testing.T) {
 		t.Fatalf("openStore error=%v, want injected failure", err)
 	}
 	for _, name := range []string{"clipvault.key", "clipvault.duckdb", "clipvault.duckdb.wal"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+		if _, err := os.Stat(activeDatabaseFile(dir, name)); !os.IsNotExist(err) {
 			t.Fatalf("%s survived failed initialization: %v", name, err)
 		}
 	}
@@ -431,7 +491,10 @@ func TestNewStoreInitializationFailureRemovesCreatedFiles(t *testing.T) {
 
 func TestRecoveryServerRejectsMutationAfterCompletion(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "clipvault.key")
+	if err := os.MkdirAll(activeDatabaseDirectory(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := activeDatabaseFile(dir, databaseKeyFileName)
 	if err := os.WriteFile(keyPath, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -484,48 +547,6 @@ func TestRecoveryResetSeparatesValidationAndIOErrors(t *testing.T) {
 	}
 	if result := requestReset("Valid-Recovery-Password-2026"); result.Code != http.StatusInternalServerError {
 		t.Fatalf("I/O failure status=%d body=%s", result.Code, result.Body.String())
-	}
-}
-
-func TestDatabaseFileIsolationCanBeRestored(t *testing.T) {
-	dir := t.TempDir()
-	want := map[string]string{
-		"clipvault.duckdb": "database",
-		"clipvault.key":    "key",
-		"clipvault.state":  "state",
-	}
-	for name, content := range want {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	files, err := isolateDatabaseFiles(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) != len(want) {
-		t.Fatalf("isolated %d files, want %d", len(files), len(want))
-	}
-	for _, file := range files {
-		if _, err := os.Stat(file.original); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("original still exists after isolation: %s", file.original)
-		}
-		if _, err := os.Stat(file.locked); err != nil {
-			t.Fatalf("locked file missing: %v", err)
-		}
-	}
-	if err := restoreDatabaseFiles(files); err != nil {
-		t.Fatal(err)
-	}
-	for name, content := range want {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(data) != content {
-			t.Fatalf("restored %s content=%q want=%q", name, data, content)
-		}
 	}
 }
 
@@ -715,6 +736,35 @@ func TestStartupGateSetsRecoveryAndSecondaryPasswordsTogether(t *testing.T) {
 	case <-gate.Done():
 	case <-time.After(time.Second):
 		t.Fatal("combined startup gate did not complete")
+	}
+}
+
+func TestStartupGatePublishesRecordURLOnce(t *testing.T) {
+	gate := NewStartupGate(nil, t.TempDir(), startupGateSetCredentials)
+	type statusResponse struct {
+		OK        bool   `json:"ok"`
+		RecordURL string `json:"recordURL"`
+	}
+	readStatus := func() statusResponse {
+		t.Helper()
+		result := httptest.NewRecorder()
+		gate.handleStatus(result, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+		var status statusResponse
+		if err := json.NewDecoder(result.Body).Decode(&status); err != nil {
+			t.Fatalf("decode startup status: %v", err)
+		}
+		return status
+	}
+
+	if status := readStatus(); status.OK || status.RecordURL != "" {
+		t.Fatalf("record URL was published before the main server was ready: %+v", status)
+	}
+
+	const firstURL = "http://127.0.0.1:18765/#first"
+	gate.SetRecordURL(firstURL)
+	gate.SetRecordURL("http://127.0.0.1:18765/#second")
+	if status := readStatus(); !status.OK || status.RecordURL != firstURL {
+		t.Fatalf("startup status = %+v, want first published URL %q", status, firstURL)
 	}
 }
 
@@ -1372,21 +1422,31 @@ func TestEmailPartsRespectFinalEstimatedSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	one, err := service.exportEmailPart("json", "", ExportScope{Mode: "full", MaxID: firstID})
+	one, err := service.exportEmailPartFile("json", "", ExportScope{Mode: "full", MaxID: firstID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit := emailBackupMessageSize(emailCfg, "json", one) + 64
+	defer os.Remove(one.path)
+	oneSize, err := emailBackupFileMessageSize(emailCfg, "json", time.Unix(0, 0), maxEmailParts-1, maxEmailParts, one.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := int(oneSize) + 64
 	emailCfg.MaxPartSize = limit
-	parts, _, _, err := service.exportEmailPartsSized(emailCfg, ExportScope{Mode: "full"})
+	parts, _, _, err := service.exportEmailPartFilesSized(emailCfg, ExportScope{Mode: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanupEmailPartFiles(parts)
 	if len(parts) < 2 {
 		t.Fatalf("parts=%d, want adaptive split", len(parts))
 	}
 	for i, part := range parts {
-		if size := emailBackupMessageSize(emailCfg, "json", part); size > limit {
+		size, err := emailBackupFileMessageSize(emailCfg, "json", time.Unix(0, 0), maxEmailParts-1, maxEmailParts, part.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if size > int64(limit) {
 			t.Fatalf("part %d MIME size=%d > %d", i, size, limit)
 		}
 	}

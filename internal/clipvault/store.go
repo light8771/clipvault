@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -162,16 +163,20 @@ type StoreOptions struct {
 // protects it with DPAPI, writes the key file, and creates the database.
 // On subsequent runs, it reads the key file, DPAPI-decrypts the key, and opens the db.
 func OpenStore(opts StoreOptions) (*Store, error) {
-	return openStore(opts, (*Store).initializeSchema)
+	return openStoreDirectory(activeDatabaseDirectory(opts.DataDir), (*Store).initializeSchema)
 }
 
 func openStore(opts StoreOptions, initializeSchema func(*Store) error) (_ *Store, err error) {
-	if err := os.MkdirAll(opts.DataDir, 0o700); err != nil {
-		return nil, fmt.Errorf("mkdir data dir: %w", err)
+	return openStoreDirectory(activeDatabaseDirectory(opts.DataDir), initializeSchema)
+}
+
+func openStoreDirectory(databaseDir string, initializeSchema func(*Store) error) (_ *Store, err error) {
+	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
+		return nil, fmt.Errorf("mkdir database dir: %w", err)
 	}
 
-	keyPath := filepath.Join(opts.DataDir, "clipvault.key")
-	dbPath := filepath.Join(opts.DataDir, "clipvault.duckdb")
+	keyPath := databaseGroupFile(databaseDir, databaseKeyFileName)
+	dbPath := databaseGroupFile(databaseDir, databaseFileName)
 
 	keyExists, err := pathExists(keyPath)
 	if err != nil {
@@ -1222,10 +1227,6 @@ func exportScopeWhere(scope ExportScope) (string, []any) {
 	return where, args
 }
 
-// defaultItemsPerPart targets ~5k rows per chunk (roughly 1-5MB depending on
-// text size), small enough for email attachments when encrypted.
-const defaultItemsPerPart = 5000
-
 // CountInScope returns the number of items matching the scope. Used by
 // chunked exports to size parts by actual row count (id holes are irrelevant).
 func (s *Store) CountInScope(ctx context.Context, scope ExportScope) (int, error) {
@@ -1336,11 +1337,7 @@ func validateBackupWatermark(wm BackupWatermark) error {
 // ImportFullJSON imports clipboard data, group hierarchy, and portable
 // sensitive-data rules in one transaction.
 func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
-	export, err := decodeImportJSON(data)
-	if err != nil {
-		return err
-	}
-	return s.importExportData(ctx, export)
+	return s.ImportFullJSONReader(ctx, bytes.NewReader(data))
 }
 
 // decodeImportJSON parses a ClipVault JSON export into the format-agnostic

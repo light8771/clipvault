@@ -431,22 +431,17 @@
             </div>
             <div class="field-row">
               <div class="field-info">
-                <label class="field-label">来源应用别名</label>
-                <p class="field-hint">为原始 exe 名设置易读别名，用于列表标签与搜索</p>
+                <label class="field-label">来源应用管理</label>
+                <p class="field-hint" id="sourceAppsSummary">设置应用别名，以及哪些应用出现在搜索下拉中</p>
               </div>
-              <div class="src-aliases" id="srcAliases"></div>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">下拉白名单</label>
-                <p class="field-hint">勾选的应用才出现在搜索下拉；全部勾选或不勾选均表示显示全部</p>
-              </div>
-              <div class="src-whitelist" id="srcWhitelist"></div>
+              <button class="btn-export" type="button" onclick="openSourceAppsDialog()">
+                管理来源应用
+              </button>
             </div>
             <div class="field-row">
               <div class="field-info">
                 <label class="field-label">全局快捷键</label>
-                <p class="field-hint">按下快捷键暂停/恢复剪贴板录制，在所有应用中生效</p>
+				<p class="field-hint" id="hotkeyKeyHint">按下快捷键暂停/恢复剪贴板录制；主键支持 A–Z、0–9、F1–F24 或 Space</p>
               </div>
               <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                 <label class="ar-toggle">
@@ -459,13 +454,13 @@
                   <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
                   <label class="mod-btn"><input type="checkbox" value="8">Win</label>
                 </div>
-                <input type="text" id="cfg-hotkeyKey" class="field-input" style="width:60px;text-align:center;text-transform:uppercase" placeholder="P" maxlength="1">
+				<input type="text" id="cfg-hotkeyKey" class="field-input" style="width:60px;text-align:center;text-transform:uppercase" placeholder="P" maxlength="5" aria-describedby="hotkeyKeyHint">
               </div>
             </div>
             <div class="field-row">
               <div class="field-info">
                 <label class="field-label">搜索框快捷键</label>
-                <p class="field-hint">按下快捷键呼出桌面快速搜索框，输入即时显示建议，回车跳转到本页面并定位到对应词条</p>
+				<p class="field-hint" id="searchHotkeyKeyHint">按下快捷键呼出桌面快速搜索框；主键支持 A–Z、0–9、F1–F24 或 Space</p>
               </div>
               <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                 <label class="ar-toggle">
@@ -478,7 +473,7 @@
                   <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
                   <label class="mod-btn"><input type="checkbox" value="8">Win</label>
                 </div>
-                <input type="text" id="cfg-searchHotkeyKey" class="field-input" style="width:80px;text-align:center;text-transform:uppercase" placeholder="Space" maxlength="5">
+				<input type="text" id="cfg-searchHotkeyKey" class="field-input" style="width:80px;text-align:center;text-transform:uppercase" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
               </div>
             </div>
               <div class="field-row">
@@ -588,7 +583,7 @@
             <div id="filterContent" class="filter-content hidden">
               <div class="pattern-hint">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>每行填一条关键字或正则表达式，内容匹配则标记为敏感。示例：<code>password|token</code> 标记含敏感词的内容；<code>^\d{6}$</code> 标记6位纯数字；<code>(?i)secret</code> 大小写不敏感匹配。</span>
+                <span>每行填一条关键字或 Go RE2 正则表达式，内容匹配则标记为敏感。示例：<code>password|token</code> 标记含敏感词的内容；<code>^\d{6}$</code> 标记6位纯数字；<code>(?i)secret</code> 大小写不敏感匹配。</span>
               </div>
               <div id="patternList" class="pattern-list"></div>
               <button class="btn-add-pattern" id="addPatternBtn">
@@ -622,6 +617,23 @@
             </div>
             <div class="field-row">
               <div class="field-info">
+                <label class="field-label" for="cfg-reverseProxyEnabled">HTTPS 反向代理</label>
+                <p class="field-hint">由同一台电脑上的 Caddy、Nginx 等提供 HTTPS；启用时后端必须监听回环地址</p>
+              </div>
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-reverseProxyEnabled">
+                <span>启用</span>
+              </label>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-reverseProxyPublicUrl">外部 HTTPS 地址</label>
+                <p class="field-hint">例如 https://clipvault.example.com；代理需传递 X-Forwarded-Proto 和 X-Forwarded-Host</p>
+              </div>
+              <input type="url" id="cfg-reverseProxyPublicUrl" class="field-input" style="width:280px" placeholder="https://clipvault.example.com">
+            </div>
+            <div class="field-row">
+              <div class="field-info">
                 <label class="field-label" for="cfg-timeZone">日期筛选时区</label>
                 <p class="field-hint">使用 system 跟随 Windows，或填写 IANA 时区（例如 Asia/Shanghai）；夏令时会自动处理</p>
               </div>
@@ -629,8 +641,8 @@
               <datalist id="timeZoneSuggestions"><option value="system"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"><option value="UTC"></datalist>
             </div>
             <div class="listen-security-warning hidden" id="listenAddrWarning" role="alert">
-              <strong>局域网访问风险</strong>
-              <span>非回环地址会把剪贴板服务暴露给同一网络。保存前必须设置锁屏密码和二次密码，并重新输入二次密码确认。建议仅在可信网络中使用，并检查 Windows 防火墙规则。</span>
+              <strong id="listenSecurityWarningTitle">局域网访问风险</strong>
+              <span id="listenSecurityWarningText">非回环地址会通过明文 HTTP 暴露剪贴板服务。保存前必须设置锁屏密码；建议仅在可信网络中使用，并检查 Windows 防火墙规则。</span>
             </div>
           </div>
         </section>
@@ -665,6 +677,19 @@
                 <p class="field-hint">将数据库、密钥和应用数据迁移到新目录；运行日志保留在原位置。点击「准备迁移」配置目标目录并查看迁移说明。</p>
               </div>
               <button type="button" class="btn-export" id="storageRelocateBtn" disabled>准备迁移</button>
+            </div>
+            <div class="isolated-databases" id="isolatedDatabasesBlock">
+              <div class="isolated-databases-head">
+                <div class="field-info">
+                  <span class="field-label">隔离的旧数据库</span>
+                  <p class="field-hint">创建新数据库或切换数据库时保留的旧数据。验证对应的恢复密码后，可在下次启动时切换查看；当前数据库也会被隔离保存，之后可以切回。</p>
+                </div>
+                <span class="isolated-count" id="isolatedDatabaseCount">0 份</span>
+              </div>
+              <div class="isolated-pending hidden" id="isolatedDatabasePending" role="status"></div>
+              <div class="isolated-list" id="isolatedDatabaseList">
+                <p class="isolated-empty">正在读取隔离数据...</p>
+              </div>
             </div>
             <div class="field-row">
               <div class="field-info">
@@ -1159,6 +1184,36 @@
     </div><!-- end settings-layout -->
   </main>
 
+  <!-- ── 来源应用管理弹窗 ── -->
+  <div class="modal-overlay hidden" id="sourceAppsModal" onclick="closeSourceAppsDialog()">
+    <div class="modal-box source-apps-modal" role="dialog" aria-modal="true" aria-labelledby="sourceAppsTitle" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <span class="modal-title" id="sourceAppsTitle">管理来源应用</span>
+        <button class="modal-close" type="button" onclick="closeSourceAppsDialog()" aria-label="关闭">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="source-apps-toolbar">
+        <input type="search" id="sourceAppsFilter" class="field-input source-apps-search" placeholder="搜索应用名或别名" autocomplete="off">
+        <div class="source-apps-mode" role="radiogroup" aria-label="搜索下拉显示范围">
+          <label><input type="radio" name="sourceAppsMode" value="all"> 下拉显示全部</label>
+          <label><input type="radio" name="sourceAppsMode" value="selected"> 仅显示选中</label>
+        </div>
+      </div>
+      <div class="modal-body source-apps-body">
+        <div class="source-apps-head" aria-hidden="true"><span>出现在下拉</span><span>原始应用名</span><span>显示别名</span></div>
+        <div id="srcAliases" class="src-aliases"></div>
+      </div>
+      <div class="source-apps-footer">
+        <span class="field-hint" id="sourceAppsSelectionHint"></span>
+        <div class="source-apps-actions">
+          <button class="btn-cancel" type="button" onclick="closeSourceAppsDialog()">取消</button>
+          <button class="lock-btn" id="sourceAppsSaveBtn" type="button" onclick="saveSourceAppsDialog()">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── 内容预览弹窗 ── -->
   <div class="modal-overlay hidden" id="viewModal" onclick="closeModal()">
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle" onclick="event.stopPropagation()">
@@ -1255,6 +1310,7 @@
 
   <div class="tc" id="tc"></div>
   <script src="/theme-utils.js"></script>
+	<script src="/hotkey-utils.js"></script>
   <script src="/script.js"></script>
 </body>
 </html>

@@ -3,13 +3,15 @@ package clipvault
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
 func TestRecoveryEnvelopeValidation(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "clipvault.recovery")
+	if err := os.MkdirAll(activeDatabaseDirectory(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := activeDatabaseFile(dir, databaseRecoveryFileName)
 	key := make([]byte, wrappingLen)
 	for i := range key {
 		key[i] = byte(i + 1)
