@@ -1,0 +1,28 @@
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  main { padding: 16px 14px 64px; }
+  .nav-inner { padding: 0 14px; }
+  .status-pill { display: none; }
+  .search-kbd  { display: none; }
+  #q { padding-right: 14px; }
+  .controls { flex-direction: column; align-items: flex-start; }
+  .nav-center { position: static; transform: none; }
+  /* Settings sidebar collapse on mobile */
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-sidebar { display: none; }
+  .settings-content { border-left: none; padding-left: 0; }
+  .settings-save-bar { margin-left: 0; }
+}
+
+/* ── Motion safe ───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .dot     { animation: none !important; }
+  .spinner { animation: none !important; border-top-color: var(--p); }
+  article  { transition: none !important; }
+  .tk      { transition: opacity .2s !important; transform: none !important; }
+}
+
+/* ── Dark mode extras ──────────────────────────────────────── */
+[data-theme-mode="dark"] .ab.del:hover { background: rgba(239,68,68,.12); }
+[data-theme-mode="dark"] .card-foot    { background: rgba(255,255,255,.022); }
+

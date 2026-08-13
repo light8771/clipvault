@@ -1,84 +1,74 @@
+import { apiFetch } from './api.js';
+import { appStore } from './store.js';
+
 (function(){
-	const nativeFetch = window.fetch.bind(window);
-	const apiRoutes = new Map([
-		['/api/csrf', '/api/v1/session/csrf'], ['/api/appearance', '/api/v1/appearance'],
-		['/api/auth/login', '/api/v1/session/login'], ['/api/auth/logout', '/api/v1/session/logout'],
-		['/api/auth/status', '/api/v1/session'], ['/api/auth/secondary', '/api/v1/session/secondary'],
-		['/api/auth/password', '/api/v1/session/password'], ['/api/restart', '/api/v1/system/restart'],
-		['/api/brand/logo', '/api/v1/appearance/logo'], ['/api/brand/favicon', '/api/v1/appearance/favicon'],
-		['/api/background/media', '/api/v1/appearance/background'], ['/api/search', '/api/v1/items'],
-		['/api/license/status', '/api/v1/license'], ['/api/license/machine', '/api/v1/license/machine'],
-		['/api/license/activate', '/api/v1/license/activation'], ['/api/source-exes', '/api/v1/items/sources'],
-		['/api/state', '/api/v1/runtime'], ['/api/pause', '/api/v1/runtime/pause'],
-		['/api/clear', '/api/v1/items/clear'], ['/api/config', '/api/v1/config'],
-		['/api/storage/status', '/api/v1/storage'], ['/api/storage/relocate', '/api/v1/storage/relocation'],
-		['/api/storage/open', '/api/v1/storage/open'], ['/api/diagnostics/export', '/api/v1/diagnostics'],
-		['/api/sensitive/rules', '/api/v1/config/sensitive-rules'], ['/api/search/sensitive', '/api/v1/items/sensitive'],
-		['/api/items/sensitive', '/api/v1/items/sensitive/item'], ['/api/items/position', '/api/v1/items/position'],
-		['/api/file/check', '/api/v1/files/check'], ['/api/file', '/api/v1/files/content'],
-		['/api/file/opendir', '/api/v1/files/open-directory'], ['/api/file/hash', '/api/v1/files/hash'],
-		['/api/groups', '/api/v1/groups'], ['/api/items/group', '/api/v1/items/group'],
-		['/api/items/groups', '/api/v1/items/groups'], ['/api/export/data', '/api/v1/transfer/export'],
-		['/api/import/data', '/api/v1/transfer/import'], ['/api/recovery/status', '/api/v1/recovery'],
-		['/api/recovery/change', '/api/v1/recovery/password'], ['/api/recovery/reset', '/api/v1/recovery/reset'],
-		['/api/recovery/isolated/switch', '/api/v1/recovery/isolated-switch'],
-		['/api/backup/status', '/api/v1/backup'], ['/api/backup/email/history', '/api/v1/backup/email-history'],
-		['/api/backup/dir/now', '/api/v1/backup/directory'], ['/api/backup/email/now', '/api/v1/backup/email'],
-		['/api/backup/email/test', '/api/v1/backup/email-test']
-	]);
-	function v1URL(value) {
-		if (typeof value !== 'string') return value;
-		const q = value.indexOf('?');
-		const path = q < 0 ? value : value.slice(0, q);
-		const mapped = apiRoutes.get(path) || (path === '/api/items' ? '/api/v1/items' : path);
-		return mapped + (q < 0 ? '' : value.slice(q));
-	}
-	function unwrapJSONResponse(response) {
-		const original = response.json.bind(response);
-		response.json = async () => {
-			const envelope = await original();
-			if (envelope && envelope.error) {
-				return { ok: false, code: envelope.error.code, error: envelope.error.message };
-			}
-			return envelope && Object.prototype.hasOwnProperty.call(envelope, 'data') ? envelope.data : envelope;
-		};
-		return response;
-	}
-	let csrfTokenPromise = null;
-
-	async function getCSRFToken(forceRefresh) {
-		if (forceRefresh) csrfTokenPromise = null;
-		if (!csrfTokenPromise) {
-			csrfTokenPromise = nativeFetch('/api/v1/session/csrf', { cache: 'no-store' })
-				.then(r => {
-					if (!r.ok) throw new Error('csrf bootstrap failed');
-					return r.json();
-				})
-				.then(d => (d.data && d.data.token) || '');
-		}
-		return csrfTokenPromise;
-	}
-
-	window.fetch = async function(input, init) {
-		input = v1URL(input);
-		const opts = Object.assign({}, init || {});
-		const method = String(opts.method || 'GET').toUpperCase();
-		const target = typeof input === 'string' ? input : (input && input.url) || '';
-		const isLocal = target.startsWith('/') || target.startsWith(window.location.origin);
-		if (isLocal && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-			const headers = new Headers(opts.headers || (typeof input !== 'string' && input ? input.headers : undefined));
-			headers.set('X-ClipVault-CSRF', await getCSRFToken(false));
-			opts.headers = headers;
-		}
-		let response = await nativeFetch(input, opts);
-		if (isLocal && response.status === 403 && response.headers.get('X-ClipVault-CSRF-Invalid') === '1') {
-			const headers = new Headers(opts.headers || {});
-			headers.set('X-ClipVault-CSRF', await getCSRFToken(true));
-			opts.headers = headers;
-			response = await nativeFetch(input, opts);
-		}
-		return unwrapJSONResponse(response);
+	const fetch = apiFetch;
+	let closeSecondaryModal, showPwdDialog, closePwdDialog;
+	let showIsolatedDatabaseDialog, closeIsolatedDatabaseDialog;
+	let showRecoveryDialog, closeRecDialog, switchView;
+	let openLicenseSettings, copyPurchaseInfo, activateLicense;
+	let closeModal, modalCopy, snavTo, openMigrateDialog, closeMigrateDialog;
+	let openSourceAppsDialog, closeSourceAppsDialog, saveSourceAppsDialog, removePattern;
+	let showExportScopeDialog, closeExportScopeDialog, confirmExportScope, doExport, doExportCvexport;
+	let closeCvexportDialog, showImportDialog, closeImportDialog;
+	let doBackupDirNow, doBackupDirFullNow, doBackupEmailNow, doBackupEmailFullNow, doBackupEmailTest;
+	let showEmailBackupHistory, closeGroupEditDialog, closeConfirmDialog;
+	const actions = {
+		'switch-view': el => switchView(el.dataset.view),
+		'open-license-settings': () => openLicenseSettings(),
+		'copy-purchase-info': () => copyPurchaseInfo(),
+		'activate-license': () => activateLicense(),
+		'settings-nav': el => snavTo(el.dataset.section, el.dataset.nav),
+		'open-source-apps': () => openSourceAppsDialog(),
+		'close-source-apps': () => closeSourceAppsDialog(),
+		'save-source-apps': () => saveSourceAppsDialog(),
+		'show-password': el => showPwdDialog(el.dataset.passwordType, el.dataset.passwordMode),
+		'show-recovery': el => showRecoveryDialog(el.dataset.mode),
+		'open-groups': el => openGroupModal(el.dataset.mode),
+		'export': el => doExport(el.dataset.format),
+		'export-encrypted': () => doExportCvexport(),
+		'show-import': () => showImportDialog(),
+		'backup-directory': () => doBackupDirNow(),
+		'backup-directory-full': () => doBackupDirFullNow(),
+		'backup-email': () => doBackupEmailNow(),
+		'backup-email-full': () => doBackupEmailFullNow(),
+		'backup-email-test': () => doBackupEmailTest(),
+		'backup-email-history': () => showEmailBackupHistory(),
+		'close-view-modal': () => closeModal(),
+		'modal-copy': () => modalCopy(),
+		'close-secondary': () => closeSecondaryModal()
+		,'close-password': () => closePwdDialog()
+		,'close-isolated-database': () => closeIsolatedDatabaseDialog()
+		,'close-recovery': () => closeRecDialog()
+		,'close-migrate': () => closeMigrateDialog()
+		,'close-export-scope': () => closeExportScopeDialog()
+		,'confirm-export-scope': () => confirmExportScope()
+		,'close-encrypted-export': () => closeCvexportDialog()
+		,'close-import': () => closeImportDialog()
+		,'import': () => doImport()
+		,'close-group-edit': () => closeGroupEditDialog()
+		,'close-confirm': () => closeConfirmDialog()
+		,'file-download': el => doDownload(Number(el.dataset.itemId), Number(el.dataset.fileIndex))
+		,'file-open-directory': el => doOpenDir(Number(el.dataset.itemId), Number(el.dataset.fileIndex))
+		,'file-hash': el => doFileHash(Number(el.dataset.itemId), Number(el.dataset.fileIndex))
+		,'file-view': el => doFileView(Number(el.dataset.itemId), Number(el.dataset.fileIndex))
+		,'remove-pattern': el => removePattern(Number(el.dataset.index))
+		,'view-item': el => doView(Number(el.dataset.itemId))
+		,'locate-item': el => doLocate(Number(el.dataset.itemId))
+		,'copy-item': el => doCopy(Number(el.dataset.itemId), el)
+		,'star-item': el => doStar(Number(el.dataset.itemId), el)
+		,'assign-group': el => openGroupModal('assign', { itemId: Number(el.dataset.itemId) })
+		,'delete-item': el => doDelete(Number(el.dataset.itemId), el.closest('article'))
 	};
+	document.addEventListener('click', event => {
+		if (event.target.closest('[data-modal-panel]')) event.stopPropagation();
+		const target = event.target.closest('[data-action]');
+		if (!target) return;
+		const action = actions[target.dataset.action];
+		if (!action) return;
+		event.preventDefault();
+		action(target, event);
+	});
 
   const Q    = document.getElementById('q'),
         PAGESIZE = document.getElementById('pagesize'),
@@ -104,7 +94,7 @@
   let sourceAppsDraft = null;  // 弹窗草稿；取消时不污染当前配置
   let allSourceExes = [];      // [{name,count}]
   let currentSourceExes = [];  // 当前多选选中的真实 exe 名
-	// freeLimit 由后端 GET /api/license/status 下发，权威值是 Go 侧的 FreeTierVisibleLimit。
+	// freeLimit 由后端 GET /api/v1/license 下发，权威值是 Go 侧的 FreeTierVisibleLimit。
 	// 前端不再自带默认条数：取不到时保持 0（含义为"限额未知"），所有带具体数字的限额文案一律不渲染。
 	let licenseState = { licensed: true, enforced: true, status: 'loading', machineCode: '', version: '', freeLimit: 0 };
 	let fullMachineId = '';
@@ -135,8 +125,9 @@
 
   async function checkAuthStatus() {
     try {
-      const d = await fetch('/api/auth/status').then(r => r.json());
+      const d = await fetch('/api/v1/session').then(r => r.json());
       authState = d;
+      appStore.update({ authenticated: d.authenticated, secondaryAuthenticated: d.secondaryAuthed });
       if (d.hasLockPassword && !d.authenticated) {
         showLockScreen();
         return false;
@@ -164,7 +155,7 @@
     const pwd = LOCK_INPUT.value;
     LOCK_ERR.classList.add('hidden');
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/v1/session/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pwd }),
@@ -173,6 +164,7 @@
       if (d.ok) {
         hideLockScreen();
         authState.authenticated = true;
+        appStore.update({ authenticated: true });
         init();
       } else {
         LOCK_ERR.textContent = d.error || '密码错误';
@@ -224,8 +216,9 @@
     const run = (async () => {
       if (!forceFresh) {
         try {
-          const st = await fetch('/api/auth/status').then(r => r.json());
+          const st = await fetch('/api/v1/session').then(r => r.json());
           authState.secondaryAuthed = st.secondaryAuthed;
+          appStore.update({ secondaryAuthenticated: st.secondaryAuthed });
           if (st.secondaryAuthed) return true;
         } catch (_) {}
       }
@@ -241,7 +234,7 @@
     return secondaryAuthPromise;
   }
 
-  window.closeSecondaryModal = function() {
+  closeSecondaryModal = function() {
     SECONDARY_MODAL.classList.add('hidden');
     if (secondaryResolve) { secondaryResolve(false); secondaryResolve = null; }
   };
@@ -251,7 +244,7 @@
     const pwd = SECONDARY_INPUT.value;
     SECONDARY_ERR.classList.add('hidden');
     try {
-      const res = await fetch('/api/auth/secondary', {
+      const res = await fetch('/api/v1/session/secondary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pwd }),
@@ -260,6 +253,7 @@
       if (d.ok) {
         SECONDARY_MODAL.classList.add('hidden');
         authState.secondaryAuthed = d.secondaryCached === true;
+        appStore.update({ secondaryAuthenticated: authState.secondaryAuthed });
         pendingSecondaryToken = d.secondaryToken || null;
         toast(d.message || '二次验证成功');
         if (secondaryResolve) { secondaryResolve(true); secondaryResolve = null; }
@@ -280,7 +274,7 @@
   });
 
   // ── Password set/change dialog ───────────────────────────
-  window.showPwdDialog = function(type, action) {
+  showPwdDialog = function(type, action) {
 	const trigger = document.activeElement;
     const isChange = action === 'change';
     const isRemove = action === 'remove';
@@ -292,16 +286,16 @@
       : '删除后，敏感数据、导出、备份和安全设置将不再受二次密码保护。';
     const html = `
       <div class="modal-overlay" id="pwdDialogOverlay">
-        <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="pwdDialogTitle" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="pwdDialogTitle" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title" id="pwdDialogTitle">${title}</span>
-            <button class="modal-close" type="button" aria-label="关闭密码设置" onclick="closePwdDialog()">
+            <button class="modal-close" type="button" aria-label="关闭密码设置" data-action="close-password">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
+          <div class="modal-body u-inline-16">
             <form id="pwdDialogForm" class="lock-form">
-              <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+              <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
               ${oldLabel ? `<label class="field-label" for="pwdDlgOld">${oldLabel}</label><input type="password" id="pwdDlgOld" class="lock-input" autocomplete="current-password">` : ''}
               ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
               <label class="field-label" for="pwdDlgNew">新密码</label>
@@ -329,7 +323,7 @@
 	const showInput = document.getElementById('pwdDlgShow');
     setTimeout(() => (oldInput || newInput).focus(), 50);
 
-    window.closePwdDialog = function() {
+    closePwdDialog = function() {
       overlay.remove();
 	  if (trigger && trigger.focus) trigger.focus();
     };
@@ -364,7 +358,7 @@
       if (!isRemove && (Array.from(newPwd).length < 8 || newPwd.trim() !== newPwd)) { errEl.textContent = '密码至少需要 8 个字符，且首尾不能有空格'; errEl.classList.remove('hidden'); return; }
 
       try {
-        const res = await fetch('/api/auth/password', {
+        const res = await fetch('/api/v1/session/password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type, action, oldPassword: oldPwd, newPassword: newPwd }),
@@ -412,7 +406,7 @@
     try {
       const ok = await requestSecondaryAuth();
       if (!ok) return;
-      const res = await secondaryFetch('/api/recovery/status');
+      const res = await secondaryFetch('/api/v1/recovery');
       if (res.status === 403) return; // 二次验证失败，静默跳过
       if (!res.ok) return;
       const d = await res.json();
@@ -513,7 +507,7 @@
     try {
       const verified = await requestSecondaryAuth(true);
       if (!verified) return;
-      const res = await freshSecondaryFetch('/api/recovery/isolated/switch', { method: 'DELETE' });
+      const res = await freshSecondaryFetch('/api/v1/recovery/isolated-switch', { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         toast(data.error || '无法取消数据库切换', 'err');
@@ -527,19 +521,19 @@
     }
   }
 
-  window.showIsolatedDatabaseDialog = function(id) {
+  showIsolatedDatabaseDialog = function(id) {
     const database = recoveryState.isolatedDatabases.find((item) => item.id === id);
     if (!database || !database.canSwitch || recoveryState.pendingSwitchId) return;
     const html = `
       <div class="modal-overlay" id="isolatedDatabaseOverlay">
-        <div class="modal-box secondary-box isolated-database-modal" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box isolated-database-modal" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">切换到旧数据库</span>
-            <button class="modal-close" type="button" onclick="closeIsolatedDatabaseDialog()" aria-label="关闭">
+            <button class="modal-close" type="button" data-action="close-isolated-database" aria-label="关闭">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
+          <div class="modal-body u-inline-16">
             <div class="migrate-notes">
               <p>验证成功后，本次切换会在下次完整启动时执行。当前数据库不会被覆盖，而是作为另一份隔离数据保留，之后可用它自己的恢复密码切回。</p>
             </div>
@@ -560,7 +554,7 @@
     const input = document.getElementById('isolatedDatabasePassword');
     const submit = document.getElementById('isolatedDatabaseSubmit');
     const error = document.getElementById('isolatedDatabaseError');
-    window.closeIsolatedDatabaseDialog = function() { overlay.remove(); };
+    closeIsolatedDatabaseDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (event) => { if (event.target === overlay) closeIsolatedDatabaseDialog(); });
     setTimeout(() => input.focus(), 50);
 
@@ -582,7 +576,7 @@
           error.classList.remove('hidden');
           return;
         }
-        const res = await freshSecondaryFetch('/api/recovery/isolated/switch', {
+        const res = await freshSecondaryFetch('/api/v1/recovery/isolated-switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: database.id, password: input.value }),
@@ -608,23 +602,23 @@
     });
   };
 
-  window.showRecoveryDialog = function(action) {
+  showRecoveryDialog = function(action) {
     const isChange = action === 'change';
     const isReset = action === 'reset';
     const title = '数据恢复密码' + (isReset ? '重置' : '修改');
     const oldLabel = isChange ? '当前恢复密码' : null;
     const html = `
       <div class="modal-overlay" id="recDialogOverlay">
-        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">${title}</span>
-            <button class="modal-close" onclick="closeRecDialog()">
+            <button class="modal-close" data-action="close-recovery">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
+          <div class="modal-body u-inline-16">
             <form id="recDialogForm" class="lock-form">
-              <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+              <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
               ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
               <input type="password" id="recDlgNew" class="lock-input" placeholder="新恢复密码" autocomplete="new-password">
               <input type="password" id="recDlgConfirm" class="lock-input" placeholder="确认新恢复密码" autocomplete="new-password">
@@ -646,7 +640,7 @@
     const confirmInput = document.getElementById('recDlgConfirm');
     setTimeout(() => (oldInput || newInput).focus(), 50);
 
-    window.closeRecDialog = function() { overlay.remove(); };
+    closeRecDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRecDialog(); });
 
     form.addEventListener('submit', async (e) => {
@@ -661,7 +655,7 @@
       try {
         const ok = await requestSecondaryAuth(isReset);
         if (!ok) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
-        const baseUrl = isReset ? '/api/recovery/reset' : '/api/recovery/change';
+        const baseUrl = isReset ? '/api/v1/recovery/reset' : '/api/v1/recovery/password';
         const body = isChange
           ? { oldPassword: oldPwd, newPassword: newPwd }
           : { password: newPwd };
@@ -701,7 +695,7 @@
   // ── View switch ───────────────────────────────────────────
   let viewSwitchSequence = 0;
 
-  window.switchView = async function(view) {
+  switchView = async function(view) {
     const request = ++viewSwitchSequence;
     const isHistory = view === 'history';
     if (!isHistory) {
@@ -777,7 +771,7 @@
 
   async function loadLicenseStatus() {
     try {
-      const d = await fetch('/api/license/status').then(r => r.json());
+      const d = await fetch('/api/v1/license').then(r => r.json());
       licenseState = normalizeLicenseState(d);
       const banner = document.getElementById('licenseBanner');
       const badge = document.getElementById('licenseStatusBadge');
@@ -823,17 +817,17 @@
 
   async function loadMachineID() {
     try {
-      const d = await fetch('/api/license/machine').then(r => r.json());
+      const d = await fetch('/api/v1/license/machine').then(r => r.json());
       fullMachineId = d.machineId || '';
       if (d.machineCode) document.getElementById('licenseMachineCode').value = d.machineCode;
     } catch (_) {}
   }
 
-  window.openLicenseSettings = async function() {
+  openLicenseSettings = async function() {
     if (await switchView('settings')) snavTo('s-license', 'snav-license');
   };
 
-  window.copyPurchaseInfo = async function() {
+  copyPurchaseInfo = async function() {
     if (!fullMachineId) await loadMachineID();
     if (!fullMachineId) { toast('机器码读取失败', 'err'); return; }
     const displayCode = document.getElementById('licenseMachineCode').value || '';
@@ -846,7 +840,7 @@
     } catch (_) { toast('复制失败', 'err'); }
   };
 
-  window.activateLicense = async function() {
+  activateLicense = async function() {
     const input = document.getElementById('licenseTokenInput');
     const button = document.getElementById('licenseActivateBtn');
     const message = document.getElementById('licenseMessage');
@@ -856,7 +850,7 @@
     button.textContent = '正在验证…';
     message.textContent = '';
     try {
-      const res = await fetch('/api/license/activate', {
+      const res = await fetch('/api/v1/license/activation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
@@ -919,7 +913,7 @@
   // ── State ─────────────────────────────────────────────────
   async function refreshState() {
     try {
-      const d = await fetch('/api/state').then(r => r.json());
+      const d = await fetch('/api/v1/runtime').then(r => r.json());
       DOT.className = 'dot' + (d.paused ? ' paused' : '');
       ST.textContent = d.paused ? '已暂停' : '记录中';
       TOG.className = 'btn-toggle' + (d.paused ? ' off' : '');
@@ -936,7 +930,7 @@
   const cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
 
   async function fetchSensitiveText(id) {
-    const url = '/api/items/sensitive?id=' + id;
+    const url = '/api/v1/items/sensitive/item?id=' + id;
     const res = await authorizedItemFetch(id, url);
     if (!res.ok) return null;
     const d = await res.json();
@@ -967,7 +961,7 @@
   // ── Delete ────────────────────────────────────────────────
   async function doDelete(id, art) {
     try {
-      const res = await authorizedItemFetch(id, '/api/items?id=' + id, { method: 'DELETE' });
+      const res = await authorizedItemFetch(id, '/api/v1/items?id=' + id, { method: 'DELETE' });
       if (!res.ok) throw 0;
       art.style.transition = 'opacity .18s, transform .18s';
       art.style.opacity = '0';
@@ -988,7 +982,7 @@
     if (!item) return;
     const newStarred = !item.starred;
     try {
-      const res = await authorizedItemFetch(id, '/api/items?id=' + id + '&starred=' + (newStarred ? '1' : '0'), { method: 'PATCH' });
+      const res = await authorizedItemFetch(id, '/api/v1/items?id=' + id + '&starred=' + (newStarred ? '1' : '0'), { method: 'PATCH' });
       if (!res.ok) throw 0;
       item.starred = newStarred;
       const art = btn.closest('article');
@@ -1018,7 +1012,7 @@
     let displayText = item.text;
     if (item.sensitive) {
       try {
-        const url = '/api/items/sensitive?id=' + id;
+        const url = '/api/v1/items/sensitive/item?id=' + id;
         const res = await authorizedItemFetch(id, url);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const d = await res.json();
@@ -1064,7 +1058,7 @@
     document.body.style.overflow = 'hidden';
   }
 
-  window.closeModal = function() {
+  closeModal = function() {
     VIEW_MODAL.classList.add('hidden');
     document.body.style.overflow = '';
     MODAL_PRE.style.display = 'block';
@@ -1072,7 +1066,7 @@
     if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
   };
 
-  window.modalCopy = async function() {
+  modalCopy = async function() {
     const item = items.get(currentModalId);
     if (!item) return;
     const btn = document.getElementById('modalCopyBtn');
@@ -1144,6 +1138,7 @@
         const failure = await res.clone().json().catch(() => ({}));
         if (failure.code !== 'secondary_required') return res;
         authState.secondaryAuthed = false;
+        appStore.update({ secondaryAuthenticated: false });
       }
       throw new Error('需要二次验证');
     };
@@ -1155,7 +1150,7 @@
   async function loadFileImage(img, itemId, idx) {
     if (!img) return;
     try {
-      const res = await authorizedItemFetch(itemId, '/api/file?item_id=' + itemId + '&file_index=' + idx);
+      const res = await authorizedItemFetch(itemId, '/api/v1/files/content?item_id=' + itemId + '&file_index=' + idx);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const url = URL.createObjectURL(await res.blob());
       fileObjectURLs.add(url);
@@ -1181,9 +1176,9 @@
           '<div class="file-hash" id="fhash-' + it.id + '-' + idx + '"></div>' +
         '</div>' +
         '<div class="file-actions">' +
-          '<button class="ab dl" onclick="doDownload(' + it.id + ',' + idx + ')" id="fdl-' + it.id + '-' + idx + '" disabled>' + dlHTML + '</button>' +
-          '<button class="ab dir" onclick="doOpenDir(' + it.id + ',' + idx + ')" id="fdir-' + it.id + '-' + idx + '" disabled>' + dirHTML + '</button>' +
-          '<button class="ab hash" onclick="doFileHash(' + it.id + ',' + idx + ')" id="fhashbtn-' + it.id + '-' + idx + '" disabled>' + hashHTML + '</button>' +
+          '<button class="ab dl" data-action="file-download" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdl-' + it.id + '-' + idx + '" disabled>' + dlHTML + '</button>' +
+          '<button class="ab dir" data-action="file-open-directory" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdir-' + it.id + '-' + idx + '" disabled>' + dirHTML + '</button>' +
+          '<button class="ab hash" data-action="file-hash" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fhashbtn-' + it.id + '-' + idx + '" disabled>' + hashHTML + '</button>' +
         '</div>' +
       '</div>';
     }).join('') + '</div>';
@@ -1196,7 +1191,7 @@
       const p = paths[idx];
       try {
         const fileRef = 'item_id=' + itemId + '&file_index=' + idx;
-        const d = await authorizedItemFetch(itemId, '/api/file/check?' + fileRef).then(r => r.json());
+        const d = await authorizedItemFetch(itemId, '/api/v1/files/check?' + fileRef).then(r => r.json());
         const stat = document.getElementById('fstat-' + itemId + '-' + idx);
         const dl = document.getElementById('fdl-' + itemId + '-' + idx);
         const dir = document.getElementById('fdir-' + itemId + '-' + idx);
@@ -1210,7 +1205,7 @@
           if (IMAGE_EXTS.includes(ext)) {
             const thumb = document.getElementById('fthumb-' + itemId + '-' + idx);
             if (thumb && ext !== 'svg') {
-              thumb.innerHTML = '<img loading="lazy" onclick="doFileView(' + itemId + ',' + idx + ')">';
+              thumb.innerHTML = '<img loading="lazy" data-action="file-view" data-item-id="' + itemId + '" data-file-index="' + idx + '">';
               loadFileImage(thumb.querySelector('img'), itemId, idx);
             }
           }
@@ -1228,7 +1223,7 @@
     const paths = filePaths.get(itemId);
     if (!paths || !paths[idx]) return;
     try {
-      const res = await authorizedItemFetch(itemId, '/api/file?item_id=' + itemId + '&file_index=' + idx + '&download=1');
+      const res = await authorizedItemFetch(itemId, '/api/v1/files/content?item_id=' + itemId + '&file_index=' + idx + '&download=1');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');
@@ -1247,7 +1242,7 @@
     const btn = document.getElementById('fdir-' + itemId + '-' + idx);
     if (btn) { btn.disabled = true; }
     try {
-      const res = await authorizedItemFetch(itemId, '/api/file/opendir?item_id=' + itemId + '&file_index=' + idx, { method: 'POST' });
+      const res = await authorizedItemFetch(itemId, '/api/v1/files/open-directory?item_id=' + itemId + '&file_index=' + idx, { method: 'POST' });
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
         throw new Error(msg || ('HTTP ' + res.status));
@@ -1268,7 +1263,7 @@
     if (btn) { btn.disabled = true; }
     if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">计算中...</span>';
     try {
-      const d = await authorizedItemFetch(itemId, '/api/file/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
+      const d = await authorizedItemFetch(itemId, '/api/v1/files/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
       if (d.ok) {
         if (hashDiv) hashDiv.innerHTML =
           '<div class="fhash-line"><span class="fhash-label">MD5</span> <span class="fhash-val">' + esc(d.md5) + '</span></div>' +
@@ -1352,7 +1347,7 @@
       let bodyHTML, charText, showView;
       if (it.sensitive && !authState.secondaryAuthed) {
         // 敏感内容未通过二次认证时显示遮蔽占位
-        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>敏感内容已隐藏，点击查看按钮查看明文</pre>`;
+        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>敏感内容已隐藏，点击查看按钮查看明文</pre>`;
         charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
         showView = true;
       } else if (isNonText) {
@@ -1382,12 +1377,12 @@
             ${srcHTML}
           </div>
           <div class="card-acts">
-            ${showView ? `<button class="ab exp" onclick="doView(${it.id})">${viewHTML}</button>` : ''}
-            ${q ? `<button class="ab locate-btn" onclick="doLocate(${it.id})" title="定位到时间线">${locateHTML}</button>` : ''}
-            <button class="ab cp" onclick="doCopy(${it.id},this)">${cpHTML}</button>
-            <button class="ab star${it.starred ? ' on' : ''}" onclick="doStar(${it.id},this)" title="${starTitle}">${starHTML}</button>
-            <button class="ab group-btn" onclick="openGroupModal('assign',{itemId:${it.id}})" title="加入分组">${groupBtnHTML}</button>
-            <button class="ab del" onclick="doDelete(${it.id},this.closest('article'))" title="删除">${delHTML}</button>
+            ${showView ? `<button class="ab exp" data-action="view-item" data-item-id="${it.id}">${viewHTML}</button>` : ''}
+            ${q ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="定位到时间线">${locateHTML}</button>` : ''}
+            <button class="ab cp" data-action="copy-item" data-item-id="${it.id}">${cpHTML}</button>
+            <button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
+            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="加入分组">${groupBtnHTML}</button>
+            <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="删除">${delHTML}</button>
           </div>
         </div>
       </article>`;
@@ -1411,7 +1406,7 @@
   // ── Locate (jump to item in full timeline) ───────────────
   async function doLocate(id) {
     try {
-      const d = await fetch('/api/items/position?id=' + id).then(r => r.json());
+      const d = await fetch('/api/v1/items/position?id=' + id).then(r => r.json());
       if (d.error) { toast(d.error, 'err'); return; }
       const pageSize = parseInt(PAGESIZE.value) || 50;
       pendingLocateId = id;
@@ -1433,7 +1428,6 @@
       clearTimeout(debounce);
     } catch (_) { toast('定位失败', 'err'); }
   }
-  window.doLocate = doLocate;
 
   // ── Search ────────────────────────────────────────────────
   let searchRevision = 0;
@@ -1450,11 +1444,11 @@
     try {
       const offset = currentPage * pageSize;
       const p = new URLSearchParams({ q, limit: pageSize, offset });
-      let url = '/api/search';
+      let url = '/api/v1/items';
       if (currentKind === '__starred__') {
         p.set('starred', '1');
       } else if (currentKind === '__sensitive__') {
-        url = '/api/search/sensitive';
+        url = '/api/v1/items/sensitive';
       } else if (currentKind && currentKind !== '__group__') {
         p.set('kind', currentKind);
       }
@@ -1463,10 +1457,10 @@
       }
       if (filterDateFrom) p.set('date_from', filterDateFrom);
       if (filterDateTo)   p.set('date_to',   filterDateTo);
-      if (url === '/api/search' || url === '/api/search/sensitive') {
+      if (url === '/api/v1/items' || url === '/api/v1/items/sensitive') {
         currentSourceExes.forEach(n => p.append('source_exe', n));
       }
-      const request = url === '/api/search/sensitive' ? secondaryFetch : fetch;
+      const request = url === '/api/v1/items/sensitive' ? secondaryFetch : fetch;
       const response = await request(url + '?' + p, { signal: controller.signal });
       const d = await response.json();
       if (revision !== searchRevision) return;
@@ -1493,7 +1487,7 @@
   // ── 来源应用（exe）下拉 ─────────────────────────────────
   async function loadSourceExes() {
     try {
-      const data = await fetch('/api/source-exes').then(r => r.json());
+      const data = await fetch('/api/v1/items/sources').then(r => r.json());
       allSourceExes = Array.isArray(data) ? data : [];
     } catch (_) {
       allSourceExes = [];
@@ -1693,7 +1687,7 @@
     resetSearch();
   });
   TOG.addEventListener('click', async () => {
-    await fetch('/api/pause', { method: 'POST' });
+    await fetch('/api/v1/runtime/pause', { method: 'POST' });
     await refreshState();
   });
 
@@ -1710,7 +1704,7 @@
       try {
         const ok = await requestSecondaryAuth();
         if (!ok) { throw new Error('secondary_required'); }
-        const res = await secondaryFetch('/api/clear', { method: 'POST' });
+        const res = await secondaryFetch('/api/v1/items/clear', { method: 'POST' });
         if (res.status === 403) { throw new Error('secondary_required'); }
         const d = await res.json();
         if (d.ok) {
@@ -1768,7 +1762,7 @@
   });
 
   // ── Settings sidebar nav ───────────────────────────────────
-  window.snavTo = function(sectionId, navId) {
+  snavTo = function(sectionId, navId) {
     document.querySelectorAll('.snav-item').forEach(el => el.classList.remove('active'));
     const navEl = document.getElementById(navId);
     if (navEl) navEl.classList.add('active');
@@ -1897,7 +1891,7 @@
 
   async function loadPublicAppearance() {
     try {
-      const appearance = await fetch('/api/appearance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+      const appearance = await fetch('/api/v1/appearance', { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
       if (!appearance) return;
       applyTheme(appearance.theme);
       applyBrand(appearance.brand);
@@ -1984,14 +1978,14 @@
     }
     const complete = await reserveAssetOperation(kind);
     try {
-      let res = await secondaryFetch(`/api/brand/${kind}`, {
+      let res = await secondaryFetch(`/api/v1/appearance/${kind}`, {
         method: 'PUT',
         headers: { 'Content-Type': file.type },
         body: file,
       });
       if (res.status === 403) {
         if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch(`/api/brand/${kind}`, {
+        res = await secondaryFetch(`/api/v1/appearance/${kind}`, {
           method: 'PUT',
           headers: { 'Content-Type': file.type },
           body: file,
@@ -2016,10 +2010,10 @@
   async function resetBrandAsset(kind) {
     const complete = await reserveAssetOperation(kind);
     try {
-      let res = await secondaryFetch(`/api/brand/${kind}`, { method: 'DELETE' });
+      let res = await secondaryFetch(`/api/v1/appearance/${kind}`, { method: 'DELETE' });
       if (res.status === 403) {
         if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch(`/api/brand/${kind}`, { method: 'DELETE' });
+        res = await secondaryFetch(`/api/v1/appearance/${kind}`, { method: 'DELETE' });
       }
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -2143,10 +2137,10 @@
     }
     const complete = await reserveAssetOperation('background');
     try {
-	  let res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+	  let res = await secondaryFetch('/api/v1/appearance/background', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       if (res.status === 403) {
         if (!await requestSecondaryAuth()) return;
-		res = await secondaryFetch('/api/background/media', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+		res = await secondaryFetch('/api/v1/appearance/background', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       }
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -2167,10 +2161,10 @@
   async function resetBackgroundMedia() {
     const complete = await reserveAssetOperation('background');
     try {
-      let res = await secondaryFetch('/api/background/media', { method: 'DELETE' });
+      let res = await secondaryFetch('/api/v1/appearance/background', { method: 'DELETE' });
       if (res.status === 403) {
         if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch('/api/background/media', { method: 'DELETE' });
+        res = await secondaryFetch('/api/v1/appearance/background', { method: 'DELETE' });
       }
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -2233,7 +2227,7 @@
     const request = ++configRequestSequence;
     const revision = configRevision;
     try {
-      const cfg = await fetch('/api/config').then(r => r.json());
+      const cfg = await fetch('/api/v1/config').then(r => r.json());
       if (request !== configRequestSequence || revision !== configRevision) return;
       replaceCurrentConfig(cfg);
       applyTheme(cfg.theme);
@@ -2257,7 +2251,7 @@
     const request = ++configRequestSequence;
     const revision = configRevision;
     try {
-      const cfg = await fetch('/api/config').then(r => r.json());
+      const cfg = await fetch('/api/v1/config').then(r => r.json());
       if (request === configRequestSequence && revision === configRevision && !hasPendingConfigSave()) {
         replaceCurrentConfig(cfg);
         try { await loadSourceExes(); } catch (_) {}
@@ -2281,7 +2275,7 @@
     const button = document.getElementById('storageRelocateBtn');
     if (!currentDir || !hint || !button) return;
     try {
-      const res = await fetch('/api/storage/status');
+      const res = await fetch('/api/v1/storage');
       if (!res.ok) throw new Error('status');
       const status = await res.json();
       if (request !== storageStatusRequestSequence || storageRelocationInFlight) return;
@@ -2311,7 +2305,7 @@
     if (!btn || btn.disabled) return;
     btn.disabled = true;
     try {
-      const res = await fetch('/api/storage/open', { method: 'POST' });
+      const res = await fetch('/api/v1/storage/open', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast(data.error || '无法打开数据目录', 'err'); return; }
       toast('已在文件资源管理器中打开');
@@ -2322,19 +2316,19 @@
     }
   }
 
-  window.openMigrateDialog = function() {
+  openMigrateDialog = function() {
     if (storageRelocationInFlight || storageRelocationScheduled) return;
     const currentDirText = document.getElementById('storageCurrentDir')?.textContent || '-';
     const html = `
       <div class="modal-overlay" id="migrateOverlay">
-        <div class="modal-box secondary-box migrate-modal" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box migrate-modal" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">迁移数据目录</span>
-            <button class="modal-close" onclick="closeMigrateDialog()">
+            <button class="modal-close" data-action="close-migrate">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
+          <div class="modal-body u-inline-16">
             <div class="migrate-notes">
               <p>迁移将复制数据库、密钥和应用数据到新目录；运行日志保留在原位置。目标目录必须由你提前创建、为空且具备读写权限。迁移计划提交后，请从托盘退出应用并重新启动，程序才会在启动时迁移现有数据。</p>
             </div>
@@ -2368,7 +2362,7 @@
     const oldDirEl = document.getElementById('migrateOldDir');
     oldDirEl.textContent = currentDirText;
 
-    window.closeMigrateDialog = function() { overlay.remove(); };
+    closeMigrateDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeMigrateDialog(); });
     cancelBtn.addEventListener('click', closeMigrateDialog);
     setTimeout(() => newDirInput.focus(), 50);
@@ -2410,7 +2404,7 @@
         for (let attempt = 0; attempt < 2; attempt++) {
           const ok = await requestSecondaryAuth(attempt > 0);
           if (!ok) break;
-          const res = await secondaryFetch('/api/storage/relocate', {
+          const res = await secondaryFetch('/api/v1/storage/relocation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dataDir: target }),
@@ -2725,7 +2719,7 @@
     });
   }
 
-  window.openSourceAppsDialog = function() {
+  openSourceAppsDialog = function() {
     const existing = sourceWhitelist?.length ? sourceWhitelist.slice() : allSourceExes.map(e => e.name);
     sourceAppsDraft = {
       aliases: { ...sourceAliases },
@@ -2742,12 +2736,12 @@
     setTimeout(() => filter?.focus(), 50);
   };
 
-  window.closeSourceAppsDialog = function() {
+  closeSourceAppsDialog = function() {
     document.getElementById('sourceAppsModal')?.classList.add('hidden');
     sourceAppsDraft = null;
   };
 
-  window.saveSourceAppsDialog = async function() {
+  saveSourceAppsDialog = async function() {
     if (!sourceAppsDraft) return;
     syncVisibleSourceAppsDraft();
     const knownNames = new Set(allSourceExes.map(e => e.name));
@@ -2804,7 +2798,7 @@
       const ok = await requestSecondaryAuth();
       if (!ok) { toast('需要二次验证才能查看过滤规则', 'err'); return; }
       try {
-        const d = await secondaryFetch('/api/sensitive/rules').then(r => r.json());
+        const d = await secondaryFetch('/api/v1/config/sensitive-rules').then(r => r.json());
         if (d.code === 'secondary_required') {
           toast('二次验证失败', 'err');
           return;
@@ -2827,14 +2821,14 @@
     list.innerHTML = patterns.map((p, i) => `
       <div class="pattern-row" data-idx="${i}">
         <input type="text" class="pattern-input" value="${esc(p)}" placeholder="正则表达式">
-        <button class="pattern-del" onclick="removePattern(${i})" title="删除">
+        <button class="pattern-del" data-action="remove-pattern" data-index="${i}" title="删除">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
     `).join('');
   }
 
-  window.removePattern = function(idx) {
+  removePattern = function(idx) {
     const patterns = getPatterns();
     patterns.splice(idx, 1);
     renderPatterns(patterns);
@@ -3134,7 +3128,7 @@
     }
 
     try {
-      const res = await secondaryFetch('/api/config', {
+      const res = await secondaryFetch('/api/v1/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCfg),
@@ -3145,6 +3139,7 @@
         try { failure = JSON.parse(txt); } catch (_) {}
         if (!secondaryRetried && res.status === 403 && failure.code === 'secondary_required') {
           authState.secondaryAuthed = false;
+          appStore.update({ secondaryAuthenticated: false });
           const ok = await requestSecondaryAuth();
           if (ok) return saveConfigNow(true);
           toast('需要二次验证才能保存配置', 'err');
@@ -3192,7 +3187,7 @@
   async function doRestart() {
     RESTART_OVERLAY.classList.remove('hidden');
     try {
-      const res = await fetch('/api/restart', { method: 'POST' });
+      const res = await fetch('/api/v1/system/restart', { method: 'POST' });
       if (!res.ok) {
         RESTART_OVERLAY.classList.add('hidden');
         toast('重启请求失败，请手动重启应用', 'err');
@@ -3217,7 +3212,7 @@
         return;
       }
       try {
-        const res = await fetch('/api/auth/status');
+        const res = await fetch('/api/v1/session');
         if (res.ok) {
           clearInterval(interval);
           // 新页面已由后端 shellExecute 在新标签页打开，仅隐藏遮罩
@@ -3369,7 +3364,7 @@
       diagnosticsExportInFlight = true;
       diagnosticsButton.disabled = true;
       try {
-        const ok = await authedDownload('/api/diagnostics/export', 'clipvault-diagnostics.zip');
+        const ok = await authedDownload('/api/v1/diagnostics', 'clipvault-diagnostics.zip');
         if (ok) toast('运行日志已导出');
       } finally {
         diagnosticsExportInFlight = false;
@@ -3488,16 +3483,6 @@
   }
 
   // expose for inline handlers
-  window.doCopy = doCopy;
-  window.doDelete = doDelete;
-  window.doView = doView;
-  window.doStar = doStar;
-  window.doDownload = doDownload;
-  window.doOpenDir = doOpenDir;
-  window.doFileView = doFileView;
-  window.doFileHash = doFileHash;
-  window.switchView = window.switchView;
-  window.removePattern = window.removePattern;
 
   // ── Export ─────────────────────────────────────────────────────────
   // authedDownload 处理二次认证后通过 fetch 下载文件（blob），避免 <a> 标签无法捕获 403。
@@ -3537,27 +3522,27 @@
   }
 
   // ── Export scope dialog (full / date range) ─────────────────
-  window.showExportScopeDialog = function(performExport) {
+  showExportScopeDialog = function(performExport) {
     const html = `
       <div class="modal-overlay" id="exportScopeOverlay">
-        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">选择导出范围</span>
-            <button class="modal-close" onclick="closeExportScopeDialog()">
+            <button class="modal-close" data-action="close-export-scope">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
-            <div style="margin-bottom:14px;font-size:13px;color:var(--sub)">
-              <label style="margin-right:18px;cursor:pointer"><input type="radio" name="exportScopeMode" value="full" checked> 全部记录</label>
-              <label style="cursor:pointer"><input type="radio" name="exportScopeMode" value="range"> 按日期范围</label>
+          <div class="modal-body u-inline-16">
+            <div class="u-inline-22">
+              <label class="u-inline-23"><input type="radio" name="exportScopeMode" value="full" checked> 全部记录</label>
+              <label class="u-inline-24"><input type="radio" name="exportScopeMode" value="range"> 按日期范围</label>
             </div>
-            <div id="exportRangeFields" class="hidden" style="margin-bottom:14px;font-size:13px;color:var(--sub)">
-              <input type="date" id="exportFrom" class="lock-input" style="display:inline-block;width:auto;margin-right:6px">
-              <span style="color:var(--sub)">至</span>
-              <input type="date" id="exportTo" class="lock-input" style="display:inline-block;width:auto;margin-left:6px">
+            <div id="exportRangeFields" class="hidden u-inline-22">
+              <input type="date" id="exportFrom" class="lock-input u-inline-25">
+              <span class="u-inline-26">至</span>
+              <input type="date" id="exportTo" class="lock-input u-inline-27">
             </div>
-            <button class="lock-btn" onclick="confirmExportScope()">开始导出</button>
+            <button class="lock-btn" data-action="confirm-export-scope">开始导出</button>
           </div>
         </div>
       </div>
@@ -3572,9 +3557,9 @@
         if (r.checked) rangeFields.classList.toggle('hidden', r.value !== 'range');
       });
     });
-    window.closeExportScopeDialog = function() { overlay.remove(); };
+    closeExportScopeDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeExportScopeDialog(); });
-    window.confirmExportScope = function() {
+    confirmExportScope = function() {
       const mode = document.querySelector('input[name=exportScopeMode]:checked').value;
       let params = '';
       if (mode === 'range') {
@@ -3588,7 +3573,7 @@
     };
   };
 
-  window.doExport = async function(type) {
+  doExport = async function(type) {
     if (!licenseState.licensed) { toast('导出为付费功能，激活后可导出全部数据', 'err'); openLicenseSettings(); return; }
     const fmt = type === 'data-xlsx' ? 'xlsx' : 'json';
     const fallback = 'clipvault-data.' + fmt;
@@ -3596,42 +3581,42 @@
     if (fmt === 'xlsx') {
 	  if (!window.confirm('即将导出明文 Excel 数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
 	  showExportScopeDialog(function(scopeParams) {
-		const baseUrl = '/api/export/data?format=xlsx' + scopeParams;
+		const baseUrl = '/api/v1/transfer/export?format=xlsx' + scopeParams;
 		authedDownload(baseUrl, fallback).then(ok => { if (ok) toast('已导出 ' + label); });
 	  });
     } else {
       if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
       showExportScopeDialog(function(scopeParams) {
-        const baseUrl = '/api/export/data?format=json' + scopeParams;
+        const baseUrl = '/api/v1/transfer/export?format=json' + scopeParams;
         authedDownload(baseUrl, fallback).then(ok => { if (ok) toast('已导出 ' + label); });
       });
     }
   };
 
   // ── Encrypted export (.cvexport) ─────────────────────────────
-  window.doExportCvexport = function() {
+  doExportCvexport = function() {
     if (!licenseState.licensed) { toast('导出为付费功能，激活后可导出全部数据', 'err'); openLicenseSettings(); return; }
     const html = `
       <div class="modal-overlay" id="cvexportOverlay">
-        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">加密导出</span>
-            <button class="modal-close" onclick="closeCvexportDialog()">
+            <button class="modal-close" data-action="close-encrypted-export">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
-            <p style="margin-bottom:16px;color:var(--sub);font-size:13px;line-height:1.6">
+          <div class="modal-body u-inline-16">
+            <p class="u-inline-28">
               输入密码加密导出文件。导入时需要相同的密码才能解密。
             </p>
-            <div style="margin-bottom:14px;font-size:13px;color:var(--sub)">
-              <label style="margin-right:18px;cursor:pointer"><input type="radio" name="cvexportScopeMode" value="full" checked> 全部记录</label>
-              <label style="cursor:pointer"><input type="radio" name="cvexportScopeMode" value="range"> 按日期范围</label>
+            <div class="u-inline-22">
+              <label class="u-inline-23"><input type="radio" name="cvexportScopeMode" value="full" checked> 全部记录</label>
+              <label class="u-inline-24"><input type="radio" name="cvexportScopeMode" value="range"> 按日期范围</label>
             </div>
-            <div id="cvexportRangeFields" class="hidden" style="margin-bottom:14px;font-size:13px;color:var(--sub)">
-              <input type="date" id="cvexportFrom" class="lock-input" style="display:inline-block;width:auto;margin-right:6px">
+            <div id="cvexportRangeFields" class="hidden u-inline-22">
+              <input type="date" id="cvexportFrom" class="lock-input u-inline-25">
               <span>至</span>
-              <input type="date" id="cvexportTo" class="lock-input" style="display:inline-block;width:auto;margin-left:6px">
+              <input type="date" id="cvexportTo" class="lock-input u-inline-27">
             </div>
             <form id="cvexportForm" class="lock-form">
               <input type="password" id="cvexportPwd" class="lock-input" placeholder="加密密码" autocomplete="new-password">
@@ -3653,7 +3638,7 @@
     const confirmInput = document.getElementById('cvexportConfirm');
     setTimeout(() => pwdInput.focus(), 50);
 
-    window.closeCvexportDialog = function() { overlay.remove(); };
+    closeCvexportDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCvexportDialog(); });
 
     const rangeFields = document.getElementById('cvexportRangeFields');
@@ -3680,7 +3665,7 @@
         scopeParams = '&mode=range&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
       }
 
-      const ok = await authedDownload('/api/export/data?format=cvexport' + scopeParams, 'clipvault-data.cvexport', {
+      const ok = await authedDownload('/api/v1/transfer/export?format=cvexport' + scopeParams, 'clipvault-data.cvexport', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pwd }),
@@ -3693,24 +3678,24 @@
   };
 
   // ── Import dialog ────────────────────────────────────────────
-  window.showImportDialog = function() {
+  showImportDialog = function() {
     const html = `
       <div class="modal-overlay" id="importOverlay">
-        <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+        <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">导入数据</span>
-            <button class="modal-close" onclick="closeImportDialog()">
+            <button class="modal-close" data-action="close-import">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          <div class="modal-body" style="height:auto;padding:24px">
-            <p style="margin-bottom:12px;color:var(--sub);font-size:13px;line-height:1.6">
+          <div class="modal-body u-inline-16">
+            <p class="u-inline-29">
               选择 JSON、Excel 或加密 .cvexport 文件导入。导入为追加模式：不会清空现有数据，也不做去重，重复导入同一文件会产生重复记录。加密文件需输入密码。提示：Excel 文件较大时解析慢且占内存，大数据量建议用 JSON 或加密 .cvexport 格式。
             </p>
-            <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" style="margin-bottom:12px;width:100%;font-size:13px;color:var(--sub)">
-            <input type="password" id="importPwd" class="lock-input" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off" style="margin-bottom:12px">
-            <button class="lock-btn" onclick="doImport()">开始导入</button>
-            <p class="lock-err hidden" id="importErr" style="margin-top:12px"></p>
+            <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" class="u-inline-30">
+            <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off">
+            <button class="lock-btn" data-action="import">开始导入</button>
+            <p class="lock-err hidden u-inline-32" id="importErr"></p>
           </div>
         </div>
       </div>
@@ -3719,7 +3704,7 @@
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
     const overlay = document.getElementById('importOverlay');
-    window.closeImportDialog = function() { overlay.remove(); };
+    closeImportDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeImportDialog(); });
   };
 
@@ -3758,7 +3743,7 @@
       if (!ok) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
 		const headers = { 'X-ClipVault-Import-Format': format };
 		if (pwd) headers['X-ClipVault-Import-Password'] = pwd;
-		const res = await secondaryFetch('/api/import/data', {
+		const res = await secondaryFetch('/api/v1/transfer/import', {
         method: 'POST',
 		headers,
         body: file,
@@ -3766,7 +3751,7 @@
       if (res.status === 403) {
         const ok2 = await requestSecondaryAuth();
         if (!ok2) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
-        const res2 = await secondaryFetch('/api/import/data', {
+        const res2 = await secondaryFetch('/api/v1/transfer/import', {
           method: 'POST',
 			headers,
           body: file,
@@ -3810,7 +3795,6 @@
       return { ok: false, error: body.trim() || `\u5bfc\u5165\u8bf7\u6c42\u5931\u8d25 (${res.status})` };
     }
   }
-  window.doImport = doImport;
 
   // ── Backup actions ─────────────────────────────────────────
   async function backupAction(url, successMsg) {
@@ -3834,22 +3818,22 @@
     }
   }
 
-  window.doBackupDirNow = function() {
-    backupAction('/api/backup/dir/now', '目录备份成功');
+  doBackupDirNow = function() {
+    backupAction('/api/v1/backup/directory', '目录备份成功');
   };
-  window.doBackupDirFullNow = function() {
+  doBackupDirFullNow = function() {
     if (!window.confirm('将执行一次全量备份并重置增量链。是否继续？')) return;
-    backupAction('/api/backup/dir/now?forceFull=1', '目录全量备份成功（增量链已重置）');
+    backupAction('/api/v1/backup/directory?forceFull=1', '目录全量备份成功（增量链已重置）');
   };
-  window.doBackupEmailNow = function() {
-    backupAction('/api/backup/email/now', '邮件备份已发送');
+  doBackupEmailNow = function() {
+    backupAction('/api/v1/backup/email', '邮件备份已发送');
   };
-  window.doBackupEmailFullNow = function() {
+  doBackupEmailFullNow = function() {
     if (!window.confirm('将执行一次全量备份并重置增量链。是否继续？')) return;
-    backupAction('/api/backup/email/now?forceFull=1', '邮件全量备份已发送（增量链已重置）');
+    backupAction('/api/v1/backup/email?forceFull=1', '邮件全量备份已发送（增量链已重置）');
   };
-  window.doBackupEmailTest = function() {
-    backupAction('/api/backup/email/test', '测试邮件已发送');
+  doBackupEmailTest = function() {
+    backupAction('/api/v1/backup/email-test', '测试邮件已发送');
   };
 
   function formatBackupStatus(s) {
@@ -3880,7 +3864,7 @@
 
   async function loadBackupStatus() {
     try {
-      const d = await fetch('/api/backup/status').then(r => r.json());
+      const d = await fetch('/api/v1/backup').then(r => r.json());
       const ds = d.dirStatus;
       const es = d.emailStatus;
       if (ds) {
@@ -3900,11 +3884,11 @@
     } catch (_) {}
   }
 
-  window.showEmailBackupHistory = async function() {
+  showEmailBackupHistory = async function() {
     const ok = await requestSecondaryAuth();
     if (!ok) { toast('需要二次验证才能查看发送历史', 'err'); return; }
     try {
-      const res = await secondaryFetch('/api/backup/email/history');
+      const res = await secondaryFetch('/api/v1/backup/email-history');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '读取发送历史失败');
       renderEmailBackupHistory(data.history || []);
@@ -3926,7 +3910,7 @@
     overlay.className = 'modal-overlay';
     overlay.id = 'emailBackupHistoryOverlay';
     overlay.innerHTML = `
-      <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="emailBackupHistoryTitle" onclick="event.stopPropagation()">
+      <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="emailBackupHistoryTitle" data-modal-panel>
         <div class="modal-head">
           <span class="modal-title" id="emailBackupHistoryTitle">邮件备份发送历史</span>
           <button class="modal-close" type="button" aria-label="关闭">&times;</button>
@@ -3948,7 +3932,7 @@
 
   async function loadGroups() {
     try {
-      const d = await fetch('/api/groups').then(r => r.json());
+      const d = await fetch('/api/v1/groups').then(r => r.json());
       allGroups = d.groups || [];
     } catch (_) { allGroups = []; }
   }
@@ -3988,7 +3972,7 @@
     overlay.className = 'modal-overlay';
     overlay.id = 'groupModalOverlay';
     overlay.innerHTML =
-      '<div class="modal-box ' + boxClass + '" onclick="event.stopPropagation()">' +
+      '<div class="modal-box ' + boxClass + '" data-modal-panel>' +
         '<div class="modal-head">' +
           '<span class="modal-title">' + titles[mode] + '</span>' +
           '<button class="modal-close" id="groupModalCloseBtn">' +
@@ -4006,7 +3990,6 @@
     renderGroupModalContent();
   }
 
-  window.openGroupModal = openGroupModal;
 
   function closeGroupModal() {
     const overlay = document.getElementById('groupModalOverlay');
@@ -4027,7 +4010,7 @@
     let itemGroupIds = [];
     if (mode === 'assign' && opts.itemId) {
       try {
-        const res = await authorizedItemFetch(opts.itemId, '/api/items/groups?item_id=' + opts.itemId);
+        const res = await authorizedItemFetch(opts.itemId, '/api/v1/items/groups?item_id=' + opts.itemId);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const d = await res.json();
         itemGroupIds = d.groupIds || [];
@@ -4172,12 +4155,12 @@
           const isChecked = checkEl.classList.contains('checked');
           try {
             if (isChecked) {
-              const res = await authorizedItemFetch(opts.itemId, '/api/items/group?item_id=' + opts.itemId + '&group_id=' + id, { method: 'DELETE' });
+              const res = await authorizedItemFetch(opts.itemId, '/api/v1/items/group?item_id=' + opts.itemId + '&group_id=' + id, { method: 'DELETE' });
               if (!res.ok) throw new Error('HTTP ' + res.status);
               checkEl.classList.remove('checked');
               toast('已移出分组');
             } else {
-              const res = await authorizedItemFetch(opts.itemId, '/api/items/group', {
+              const res = await authorizedItemFetch(opts.itemId, '/api/v1/items/group', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ itemId: opts.itemId, groupId: id }),
@@ -4196,7 +4179,7 @@
         addRootBtn.addEventListener('click', function() {
           showGroupEditDialog('create', 0, '', async function(name) {
             try {
-              const res = await fetch('/api/groups', {
+              const res = await fetch('/api/v1/groups', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: name, parentId: 0 }),
@@ -4234,7 +4217,7 @@
   function quickAddChild(parentId) {
     showGroupEditDialog('create', parentId, '', async function(name) {
       try {
-        const res = await fetch('/api/groups', {
+        const res = await fetch('/api/v1/groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name, parentId: parentId }),
@@ -4269,7 +4252,7 @@
         return;
       }
       try {
-        const res = await fetch('/api/groups?id=' + id, {
+        const res = await fetch('/api/v1/groups?id=' + id, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: newName, parentId: getParentId(id) }),
@@ -4295,7 +4278,7 @@
     if (!g) return;
     showConfirmDialog('删除分组', '确定删除分组「' + g.name + '」及其子分组吗？此操作不可撤销。', async function() {
       try {
-        const res = await fetch('/api/groups?id=' + id, { method: 'DELETE' });
+        const res = await fetch('/api/v1/groups?id=' + id, { method: 'DELETE' });
         const d = await res.json();
         if (d.ok) {
           toast('分组已删除');
@@ -4311,16 +4294,16 @@
     const title = mode === 'create' ? '新建分组' : '重命名分组';
     const html =
       '<div class="modal-overlay" id="groupEditOverlay">' +
-        '<div class="modal-box secondary-box" onclick="event.stopPropagation()">' +
+        '<div class="modal-box secondary-box" data-modal-panel>' +
           '<div class="modal-head">' +
             '<span class="modal-title">' + title + '</span>' +
-            '<button class="modal-close" onclick="closeGroupEditDialog()">' +
+            '<button class="modal-close" data-action="close-group-edit">' +
               '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
             '</button>' +
           '</div>' +
-          '<div class="modal-body" style="height:auto;padding:24px">' +
+          '<div class="modal-body u-inline-16">' +
             '<form id="groupEditForm" class="lock-form">' +
-              '<input type="text" id="groupEditInput" class="lock-input" placeholder="分组名称" value="' + esc(defaultName) + '" style="text-align:left" autofocus>' +
+              '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="分组名称" value="' + esc(defaultName) + '" autofocus>' +
               '<button type="submit" class="lock-btn">确定</button>' +
             '</form>' +
           '</div>' +
@@ -4334,7 +4317,7 @@
     const form = document.getElementById('groupEditForm');
     setTimeout(function() { input.focus(); input.select(); }, 50);
 
-    window.closeGroupEditDialog = function() { overlay.remove(); };
+    closeGroupEditDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 
     form.addEventListener('submit', function(e) {
@@ -4350,13 +4333,13 @@
   function showConfirmDialog(title, message, onConfirm) {
     const html =
       '<div class="modal-overlay" id="confirmDialogOverlay">' +
-        '<div class="modal-box secondary-box" onclick="event.stopPropagation()">' +
+        '<div class="modal-box secondary-box" data-modal-panel>' +
           '<div class="modal-head"><span class="modal-title">' + title + '</span></div>' +
-          '<div class="modal-body" style="height:auto;padding:24px">' +
-            '<p style="margin:0 0 16px;color:var(--sub);font-size:14px">' + esc(message) + '</p>' +
-            '<div style="display:flex;gap:8px;justify-content:flex-end">' +
-              '<button class="btn-cancel" onclick="closeConfirmDialog()">取消</button>' +
-              '<button class="lock-btn" id="confirmDialogBtn" style="width:auto;padding:8px 20px;background:var(--danger)">删除</button>' +
+          '<div class="modal-body u-inline-16">' +
+            '<p class="u-inline-34">' + esc(message) + '</p>' +
+            '<div class="u-inline-19">' +
+              '<button class="btn-cancel" data-action="close-confirm">取消</button>' +
+              '<button class="lock-btn u-inline-35" id="confirmDialogBtn">删除</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -4365,7 +4348,7 @@
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
     const overlay = document.getElementById('confirmDialogOverlay');
-    window.closeConfirmDialog = function() { overlay.remove(); };
+    closeConfirmDialog = function() { overlay.remove(); };
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     document.getElementById('confirmDialogBtn').addEventListener('click', function() {
       overlay.remove();

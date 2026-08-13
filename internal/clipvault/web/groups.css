@@ -1,0 +1,306 @@
+/* ── Group filter chip ────────────────────────────────────── */
+.filter-chip-group .group-chevron {
+  transition: transform .2s;
+}
+.filter-chip-group.expanded .group-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Group modal ─────────────────────────────────────────── */
+.group-modal-box { max-width: 420px; }
+.group-modal-box-wide { max-width: 520px; }
+.group-modal-body { padding: 12px 14px !important; max-height: 60vh; overflow-y: auto; }
+.group-modal-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.group-modal-empty { padding: 28px 16px; text-align: center; font: 13px sans-serif; color: var(--muted); }
+.group-modal-tree { padding: 2px; }
+
+/* ── Group tree nodes (shared) ───────────────────────────── */
+.gt-node {
+  user-select: none;
+}
+.gt-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background .12s;
+  font: 13px sans-serif;
+  color: var(--sub);
+}
+.gt-row:hover { background: var(--bg2); }
+.gt-row.active { background: var(--p-dim); color: var(--p); font-weight: 600; }
+.gt-toggle {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform .15s;
+}
+.gt-toggle.expanded { transform: rotate(90deg); }
+.gt-toggle.no-children { visibility: hidden; }
+.gt-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--p);
+  opacity: .7;
+}
+.gt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gt-count {
+  font: 11px ui-monospace, Consolas, monospace;
+  color: var(--muted);
+  flex-shrink: 0;
+  background: var(--bg2);
+  padding: 1px 6px;
+  border-radius: 99px;
+}
+.gt-children {
+  display: none;
+  padding-left: 20px;
+}
+.gt-children.expanded { display: block; }
+
+/* ── Group manager tree nodes ─────────────────────────────── */
+.btn-add-group {
+  height: 32px;
+  padding: 0 14px;
+  border: 1.5px dashed var(--card-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--sub);
+  font: 500 13px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color .15s, color .15s;
+  align-self: flex-start;
+}
+.btn-add-group:hover { border-color: var(--p); color: var(--p); }
+.gm-node {
+  user-select: none;
+}
+.gm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background .12s;
+  font: 13.5px sans-serif;
+  color: var(--tx);
+}
+.gm-row:hover { background: var(--bg2); }
+.gm-toggle {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform .15s;
+}
+.gm-toggle.expanded { transform: rotate(90deg); }
+.gm-toggle.no-children { visibility: hidden; }
+.gm-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--p);
+  opacity: .7;
+}
+.gm-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gm-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1.5px solid var(--p);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--tx);
+  font: 13.5px sans-serif;
+  outline: none;
+}
+.gm-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.gm-act {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.gm-act:hover { border-color: var(--p); color: var(--p); background: var(--p-dim); }
+.gm-act.danger:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-dim); }
+.gm-children {
+  display: none;
+  padding-left: 24px;
+}
+.gm-children.expanded { display: block; }
+.gm-add-child {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px dashed var(--card-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: 500 12px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: border-color .15s, color .15s;
+  margin: 2px 0 2px 24px;
+}
+.gm-add-child:hover { border-color: var(--p); color: var(--p); }
+
+/* ── Card: add-to-group button ────────────────────────────── */
+.ab.group-btn {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--sub);
+}
+.ab.group-btn:hover { border-color: var(--p); color: var(--p); background: var(--p-dim); }
+
+/* ── Card: locate button ──────────────────────────────────── */
+.ab.locate-btn {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--sub);
+}
+.ab.locate-btn:hover { border-color: var(--p); color: var(--p); background: var(--p-dim); }
+
+/* ── Locate highlight animation ───────────────────────────── */
+@keyframes locate-flash {
+  0%   { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; transform: scale(1); }
+  10%  { box-shadow: 0 0 0 3px var(--p), 0 0 30px 6px rgba(20,184,166,.7); transform: scale(1.02); }
+  20%  { box-shadow: 0 0 0 3px var(--p), 0 0 40px 10px rgba(20,184,166,.5); transform: scale(1); }
+  35%  { box-shadow: 0 0 0 2px var(--p), 0 0 20px 4px rgba(20,184,166,.4); }
+  50%  { box-shadow: 0 0 0 3px var(--p), 0 0 35px 8px rgba(20,184,166,.6); }
+  65%  { box-shadow: 0 0 0 2px var(--p), 0 0 18px 3px rgba(20,184,166,.35); }
+  80%  { box-shadow: 0 0 0 3px var(--p), 0 0 28px 6px rgba(20,184,166,.45); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; transform: scale(1); }
+}
+article.locate-highlight {
+  animation: locate-flash 3.5s ease-out;
+  border-color: var(--p) !important;
+  z-index: 10;
+  position: relative;
+}
+
+/* ── Group tree checkbox (assign mode) ────────────────────── */
+.gt-check {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--card-border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  cursor: pointer;
+}
+.gt-check.checked { background: var(--p); border-color: var(--p); color: var(--on-p); }
+.gt-check svg { width: 12px; height: 12px; opacity: 0; }
+.gt-check.checked svg { opacity: 1; }
+
+/* ── Settings: open group manager button ──────────────────── */
+.btn-open-group-modal {
+  height: 36px;
+  padding: 0 18px;
+  border: 1.5px dashed var(--card-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--sub);
+  font: 500 14px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: border-color .15s, color .15s;
+  align-self: flex-start;
+}
+.btn-open-group-modal:hover { border-color: var(--p); color: var(--p); }
+
+/* Group badge in card meta */
+.mgroup {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: .3px;
+  background: rgba(99,102,241,.08);
+  color: #6366F1;
+  border: 1px solid rgba(99,102,241,.2);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.mgroup:hover { background: rgba(99,102,241,.15); }
+[data-theme-mode="dark"] .mgroup { color: #A5B4FC; }
+
+/* ── License ─────────────────────────────────────────────── */
+.license-banner {
+  margin: 12px auto 0;
+  width: min(1080px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1px solid rgba(217,119,6,.35);
+  border-radius: var(--radius-sm);
+  background: rgba(245,158,11,.1);
+  color: var(--tx);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+}
+.license-banner button { border: 0; background: transparent; color: #b45309; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.license-status { padding: 5px 10px; border-radius: 999px; background: var(--p-dim); color: var(--p); font-size: 12px; font-weight: 700; }
+.license-status.warn { background: rgba(245,158,11,.12); color: #b45309; }
+[data-theme-mode="dark"] .license-banner button,
+[data-theme-mode="dark"] .license-status.warn { color: #FCD34D; }
+.license-copy-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.license-machine { width: 260px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.license-activate-block { padding: 18px; }
+.license-token-input { width: 100%; margin-top: 10px; resize: vertical; min-height: 92px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; line-height: 1.5; text-align: left; }
+.license-actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+.license-activate-btn { width: auto; min-width: 120px; padding-inline: 22px; }
+.license-message { font-size: 13px; color: var(--sub); }
+.license-message.err { color: var(--danger); }
+.license-message.ok { color: var(--p); }
+.password-show { display: inline-flex; align-items: center; gap: 7px; color: var(--sub); font-size: 13px; cursor: pointer; margin: 2px 0 4px; }
+
+@media (max-width: 720px) {
+  .license-banner { align-items: flex-start; }
+  .license-copy-row, .license-machine { width: 100%; }
+}
+

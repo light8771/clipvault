@@ -42,3 +42,21 @@ func TestHotkeyUtilsAssetServed(t *testing.T) {
 		t.Fatal("hotkey utility asset does not contain parser")
 	}
 }
+
+func TestModuleAssetsServed(t *testing.T) {
+	server := &SearchServer{}
+	for _, path := range []string{"/api.js", "/store.js"} {
+		res := httptest.NewRecorder()
+		server.handleStatic(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+path, nil))
+		if res.Code != http.StatusOK || !strings.HasPrefix(res.Header().Get("Content-Type"), "application/javascript") {
+			t.Fatalf("module %s status=%d content-type=%q", path, res.Code, res.Header().Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css"} {
+		res := httptest.NewRecorder()
+		server.handleStatic(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+path, nil))
+		if res.Code != http.StatusOK || !strings.HasPrefix(res.Header().Get("Content-Type"), "text/css") {
+			t.Fatalf("stylesheet %s status=%d content-type=%q", path, res.Code, res.Header().Get("Content-Type"))
+		}
+	}
+}

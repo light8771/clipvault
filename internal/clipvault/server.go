@@ -77,9 +77,13 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	mux.HandleFunc("GET /style.css", s.handleStatic)
+	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css"} {
+		mux.HandleFunc("GET "+asset, s.handleStatic)
+	}
 	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /hotkey-utils.js", s.handleStatic)
+	mux.HandleFunc("GET /api.js", s.handleStatic)
+	mux.HandleFunc("GET /store.js", s.handleStatic)
 	mux.HandleFunc("GET /script.js", s.handleStatic)
 	api("GET /api/v1/session/csrf", s.handleCSRF)
 	api("GET /api/v1/appearance", s.handlePublicAppearance)

@@ -1,0 +1,560 @@
+/* ── Mobile / remote-browser layout ──────────────────────────
+   The page was originally desktop-first. On narrow screens, fixed-width
+   controls must move below their descriptions instead of squeezing Chinese
+   copy into one-character columns. Keep this block last so it can override
+   inline desktop widths used by the settings form. */
+@media (max-width: 720px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+  }
+
+  /* Two-row mobile navbar: identity/actions above, view tabs below. */
+  .navbar {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .nav-inner {
+    width: 100%;
+    height: auto;
+    min-height: 88px;
+    padding: 8px max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand actions"
+      "tabs tabs";
+    gap: 8px 10px;
+  }
+
+  .nav-brand {
+    grid-area: brand;
+    min-width: 0;
+  }
+
+  .brand-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .status-pill { display: none; }
+
+  .nav-center {
+    grid-area: tabs;
+    position: static;
+    left: auto;
+    transform: none;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .nav-tab {
+    width: 100%;
+    height: 36px;
+    justify-content: center;
+  }
+
+  .nav-right {
+    grid-area: actions;
+    justify-self: end;
+    gap: 6px;
+  }
+
+  .count-badge {
+    min-width: 32px;
+    padding: 4px 8px;
+  }
+
+  .btn-toggle,
+  .btn-clear {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  #togTx,
+  #clearTx {
+    display: none;
+  }
+
+  main {
+    width: 100%;
+    padding: 16px max(14px, env(safe-area-inset-right)) calc(64px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+
+  .license-banner {
+    width: calc(100% - 28px);
+    margin: 10px 14px 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* History filters remain usable without widening the document. */
+  .controls {
+    align-items: stretch;
+  }
+
+  .filter-group {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 1px 0 5px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-group::-webkit-scrollbar { display: none; }
+
+  .ctrl-right {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .date-filter-bar {
+    align-items: stretch;
+  }
+
+  .date-input {
+    flex: 1 1 135px;
+    min-width: 0;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .page-info {
+    order: -1;
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .card-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .card-meta {
+    overflow: visible;
+  }
+
+  .card-acts {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .file-row {
+    flex-wrap: wrap;
+  }
+
+  .file-actions {
+    width: 100%;
+    padding-left: 60px;
+    flex-wrap: wrap;
+  }
+
+  /* Settings become a single readable column. */
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-sidebar { display: none; }
+
+  .settings-content {
+    min-width: 0;
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .ssec {
+    padding: 18px 0;
+    scroll-margin-top: calc(102px + env(safe-area-inset-top));
+  }
+
+  .ssec-head {
+    min-width: 0;
+    margin-bottom: 14px;
+  }
+
+  .ssec-head > :last-child,
+  .field-info {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .ssec-title,
+  .ssec-desc,
+  .field-label,
+  .field-hint,
+  .export-title,
+  .export-desc {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .field-row {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .field-row > input.field-input,
+  .field-row > select.field-input {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .field-row > div[style*="display:flex"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .field-row > .license-status,
+  .field-row > .ar-toggle {
+    align-self: flex-start;
+  }
+
+  .field-input {
+    height: 44px;
+    min-width: 0;
+  }
+
+  .storage-current-row { align-items: flex-start; }
+  .storage-path { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .storage-current-controls { width: 100%; flex-wrap: wrap; }
+  .isolated-databases { margin: 0 10px 10px; padding: 12px; }
+  .isolated-databases-head { flex-direction: column; gap: 6px; }
+  .isolated-pending { align-items: stretch; flex-direction: column; }
+  .isolated-pending .btn-export { min-height: 40px; justify-content: center; }
+  .isolated-item { align-items: stretch; flex-direction: column; }
+  .isolated-item-actions { width: 100%; }
+  .isolated-item-actions .btn-export { width: 100%; min-height: 40px; justify-content: center; }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  .mod-group {
+    min-width: 0;
+  }
+
+  .pwd-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .license-copy-row {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+
+  .license-machine {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .license-copy-row .btn-export,
+  .license-activate-btn {
+    width: 100%;
+    min-height: 42px;
+    justify-content: center;
+  }
+
+  .license-activate-block {
+    padding: 14px;
+  }
+
+  .license-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 9px;
+  }
+
+  #licenseIdText {
+    overflow-wrap: anywhere;
+  }
+
+  .export-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .export-item .btn-export {
+    min-height: 40px;
+    align-self: stretch;
+    justify-content: center;
+  }
+
+  #storageRelocateBtn,
+  #diagnosticsExportBtn {
+    min-height: 40px;
+  }
+
+  .btn-pwd-set,
+  .btn-pwd-change,
+  .btn-pwd-remove,
+  .btn-open-group-modal {
+    min-height: 40px;
+  }
+
+  .listen-security-warning strong {
+    white-space: normal;
+  }
+
+  /* Mobile dialogs must survive the on-screen keyboard and safe areas. */
+  .modal-overlay {
+    padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .modal-box {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+
+  .modal-body {
+    height: auto;
+    max-height: calc(100dvh - 96px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    padding: 14px !important;
+  }
+
+  .group-modal-toolbar {
+    flex-wrap: wrap;
+  }
+
+  /* Toast spans the usable width and stays above the iOS home indicator. */
+  .tc {
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .tk {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .nav-inner {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+
+  main {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .brand-name {
+    font-size: 15px;
+  }
+
+  .count-badge {
+    min-width: 28px;
+    padding-inline: 6px;
+  }
+
+  .btn-toggle,
+  .btn-clear {
+    width: 34px;
+    height: 34px;
+  }
+
+  .card-body {
+    padding: 13px 12px 11px;
+  }
+
+  .card-foot {
+    padding-inline: 10px;
+  }
+
+  .file-actions {
+    padding-left: 0;
+  }
+
+  .field-row,
+  .license-activate-block {
+    padding: 12px;
+  }
+
+  .modal-overlay {
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+}
+
+/* Portrait tablets need the same single-column form treatment, while there is
+   still enough room to keep the settings anchors as a horizontal sticky bar. */
+@media (min-width: 721px) and (max-width: 840px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-sidebar {
+    position: sticky;
+    top: 54px;
+    z-index: 90;
+    display: block;
+    padding: 8px 0;
+    background: var(--nav-bg);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    gap: 4px;
+    padding: 0 0 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-nav::-webkit-scrollbar { display: none; }
+
+  .snav-item {
+    width: auto;
+    flex: 0 0 auto;
+    padding-inline: 12px;
+  }
+
+  .snav-sep {
+    width: 1px;
+    height: 24px;
+    margin: 5px 3px;
+    flex: 0 0 auto;
+  }
+
+  .settings-content {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .ssec {
+    scroll-margin-top: 112px;
+  }
+
+  .field-row {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .field-row > input.field-input,
+  .field-row > select.field-input {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .field-row > div[style*="display:flex"],
+  .field-row > .license-copy-row,
+  .field-row > .pwd-actions {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .field-row > .license-status,
+  .field-row > .ar-toggle {
+    align-self: flex-start;
+  }
+
+  .field-input,
+  .license-machine {
+    min-width: 0;
+  }
+
+  .license-copy-row {
+    justify-content: flex-start;
+  }
+
+  .license-machine {
+    width: min(100%, 420px);
+  }
+}
+
+/*  Scroll-to-top button  */
+.scroll-top-btn {
+  position: fixed !important;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 200 !important;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: var(--p);
+  color: var(--on-p);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition: opacity .25s ease, visibility .25s ease, transform .25s ease, background .2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scroll-top-btn.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.scroll-top-btn:hover {
+  background: var(--p2);
+  color: var(--on-p2);
+}
+
+.scroll-top-btn:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 720px) {
+  .scroll-top-btn {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 420px) {
+  .scroll-top-btn {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+}
+

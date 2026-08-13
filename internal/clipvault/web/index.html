@@ -5,7 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ClipVault</title>
   <link id="brandFavicon" rel="icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/tokens.css">
+  <link rel="stylesheet" href="/history.css">
+  <link rel="stylesheet" href="/settings.css">
+  <link rel="stylesheet" href="/modals.css">
+  <link rel="stylesheet" href="/responsive.css">
+  <link rel="stylesheet" href="/components.css">
+  <link rel="stylesheet" href="/security.css">
+  <link rel="stylesheet" href="/groups.css">
+  <link rel="stylesheet" href="/mobile.css">
+  <link rel="stylesheet" href="/source-apps.css">
+  <link rel="stylesheet" href="/utilities.css">
 </head>
 <body>
   <div class="background-media-layer hidden" id="backgroundMediaLayer" aria-hidden="true">
@@ -31,11 +41,11 @@
         </div>
       </div>
       <div class="nav-center">
-        <button class="nav-tab active" id="tabHistory" onclick="switchView('history')">
+        <button class="nav-tab active" id="tabHistory" data-action="switch-view" data-view="history">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
           历史
         </button>
-        <button class="nav-tab" id="tabSettings" onclick="switchView('settings')">
+        <button class="nav-tab" id="tabSettings" data-action="switch-view" data-view="settings">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
           设置
         </button>
@@ -58,7 +68,7 @@
 
   <div class="license-banner hidden" id="licenseBanner" role="status">
     <span>免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。</span>
-    <button type="button" onclick="openLicenseSettings()">立即激活</button>
+    <button type="button" data-action="open-license-settings">立即激活</button>
   </div>
 
   <!-- ── 历史视图 ── -->
@@ -130,7 +140,7 @@
     </div>
 
     <div class="date-filter-bar" id="dateFilterBar">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted);flex-shrink:0"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-1"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       <span class="dfb-label">日期</span>
       <input type="date" id="dateFrom" class="date-input">
       <span class="dfb-sep">—</span>
@@ -190,50 +200,50 @@
       <!-- 左侧导航 -->
       <aside class="settings-sidebar">
         <nav class="settings-nav">
-          <button class="snav-item active" id="snav-theme" onclick="snavTo('s-theme','snav-theme')">
+          <button class="snav-item active" id="snav-theme" data-action="settings-nav" data-section="s-theme" data-nav="snav-theme">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-1.5a1.5 1.5 0 0 0 0 3H18a2 2 0 0 1 2 2c0 1.1-.9 2-2 2h-6z"/></svg>
             <span>外观</span>
           </button>
-          <button class="snav-item" id="snav-general" onclick="snavTo('s-general','snav-general')">
+          <button class="snav-item" id="snav-general" data-action="settings-nav" data-section="s-general" data-nav="snav-general">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
             <span>基本</span>
           </button>
-          <button class="snav-item" id="snav-license" onclick="snavTo('s-license','snav-license')">
+          <button class="snav-item" id="snav-license" data-action="settings-nav" data-section="s-license" data-nav="snav-license">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
             <span>授权</span>
           </button>
-          <button class="snav-item" id="snav-filter" onclick="snavTo('s-filter','snav-filter')">
+          <button class="snav-item" id="snav-filter" data-action="settings-nav" data-section="s-filter" data-nav="snav-filter">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span>过滤</span>
           </button>
-          <button class="snav-item" id="snav-service" onclick="snavTo('s-service','snav-service')">
+          <button class="snav-item" id="snav-service" data-action="settings-nav" data-section="s-service" data-nav="snav-service">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
             <span>服务</span>
           </button>
-          <button class="snav-item" id="snav-storage" onclick="snavTo('s-storage','snav-storage')">
+          <button class="snav-item" id="snav-storage" data-action="settings-nav" data-section="s-storage" data-nav="snav-storage">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
             <span>存储</span>
           </button>
-          <button class="snav-item" id="snav-security" onclick="snavTo('s-security','snav-security')">
+          <button class="snav-item" id="snav-security" data-action="settings-nav" data-section="s-security" data-nav="snav-security">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span>安全</span>
           </button>
         <div class="snav-sep"></div>
-        <button class="snav-item" id="snav-groups" onclick="snavTo('s-groups','snav-groups')">
+        <button class="snav-item" id="snav-groups" data-action="settings-nav" data-section="s-groups" data-nav="snav-groups">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
           <span>分组</span>
         </button>
         <div class="snav-sep"></div>
-        <button class="snav-item" id="snav-export" onclick="snavTo('s-export','snav-export')">
+        <button class="snav-item" id="snav-export" data-action="settings-nav" data-section="s-export" data-nav="snav-export">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>导出</span>
           </button>
-        <button class="snav-item" id="snav-import" onclick="snavTo('s-import','snav-import')">
+        <button class="snav-item" id="snav-import" data-action="settings-nav" data-section="s-import" data-nav="snav-import">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <span>导入</span>
           </button>
         <div class="snav-sep"></div>
-        <button class="snav-item" id="snav-backup" onclick="snavTo('s-backup','snav-backup')">
+        <button class="snav-item" id="snav-backup" data-action="settings-nav" data-section="s-backup" data-nav="snav-backup">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
             <span>备份</span>
           </button>
@@ -260,7 +270,7 @@
                 <label class="field-label" for="cfg-brandTitle">站点标题</label>
                 <p class="field-hint">显示在导航栏、浏览器标签和页面标题中</p>
               </div>
-              <input type="text" id="cfg-brandTitle" class="field-input" maxlength="60" style="width:220px" placeholder="ClipVault">
+              <input type="text" id="cfg-brandTitle" class="field-input u-inline-2" maxlength="60" placeholder="ClipVault">
             </div>
             <div class="field-row brand-assets-row">
               <div class="field-info">
@@ -434,7 +444,7 @@
                 <label class="field-label">来源应用管理</label>
                 <p class="field-hint" id="sourceAppsSummary">设置应用别名，以及哪些应用出现在搜索下拉中</p>
               </div>
-              <button class="btn-export" type="button" onclick="openSourceAppsDialog()">
+              <button class="btn-export" type="button" data-action="open-source-apps">
                 管理来源应用
               </button>
             </div>
@@ -443,7 +453,7 @@
                 <label class="field-label">全局快捷键</label>
 				<p class="field-hint" id="hotkeyKeyHint">按下快捷键暂停/恢复剪贴板录制；主键支持 A–Z、0–9、F1–F24 或 Space</p>
               </div>
-              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <div class="u-inline-3">
                 <label class="ar-toggle">
                   <input type="checkbox" id="cfg-hotkeyEnabled">
                   <span>启用</span>
@@ -454,7 +464,7 @@
                   <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
                   <label class="mod-btn"><input type="checkbox" value="8">Win</label>
                 </div>
-				<input type="text" id="cfg-hotkeyKey" class="field-input" style="width:60px;text-align:center;text-transform:uppercase" placeholder="P" maxlength="5" aria-describedby="hotkeyKeyHint">
+				<input type="text" id="cfg-hotkeyKey" class="field-input u-inline-4" placeholder="P" maxlength="5" aria-describedby="hotkeyKeyHint">
               </div>
             </div>
             <div class="field-row">
@@ -462,7 +472,7 @@
                 <label class="field-label">搜索框快捷键</label>
 				<p class="field-hint" id="searchHotkeyKeyHint">按下快捷键呼出桌面快速搜索框；主键支持 A–Z、0–9、F1–F24 或 Space</p>
               </div>
-              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <div class="u-inline-3">
                 <label class="ar-toggle">
                   <input type="checkbox" id="cfg-searchHotkeyEnabled">
                   <span>启用</span>
@@ -473,7 +483,7 @@
                   <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
                   <label class="mod-btn"><input type="checkbox" value="8">Win</label>
                 </div>
-				<input type="text" id="cfg-searchHotkeyKey" class="field-input" style="width:80px;text-align:center;text-transform:uppercase" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
+				<input type="text" id="cfg-searchHotkeyKey" class="field-input u-inline-5" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
               </div>
             </div>
               <div class="field-row">
@@ -537,7 +547,7 @@
               </div>
               <div class="license-copy-row">
                 <input id="licenseMachineCode" class="field-input license-machine" type="text" readonly value="读取中…">
-                <button class="btn-export" type="button" onclick="copyPurchaseInfo()">复制购买信息</button>
+                <button class="btn-export" type="button" data-action="copy-purchase-info">复制购买信息</button>
               </div>
             </div>
             <div class="license-activate-block" id="licenseActivateBlock">
@@ -545,7 +555,7 @@
               <p class="field-hint">完整粘贴卖家提供的激活码。激活码不会上传到网络。</p>
               <textarea id="licenseTokenInput" class="field-input license-token-input" rows="4" autocomplete="off" spellcheck="false" placeholder="CV1.…"></textarea>
               <div class="license-actions">
-                <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" onclick="activateLicense()">立即激活</button>
+                <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" data-action="activate-license">立即激活</button>
                 <span class="license-message" id="licenseMessage" role="alert" aria-live="polite"></span>
               </div>
             </div>
@@ -582,7 +592,7 @@
             </div>
             <div id="filterContent" class="filter-content hidden">
               <div class="pattern-hint">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="u-inline-6"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 <span>每行填一条关键字或 Go RE2 正则表达式，内容匹配则标记为敏感。示例：<code>password|token</code> 标记含敏感词的内容；<code>^\d{6}$</code> 标记6位纯数字；<code>(?i)secret</code> 大小写不敏感匹配。</span>
               </div>
               <div id="patternList" class="pattern-list"></div>
@@ -613,7 +623,7 @@
                 <label class="field-label" for="cfg-listenAddr">Web 监听地址</label>
                 <p class="field-hint">修改后需重启应用生效</p>
               </div>
-              <input type="text" id="cfg-listenAddr" class="field-input" style="width:180px" placeholder="127.0.0.1:18765">
+              <input type="text" id="cfg-listenAddr" class="field-input u-inline-7" placeholder="127.0.0.1:18765">
             </div>
             <div class="field-row">
               <div class="field-info">
@@ -630,14 +640,14 @@
                 <label class="field-label" for="cfg-reverseProxyPublicUrl">外部 HTTPS 地址</label>
                 <p class="field-hint">例如 https://clipvault.example.com；代理需传递 X-Forwarded-Proto 和 X-Forwarded-Host</p>
               </div>
-              <input type="url" id="cfg-reverseProxyPublicUrl" class="field-input" style="width:280px" placeholder="https://clipvault.example.com">
+              <input type="url" id="cfg-reverseProxyPublicUrl" class="field-input u-inline-8" placeholder="https://clipvault.example.com">
             </div>
             <div class="field-row">
               <div class="field-info">
                 <label class="field-label" for="cfg-timeZone">日期筛选时区</label>
                 <p class="field-hint">使用 system 跟随 Windows，或填写 IANA 时区（例如 Asia/Shanghai）；夏令时会自动处理</p>
               </div>
-              <input type="text" id="cfg-timeZone" class="field-input" style="width:180px" list="timeZoneSuggestions" placeholder="system">
+              <input type="text" id="cfg-timeZone" class="field-input u-inline-7" list="timeZoneSuggestions" placeholder="system">
               <datalist id="timeZoneSuggestions"><option value="system"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"><option value="UTC"></datalist>
             </div>
             <div class="listen-security-warning hidden" id="listenAddrWarning" role="alert">
@@ -723,9 +733,9 @@
               </div>
               <div class="pwd-actions" id="lockPwdActions">
                 <span class="pwd-status" id="lockPwdStatus">未设置</span>
-                <button class="btn-pwd-set" id="lockPwdSetBtn" onclick="showPwdDialog('lock','set')">设置</button>
-                <button class="btn-pwd-change hidden" id="lockPwdChangeBtn" onclick="showPwdDialog('lock','change')">修改</button>
-                <button class="btn-pwd-remove hidden" id="lockPwdRemoveBtn" onclick="showPwdDialog('lock','remove')">删除</button>
+                <button class="btn-pwd-set" id="lockPwdSetBtn" data-action="show-password" data-password-type="lock" data-password-mode="set">设置</button>
+                <button class="btn-pwd-change hidden" id="lockPwdChangeBtn" data-action="show-password" data-password-type="lock" data-password-mode="change">修改</button>
+                <button class="btn-pwd-remove hidden" id="lockPwdRemoveBtn" data-action="show-password" data-password-type="lock" data-password-mode="remove">删除</button>
               </div>
             </div>
             <!-- 二次密码 -->
@@ -736,7 +746,7 @@
               </div>
               <div class="pwd-actions" id="secondaryPwdActions">
                 <span class="pwd-status" id="secondaryPwdStatus">未设置</span>
-                <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" onclick="showPwdDialog('secondary','change')">修改</button>
+                <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" data-action="show-password" data-password-type="secondary" data-password-mode="change">修改</button>
               </div>
             </div>
             <!-- 数据恢复密码 -->
@@ -747,8 +757,8 @@
               </div>
               <div class="pwd-actions" id="recoveryPwdActions">
                 <span class="pwd-status" id="recoveryPwdStatus">未设置</span>
-                <button class="btn-pwd-change hidden" id="recoveryPwdChangeBtn" onclick="showRecoveryDialog('change')">修改</button>
-                <button class="btn-pwd-change hidden" id="recoveryPwdResetBtn" onclick="showRecoveryDialog('reset')">忘记旧密码时重置</button>
+                <button class="btn-pwd-change hidden" id="recoveryPwdChangeBtn" data-action="show-recovery" data-mode="change">修改</button>
+                <button class="btn-pwd-change hidden" id="recoveryPwdResetBtn" data-action="show-recovery" data-mode="reset">忘记旧密码时重置</button>
               </div>
             </div>
             <!-- 锁屏会话超时 -->
@@ -784,7 +794,7 @@
             </div>
           </div>
           <div class="ssec-body">
-            <button class="btn-open-group-modal" onclick="openGroupModal('manage')">
+            <button class="btn-open-group-modal" data-action="open-groups" data-mode="manage">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
               打开分组管理
             </button>
@@ -811,7 +821,7 @@
                   <div class="export-title">完整导出（JSON）</div>
                   <div class="export-desc">包含记录、分组层级、敏感标记和敏感过滤规则</div>
                 </div>
-                <button class="btn-export" onclick="doExport('data-json')">
+                <button class="btn-export" data-action="export" data-format="data-json">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   JSON
                 </button>
@@ -821,7 +831,7 @@
                   <div class="export-title">完整导出（Excel）</div>
                   <div class="export-desc">包含 Records、Groups、ItemGroups 和 SensitiveRules 四个工作表</div>
                 </div>
-                <button class="btn-export" onclick="doExport('data-xlsx')">
+                <button class="btn-export" data-action="export" data-format="data-xlsx">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   Excel
                 </button>
@@ -831,7 +841,7 @@
                   <div class="export-title">完整加密导出（.cvexport）</div>
                   <div class="export-desc">包含完整导出内容并使用密码加密，适合迁移或备份</div>
                 </div>
-                <button class="btn-export" onclick="doExportCvexport()">
+                <button class="btn-export" data-action="export-encrypted">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                   加密导出
                 </button>
@@ -860,7 +870,7 @@
                   <div class="export-title">导入数据</div>
                   <div class="export-desc">支持 JSON、Excel 和加密 .cvexport；目录备份与邮件备份文件可直接导入</div>
                 </div>
-                <button class="btn-export" onclick="showImportDialog()">
+                <button class="btn-export" data-action="show-import">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   选择文件
                 </button>
@@ -884,7 +894,7 @@
         </div>
 
         <!-- 目录备份 -->
-        <div class="ssec-fields" style="margin-bottom:20px">
+        <div class="ssec-fields u-inline-9">
           <div class="field-row">
             <div class="field-info">
               <label class="field-label">目录备份</label>
@@ -917,14 +927,14 @@
               <label class="field-label" for="cfg-dirBackupDir">目标目录</label>
               <p class="field-hint">备份文件保存的目录路径</p>
             </div>
-            <input type="text" id="cfg-dirBackupDir" class="field-input" style="width:280px" placeholder="D:\ClipVault-Backups">
+            <input type="text" id="cfg-dirBackupDir" class="field-input u-inline-8" placeholder="D:\ClipVault-Backups">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-dirBackupFormat">备份格式</label>
               <p class="field-hint">JSON/Excel 明文，或加密 .cvexport 格式</p>
             </div>
-            <select id="cfg-dirBackupFormat" class="field-input" style="width:150px">
+            <select id="cfg-dirBackupFormat" class="field-input u-inline-10">
               <option value="cvexport">加密（推荐）</option>
               <option value="json">JSON（明文）</option>
               <option value="xlsx">Excel（明文）</option>
@@ -935,7 +945,7 @@
               <label class="field-label" for="cfg-dirBackupScope">备份范围</label>
               <p class="field-hint">增量只备份上次后新增的记录（按 id），定期自动全量兜底</p>
             </div>
-            <select id="cfg-dirBackupScope" class="field-input" style="width:150px">
+            <select id="cfg-dirBackupScope" class="field-input u-inline-10">
               <option value="full">全量（推荐）</option>
               <option value="incremental">增量</option>
             </select>
@@ -947,14 +957,14 @@
             </div>
             <input type="number" id="cfg-dirBackupIncrementalFullInterval" class="field-input field-input-sm" min="0" max="100" step="1" placeholder="7">
           </div>
-          <div class="field-row" id="cfg-dirBackupPwdRow" style="display:none">
+          <div class="field-row u-inline-11" id="cfg-dirBackupPwdRow">
             <div class="field-info">
               <label class="field-label" for="cfg-dirBackupPwd">加密密码</label>
               <p class="field-hint">cvexport 格式的加密密码，留空则保留原密码</p>
             </div>
-            <input type="password" id="cfg-dirBackupPwd" class="field-input" style="width:200px" placeholder="加密密码" autocomplete="new-password">
+            <input type="password" id="cfg-dirBackupPwd" class="field-input u-inline-12" placeholder="加密密码" autocomplete="new-password">
           </div>
-          <div class="field-row" id="cfg-dirBackupPwdClearRow" style="display:none">
+          <div class="field-row u-inline-11" id="cfg-dirBackupPwdClearRow">
             <div class="field-info">
               <label class="field-label">已保存加密密码</label>
               <p class="field-hint"><span id="cfg-dirBackupPwdStatus">已设置</span>，勾选后保存可清除</p>
@@ -969,13 +979,13 @@
               <label class="field-label">立即备份</label>
               <p class="field-hint">立即执行一次目录备份（需要二次验证）</p>
             </div>
-            <button class="btn-export" onclick="doBackupDirNow()">
+            <button class="btn-export" data-action="backup-directory">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               立即备份
             </button>
-            <button class="btn-export" onclick="doBackupDirFullNow()" style="margin-left:8px" title="强制全量并重置增量链">立即全量</button>
+            <button class="btn-export u-inline-13" data-action="backup-directory-full" title="强制全量并重置增量链">立即全量</button>
           </div>
-          <div class="field-row" id="cfg-dirBackupStatusRow" style="display:none">
+          <div class="field-row u-inline-11" id="cfg-dirBackupStatusRow">
             <div class="field-info">
               <label class="field-label">最近备份状态</label>
               <p class="field-hint" id="cfg-dirBackupStatusText">-</p>
@@ -983,7 +993,7 @@
           </div>
         </div>
 
-        <div class="ssec-sep" style="margin-bottom:20px"></div>
+        <div class="ssec-sep u-inline-9"></div>
 
         <!-- 邮件备份 -->
         <div class="ssec-fields">
@@ -1019,7 +1029,7 @@
               <label class="field-label" for="cfg-emailBackupSMTPHost">SMTP 服务器</label>
               <p class="field-hint">如 smtp.gmail.com、smtp.qq.com</p>
             </div>
-            <input type="text" id="cfg-emailBackupSMTPHost" class="field-input" style="width:200px" placeholder="smtp.example.com">
+            <input type="text" id="cfg-emailBackupSMTPHost" class="field-input u-inline-12" placeholder="smtp.example.com">
           </div>
           <div class="field-row">
             <div class="field-info">
@@ -1033,49 +1043,49 @@
               <label class="field-label" for="cfg-emailBackupSMTPUser">SMTP 用户名</label>
               <p class="field-hint">填写时必须为完整邮箱；可信内网 relay 可与密码同时留空</p>
             </div>
-            <input type="email" id="cfg-emailBackupSMTPUser" class="field-input" style="width:200px" placeholder="user@example.com">
+            <input type="email" id="cfg-emailBackupSMTPUser" class="field-input u-inline-12" placeholder="user@example.com">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupSMTPPass">SMTP 密码</label>
               <p class="field-hint">SMTP 授权码或密码；用户名和密码必须同时填写或同时留空</p>
             </div>
-            <input type="password" id="cfg-emailBackupSMTPPass" class="field-input" style="width:200px" placeholder="SMTP 密码" autocomplete="new-password">
+            <input type="password" id="cfg-emailBackupSMTPPass" class="field-input u-inline-12" placeholder="SMTP 密码" autocomplete="new-password">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupFrom">发件人邮箱</label>
               <p class="field-hint">发送邮件的邮箱地址</p>
             </div>
-            <input type="email" id="cfg-emailBackupFrom" class="field-input" style="width:200px" placeholder="from@example.com">
+            <input type="email" id="cfg-emailBackupFrom" class="field-input u-inline-12" placeholder="from@example.com">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupTo">收件人邮箱</label>
               <p class="field-hint">接收备份的邮箱地址</p>
             </div>
-            <input type="email" id="cfg-emailBackupTo" class="field-input" style="width:200px" placeholder="to@example.com">
+            <input type="email" id="cfg-emailBackupTo" class="field-input u-inline-12" placeholder="to@example.com">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupSubject">邮件标题</label>
               <p class="field-hint">可用 {time}、{filename}、{format}</p>
             </div>
-            <input type="text" id="cfg-emailBackupSubject" class="field-input" style="width:280px" maxlength="200">
+            <input type="text" id="cfg-emailBackupSubject" class="field-input u-inline-8" maxlength="200">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupBody">邮件正文</label>
               <p class="field-hint">纯文本安全渲染，支持换行及 {time}、{filename}、{format}</p>
             </div>
-            <textarea id="cfg-emailBackupBody" class="field-input" style="width:280px;height:96px;resize:vertical" maxlength="5000"></textarea>
+            <textarea id="cfg-emailBackupBody" class="field-input u-inline-14" maxlength="5000"></textarea>
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupStyle">邮件样式</label>
               <p class="field-hint">使用邮箱兼容的受控版式</p>
             </div>
-            <select id="cfg-emailBackupStyle" class="field-input" style="width:150px">
+            <select id="cfg-emailBackupStyle" class="field-input u-inline-10">
               <option value="plain">简洁</option>
               <option value="card">卡片</option>
               <option value="accent">强调</option>
@@ -1086,14 +1096,14 @@
               <label class="field-label" for="cfg-emailBackupAccentColor">邮件主色</label>
               <p class="field-hint">用于卡片和强调样式</p>
             </div>
-            <input type="color" id="cfg-emailBackupAccentColor" value="#16A34A" style="width:46px;height:32px;padding:2px">
+            <input type="color" id="cfg-emailBackupAccentColor" value="#16A34A" class="u-inline-15">
           </div>
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupFormat">备份格式</label>
               <p class="field-hint">推荐加密 .cvexport；JSON/Excel 附件会以明文保存在邮件系统中</p>
             </div>
-            <select id="cfg-emailBackupFormat" class="field-input" style="width:150px">
+            <select id="cfg-emailBackupFormat" class="field-input u-inline-10">
               <option value="cvexport">加密（推荐）</option>
               <option value="json">JSON（明文）</option>
               <option value="xlsx">Excel（明文）</option>
@@ -1104,7 +1114,7 @@
               <label class="field-label" for="cfg-emailBackupScope">备份范围</label>
               <p class="field-hint">增量只备份上次后新增的记录；数据量大时附件自动分多封发送</p>
             </div>
-            <select id="cfg-emailBackupScope" class="field-input" style="width:150px">
+            <select id="cfg-emailBackupScope" class="field-input u-inline-10">
               <option value="full">全量（推荐）</option>
               <option value="incremental">增量</option>
             </select>
@@ -1123,14 +1133,14 @@
             </div>
             <input type="number" id="cfg-emailBackupIncrementalFullInterval" class="field-input field-input-sm" min="0" max="100" step="1" placeholder="7">
           </div>
-          <div class="field-row" id="cfg-emailBackupPwdRow" style="display:none">
+          <div class="field-row u-inline-11" id="cfg-emailBackupPwdRow">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupPwd">加密密码</label>
               <p class="field-hint">cvexport 格式的加密密码，留空则保留原密码</p>
             </div>
-            <input type="password" id="cfg-emailBackupPwd" class="field-input" style="width:200px" placeholder="加密密码" autocomplete="new-password">
+            <input type="password" id="cfg-emailBackupPwd" class="field-input u-inline-12" placeholder="加密密码" autocomplete="new-password">
           </div>
-          <div class="field-row" id="cfg-emailBackupPwdClearRow" style="display:none">
+          <div class="field-row u-inline-11" id="cfg-emailBackupPwdClearRow">
             <div class="field-info">
               <label class="field-label">已保存加密密码</label>
               <p class="field-hint"><span id="cfg-emailBackupPwdStatus">已设置</span>，勾选后保存可清除</p>
@@ -1145,7 +1155,7 @@
               <label class="field-label">测试邮件</label>
               <p class="field-hint">发送一封测试邮件验证 SMTP 配置（需要二次验证）</p>
             </div>
-            <button class="btn-export" onclick="doBackupEmailTest()">
+            <button class="btn-export" data-action="backup-email-test">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
               发送测试
             </button>
@@ -1155,13 +1165,13 @@
               <label class="field-label">立即邮件备份</label>
               <p class="field-hint">立即发送一封备份邮件（需要二次验证）</p>
             </div>
-            <button class="btn-export" onclick="doBackupEmailNow()">
+            <button class="btn-export" data-action="backup-email">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               立即发送
             </button>
-            <button class="btn-export" onclick="doBackupEmailFullNow()" style="margin-left:8px" title="强制全量并重置增量链">立即全量</button>
+            <button class="btn-export u-inline-13" data-action="backup-email-full" title="强制全量并重置增量链">立即全量</button>
           </div>
-          <div class="field-row" id="cfg-emailBackupStatusRow" style="display:none">
+          <div class="field-row u-inline-11" id="cfg-emailBackupStatusRow">
             <div class="field-info">
               <label class="field-label">最近备份状态</label>
               <p class="field-hint" id="cfg-emailBackupStatusText">-</p>
@@ -1172,7 +1182,7 @@
               <label class="field-label">发送历史</label>
               <p class="field-hint">只读查看最近 100 条成功发送的备份记录</p>
             </div>
-            <button class="btn-export" type="button" onclick="showEmailBackupHistory()">
+            <button class="btn-export" type="button" data-action="backup-email-history">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-8"/></svg>
               查看历史
             </button>
@@ -1185,11 +1195,11 @@
   </main>
 
   <!-- ── 来源应用管理弹窗 ── -->
-  <div class="modal-overlay hidden" id="sourceAppsModal" onclick="closeSourceAppsDialog()">
-    <div class="modal-box source-apps-modal" role="dialog" aria-modal="true" aria-labelledby="sourceAppsTitle" onclick="event.stopPropagation()">
+  <div class="modal-overlay hidden" id="sourceAppsModal" data-action="close-source-apps">
+    <div class="modal-box source-apps-modal" role="dialog" aria-modal="true" aria-labelledby="sourceAppsTitle" data-modal-panel>
       <div class="modal-head">
         <span class="modal-title" id="sourceAppsTitle">管理来源应用</span>
-        <button class="modal-close" type="button" onclick="closeSourceAppsDialog()" aria-label="关闭">
+        <button class="modal-close" type="button" data-action="close-source-apps" aria-label="关闭">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -1207,24 +1217,24 @@
       <div class="source-apps-footer">
         <span class="field-hint" id="sourceAppsSelectionHint"></span>
         <div class="source-apps-actions">
-          <button class="btn-cancel" type="button" onclick="closeSourceAppsDialog()">取消</button>
-          <button class="lock-btn" id="sourceAppsSaveBtn" type="button" onclick="saveSourceAppsDialog()">保存</button>
+          <button class="btn-cancel" type="button" data-action="close-source-apps">取消</button>
+          <button class="lock-btn" id="sourceAppsSaveBtn" type="button" data-action="save-source-apps">保存</button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- ── 内容预览弹窗 ── -->
-  <div class="modal-overlay hidden" id="viewModal" onclick="closeModal()">
-    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle" onclick="event.stopPropagation()">
+  <div class="modal-overlay hidden" id="viewModal" data-action="close-view-modal">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle" data-modal-panel>
       <div class="modal-head">
         <span class="modal-title" id="modalTitle">内容预览</span>
         <div class="modal-acts">
-          <button class="ab cp" id="modalCopyBtn" onclick="modalCopy()">
+          <button class="ab cp" id="modalCopyBtn" data-action="modal-copy">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             复制
           </button>
-          <button class="modal-close" onclick="closeModal()" title="关闭">
+          <button class="modal-close" data-action="close-view-modal" title="关闭">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -1245,7 +1255,7 @@
       <h2 class="lock-title" id="lockTitle">ClipVault 锁屏</h2>
       <p class="lock-desc">请输入锁屏密码以访问 Web 界面</p>
       <form id="lockForm" class="lock-form">
-        <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+        <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
         <input type="password" id="lockPassword" class="lock-input" placeholder="锁屏密码" autocomplete="current-password" autofocus>
         <button type="submit" class="lock-btn" id="lockBtn">解锁</button>
       </form>
@@ -1255,20 +1265,20 @@
 
   <!-- ── 二次密码弹窗 ── -->
   <div class="modal-overlay hidden" id="secondaryModal">
-    <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+    <div class="modal-box secondary-box" data-modal-panel>
       <div class="modal-head">
         <span class="modal-title">二次验证</span>
-        <button class="modal-close" onclick="closeSecondaryModal()">
+        <button class="modal-close" data-action="close-secondary">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="modal-body" style="height:auto;padding:24px">
+      <div class="modal-body u-inline-16">
         <div class="secondary-icon">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         </div>
         <p class="secondary-desc">此操作需要二次密码验证。请输入二次密码以继续。</p>
         <form id="secondaryForm" class="lock-form">
-          <input type="text" name="username" autocomplete="username" value="clipvault" style="display:none" aria-hidden="true">
+          <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
           <input type="password" id="secondaryPassword" class="lock-input" placeholder="二次密码" autocomplete="current-password">
           <button type="submit" class="lock-btn" id="secondaryBtn">验证</button>
         </form>
@@ -1279,8 +1289,8 @@
 
   <!-- ── 重启遮罩 ── -->
   <div class="modal-overlay hidden" id="restartOverlay">
-    <div class="modal-box secondary-box" onclick="event.stopPropagation()">
-      <div class="modal-body" style="height:auto;padding:32px;text-align:center">
+    <div class="modal-box secondary-box" data-modal-panel>
+      <div class="modal-body u-inline-17">
         <div class="restart-spinner" id="restartSpinner"></div>
         <h2 class="restart-title">正在重启服务</h2>
         <p class="restart-desc">新页面将自动在新标签页打开，可关闭本页面</p>
@@ -1290,15 +1300,15 @@
 
   <!-- ── 重启确认对话框 ── -->
   <div class="modal-overlay hidden" id="restartConfirm">
-    <div class="modal-box secondary-box" onclick="event.stopPropagation()">
+    <div class="modal-box secondary-box" data-modal-panel>
       <div class="modal-head">
         <span class="modal-title">重启确认</span>
       </div>
-      <div class="modal-body" style="height:auto;padding:24px">
-        <p style="margin:0 0 16px;color:var(--sub)">监听地址已修改，需要重启服务才能生效。是否立即重启？</p>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
+      <div class="modal-body u-inline-16">
+        <p class="u-inline-18">监听地址已修改，需要重启服务才能生效。是否立即重启？</p>
+        <div class="u-inline-19">
           <button class="btn-cancel" id="restartCancelBtn">稍后</button>
-          <button class="lock-btn" id="restartConfirmBtn" style="width:auto;padding:8px 20px">立即重启</button>
+          <button class="lock-btn u-inline-20" id="restartConfirmBtn">立即重启</button>
         </div>
       </div>
     </div>
@@ -1311,6 +1321,6 @@
   <div class="tc" id="tc"></div>
   <script src="/theme-utils.js"></script>
 	<script src="/hotkey-utils.js"></script>
-  <script src="/script.js"></script>
+  <script type="module" src="/script.js"></script>
 </body>
 </html>

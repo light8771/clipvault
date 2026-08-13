@@ -81,7 +81,10 @@ assert.equal(hotkey.vkToDisplay(0x87), 'F24');
 assert.equal(hotkey.vkToDisplay(0x1B), '');
 
 const script = fs.readFileSync(path.join(__dirname, 'script.js'), 'utf8');
-const stylesheet = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+const stylesheet = fs.readdirSync(__dirname)
+  .filter(name => name.endsWith('.css'))
+  .map(name => fs.readFileSync(path.join(__dirname, name), 'utf8'))
+  .join('\n');
 assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.primary/);
 assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.accent/);
 assert.match(script, /--on-p/, 'the primary foreground token must be set at runtime');

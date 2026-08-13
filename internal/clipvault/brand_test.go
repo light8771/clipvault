@@ -500,7 +500,7 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("public appearance = status %d, value %#v, error %v", appearanceRes.StatusCode, appearance, appearanceDecodeErr)
 	}
 
-	styleRes, err := client.Get(url + "style.css")
+	styleRes, err := client.Get(url + "settings.css")
 	if err != nil {
 		t.Fatalf("get stylesheet: %v", err)
 	}
