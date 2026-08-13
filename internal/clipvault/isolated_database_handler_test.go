@@ -10,7 +10,7 @@ import (
 
 func TestIsolatedDatabaseSwitchHandlerRequiresFreshSecondaryAuth(t *testing.T) {
 	server := &SearchServer{}
-	request := httptest.NewRequest(http.MethodPost, "/api/recovery/isolated/switch", strings.NewReader(`{}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/recovery/isolated-switch", strings.NewReader(`{}`))
 	result := httptest.NewRecorder()
 	server.handleIsolatedDatabaseSwitch(result, request)
 	if result.Code != http.StatusForbidden {
@@ -28,7 +28,7 @@ func TestIsolatedDatabaseSwitchHandlersScheduleAndCancel(t *testing.T) {
 	server := &SearchServer{env: Environment{DataDir: fixture.dataDir}, logger: logger}
 
 	body := `{"id":"` + fixture.targetID + `","password":"` + isolatedTestPassword + `"}`
-	request := httptest.NewRequest(http.MethodPost, "/api/recovery/isolated/switch", strings.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/recovery/isolated-switch", strings.NewReader(body))
 	request = request.WithContext(context.WithValue(request.Context(), freshSecondaryContextKey{}, true))
 	result := httptest.NewRecorder()
 	server.handleIsolatedDatabaseSwitch(result, request)
@@ -43,7 +43,7 @@ func TestIsolatedDatabaseSwitchHandlersScheduleAndCancel(t *testing.T) {
 		t.Fatalf("pending id = %q", status.PendingID)
 	}
 
-	request = httptest.NewRequest(http.MethodDelete, "/api/recovery/isolated/switch", nil)
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/recovery/isolated-switch", nil)
 	request = request.WithContext(context.WithValue(request.Context(), freshSecondaryContextKey{}, true))
 	result = httptest.NewRecorder()
 	server.handleIsolatedDatabaseSwitchCancel(result, request)

@@ -39,6 +39,39 @@ func TestStoreSaveAndSearch(t *testing.T) {
 	}
 }
 
+func TestCurrentSchemaUsesTypedTimestampsAndIdentity(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	for _, column := range []struct {
+		table string
+		name  string
+	}{
+		{table: "clipboard_items", name: "created_at"},
+		{table: "groups", name: "created_at"},
+		{table: "email_backup_history", name: "sent_at"},
+	} {
+		var dataType string
+		if err := store.db.QueryRow(`SELECT data_type FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, column.table, column.name).Scan(&dataType); err != nil {
+			t.Fatalf("query %s.%s type: %v", column.table, column.name, err)
+		}
+		if dataType != "TIMESTAMP WITH TIME ZONE" {
+			t.Errorf("%s.%s type=%q", column.table, column.name, dataType)
+		}
+	}
+	var identity string
+	if err := store.db.QueryRow(`SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.identity'`).Scan(&identity); err != nil {
+		t.Fatal(err)
+	}
+	if identity != storeSchemaIdentity {
+		t.Fatalf("schema identity=%q, want %q", identity, storeSchemaIdentity)
+	}
+}
+
 func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {

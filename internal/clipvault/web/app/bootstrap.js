@@ -69,6 +69,14 @@ import { appStore } from './store.js';
 		event.preventDefault();
 		action(target, event);
 	});
+	document.querySelectorAll('[data-credential-form]').forEach(form => {
+		form.addEventListener('submit', event => event.preventDefault());
+	});
+	const smtpUser = document.getElementById('cfg-emailBackupSMTPUser');
+	const smtpCredentialUser = document.getElementById('cfg-emailBackupSMTPCredentialUser');
+	if (smtpUser && smtpCredentialUser) {
+		smtpUser.addEventListener('input', () => { smtpCredentialUser.value = smtpUser.value; });
+	}
 
   const Q    = document.getElementById('q'),
         PAGESIZE = document.getElementById('pagesize'),

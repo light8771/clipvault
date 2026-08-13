@@ -19,7 +19,10 @@ test('API envelopes normalize success and error responses', () => {
     { ok: false, code: 'secondary_required', error: '需要二次认证' },
   );
   assert.deepEqual(unwrapAPIEnvelope({ data: { ok: true } }), { ok: true });
-  assert.deepEqual(unwrapAPIEnvelope({ ok: true }), { ok: true });
+	assert.throws(
+		() => unwrapAPIEnvelope({ ok: true }),
+		(error) => error.code === 'invalid_response',
+	);
 });
 
 test('protected requests prompt again and retry only for the exact secondary error', async () => {

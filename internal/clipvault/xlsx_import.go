@@ -47,6 +47,17 @@ func decodeImportXLSX(data []byte) (ExportData, error) {
 	if err := validateXLSXSheets(book); err != nil {
 		return ExportData{}, err
 	}
+	manifest, err := readXLSXRows(book, xlsxManifestSheet, xlsxManifestHeader)
+	if err != nil {
+		return ExportData{}, err
+	}
+	if len(manifest) != 1 || manifest[0][0] != "ClipVault" {
+		return ExportData{}, fmt.Errorf("invalid XLSX manifest")
+	}
+	version, err := strconv.Atoi(manifest[0][1])
+	if err != nil || version != currentExportVersion {
+		return ExportData{}, fmt.Errorf("unsupported XLSX export version %q", manifest[0][1])
+	}
 	records, err := readXLSXRows(book, xlsxRecordsSheet, xlsxRecordsHeader)
 	if err != nil {
 		return ExportData{}, err
@@ -101,11 +112,11 @@ func decodeImportXLSX(data []byte) (ExportData, error) {
 
 func validateXLSXSheets(book *excelize.File) error {
 	want := map[string]struct{}{
-		xlsxRecordsSheet: {}, xlsxGroupsSheet: {}, xlsxItemGroupsSheet: {}, xlsxSensitiveRulesSheet: {},
+		xlsxManifestSheet: {}, xlsxRecordsSheet: {}, xlsxGroupsSheet: {}, xlsxItemGroupsSheet: {}, xlsxSensitiveRulesSheet: {},
 	}
 	sheets := book.GetSheetList()
 	if len(sheets) != len(want) {
-		return fmt.Errorf("invalid XLSX sheets: expected Records, Groups, ItemGroups, SensitiveRules")
+		return fmt.Errorf("invalid XLSX sheets: expected Manifest, Records, Groups, ItemGroups, SensitiveRules")
 	}
 	for _, sheet := range sheets {
 		if _, ok := want[sheet]; !ok {

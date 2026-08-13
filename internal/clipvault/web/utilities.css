@@ -34,3 +34,5 @@
 .u-inline-33 { text-align:left }
 .u-inline-34 { margin:0 0 16px;color:var(--sub);font-size:14px }
 .u-inline-35 { width:auto;padding:8px 20px;background:var(--danger) }
+.credential-form { margin:0 }
+.credential-username { position:absolute;width:1px;height:1px;padding:0;border:0;clip-path:inset(50%);overflow:hidden;white-space:nowrap }

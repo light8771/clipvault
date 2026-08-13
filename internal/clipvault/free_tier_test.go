@@ -124,7 +124,7 @@ func TestHandleSearchFreeTierWindow(t *testing.T) {
 	}
 
 	unlicensed := newFreeTierTestServer(t, store, newUnlicensedManager(t))
-	resp := search(unlicensed, "/api/search?limit=500")
+	resp := search(unlicensed, "/api/v1/items?limit=500")
 	if got := int(resp["total"].(float64)); got != FreeTierVisibleLimit {
 		t.Fatalf("unlicensed total=%d, want %d", got, FreeTierVisibleLimit)
 	}
@@ -136,21 +136,21 @@ func TestHandleSearchFreeTierWindow(t *testing.T) {
 	}
 
 	// 窗口内搜索语义：窗口外的记录搜不到
-	resp = search(unlicensed, "/api/search?q=ancient&limit=500")
+	resp = search(unlicensed, "/api/v1/items?q=ancient&limit=500")
 	if got := int(resp["total"].(float64)); got != 0 {
 		t.Fatalf("unlicensed out-of-window query total=%d, want 0", got)
 	}
 
 	// 无授权 Manager（未配置强制）视为完整功能：不受窗口限制，也不返回 fullTotal
 	licensed := newFreeTierTestServer(t, store, nil)
-	resp = search(licensed, "/api/search?limit=500")
+	resp = search(licensed, "/api/v1/items?limit=500")
 	if got := int(resp["total"].(float64)); got != FreeTierVisibleLimit+10 {
 		t.Fatalf("licensed total=%d, want %d", got, FreeTierVisibleLimit+10)
 	}
 	if _, ok := resp["fullTotal"]; ok {
 		t.Fatal("licensed response must not contain fullTotal")
 	}
-	resp = search(licensed, "/api/search?q=ancient&limit=500")
+	resp = search(licensed, "/api/v1/items?q=ancient&limit=500")
 	if got := int(resp["total"].(float64)); got != 1 {
 		t.Fatalf("licensed query total=%d, want 1", got)
 	}
@@ -180,7 +180,7 @@ func TestHandleItemPositionFreeTier(t *testing.T) {
 
 	// 窗口内：正常返回 position
 	w := httptest.NewRecorder()
-	unlicensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/items/position?id="+strconv.FormatInt(newestID, 10), nil))
+	unlicensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/v1/items/position?id="+strconv.FormatInt(newestID, 10), nil))
 	var okResp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &okResp); err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestHandleItemPositionFreeTier(t *testing.T) {
 
 	// 窗口外：返回 402 + 错误提示（#19 统一契约：窗口外定位不再是 200 成功码）
 	w = httptest.NewRecorder()
-	unlicensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/items/position?id="+strconv.FormatInt(oldestID, 10), nil))
+	unlicensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/v1/items/position?id="+strconv.FormatInt(oldestID, 10), nil))
 	if w.Code != http.StatusPaymentRequired {
 		t.Fatalf("out-of-window position status = %d, want 402", w.Code)
 	}
@@ -206,7 +206,7 @@ func TestHandleItemPositionFreeTier(t *testing.T) {
 	// 完整功能：窗口外也能定位
 	licensed := newFreeTierTestServer(t, store, nil)
 	w = httptest.NewRecorder()
-	licensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/items/position?id="+strconv.FormatInt(oldestID, 10), nil))
+	licensed.handleItemPosition(w, httptest.NewRequest(http.MethodGet, "/api/v1/items/position?id="+strconv.FormatInt(oldestID, 10), nil))
 	var licResp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &licResp); err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func TestHandleSourceExesFreeTierUsesVisibleWindow(t *testing.T) {
 
 	server := newFreeTierTestServer(t, store, newUnlicensedManager(t))
 	result := httptest.NewRecorder()
-	server.handleSourceExes(result, httptest.NewRequest(http.MethodGet, "/api/source-exes", nil))
+	server.handleSourceExes(result, httptest.NewRequest(http.MethodGet, "/api/v1/items/sources", nil))
 	if result.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", result.Code, result.Body.String())
 	}
@@ -262,7 +262,7 @@ func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 	// 未激活：402 + license_required
 	unlicensed := newFreeTierTestServer(t, store, newUnlicensedManager(t))
 	w := httptest.NewRecorder()
-	unlicensed.handleExportData(w, httptest.NewRequest(http.MethodGet, "/api/export/data?format=json", nil))
+	unlicensed.handleExportData(w, httptest.NewRequest(http.MethodGet, "/api/v1/transfer/export?format=json", nil))
 	if w.Code != http.StatusPaymentRequired {
 		t.Fatalf("unlicensed export status = %d, want 402", w.Code)
 	}
@@ -277,7 +277,7 @@ func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 	// 完整功能：正常导出
 	licensed := newFreeTierTestServer(t, store, nil)
 	w = httptest.NewRecorder()
-	licensed.handleExportData(w, httptest.NewRequest(http.MethodGet, "/api/export/data?format=json", nil))
+	licensed.handleExportData(w, httptest.NewRequest(http.MethodGet, "/api/v1/transfer/export?format=json", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("licensed export status = %d, body=%s", w.Code, w.Body.String())
 	}
@@ -336,7 +336,7 @@ func TestRecordedFileFreeTierWindow(t *testing.T) {
 		t.Helper()
 		w := httptest.NewRecorder()
 		server.handleFileCheck(w, httptest.NewRequest(http.MethodGet,
-			"/api/file/check?item_id="+strconv.FormatInt(itemID, 10)+"&file_index=0", nil))
+			"/api/v1/files/check?item_id="+strconv.FormatInt(itemID, 10)+"&file_index=0", nil))
 		var resp map[string]any
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decode body %q: %v", w.Body.String(), err)

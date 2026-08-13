@@ -29,9 +29,9 @@ var (
 
 const storeSchemaVersion = duckdbstorage.SchemaVersion
 
-const maxGroupNameRunes = 100
+const storeSchemaIdentity = duckdbstorage.SchemaIdentity
 
-const emailBackupHistoryTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
+const maxGroupNameRunes = 100
 
 // FreeTierVisibleLimit 是未激活（免费版）可浏览/检索的最近记录条数。
 // 数据照常录制入库；未激活时所有读取入口（列表、搜索、弹窗）只作用于这个窗口。
@@ -111,17 +111,12 @@ const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanStoredItem(row rowScanner, item *StoredItem) error {
-	var created string
-	if err := row.Scan(&item.ID, &created, &item.Kind, &item.Format, &item.Text,
+	if err := row.Scan(&item.ID, &item.CreatedAt, &item.Kind, &item.Format, &item.Text,
 		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive,
 		&item.SourceExeName, &item.SourceExePath, &item.SourceWindowTitle, &item.SourceMethod); err != nil {
 		return err
 	}
-	parsed, err := time.Parse(time.RFC3339Nano, created)
-	if err != nil {
-		return fmt.Errorf("parse item %d created_at: %w", item.ID, err)
-	}
-	item.CreatedAt = parsed
+	item.CreatedAt = item.CreatedAt.UTC()
 	return nil
 }
 
@@ -320,8 +315,13 @@ func (s *Store) initializeSchema() error {
 	if err != nil {
 		return fmt.Errorf("encode default config: %w", err)
 	}
+	identityJSON, err := json.Marshal(storeSchemaIdentity)
+	if err != nil {
+		return fmt.Errorf("encode schema identity: %w", err)
+	}
 	for key, value := range map[string]string{
 		"schema.version":   storeSchemaVersion,
+		"schema.identity":  string(identityJSON),
 		"config":           string(configJSON),
 		"config.last_good": string(configJSON),
 	} {
@@ -336,12 +336,17 @@ func (s *Store) initializeSchema() error {
 }
 
 func (s *Store) validateSchema() error {
-	var version string
-	if err := s.db.QueryRow(`SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.version'`).Scan(&version); err != nil {
+	var version, identity string
+	if err := s.db.QueryRow(`SELECT
+		(SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.version'),
+		(SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.identity')`).Scan(&version, &identity); err != nil {
 		return fmt.Errorf("unsupported database schema; rebuild the development database: %w", err)
 	}
 	if version != storeSchemaVersion {
 		return fmt.Errorf("unsupported database schema version %q; rebuild the development database", version)
+	}
+	if identity != storeSchemaIdentity {
+		return fmt.Errorf("unsupported database schema identity %q; rebuild the development database", identity)
 	}
 	return nil
 }

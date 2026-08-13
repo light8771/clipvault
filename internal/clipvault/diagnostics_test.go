@@ -238,7 +238,7 @@ func TestHandleDiagnosticExportCleansTemporaryArchive(t *testing.T) {
 	defer logger.Close()
 	server := &SearchServer{env: Environment{LogDir: t.TempDir()}, logger: logger}
 	result := httptest.NewRecorder()
-	server.handleDiagnosticExport(result, httptest.NewRequest("GET", "/api/diagnostics/export", nil))
+	server.handleDiagnosticExport(result, httptest.NewRequest("GET", "/api/v1/diagnostics", nil))
 	if result.Code != 200 {
 		t.Fatalf("diagnostic export status = %d", result.Code)
 	}

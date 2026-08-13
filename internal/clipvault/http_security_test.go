@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,7 +40,7 @@ func TestSecureHTTPRejectsCrossOriginAndMissingCSRF(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765/api/test", nil)
+			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765/api/v1/test", nil)
 			req.Host = "127.0.0.1:18765"
 			if tt.origin != "" {
 				req.Header.Set("Origin", tt.origin)
@@ -52,7 +53,32 @@ func TestSecureHTTPRejectsCrossOriginAndMissingCSRF(t *testing.T) {
 			if w.Code != tt.want {
 				t.Fatalf("got %d, want %d", w.Code, tt.want)
 			}
+			if tt.want == http.StatusForbidden {
+				assertAPIErrorEnvelope(t, w, map[string]string{
+					"missing token": "csrf_invalid",
+					"cross origin":  "invalid_origin",
+				}[tt.name])
+			}
 		})
+	}
+}
+
+func assertAPIErrorEnvelope(t *testing.T, recorder *httptest.ResponseRecorder, wantCode string) {
+	t.Helper()
+	var envelope struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("security response is not JSON: %v; body=%q", err, recorder.Body.String())
+	}
+	if envelope.Error.Code != wantCode || envelope.Error.Message == "" {
+		t.Fatalf("security envelope=%+v, want code %q", envelope, wantCode)
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("security API error is cacheable: %q", recorder.Header().Get("Cache-Control"))
 	}
 }
 
@@ -61,13 +87,14 @@ func TestSecureHTTPRejectsInvalidHost(t *testing.T) {
 	h := s.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}), "127.0.0.1", 18765)
-	req := httptest.NewRequest(http.MethodGet, "http://attacker.example/api/state", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://attacker.example/api/v1/runtime", nil)
 	req.Host = "attacker.example"
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("got %d, want %d", w.Code, http.StatusForbidden)
 	}
+	assertAPIErrorEnvelope(t, w, "invalid_host")
 }
 
 func TestSecureHTTPAllowsConfiguredLANHostAndRejectsOtherHosts(t *testing.T) {
@@ -85,7 +112,7 @@ func TestSecureHTTPAllowsConfiguredLANHostAndRejectsOtherHosts(t *testing.T) {
 		{host: "192.168.1.11:18765", want: http.StatusForbidden},
 		{host: "attacker.example:18765", want: http.StatusForbidden},
 	} {
-		req := httptest.NewRequest(http.MethodGet, "http://"+tt.host+"/api/state", nil)
+		req := httptest.NewRequest(http.MethodGet, "http://"+tt.host+"/api/v1/runtime", nil)
 		req.Host = tt.host
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

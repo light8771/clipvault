@@ -332,6 +332,50 @@ func TestImportXLSXRejectsInvalidWorkbookAtomically(t *testing.T) {
 	}
 }
 
+func TestImportXLSXRequiresCurrentManifest(t *testing.T) {
+	export := &ExportData{
+		ExportVersion: currentExportVersion,
+		App:           "ClipVault",
+		Settings:      ExportSettings{Sensitive: SensitiveConfig{CustomPatterns: []string{}}},
+	}
+	data, err := encodeExportXLSX(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*excelize.File) error
+	}{
+		{name: "missing manifest", mutate: func(book *excelize.File) error { return book.DeleteSheet(xlsxManifestSheet) }},
+		{name: "wrong app", mutate: func(book *excelize.File) error { return book.SetCellStr(xlsxManifestSheet, "A2", "Other") }},
+		{name: "wrong version", mutate: func(book *excelize.File) error { return book.SetCellStr(xlsxManifestSheet, "B2", "3") }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			book, err := excelize.OpenReader(bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := test.mutate(book); err != nil {
+				book.Close()
+				t.Fatal(err)
+			}
+			mutated, err := book.WriteToBuffer()
+			closeErr := book.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("write=%v close=%v", err, closeErr)
+			}
+			store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			if err := store.ImportXLSX(context.Background(), mutated.Bytes()); err == nil {
+				t.Fatal("non-current XLSX manifest was accepted")
+			}
+		})
+	}
+}
+
 func TestImportFullJSONRequiresSensitiveRules(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
@@ -553,7 +597,7 @@ func TestXLSXExportEndpoint(t *testing.T) {
 	defer logger.Close()
 	server := &SearchServer{store: store, logger: logger}
 	result := httptest.NewRecorder()
-	server.handleExportData(result, httptest.NewRequest(http.MethodGet, "/api/export/data?format=xlsx", nil))
+	server.handleExportData(result, httptest.NewRequest(http.MethodGet, "/api/v1/transfer/export?format=xlsx", nil))
 	if result.Code != http.StatusOK {
 		t.Fatalf("XLSX export status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -565,16 +609,16 @@ func TestXLSXExportEndpoint(t *testing.T) {
 		t.Fatalf("XLSX export is not a workbook: %v", err)
 	}
 	defer book.Close()
-	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet}) {
+	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxManifestSheet}) {
 		t.Fatalf("XLSX sheets = %#v", book.GetSheetList())
 	}
 	invalidFormat := httptest.NewRecorder()
-	server.handleExportData(invalidFormat, httptest.NewRequest(http.MethodGet, "/api/export/data?format=invalid", nil))
+	server.handleExportData(invalidFormat, httptest.NewRequest(http.MethodGet, "/api/v1/transfer/export?format=invalid", nil))
 	if invalidFormat.Code != http.StatusBadRequest {
 		t.Fatalf("invalid export format status = %d", invalidFormat.Code)
 	}
 	missingFormat := httptest.NewRecorder()
-	server.handleExportData(missingFormat, httptest.NewRequest(http.MethodGet, "/api/export/data", nil))
+	server.handleExportData(missingFormat, httptest.NewRequest(http.MethodGet, "/api/v1/transfer/export", nil))
 	if missingFormat.Code != http.StatusBadRequest {
 		t.Fatalf("missing export format status = %d", missingFormat.Code)
 	}
@@ -616,7 +660,7 @@ func TestImportDataReloadsSensitiveSettings(t *testing.T) {
 	}
 	defer logger.Close()
 	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
-	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "json")
 	result := httptest.NewRecorder()
 	server.handleImportData(result, request)
@@ -668,7 +712,7 @@ func TestImportDataSucceedsWhenRuntimeRefreshFails(t *testing.T) {
 			}
 			defer logger.Close()
 			server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
-			request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 			request.Header.Set("X-ClipVault-Import-Format", "json")
 			result := httptest.NewRecorder()
 			server.handleImportData(result, request)
@@ -732,7 +776,7 @@ func TestImportXLSXReloadsSensitiveSettings(t *testing.T) {
 	}
 	defer logger.Close()
 	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
-	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "xlsx")
 	result := httptest.NewRecorder()
 	server.handleImportData(result, request)
@@ -784,7 +828,7 @@ func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
 	}
 	defer logger.Close()
 	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
-	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "cvexport")
 	request.Header.Set("X-ClipVault-Import-Password", "test-password")
 	result := httptest.NewRecorder()
@@ -870,7 +914,7 @@ func TestImportDataRejectsInvalidCVExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "cvexport")
 	request.Header.Set("X-ClipVault-Import-Password", "wrong-password")
 	result := httptest.NewRecorder()
@@ -906,7 +950,7 @@ func TestImportDataRejectsMismatchedCVExportFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &SearchServer{store: store, logger: logger}
-	request := httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader(data))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "json")
 	request.Header.Set("X-ClipVault-Import-Password", "test-password")
 	result := httptest.NewRecorder()
@@ -929,7 +973,7 @@ func TestImportDataRequiresFormat(t *testing.T) {
 	defer logger.Close()
 	server := &SearchServer{store: store, logger: logger}
 	result := httptest.NewRecorder()
-	server.handleImportData(result, httptest.NewRequest(http.MethodPost, "/api/import/data", bytes.NewReader([]byte(`{}`))))
+	server.handleImportData(result, httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader([]byte(`{}`))))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("missing import format response: status=%d, body=%s", result.Code, result.Body.String())
 	}

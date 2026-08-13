@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // ImportFullJSON imports clipboard data, group hierarchy, and portable
@@ -98,7 +97,7 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			var newID int64
 			err := tx.QueryRowContext(ctx,
 				`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
-				g.Name, parentID, g.CreatedAt.UTC().Format(time.RFC3339Nano),
+				g.Name, parentID, g.CreatedAt.UTC(),
 			).Scan(&newID)
 			if err != nil {
 				return fmt.Errorf("import group %d: %w", g.ID, err)
@@ -138,7 +137,7 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			}
 			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 			args = append(args,
-				item.CreatedAt.UTC().Format(time.RFC3339Nano),
+				item.CreatedAt.UTC(),
 				item.Kind, item.Format, item.Text,
 				item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
 				item.Starred, item.Sensitive,

@@ -24,7 +24,7 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, sensitive,
 		 source_exe_name, source_exe_path, source_window_title, source_method)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		time.Now().UTC().Format(time.RFC3339Nano),
+		time.Now().UTC(),
 		item.Kind,
 		item.Format,
 		item.Text,
@@ -45,7 +45,7 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 func (s *Store) AddEmailBackupHistory(ctx context.Context, record EmailBackupHistory) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO email_backup_history
 		(sent_at, mode, from_address, to_address, format) VALUES (?, ?, ?, ?, ?)`,
-		record.SentAt.UTC().Format(emailBackupHistoryTimeLayout), record.Mode, record.From, record.To, record.Format)
+		record.SentAt.UTC(), record.Mode, record.From, record.To, record.Format)
 	return err
 }
 
@@ -64,15 +64,10 @@ func (s *Store) ListEmailBackupHistory(ctx context.Context, limit int) ([]EmailB
 	history := make([]EmailBackupHistory, 0)
 	for rows.Next() {
 		var record EmailBackupHistory
-		var sentAt string
-		if err := rows.Scan(&sentAt, &record.Mode, &record.From, &record.To, &record.Format); err != nil {
+		if err := rows.Scan(&record.SentAt, &record.Mode, &record.From, &record.To, &record.Format); err != nil {
 			return nil, err
 		}
-		var err error
-		record.SentAt, err = time.Parse(emailBackupHistoryTimeLayout, sentAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse email backup history timestamp: %w", err)
-		}
+		record.SentAt = record.SentAt.UTC()
 		history = append(history, record)
 	}
 	return history, rows.Err()

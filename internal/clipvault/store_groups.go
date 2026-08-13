@@ -24,14 +24,10 @@ func listGroups(ctx context.Context, queryer storeQueryer) ([]StoredGroup, error
 	var groups []StoredGroup
 	for rows.Next() {
 		var g StoredGroup
-		var createdAt string
-		if err := rows.Scan(&g.ID, &g.Name, &g.ParentID, &createdAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.ParentID, &g.CreatedAt); err != nil {
 			return nil, err
 		}
-		g.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse group %d created_at: %w", g.ID, err)
-		}
+		g.CreatedAt = g.CreatedAt.UTC()
 		groups = append(groups, g)
 	}
 	return groups, rows.Err()
@@ -72,7 +68,7 @@ func (s *Store) CreateGroup(ctx context.Context, name string, parentID int64) (S
 	var id int64
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
-		name, parentID, now.Format(time.RFC3339Nano)).Scan(&id)
+		name, parentID, now).Scan(&id)
 	if err != nil {
 		return StoredGroup{}, err
 	}

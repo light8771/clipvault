@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	xlsxManifestSheet       = "Manifest"
 	xlsxRecordsSheet        = "Records"
 	xlsxGroupsSheet         = "Groups"
 	xlsxItemGroupsSheet     = "ItemGroups"
@@ -23,13 +24,14 @@ const (
 )
 
 var (
+	xlsxManifestHeader       = []string{"app", "exportVersion"}
 	xlsxRecordsHeader        = []string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive", "sourceExeName", "sourceExePath", "sourceWindowTitle", "sourceMethod"}
 	xlsxGroupsHeader         = []string{"id", "name", "parentId", "createdAt"}
 	xlsxItemGroupsHeader     = []string{"itemId", "groupId"}
 	xlsxSensitiveRulesHeader = []string{"pattern"}
 )
 
-// ExportXLSX produces a complete, portable spreadsheet export. All four
+// ExportXLSX produces a complete, portable spreadsheet export. All five
 // sheets are required by ImportXLSX and map exactly to ExportData.
 func (s *Store) ExportXLSX(ctx context.Context) ([]byte, error) {
 	return s.ExportXLSXScope(ctx, ExportScope{Mode: "full"})
@@ -66,10 +68,23 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err := book.SetSheetName("Sheet1", xlsxRecordsSheet); err != nil {
 		return 0, fmt.Errorf("create records sheet: %w", err)
 	}
-	for _, sheet := range []string{xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet} {
+	for _, sheet := range []string{xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxManifestSheet} {
 		if _, err := book.NewSheet(sheet); err != nil {
 			return 0, fmt.Errorf("create %s sheet: %w", sheet, err)
 		}
+	}
+	manifest, err := book.NewStreamWriter(xlsxManifestSheet)
+	if err != nil {
+		return 0, fmt.Errorf("open manifest stream: %w", err)
+	}
+	if err := writeXLSXStreamRow(manifest, xlsxManifestSheet, 1, xlsxManifestHeader); err != nil {
+		return 0, err
+	}
+	if err := writeXLSXStreamRow(manifest, xlsxManifestSheet, 2, []string{"ClipVault", strconv.Itoa(currentExportVersion)}); err != nil {
+		return 0, err
+	}
+	if err := manifest.Flush(); err != nil {
+		return 0, fmt.Errorf("flush manifest sheet: %w", err)
 	}
 
 	records, err := book.NewStreamWriter(xlsxRecordsSheet)
@@ -129,12 +144,13 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	rowNumber = 2
 	for groupRows.Next() {
 		var id, parentID int64
-		var name, created string
+		var name string
+		var created time.Time
 		if err := groupRows.Scan(&id, &name, &parentID, &created); err != nil {
 			groupRows.Close()
 			return 0, fmt.Errorf("scan XLSX group: %w", err)
 		}
-		if err := writeXLSXStreamRow(groups, xlsxGroupsSheet, rowNumber, []string{strconv.FormatInt(id, 10), name, strconv.FormatInt(parentID, 10), created}); err != nil {
+		if err := writeXLSXStreamRow(groups, xlsxGroupsSheet, rowNumber, []string{strconv.FormatInt(id, 10), name, strconv.FormatInt(parentID, 10), created.UTC().Format(time.RFC3339Nano)}); err != nil {
 			groupRows.Close()
 			return 0, err
 		}
@@ -237,10 +253,16 @@ func encodeExportXLSX(export *ExportData) ([]byte, error) {
 	if err := book.SetSheetName("Sheet1", xlsxRecordsSheet); err != nil {
 		return nil, fmt.Errorf("create records sheet: %w", err)
 	}
-	for _, sheet := range []string{xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet} {
+	for _, sheet := range []string{xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxManifestSheet} {
 		if _, err := book.NewSheet(sheet); err != nil {
 			return nil, fmt.Errorf("create %s sheet: %w", sheet, err)
 		}
+	}
+	if err := writeXLSXRow(book, xlsxManifestSheet, 1, xlsxManifestHeader); err != nil {
+		return nil, err
+	}
+	if err := writeXLSXRow(book, xlsxManifestSheet, 2, []string{"ClipVault", strconv.Itoa(currentExportVersion)}); err != nil {
+		return nil, err
 	}
 
 	if err := writeXLSXRow(book, xlsxRecordsSheet, 1, xlsxRecordsHeader); err != nil {

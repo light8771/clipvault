@@ -18,7 +18,7 @@ func TestHandleItemAddToGroupRejectsMissingReferences(t *testing.T) {
 	defer store.Close()
 
 	server := &SearchServer{store: store}
-	request := httptest.NewRequest(http.MethodPost, "/api/items/group", bytes.NewBufferString(`{"itemId":999,"groupId":999}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/items/group", bytes.NewBufferString(`{"itemId":999,"groupId":999}`))
 	result := httptest.NewRecorder()
 	server.handleItemAddToGroup(result, request)
 	if result.Code != http.StatusNotFound {
@@ -56,18 +56,18 @@ func TestItemGroupHandlersEnforceFreeTierWindow(t *testing.T) {
 		run    func(http.ResponseWriter, *http.Request)
 	}{
 		{
-			name: "add", method: http.MethodPost, url: "/api/items/group",
+			name: "add", method: http.MethodPost, url: "/api/v1/items/group",
 			body: `{"itemId":` + strconv.FormatInt(itemID, 10) + `,"groupId":` + strconv.FormatInt(group.ID, 10) + `}`,
 			run:  server.handleItemAddToGroup,
 		},
 		{
 			name: "remove", method: http.MethodDelete,
-			url: "/api/items/group?item_id=" + strconv.FormatInt(itemID, 10) + "&group_id=" + strconv.FormatInt(group.ID, 10),
+			url: "/api/v1/items/group?item_id=" + strconv.FormatInt(itemID, 10) + "&group_id=" + strconv.FormatInt(group.ID, 10),
 			run: server.handleItemRemoveFromGroup,
 		},
 		{
 			name: "list", method: http.MethodGet,
-			url: "/api/items/groups?item_id=" + strconv.FormatInt(itemID, 10),
+			url: "/api/v1/items/groups?item_id=" + strconv.FormatInt(itemID, 10),
 			run: server.handleItemGroups,
 		},
 	}
@@ -125,18 +125,18 @@ func TestItemGroupHandlersRequireSecondaryAuthorizationForSensitiveItems(t *test
 		run    func(http.ResponseWriter, *http.Request)
 	}{
 		{
-			name: "add", method: http.MethodPost, url: "/api/items/group",
+			name: "add", method: http.MethodPost, url: "/api/v1/items/group",
 			body: `{"itemId":` + strconv.FormatInt(itemID, 10) + `,"groupId":` + strconv.FormatInt(group.ID, 10) + `}`,
 			run:  server.handleItemAddToGroup,
 		},
 		{
 			name: "list", method: http.MethodGet,
-			url: "/api/items/groups?item_id=" + strconv.FormatInt(itemID, 10),
+			url: "/api/v1/items/groups?item_id=" + strconv.FormatInt(itemID, 10),
 			run: server.handleItemGroups,
 		},
 		{
 			name: "remove", method: http.MethodDelete,
-			url: "/api/items/group?item_id=" + strconv.FormatInt(itemID, 10) + "&group_id=" + strconv.FormatInt(group.ID, 10),
+			url: "/api/v1/items/group?item_id=" + strconv.FormatInt(itemID, 10) + "&group_id=" + strconv.FormatInt(group.ID, 10),
 			run: server.handleItemRemoveFromGroup,
 		},
 	}
@@ -179,8 +179,8 @@ func TestItemGroupListAndRemoveRejectMissingItem(t *testing.T) {
 		url  string
 		run  func(http.ResponseWriter, *http.Request)
 	}{
-		{name: "list", url: "/api/items/groups?item_id=999", run: server.handleItemGroups},
-		{name: "remove", url: "/api/items/group?item_id=999&group_id=999", run: server.handleItemRemoveFromGroup},
+		{name: "list", url: "/api/v1/items/groups?item_id=999", run: server.handleItemGroups},
+		{name: "remove", url: "/api/v1/items/group?item_id=999&group_id=999", run: server.handleItemRemoveFromGroup},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			result := httptest.NewRecorder()

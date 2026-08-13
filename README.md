@@ -294,7 +294,7 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/v1/backup/email-test` | POST | 二次 + CSRF | 发送测试邮件 |
 | `/api/v1/groups` | GET/POST/PUT/DELETE | 锁屏；变更请求需 CSRF | 列出、创建、更新和删除分组 |
 
-导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Records`、`Groups`、`ItemGroups`、`SensitiveRules` 四个工作表，完整保存记录、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则；不包含密码、恢复密钥、SMTP 凭据等秘密配置。
+导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules` 五个工作表；`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存记录、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
 所有 API 成功响应使用 `{ "data": ... }`，错误统一使用 `{ "error": { "code": "...", "message": "..." } }`。所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/v1/session/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
 

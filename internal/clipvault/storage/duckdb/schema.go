@@ -2,11 +2,15 @@ package duckdb
 
 const SchemaVersion = "2"
 
+// SchemaIdentity pins the exact supported schema shape. A database must match
+// both the version and this identity; every other shape is rejected.
+const SchemaIdentity = "clipvault.duckdb.v2.timestamptz-json"
+
 var SchemaStatements = []string{
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
 	`CREATE TABLE clipboard_items (
 		id BIGINT PRIMARY KEY DEFAULT nextval('seq_clipboard_items'),
-		created_at VARCHAR NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL,
 		kind VARCHAR NOT NULL,
 		format VARCHAR NOT NULL,
 		text VARCHAR NOT NULL,
@@ -28,11 +32,11 @@ var SchemaStatements = []string{
 	`CREATE INDEX idx_clipboard_items_source_exe_name ON clipboard_items(source_exe_name)`,
 	`CREATE TABLE settings (key VARCHAR PRIMARY KEY, value JSON NOT NULL)`,
 	`CREATE SEQUENCE seq_groups START 1`,
-	`CREATE TABLE groups (id BIGINT PRIMARY KEY DEFAULT nextval('seq_groups'), name VARCHAR NOT NULL, parent_id BIGINT NOT NULL DEFAULT 0, created_at VARCHAR NOT NULL)`,
+	`CREATE TABLE groups (id BIGINT PRIMARY KEY DEFAULT nextval('seq_groups'), name VARCHAR NOT NULL, parent_id BIGINT NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL)`,
 	`CREATE INDEX idx_groups_parent ON groups(parent_id)`,
 	`CREATE TABLE item_groups (item_id BIGINT NOT NULL, group_id BIGINT NOT NULL, PRIMARY KEY (item_id, group_id))`,
 	`CREATE INDEX idx_item_groups_group ON item_groups(group_id)`,
 	`CREATE SEQUENCE seq_email_backup_history START 1`,
-	`CREATE TABLE email_backup_history (id BIGINT PRIMARY KEY DEFAULT nextval('seq_email_backup_history'), sent_at VARCHAR NOT NULL, mode VARCHAR NOT NULL, from_address VARCHAR NOT NULL, to_address VARCHAR NOT NULL, format VARCHAR NOT NULL)`,
+	`CREATE TABLE email_backup_history (id BIGINT PRIMARY KEY DEFAULT nextval('seq_email_backup_history'), sent_at TIMESTAMPTZ NOT NULL, mode VARCHAR NOT NULL, from_address VARCHAR NOT NULL, to_address VARCHAR NOT NULL, format VARCHAR NOT NULL)`,
 	`CREATE INDEX idx_email_backup_history_sent_at ON email_backup_history(sent_at DESC)`,
 }

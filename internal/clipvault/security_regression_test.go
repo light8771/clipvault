@@ -113,7 +113,7 @@ func TestFailedSecondaryAuthenticationDoesNotCreateSession(t *testing.T) {
 	}
 
 	result := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/auth/secondary", strings.NewReader(`{"password":"wrong-secondary-password"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/secondary", strings.NewReader(`{"password":"wrong-secondary-password"}`))
 	server.handleAuthSecondary(result, request)
 	if result.Code != http.StatusUnauthorized || !strings.Contains(result.Body.String(), `"code":"invalid_password"`) {
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
@@ -241,7 +241,7 @@ func TestPasswordChangeRevokesSecondaryAuthAfterRuntimeApplyFailure(t *testing.T
 	}
 	defer logger.Close()
 	server := &SearchServer{cfgMgr: manager, auth: auth, logger: logger}
-	request := httptest.NewRequest(http.MethodPost, "/api/auth/password", strings.NewReader(
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/password", strings.NewReader(
 		`{"type":"secondary","action":"change","oldPassword":"old-secondary-password","newPassword":"new-secondary-password"}`,
 	))
 	result := httptest.NewRecorder()
@@ -299,7 +299,7 @@ func TestPutConfigRefreshesAuthTimeoutsAfterRuntimeApplyFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body))
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body))
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
 	result := httptest.NewRecorder()
 	server.handlePutConfig(result, request)
@@ -368,7 +368,7 @@ func TestPutConfigEnablesSecondaryCacheImmediatelyFromOneTimeAuthorization(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body))
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body))
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
 	request.Header.Set("X-ClipVault-Secondary-Token", oneTimeToken)
 	result := httptest.NewRecorder()
@@ -469,6 +469,21 @@ func TestStoreRejectsIncompleteOrUnsupportedSchema(t *testing.T) {
 	if _, err := OpenStore(StoreOptions{DataDir: dir}); err == nil || !strings.Contains(err.Error(), "unsupported database schema version") {
 		t.Fatalf("unsupported schema error=%v", err)
 	}
+
+	identityDir := t.TempDir()
+	identityStore, err := OpenStore(StoreOptions{DataDir: identityDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := identityStore.db.Exec(`DELETE FROM settings WHERE key = 'schema.identity'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := identityStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(StoreOptions{DataDir: identityDir}); err == nil || !strings.Contains(err.Error(), "unsupported database schema") {
+		t.Fatalf("missing schema identity error=%v", err)
+	}
 }
 
 func TestNewStoreInitializationFailureRemovesCreatedFiles(t *testing.T) {
@@ -539,7 +554,7 @@ func TestRecoveryResetSeparatesValidationAndIOErrors(t *testing.T) {
 
 	requestReset := func(password string) *httptest.ResponseRecorder {
 		result := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/api/recovery/reset", strings.NewReader(`{"password":`+strconv.Quote(password)+`}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/recovery/reset", strings.NewReader(`{"password":`+strconv.Quote(password)+`}`))
 		request = request.WithContext(context.WithValue(request.Context(), freshSecondaryContextKey{}, true))
 		server.handleRecoveryReset(result, request)
 		return result
@@ -657,7 +672,7 @@ func TestStoredConfigAndImportsRejectUnknownJSONFields(t *testing.T) {
 	}
 }
 
-func TestStoreRejectsInvalidMetadataAndTimestamp(t *testing.T) {
+func TestStoreRejectsInvalidMetadataAndDatabaseRejectsInvalidTimestamp(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -669,11 +684,11 @@ func TestStoreRejectsInvalidMetadataAndTimestamp(t *testing.T) {
 	if err := store.Save(context.Background(), ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "valid"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec(`UPDATE clipboard_items SET created_at = 'invalid'`); err != nil {
-		t.Fatal(err)
+	if _, err := store.db.Exec(`UPDATE clipboard_items SET created_at = 'invalid'`); err == nil {
+		t.Fatal("typed timestamp column accepted an invalid timestamp")
 	}
-	if _, _, err := store.Search(context.Background(), SearchOptions{Limit: 10, IncludeSensitive: true}); err == nil {
-		t.Fatal("invalid item timestamp was silently returned")
+	if items, _, err := store.Search(context.Background(), SearchOptions{Limit: 10, IncludeSensitive: true}); err != nil || len(items) != 1 {
+		t.Fatalf("rejected timestamp update changed valid data: items=%d err=%v", len(items), err)
 	}
 }
 
@@ -776,7 +791,7 @@ func TestSecondaryPasswordCanOnlyBeChanged(t *testing.T) {
 			server := &SearchServer{}
 			body := `{"type":"secondary","action":"` + action + `","oldPassword":"Secondary-Pass-2026","newPassword":"Replacement-Pass-2026"}`
 			result := httptest.NewRecorder()
-			server.handleAuthSetPassword(result, httptest.NewRequest(http.MethodPost, "/api/auth/password", bytes.NewBufferString(body)))
+			server.handleAuthSetPassword(result, httptest.NewRequest(http.MethodPost, "/api/v1/session/password", bytes.NewBufferString(body)))
 			if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "secondary_password_required") {
 				t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 			}
@@ -991,7 +1006,7 @@ func TestConfigEndpointCannotReplacePasswordHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 	}
@@ -1027,7 +1042,7 @@ func TestSensitiveFileRequiresBoundSecondaryAuthorization(t *testing.T) {
 	sessionB, _ := auth.CreateSession(10)
 	server := &SearchServer{store: store, cfgMgr: manager, auth: auth}
 
-	request := httptest.NewRequest(http.MethodGet, "/api/file/check?item_id="+strconv.FormatInt(items[0].ID, 10)+"&file_index=0", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/files/check?item_id="+strconv.FormatInt(items[0].ID, 10)+"&file_index=0", nil)
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionA})
 	result := httptest.NewRecorder()
 	server.handleFileCheck(result, request)
@@ -1036,7 +1051,7 @@ func TestSensitiveFileRequiresBoundSecondaryAuthorization(t *testing.T) {
 	}
 
 	oneTime, _ := auth.GenerateSecondaryToken(sessionB)
-	request = httptest.NewRequest(http.MethodGet, "/api/file/check?item_id="+strconv.FormatInt(items[0].ID, 10)+"&file_index=0", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/files/check?item_id="+strconv.FormatInt(items[0].ID, 10)+"&file_index=0", nil)
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionA})
 	request.Header.Set("X-ClipVault-Secondary-Token", oneTime)
 	result = httptest.NewRecorder()
@@ -1046,7 +1061,7 @@ func TestSensitiveFileRequiresBoundSecondaryAuthorization(t *testing.T) {
 	}
 
 	oneTime, _ = auth.GenerateSecondaryToken(sessionA)
-	request = httptest.NewRequest(http.MethodGet, "/api/file/check?item_id="+strconv.FormatInt(items[0].ID, 10)+"&file_index=0", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/files/check?item_id="+strconv.FormatInt(items[0].ID, 10)+"&file_index=0", nil)
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionA})
 	request.Header.Set("X-ClipVault-Secondary-Token", oneTime)
 	result = httptest.NewRecorder()
@@ -1089,12 +1104,12 @@ func TestSensitiveItemMutationsRequireSecondaryAuthorization(t *testing.T) {
 	}{
 		{
 			name: "star", method: http.MethodPatch,
-			url: "/api/items?id=" + strconv.FormatInt(itemID, 10) + "&starred=1",
+			url: "/api/v1/items?id=" + strconv.FormatInt(itemID, 10) + "&starred=1",
 			run: server.handleStarItem,
 		},
 		{
 			name: "delete", method: http.MethodDelete,
-			url: "/api/items?id=" + strconv.FormatInt(itemID, 10),
+			url: "/api/v1/items?id=" + strconv.FormatInt(itemID, 10),
 			run: server.handleItems,
 		},
 	}
@@ -1131,7 +1146,7 @@ func TestMissingFileRecordIsAClientError(t *testing.T) {
 	}
 	defer store.Close()
 	server := &SearchServer{store: store}
-	request := httptest.NewRequest(http.MethodGet, "/api/file/check?item_id=999&file_index=0", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/files/check?item_id=999&file_index=0", nil)
 	result := httptest.NewRecorder()
 	server.handleFileCheck(result, request)
 	if result.Code != http.StatusBadRequest {
@@ -1153,9 +1168,9 @@ func TestMissingItemPositionAndMutationsReturnNotFound(t *testing.T) {
 	}
 	server := &SearchServer{store: store}
 	for _, request := range []*http.Request{
-		httptest.NewRequest(http.MethodGet, "/api/items/position?id=999", nil),
-		httptest.NewRequest(http.MethodPatch, "/api/items?id=999&starred=1", nil),
-		httptest.NewRequest(http.MethodDelete, "/api/items?id=999", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/items/position?id=999", nil),
+		httptest.NewRequest(http.MethodPatch, "/api/v1/items?id=999&starred=1", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/items?id=999", nil),
 	} {
 		result := httptest.NewRecorder()
 		switch request.Method {
@@ -1316,13 +1331,13 @@ func TestImportRejectsInvalidItemAndGroupInvariants(t *testing.T) {
 
 func TestSearchQueryParametersRejectMalformedValues(t *testing.T) {
 	for _, rawURL := range []string{
-		"/api/search?limit=invalid",
-		"/api/search?limit=0",
-		"/api/search?limit=501",
-		"/api/search?offset=-1",
-		"/api/search?source_exe=",
-		"/api/search?q=" + strings.Repeat("x", maxSearchQueryBytes+1),
-		"/api/search?q=one+two+three+four+five+six+seven+eight+nine",
+		"/api/v1/items?limit=invalid",
+		"/api/v1/items?limit=0",
+		"/api/v1/items?limit=501",
+		"/api/v1/items?offset=-1",
+		"/api/v1/items?source_exe=",
+		"/api/v1/items?q=" + strings.Repeat("x", maxSearchQueryBytes+1),
+		"/api/v1/items?q=one+two+three+four+five+six+seven+eight+nine",
 	} {
 		req := httptest.NewRequest(http.MethodGet, rawURL, nil)
 		if _, _, _, err := parseSearchParameters(req); err == nil {
@@ -1379,7 +1394,7 @@ func TestBlankSearchDoesNotRevealSensitiveCount(t *testing.T) {
 	}
 
 	result := httptest.NewRecorder()
-	server.handleSearch(result, httptest.NewRequest(http.MethodGet, "/api/search?q=%20%20%20", nil))
+	server.handleSearch(result, httptest.NewRequest(http.MethodGet, "/api/v1/items?q=%20%20%20", nil))
 	if result.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 	}
@@ -1427,12 +1442,12 @@ func TestExportEndpointReportsInvalidScopeAsBadRequest(t *testing.T) {
 	server := &SearchServer{store: store, logger: logger}
 
 	for _, rawURL := range []string{
-		"/api/export/data?format=json&mode=incremental&sinceId=bad",
-		"/api/export/data?format=json&mode=incremental",
-		"/api/export/data?format=json&mode=full&sinceId=1",
-		"/api/export/data?format=json&mode=full&from=2026-08-01&to=2026-08-02",
-		"/api/export/data?format=json&mode=range&from=2026-08-02&to=2026-08-01",
-		"/api/export/data?format=json&mode=unknown",
+		"/api/v1/transfer/export?format=json&mode=incremental&sinceId=bad",
+		"/api/v1/transfer/export?format=json&mode=incremental",
+		"/api/v1/transfer/export?format=json&mode=full&sinceId=1",
+		"/api/v1/transfer/export?format=json&mode=full&from=2026-08-01&to=2026-08-02",
+		"/api/v1/transfer/export?format=json&mode=range&from=2026-08-02&to=2026-08-01",
+		"/api/v1/transfer/export?format=json&mode=unknown",
 	} {
 		w := httptest.NewRecorder()
 		server.handleExportData(w, httptest.NewRequest(http.MethodGet, rawURL, nil))

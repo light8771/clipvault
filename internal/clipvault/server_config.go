@@ -67,7 +67,7 @@ func (s *SearchServer) handleClear(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetConfig 返回当前完整配置（用于设置页面初始化）。
-// 敏感过滤规则（customPatterns）在未通过二次认证时被遮蔽，需要二次认证后通过 /api/sensitive/rules 获取。
+// 敏感过滤规则（customPatterns）在未通过二次认证时被遮蔽，需要二次认证后通过 /api/v1/config/sensitive-rules 获取。
 func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.Get()
 	token := GetSessionToken(r)

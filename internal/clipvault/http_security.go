@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -239,18 +240,18 @@ func (s *SearchServer) secureHTTP(next http.Handler, listenHost string, port int
 
 		endpoint, endpointOK := s.effectiveRequestEndpoint(r)
 		if !endpointOK || (!endpoint.proxied && !hostAllowedForListen(r.Host, listenHost, port)) {
-			http.Error(w, "invalid host", http.StatusForbidden)
+			writeHTTPSecurityError(w, r, "invalid_host", "请求主机无效")
 			return
 		}
 		if isMutationMethod(r.Method) {
 			if !originMatchesEndpoint(r.Header.Get("Origin"), endpoint.scheme, endpoint.host) {
-				http.Error(w, "invalid origin", http.StatusForbidden)
+				writeHTTPSecurityError(w, r, "invalid_origin", "请求来源无效")
 				return
 			}
 			provided := r.Header.Get(csrfHeaderName)
 			if subtle.ConstantTimeCompare([]byte(provided), []byte(s.csrfToken)) != 1 {
 				w.Header().Set("X-ClipVault-CSRF-Invalid", "1")
-				http.Error(w, "csrf validation failed", http.StatusForbidden)
+				writeHTTPSecurityError(w, r, "csrf_invalid", "CSRF 验证失败")
 				return
 			}
 		}
@@ -259,4 +260,15 @@ func (s *SearchServer) secureHTTP(next http.Handler, listenHost string, port int
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func writeHTTPSecurityError(w http.ResponseWriter, r *http.Request, code, message string) {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
+		return
+	}
+	http.Error(w, message, http.StatusForbidden)
 }

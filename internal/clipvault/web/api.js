@@ -24,10 +24,11 @@ async function csrfToken(forceRefresh = false) {
 }
 
 export function unwrapAPIEnvelope(envelope) {
-  if (envelope?.error) {
+  if (envelope?.error && typeof envelope.error.code === 'string' && typeof envelope.error.message === 'string') {
     return { ok: false, code: envelope.error.code, error: envelope.error.message };
   }
-  return Object.prototype.hasOwnProperty.call(envelope || {}, 'data') ? envelope.data : envelope;
+  if (Object.prototype.hasOwnProperty.call(envelope || {}, 'data')) return envelope.data;
+  throw new APIError('invalid_response', '服务响应不符合当前 API 协议', 500);
 }
 
 export async function readAPIError(response, fallback = '请求失败') {

@@ -173,7 +173,7 @@ func TestEmailBackupHistoryIsReadOnlyAndNewestFirst(t *testing.T) {
 
 	server := &SearchServer{store: store}
 	result := httptest.NewRecorder()
-	server.handleEmailBackupHistory(result, httptest.NewRequest(http.MethodGet, "/api/backup/email/history", nil))
+	server.handleEmailBackupHistory(result, httptest.NewRequest(http.MethodGet, "/api/v1/backup/email-history", nil))
 	if result.Code != http.StatusOK {
 		t.Fatalf("history status = %d, body=%s", result.Code, result.Body.String())
 	}

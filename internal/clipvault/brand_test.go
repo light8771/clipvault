@@ -229,7 +229,7 @@ func TestBackgroundImageUploadServeRangeAndReset(t *testing.T) {
 	if err := png.Encode(&imageData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode PNG: %v", err)
 	}
-	upload := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/background/media", bytes.NewReader(imageData.Bytes()))
+	upload := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/background", bytes.NewReader(imageData.Bytes()))
 	upload.Header.Set("Content-Type", "image/png")
 	uploadResult := httptest.NewRecorder()
 	server.handleBackgroundMediaUpload(uploadResult, upload)
@@ -266,7 +266,7 @@ func TestBackgroundImageUploadServeRangeAndReset(t *testing.T) {
 	if err := png.Encode(&replacement, replacementImage); err != nil {
 		t.Fatalf("encode replacement PNG: %v", err)
 	}
-	replaceRequest := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/background/media", bytes.NewReader(replacement.Bytes()))
+	replaceRequest := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/background", bytes.NewReader(replacement.Bytes()))
 	replaceRequest.Header.Set("Content-Type", "image/png")
 	replaceResult := httptest.NewRecorder()
 	server.handleBackgroundMediaUpload(replaceResult, replaceRequest)
@@ -279,7 +279,7 @@ func TestBackgroundImageUploadServeRangeAndReset(t *testing.T) {
 	backgroundFile = assetFileName(backgroundMediaAsset, manager.Get().Background.Version)
 
 	reset := httptest.NewRecorder()
-	server.handleBackgroundMediaReset(reset, httptest.NewRequest(http.MethodDelete, "http://clipvault.local/api/background/media", nil))
+	server.handleBackgroundMediaReset(reset, httptest.NewRequest(http.MethodDelete, "http://clipvault.local/api/v1/appearance/background", nil))
 	if reset.Code != http.StatusOK {
 		t.Fatalf("reset status = %d, want %d", reset.Code, http.StatusOK)
 	}
@@ -331,7 +331,7 @@ func TestBackgroundPNGUploadAcceptsGenericMIMEType(t *testing.T) {
 	if err := png.Encode(&pngData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode PNG: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPut, "/api/background/media", bytes.NewReader(pngData.Bytes()))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/appearance/background", bytes.NewReader(pngData.Bytes()))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	result := httptest.NewRecorder()
 	server.handleBackgroundMediaUpload(result, req)
@@ -366,7 +366,7 @@ func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
 	}
 	server := &SearchServer{cfgMgr: manager}
 	result := httptest.NewRecorder()
-	server.handlePublicAppearance(result, httptest.NewRequest(http.MethodGet, "/api/appearance", nil))
+	server.handlePublicAppearance(result, httptest.NewRequest(http.MethodGet, "/api/v1/appearance", nil))
 	if result.Code != http.StatusOK {
 		t.Fatalf("appearance status = %d", result.Code)
 	}
