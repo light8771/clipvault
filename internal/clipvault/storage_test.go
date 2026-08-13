@@ -832,7 +832,7 @@ func TestHandleStorageRelocate(t *testing.T) {
 	writeStorageKey(t, source, "source")
 	server := &SearchServer{env: Environment{DataDir: source, Source: "default"}, logger: logger}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/storage/relocate", bytes.NewBufferString(`{"dataDir":`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/storage/relocation", bytes.NewBufferString(`{"dataDir":`))
 	result := httptest.NewRecorder()
 	server.handleStorageRelocate(result, req)
 	if result.Code != http.StatusBadRequest {
@@ -842,7 +842,7 @@ func TestHandleStorageRelocate(t *testing.T) {
 		t.Fatalf("invalid JSON content type = %q", contentType)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/storage/relocate", bytes.NewBufferString(`{"dataDir":`+strconv.Quote(invalidTarget)+`}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/storage/relocation", bytes.NewBufferString(`{"dataDir":`+strconv.Quote(invalidTarget)+`}`))
 	result = httptest.NewRecorder()
 	server.handleStorageRelocate(result, req)
 	if result.Code != http.StatusBadRequest {
@@ -852,7 +852,7 @@ func TestHandleStorageRelocate(t *testing.T) {
 		t.Fatalf("invalid relocate content type = %q", contentType)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/storage/relocate", bytes.NewBufferString(`{"dataDir":`+strconv.Quote(target)+`}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/storage/relocation", bytes.NewBufferString(`{"dataDir":`+strconv.Quote(target)+`}`))
 	result = httptest.NewRecorder()
 	server.handleStorageRelocate(result, req)
 	if result.Code != http.StatusOK {
@@ -909,12 +909,15 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 	})
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	statusRes, err := client.Get(url + "api/storage/status")
+	statusRes, err := client.Get(url + "api/v1/storage")
 	if err != nil {
 		t.Fatalf("get storage status: %v", err)
 	}
-	var status StorageStatus
-	decodeErr := json.NewDecoder(statusRes.Body).Decode(&status)
+	var statusEnvelope struct {
+		Data StorageStatus `json:"data"`
+	}
+	decodeErr := json.NewDecoder(statusRes.Body).Decode(&statusEnvelope)
+	status := statusEnvelope.Data
 	statusRes.Body.Close()
 	if statusRes.StatusCode != http.StatusOK || decodeErr != nil || !samePath(status.DataDir, dataDir) || !status.Movable {
 		t.Fatalf("storage status = status %d, value %#v, error %v", statusRes.StatusCode, status, decodeErr)
@@ -922,7 +925,7 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 
 	target := t.TempDir()
 	body := []byte(`{"dataDir":` + strconv.Quote(target) + `}`)
-	blockedReq, err := http.NewRequest(http.MethodPost, url+"api/storage/relocate", bytes.NewReader(body))
+	blockedReq, err := http.NewRequest(http.MethodPost, url+"api/v1/storage/relocation", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new blocked relocation request: %v", err)
 	}
@@ -936,25 +939,27 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("relocation without CSRF status = %d, want %d", blockedRes.StatusCode, http.StatusForbidden)
 	}
 
-	csrfRes, err := client.Get(url + "api/csrf")
+	csrfRes, err := client.Get(url + "api/v1/session/csrf")
 	if err != nil {
 		t.Fatalf("get csrf token: %v", err)
 	}
 	var csrf struct {
-		Token string `json:"token"`
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
 	}
 	decodeErr = json.NewDecoder(csrfRes.Body).Decode(&csrf)
 	csrfRes.Body.Close()
-	if csrfRes.StatusCode != http.StatusOK || decodeErr != nil || csrf.Token == "" {
-		t.Fatalf("csrf response = status %d, token %q, error %v", csrfRes.StatusCode, csrf.Token, decodeErr)
+	if csrfRes.StatusCode != http.StatusOK || decodeErr != nil || csrf.Data.Token == "" {
+		t.Fatalf("csrf response = status %d, token %q, error %v", csrfRes.StatusCode, csrf.Data.Token, decodeErr)
 	}
 
-	relocateReq, err := http.NewRequest(http.MethodPost, url+"api/storage/relocate", bytes.NewReader(body))
+	relocateReq, err := http.NewRequest(http.MethodPost, url+"api/v1/storage/relocation", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new relocation request: %v", err)
 	}
 	relocateReq.Header.Set("Content-Type", "application/json")
-	relocateReq.Header.Set(csrfHeaderName, csrf.Token)
+	relocateReq.Header.Set(csrfHeaderName, csrf.Data.Token)
 	relocateRes, err := client.Do(relocateReq)
 	if err != nil {
 		t.Fatalf("send relocation request: %v", err)
@@ -967,18 +972,21 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(environmentControlDir(), storageMoveFile)); err != nil {
 		t.Fatalf("relocation was not scheduled: %v", err)
 	}
-	pendingRes, err := client.Get(url + "api/storage/status")
+	pendingRes, err := client.Get(url + "api/v1/storage")
 	if err != nil {
 		t.Fatalf("get pending storage status: %v", err)
 	}
-	var pendingStatus StorageStatus
-	decodeErr = json.NewDecoder(pendingRes.Body).Decode(&pendingStatus)
+	var pendingEnvelope struct {
+		Data StorageStatus `json:"data"`
+	}
+	decodeErr = json.NewDecoder(pendingRes.Body).Decode(&pendingEnvelope)
+	pendingStatus := pendingEnvelope.Data
 	pendingRes.Body.Close()
 	if pendingRes.StatusCode != http.StatusOK || decodeErr != nil || !pendingStatus.Pending {
 		t.Fatalf("pending storage status = status %d, value %#v, error %v", pendingRes.StatusCode, pendingStatus, decodeErr)
 	}
 
-	diagnosticRes, err := client.Get(url + "api/diagnostics/export")
+	diagnosticRes, err := client.Get(url + "api/v1/diagnostics")
 	if err != nil {
 		t.Fatalf("export diagnostics: %v", err)
 	}
@@ -1007,7 +1015,7 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unauthenticatedRes, err := client.Get(url + "api/storage/status")
+	unauthenticatedRes, err := client.Get(url + "api/v1/storage")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1021,12 +1029,12 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	securedClient := &http.Client{Jar: jar, Timeout: 5 * time.Second}
-	loginReq, err := http.NewRequest(http.MethodPost, url+"api/auth/login", bytes.NewBufferString(`{"password":"lock-password"}`))
+	loginReq, err := http.NewRequest(http.MethodPost, url+"api/v1/session/login", bytes.NewBufferString(`{"password":"lock-password"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	loginReq.Header.Set("Content-Type", "application/json")
-	loginReq.Header.Set(csrfHeaderName, csrf.Token)
+	loginReq.Header.Set(csrfHeaderName, csrf.Data.Token)
 	loginRes, err := securedClient.Do(loginReq)
 	if err != nil {
 		t.Fatal(err)
@@ -1035,7 +1043,7 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 	if loginRes.StatusCode != http.StatusOK {
 		t.Fatalf("lock login = %d, want %d", loginRes.StatusCode, http.StatusOK)
 	}
-	lockedStatusRes, err := securedClient.Get(url + "api/storage/status")
+	lockedStatusRes, err := securedClient.Get(url + "api/v1/storage")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1044,7 +1052,7 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("storage status after lock login = %d, want %d", lockedStatusRes.StatusCode, http.StatusOK)
 	}
 
-	secondaryBlockedRes, err := securedClient.Get(url + "api/diagnostics/export")
+	secondaryBlockedRes, err := securedClient.Get(url + "api/v1/diagnostics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1053,12 +1061,12 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("diagnostics without secondary auth = %d, want %d", secondaryBlockedRes.StatusCode, http.StatusForbidden)
 	}
 
-	secondaryReq, err := http.NewRequest(http.MethodPost, url+"api/auth/secondary", bytes.NewBufferString(`{"password":"secondary-password"}`))
+	secondaryReq, err := http.NewRequest(http.MethodPost, url+"api/v1/session/secondary", bytes.NewBufferString(`{"password":"secondary-password"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	secondaryReq.Header.Set("Content-Type", "application/json")
-	secondaryReq.Header.Set(csrfHeaderName, csrf.Token)
+	secondaryReq.Header.Set(csrfHeaderName, csrf.Data.Token)
 	secondaryRes, err := securedClient.Do(secondaryReq)
 	if err != nil {
 		t.Fatal(err)
@@ -1068,7 +1076,7 @@ func TestStorageAndDiagnosticsEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("secondary auth = %d, want %d", secondaryRes.StatusCode, http.StatusOK)
 	}
 
-	securedDiagnosticRes, err := securedClient.Get(url + "api/diagnostics/export")
+	securedDiagnosticRes, err := securedClient.Get(url + "api/v1/diagnostics")
 	if err != nil {
 		t.Fatal(err)
 	}

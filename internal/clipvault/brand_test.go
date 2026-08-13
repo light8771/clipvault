@@ -484,17 +484,19 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("embedded index response = status %d, has brand controls = %t", indexRes.StatusCode, bytes.Contains(indexData, []byte("cfg-brandTitle")))
 	}
 
-	appearanceRes, err := client.Get(url + "api/appearance")
+	appearanceRes, err := client.Get(url + "api/v1/appearance")
 	if err != nil {
 		t.Fatalf("get public appearance: %v", err)
 	}
 	var appearance struct {
-		Brand BrandConfig `json:"brand"`
-		Theme ThemeConfig `json:"theme"`
+		Data struct {
+			Brand BrandConfig `json:"brand"`
+			Theme ThemeConfig `json:"theme"`
+		} `json:"data"`
 	}
 	appearanceDecodeErr := json.NewDecoder(appearanceRes.Body).Decode(&appearance)
 	appearanceRes.Body.Close()
-	if appearanceRes.StatusCode != http.StatusOK || appearanceDecodeErr != nil || appearance.Brand.Title != cfg.Brand.Title || appearance.Theme.FontScale != cfg.Theme.FontScale {
+	if appearanceRes.StatusCode != http.StatusOK || appearanceDecodeErr != nil || appearance.Data.Brand.Title != cfg.Brand.Title || appearance.Data.Theme.FontScale != cfg.Theme.FontScale {
 		t.Fatalf("public appearance = status %d, value %#v, error %v", appearanceRes.StatusCode, appearance, appearanceDecodeErr)
 	}
 
@@ -515,7 +517,7 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	if err := png.Encode(&imageData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode PNG: %v", err)
 	}
-	blockedReq, err := http.NewRequest(http.MethodPut, url+"api/brand/logo", bytes.NewReader(imageData.Bytes()))
+	blockedReq, err := http.NewRequest(http.MethodPut, url+"api/v1/appearance/logo", bytes.NewReader(imageData.Bytes()))
 	if err != nil {
 		t.Fatalf("new blocked request: %v", err)
 	}
@@ -529,25 +531,27 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 		t.Fatalf("upload without CSRF status = %d, want %d", blockedRes.StatusCode, http.StatusForbidden)
 	}
 
-	csrfRes, err := client.Get(url + "api/csrf")
+	csrfRes, err := client.Get(url + "api/v1/session/csrf")
 	if err != nil {
 		t.Fatalf("get csrf token: %v", err)
 	}
 	var csrf struct {
-		Token string `json:"token"`
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
 	}
 	decodeErr := json.NewDecoder(csrfRes.Body).Decode(&csrf)
 	csrfRes.Body.Close()
-	if csrfRes.StatusCode != http.StatusOK || decodeErr != nil || csrf.Token == "" {
-		t.Fatalf("csrf response = status %d, token %q, error %v", csrfRes.StatusCode, csrf.Token, decodeErr)
+	if csrfRes.StatusCode != http.StatusOK || decodeErr != nil || csrf.Data.Token == "" {
+		t.Fatalf("csrf response = status %d, token %q, error %v", csrfRes.StatusCode, csrf.Data.Token, decodeErr)
 	}
 
-	uploadReq, err := http.NewRequest(http.MethodPut, url+"api/brand/logo", bytes.NewReader(imageData.Bytes()))
+	uploadReq, err := http.NewRequest(http.MethodPut, url+"api/v1/appearance/logo", bytes.NewReader(imageData.Bytes()))
 	if err != nil {
 		t.Fatalf("new upload request: %v", err)
 	}
 	uploadReq.Header.Set("Content-Type", "image/png")
-	uploadReq.Header.Set(csrfHeaderName, csrf.Token)
+	uploadReq.Header.Set(csrfHeaderName, csrf.Data.Token)
 	uploadRes, err := client.Do(uploadReq)
 	if err != nil {
 		t.Fatalf("send upload request: %v", err)
@@ -565,11 +569,11 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	if err := manager.Update(securedCfg); err != nil {
 		t.Fatalf("set secondary password requirement: %v", err)
 	}
-	resetReq, err := http.NewRequest(http.MethodDelete, url+"api/brand/logo", nil)
+	resetReq, err := http.NewRequest(http.MethodDelete, url+"api/v1/appearance/logo", nil)
 	if err != nil {
 		t.Fatalf("new secondary-protected request: %v", err)
 	}
-	resetReq.Header.Set(csrfHeaderName, csrf.Token)
+	resetReq.Header.Set(csrfHeaderName, csrf.Data.Token)
 	resetRes, err := client.Do(resetReq)
 	if err != nil {
 		t.Fatalf("send secondary-protected request: %v", err)

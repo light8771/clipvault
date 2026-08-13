@@ -1,21 +1,66 @@
 (function(){
 	const nativeFetch = window.fetch.bind(window);
+	const apiRoutes = new Map([
+		['/api/csrf', '/api/v1/session/csrf'], ['/api/appearance', '/api/v1/appearance'],
+		['/api/auth/login', '/api/v1/session/login'], ['/api/auth/logout', '/api/v1/session/logout'],
+		['/api/auth/status', '/api/v1/session'], ['/api/auth/secondary', '/api/v1/session/secondary'],
+		['/api/auth/password', '/api/v1/session/password'], ['/api/restart', '/api/v1/system/restart'],
+		['/api/brand/logo', '/api/v1/appearance/logo'], ['/api/brand/favicon', '/api/v1/appearance/favicon'],
+		['/api/background/media', '/api/v1/appearance/background'], ['/api/search', '/api/v1/items'],
+		['/api/license/status', '/api/v1/license'], ['/api/license/machine', '/api/v1/license/machine'],
+		['/api/license/activate', '/api/v1/license/activation'], ['/api/source-exes', '/api/v1/items/sources'],
+		['/api/state', '/api/v1/runtime'], ['/api/pause', '/api/v1/runtime/pause'],
+		['/api/clear', '/api/v1/items/clear'], ['/api/config', '/api/v1/config'],
+		['/api/storage/status', '/api/v1/storage'], ['/api/storage/relocate', '/api/v1/storage/relocation'],
+		['/api/storage/open', '/api/v1/storage/open'], ['/api/diagnostics/export', '/api/v1/diagnostics'],
+		['/api/sensitive/rules', '/api/v1/config/sensitive-rules'], ['/api/search/sensitive', '/api/v1/items/sensitive'],
+		['/api/items/sensitive', '/api/v1/items/sensitive/item'], ['/api/items/position', '/api/v1/items/position'],
+		['/api/file/check', '/api/v1/files/check'], ['/api/file', '/api/v1/files/content'],
+		['/api/file/opendir', '/api/v1/files/open-directory'], ['/api/file/hash', '/api/v1/files/hash'],
+		['/api/groups', '/api/v1/groups'], ['/api/items/group', '/api/v1/items/group'],
+		['/api/items/groups', '/api/v1/items/groups'], ['/api/export/data', '/api/v1/transfer/export'],
+		['/api/import/data', '/api/v1/transfer/import'], ['/api/recovery/status', '/api/v1/recovery'],
+		['/api/recovery/change', '/api/v1/recovery/password'], ['/api/recovery/reset', '/api/v1/recovery/reset'],
+		['/api/recovery/isolated/switch', '/api/v1/recovery/isolated-switch'],
+		['/api/backup/status', '/api/v1/backup'], ['/api/backup/email/history', '/api/v1/backup/email-history'],
+		['/api/backup/dir/now', '/api/v1/backup/directory'], ['/api/backup/email/now', '/api/v1/backup/email'],
+		['/api/backup/email/test', '/api/v1/backup/email-test']
+	]);
+	function v1URL(value) {
+		if (typeof value !== 'string') return value;
+		const q = value.indexOf('?');
+		const path = q < 0 ? value : value.slice(0, q);
+		const mapped = apiRoutes.get(path) || (path === '/api/items' ? '/api/v1/items' : path);
+		return mapped + (q < 0 ? '' : value.slice(q));
+	}
+	function unwrapJSONResponse(response) {
+		const original = response.json.bind(response);
+		response.json = async () => {
+			const envelope = await original();
+			if (envelope && envelope.error) {
+				return { ok: false, code: envelope.error.code, error: envelope.error.message };
+			}
+			return envelope && Object.prototype.hasOwnProperty.call(envelope, 'data') ? envelope.data : envelope;
+		};
+		return response;
+	}
 	let csrfTokenPromise = null;
 
 	async function getCSRFToken(forceRefresh) {
 		if (forceRefresh) csrfTokenPromise = null;
 		if (!csrfTokenPromise) {
-			csrfTokenPromise = nativeFetch('/api/csrf', { cache: 'no-store' })
+			csrfTokenPromise = nativeFetch('/api/v1/session/csrf', { cache: 'no-store' })
 				.then(r => {
 					if (!r.ok) throw new Error('csrf bootstrap failed');
 					return r.json();
 				})
-				.then(d => d.token || '');
+				.then(d => (d.data && d.data.token) || '');
 		}
 		return csrfTokenPromise;
 	}
 
 	window.fetch = async function(input, init) {
+		input = v1URL(input);
 		const opts = Object.assign({}, init || {});
 		const method = String(opts.method || 'GET').toUpperCase();
 		const target = typeof input === 'string' ? input : (input && input.url) || '';
@@ -32,7 +77,7 @@
 			opts.headers = headers;
 			response = await nativeFetch(input, opts);
 		}
-		return response;
+		return unwrapJSONResponse(response);
 	};
 
   const Q    = document.getElementById('q'),
