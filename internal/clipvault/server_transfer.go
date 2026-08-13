@@ -14,13 +14,7 @@ import (
 func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) {
 
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusPaymentRequired)
-		s.writeJSON(w, map[string]any{
-			"ok":      false,
-			"error":   "license_required",
-			"message": "导出为付费功能，激活后可导出全部数据",
-		})
+		s.writeAPIError(w, http.StatusPaymentRequired, "license_required", "导出为付费功能，激活后可导出全部数据", nil)
 		return
 	}
 	format := r.URL.Query().Get("format")

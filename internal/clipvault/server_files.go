@@ -69,7 +69,7 @@ func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := os.Stat(p)
 	if err != nil || info.IsDir() {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "file not found"})
+		s.writeAPIError(w, http.StatusNotFound, "file_not_found", "文件不存在", nil)
 		return
 	}
 	f, err := os.Open(p)

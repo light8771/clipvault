@@ -152,12 +152,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if (!isLoopbackHost(listenHost) || cfg.Search.ReverseProxy.Enabled) && !s.auth.HasLockPassword(curCfg) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		s.writeJSON(w, map[string]any{
-			"ok":    false,
-			"error": "开放局域网或反向代理访问前，必须先设置锁屏密码",
-		})
+		s.writeAPIError(w, http.StatusBadRequest, "lock_password_required", "开放局域网或反向代理访问前，必须先设置锁屏密码", nil)
 		return
 	}
 
@@ -186,15 +181,13 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 
 	if cfg.Backup.DirBackup.Enabled {
 		if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
-			w.WriteHeader(http.StatusBadRequest)
-			s.writeJSON(w, map[string]any{"ok": false, "error": "目录备份配置不完整：" + msg})
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_config", "目录备份配置不完整："+msg, nil)
 			return
 		}
 	}
 	if cfg.Backup.EmailBackup.Enabled {
 		if msg := validateEmailBackupEnabled(cfg.Backup.EmailBackup); msg != "" {
-			w.WriteHeader(http.StatusBadRequest)
-			s.writeJSON(w, map[string]any{"ok": false, "error": "邮件备份配置不完整：" + msg})
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_config", "邮件备份配置不完整："+msg, nil)
 			return
 		}
 	}

@@ -113,10 +113,16 @@ assert.doesNotMatch(
 );
 assert.match(
   script,
-  /handleSecondaryRequired/,
-  'config autosave must decode the API error envelope and request secondary authentication before retrying'
+  /protectedFetch\('\/api\/v1\/config'/,
+  'config autosave must use the shared secondary authentication request path'
 );
 assert.match(apiSource, /export function unwrapAPIEnvelope/, 'API error envelopes must have a directly testable decoder');
+assert.match(apiSource, /export async function requestWithSecondaryAuth/, 'secondary authentication retry must have one shared implementation');
+assert.doesNotMatch(
+  script,
+  /res\.status\s*===\s*403|res\.status\s*!==\s*403/,
+  'feature modules must not implement ad-hoc HTTP 403 retry logic'
+);
 
 const basePairs = selectedColors.length * surfaces.length;
 const palettePairs = selectedColors.length * paletteSurfaces.length * 3;

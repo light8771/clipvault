@@ -1,4 +1,4 @@
-import { apiFetch, handleSecondaryRequired } from './api.js';
+import { APIError, apiFetch, readAPIError, requestWithSecondaryAuth } from './api.js';
 import { appStore } from './store.js';
 
 (function(){
@@ -208,6 +208,24 @@ import { appStore } from './store.js';
     return fetch(url, opts);
   }
 
+  function expireSecondaryAuth() {
+    authState.secondaryAuthed = false;
+    pendingSecondaryToken = null;
+    appStore.update({ secondaryAuthenticated: false });
+  }
+
+  function protectedFetch(url, init, options) {
+    const fresh = options?.fresh === true;
+    const send = () => fresh ? freshSecondaryFetch(url, init) : secondaryFetch(url, init);
+    return requestWithSecondaryAuth(send, requestSecondaryAuth, expireSecondaryAuth, { fresh });
+  }
+
+  async function requireOK(response, fallback) {
+    if (response.ok) return response;
+    const failure = await readAPIError(response, fallback);
+    throw new APIError(failure.code, failure.message, failure.status);
+  }
+
   function requestSecondaryAuth(forceFresh = false) {
     if (!authState.hasSecondaryPassword) return Promise.resolve(true);
     if (!forceFresh && pendingSecondaryToken) return Promise.resolve(true);
@@ -404,10 +422,7 @@ import { appStore } from './store.js';
 
   async function loadRecoveryStatus() {
     try {
-      const ok = await requestSecondaryAuth();
-      if (!ok) return;
-      const res = await secondaryFetch('/api/v1/recovery');
-      if (res.status === 403) return; // 二次验证失败，静默跳过
+      const res = await protectedFetch('/api/v1/recovery');
       if (!res.ok) return;
       const d = await res.json();
       recoveryState.hasRecovery = d.hasRecovery;

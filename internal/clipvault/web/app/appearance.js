@@ -178,20 +178,12 @@
     }
     const complete = await reserveAssetOperation(kind);
     try {
-      let res = await secondaryFetch(`/api/v1/appearance/${kind}`, {
+      const res = await protectedFetch(`/api/v1/appearance/${kind}`, {
         method: 'PUT',
         headers: { 'Content-Type': file.type },
         body: file,
       });
-      if (res.status === 403) {
-        if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch(`/api/v1/appearance/${kind}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type },
-          body: file,
-        });
-      }
-      if (!res.ok) throw new Error(await res.text());
+      await requireOK(res, '素材上传失败');
       const data = await res.json();
       updateCurrentConfig({ brand: data.brand });
       applyBrandFormState(data.brand);
@@ -210,12 +202,8 @@
   async function resetBrandAsset(kind) {
     const complete = await reserveAssetOperation(kind);
     try {
-      let res = await secondaryFetch(`/api/v1/appearance/${kind}`, { method: 'DELETE' });
-      if (res.status === 403) {
-        if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch(`/api/v1/appearance/${kind}`, { method: 'DELETE' });
-      }
-      if (!res.ok) throw new Error(await res.text());
+      const res = await protectedFetch(`/api/v1/appearance/${kind}`, { method: 'DELETE' });
+      await requireOK(res, '素材还原失败');
       const data = await res.json();
       updateCurrentConfig({ brand: data.brand });
       applyBrandFormState(data.brand);
@@ -337,12 +325,8 @@
     }
     const complete = await reserveAssetOperation('background');
     try {
-	  let res = await secondaryFetch('/api/v1/appearance/background', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
-      if (res.status === 403) {
-        if (!await requestSecondaryAuth()) return;
-		res = await secondaryFetch('/api/v1/appearance/background', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
-      }
-      if (!res.ok) throw new Error(await res.text());
+	  const res = await protectedFetch('/api/v1/appearance/background', { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      await requireOK(res, '背景上传失败');
       const data = await res.json();
       updateCurrentConfig({ background: data.background });
       applyBackgroundFormState(data.background);
@@ -361,12 +345,8 @@
   async function resetBackgroundMedia() {
     const complete = await reserveAssetOperation('background');
     try {
-      let res = await secondaryFetch('/api/v1/appearance/background', { method: 'DELETE' });
-      if (res.status === 403) {
-        if (!await requestSecondaryAuth()) return;
-        res = await secondaryFetch('/api/v1/appearance/background', { method: 'DELETE' });
-      }
-      if (!res.ok) throw new Error(await res.text());
+      const res = await protectedFetch('/api/v1/appearance/background', { method: 'DELETE' });
+      await requireOK(res, '背景移除失败');
       const data = await res.json();
       updateCurrentConfig({ background: data.background });
       applyBackgroundFormState(data.background);

@@ -262,7 +262,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	} else if req.Action == "set" {
 
 		if s.auth.HasLockPassword(cfg) {
-			s.writeJSON(w, map[string]any{"ok": false, "error": "锁屏密码已设置，请使用修改功能"})
+			s.writeAPIError(w, http.StatusConflict, "password_already_set", "锁屏密码已设置，请使用修改功能", nil)
 			return
 		}
 	}
@@ -270,7 +270,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	if req.Action == "remove" {
 		listenHost, _, listenErr := validateListenAddr(cfg.Search.ListenAddr)
 		if listenErr == nil && !isLoopbackHost(listenHost) {
-			s.writeJSON(w, map[string]any{"ok": false, "error": "当前已开放局域网监听，请先将监听地址改回 127.0.0.1 后再删除密码"})
+			s.writeAPIError(w, http.StatusConflict, "password_required_for_lan", "当前已开放局域网监听，请先将监听地址改回 127.0.0.1 后再删除密码", nil)
 			return
 		}
 		cfg.Security.LockPasswordHash = ""

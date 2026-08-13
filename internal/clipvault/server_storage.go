@@ -19,9 +19,7 @@ func (s *SearchServer) handleStorageRelocate(w http.ResponseWriter, r *http.Requ
 		DataDir string `json:"dataDir"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 4<<10); err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		s.writeJSON(w, map[string]any{"ok": false, "error": "数据目录请求无效"})
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_storage_request", "数据目录请求无效", err)
 		return
 	}
 	if err := ScheduleDataDirectoryMove(s.env, req.DataDir); err != nil {

@@ -270,8 +270,8 @@ func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["error"] != "license_required" {
-		t.Fatalf("unlicensed export error = %v, want license_required", resp["error"])
+	if resp["code"] != "license_required" || resp["error"] != "导出为付费功能，激活后可导出全部数据" {
+		t.Fatalf("unlicensed export error = %#v", resp)
 	}
 
 	// 完整功能：正常导出

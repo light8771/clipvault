@@ -139,28 +139,13 @@
     }
 
     try {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
 		const headers = { 'X-ClipVault-Import-Format': format };
 		if (pwd) headers['X-ClipVault-Import-Password'] = pwd;
-		const res = await secondaryFetch('/api/v1/transfer/import', {
+		const res = await protectedFetch('/api/v1/transfer/import', {
         method: 'POST',
 		headers,
         body: file,
       });
-      if (res.status === 403) {
-        const ok2 = await requestSecondaryAuth();
-        if (!ok2) { errEl.textContent = '需要二次验证才能导入'; errEl.classList.remove('hidden'); return; }
-        const res2 = await secondaryFetch('/api/v1/transfer/import', {
-          method: 'POST',
-			headers,
-          body: file,
-        });
-        const d2 = await readImportResponse(res2);
-        if (d2.ok) { closeImportDialog(); notifyImportSuccess(d2); }
-        else { errEl.textContent = d2.error || '导入失败'; errEl.classList.remove('hidden'); }
-        return;
-      }
       const d = await readImportResponse(res);
       if (d.ok) {
         closeImportDialog();
@@ -188,27 +173,21 @@
   }
 
   async function readImportResponse(res) {
-    const body = await res.text();
-    try {
-      return JSON.parse(body);
-    } catch (_) {
-      return { ok: false, error: body.trim() || `\u5bfc\u5165\u8bf7\u6c42\u5931\u8d25 (${res.status})` };
-    }
+    try { return await res.json(); } catch (_) {}
+    return { ok: false, error: `\u5bfc\u5165\u8bf7\u6c42\u5931\u8d25 (${res.status})` };
   }
 
   // ── Backup actions ─────────────────────────────────────────
   async function backupAction(url, successMsg) {
     if (!await flushPendingConfigSave()) return;
-    const ok = await requestSecondaryAuth();
-    if (!ok) { toast('需要二次验证', 'err'); return; }
     try {
-      const res = await secondaryFetch(url, { method: 'POST' });
+      const res = await protectedFetch(url, { method: 'POST' });
       const d = await res.json();
       if (d.ok) {
         toast(successMsg);
         loadBackupStatus();
       } else {
-        const message = d.error === 'license required'
+        const message = d.code === 'license_required'
           ? '需要先激活 ClipVault 才能使用备份功能'
           : (d.error || '操作失败');
         toast(message, 'err');
@@ -285,10 +264,8 @@
   }
 
   showEmailBackupHistory = async function() {
-    const ok = await requestSecondaryAuth();
-    if (!ok) { toast('需要二次验证才能查看发送历史', 'err'); return; }
     try {
-      const res = await secondaryFetch('/api/v1/backup/email-history');
+      const res = await protectedFetch('/api/v1/backup/email-history');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '读取发送历史失败');
       renderEmailBackupHistory(data.history || []);

@@ -11,7 +11,7 @@ globalThis.window = {
   location: { origin: 'http://127.0.0.1:18765' },
 };
 
-const { apiFetch, handleSecondaryRequired, unwrapAPIEnvelope } = await import('./api.js');
+const { apiFetch, readAPIError, requestWithSecondaryAuth, unwrapAPIEnvelope } = await import('./api.js');
 
 test('API envelopes normalize success and error responses', () => {
   assert.deepEqual(
@@ -22,29 +22,66 @@ test('API envelopes normalize success and error responses', () => {
   assert.deepEqual(unwrapAPIEnvelope({ ok: true }), { ok: true });
 });
 
-test('config 403 prompts for secondary auth through the decorated API response', async () => {
+test('protected requests prompt again and retry only for the exact secondary error', async () => {
   responses.push(
     new Response(JSON.stringify({ data: { token: 'csrf-token' } }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
     new Response(JSON.stringify({ error: { code: 'secondary_required', message: '需要二次认证' } }), { status: 403, headers: { 'Content-Type': 'application/json' } }),
   );
-  const configResponse = await apiFetch('/api/v1/config', { method: 'PUT', body: '{}' });
   let prompts = 0;
   let expired = 0;
-  const authResult = await handleSecondaryRequired(
-    configResponse,
-    async () => { prompts++; return true; },
+  let sends = 0;
+  const success = new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  const response = await requestWithSecondaryAuth(
+    async () => {
+      sends++;
+      return sends === 1
+        ? apiFetch('/api/v1/config', { method: 'PUT', body: '{}' })
+        : success;
+    },
+    async (forceFresh) => { prompts++; return prompts === 1 ? !forceFresh : forceFresh; },
     () => { expired++; },
   );
-  assert.deepEqual(authResult, { required: true, retry: true, error: '需要二次认证' });
-  assert.equal(prompts, 1);
+  assert.equal(response.status, 200);
+  assert.equal(prompts, 2);
   assert.equal(expired, 1);
+  assert.equal(sends, 2);
 });
 
-test('unrelated API errors do not prompt for secondary auth', async () => {
-  const result = await handleSecondaryRequired(
-    { status: 400, json: async () => ({ ok: false, code: 'invalid_config', error: '配置无效' }) },
-    async () => { throw new Error('must not prompt'); },
+test('API errors are read from a clone without consuming the response body', async () => {
+  const response = new Response(
+    JSON.stringify({ error: { code: 'license_required', message: '需要授权' } }),
+    { status: 402, headers: { 'Content-Type': 'application/json' } },
+  );
+  assert.deepEqual(await readAPIError(response), {
+    code: 'license_required',
+    message: '需要授权',
+    status: 402,
+  });
+  assert.deepEqual(await response.json(), { error: { code: 'license_required', message: '需要授权' } });
+});
+
+test('unrelated forbidden responses are returned without reauthentication', async () => {
+  let prompts = 0;
+  const response = await requestWithSecondaryAuth(
+    async () => new Response(JSON.stringify({ error: { code: 'forbidden', message: '禁止访问' } }), { status: 403 }),
+    async () => { prompts++; return true; },
     () => { throw new Error('must not expire auth'); },
   );
-  assert.deepEqual(result, { required: false, retry: false, error: '配置无效' });
+  assert.equal(response.status, 403);
+  assert.equal(prompts, 1);
+});
+
+test('fresh secondary requests retry fresh-secondary failures', async () => {
+  let sends = 0;
+  const forces = [];
+  const response = await requestWithSecondaryAuth(
+    async () => ++sends === 1
+      ? new Response(JSON.stringify({ error: { code: 'fresh_secondary_required', message: '需要重新验证' } }), { status: 403 })
+      : new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }),
+    async (forceFresh) => { forces.push(forceFresh); return true; },
+    () => {},
+    { fresh: true },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(forces, [true, true]);
 });

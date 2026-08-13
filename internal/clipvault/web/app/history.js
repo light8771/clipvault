@@ -230,17 +230,7 @@
     if (!sensitive) return fetch(url, init);
 
     const run = async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const ok = await requestSecondaryAuth();
-        if (!ok) throw new Error('需要二次验证');
-        const res = await secondaryFetch(url, init);
-        if (res.status !== 403) return res;
-        const failure = await res.clone().json().catch(() => ({}));
-        if (failure.code !== 'secondary_required') return res;
-        authState.secondaryAuthed = false;
-        appStore.update({ secondaryAuthenticated: false });
-      }
-      throw new Error('需要二次验证');
+      return protectedFetch(url, init);
     };
     const queued = protectedItemRequestQueue.then(run, run);
     protectedItemRequestQueue = queued.then(() => undefined, () => undefined);
@@ -344,8 +334,8 @@
     try {
       const res = await authorizedItemFetch(itemId, '/api/v1/files/open-directory?item_id=' + itemId + '&file_index=' + idx, { method: 'POST' });
       if (!res.ok) {
-        const msg = await res.text().catch(() => '');
-        throw new Error(msg || ('HTTP ' + res.status));
+        const failure = await readAPIError(res, '无法打开文件目录');
+        throw new APIError(failure.code, failure.message, failure.status);
       }
       toast('已打开所在目录并选中文件');
     } catch (e) {

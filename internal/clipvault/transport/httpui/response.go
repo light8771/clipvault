@@ -54,6 +54,9 @@ func (w *envelopeWriter) finalize() {
 	}
 	if object, ok := payload.(map[string]any); ok {
 		if failed, _ := object["ok"].(bool); status >= 400 || (object["ok"] != nil && !failed) {
+			if status < http.StatusBadRequest {
+				status = http.StatusInternalServerError
+			}
 			code, _ := object["code"].(string)
 			if code == "" {
 				code = "request_failed"

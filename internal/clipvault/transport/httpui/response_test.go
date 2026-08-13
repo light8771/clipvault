@@ -16,6 +16,7 @@ func TestEnvelopeContracts(t *testing.T) {
 	}{
 		{"success", 0, `{"ok":true,"value":7}`, `"data"`},
 		{"error", http.StatusBadRequest, `{"ok":false,"code":"bad_input","error":"bad"}`, `"error"`},
+		{"success-status failure rejected", 0, `{"ok":false,"code":"bad_input","error":"bad"}`, `"error"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := httptest.NewRecorder()
@@ -28,6 +29,9 @@ func TestEnvelopeContracts(t *testing.T) {
 			}).ServeHTTP(result, httptest.NewRequest(http.MethodGet, "/", nil))
 			if !strings.Contains(result.Body.String(), test.want) {
 				t.Fatalf("body = %s", result.Body.String())
+			}
+			if test.name == "success-status failure rejected" && result.Code < http.StatusBadRequest {
+				t.Fatalf("business failure returned HTTP %d", result.Code)
 			}
 		})
 	}

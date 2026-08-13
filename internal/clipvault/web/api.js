@@ -30,13 +30,32 @@ export function unwrapAPIEnvelope(envelope) {
   return Object.prototype.hasOwnProperty.call(envelope || {}, 'data') ? envelope.data : envelope;
 }
 
-export async function handleSecondaryRequired(response, requestSecondaryAuth, onExpired) {
-  const failure = await response.json().catch(() => ({}));
-  if (response.status !== 403 || failure.code !== 'secondary_required') {
-    return { required: false, retry: false, error: failure.error || `HTTP ${response.status}` };
+export async function readAPIError(response, fallback = '请求失败') {
+  let payload = {};
+  try {
+    payload = unwrapAPIEnvelope(await response.clone().json());
+  } catch (_) {}
+  return {
+    code: payload?.code || 'request_failed',
+    message: payload?.error || fallback,
+    status: response.status,
+  };
+}
+
+export async function requestWithSecondaryAuth(send, authenticate, onExpired, options = {}) {
+  const fresh = options.fresh === true;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!await authenticate(fresh || attempt > 0)) {
+      throw new APIError('secondary_cancelled', '已取消二次验证', 403);
+    }
+    const response = await send();
+    if (response.status !== 403) return response;
+    const failure = await readAPIError(response, '需要二次认证');
+    const expired = failure.code === 'secondary_required' || (fresh && failure.code === 'fresh_secondary_required');
+    if (!expired) return response;
+    onExpired();
   }
-  onExpired();
-  return { required: true, retry: await requestSecondaryAuth(), error: failure.error };
+  throw new APIError('secondary_required', '需要二次认证', 403);
 }
 
 function decorateJSON(response) {

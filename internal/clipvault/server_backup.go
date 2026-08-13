@@ -120,18 +120,18 @@ func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 // handleBackupDirNow 立即执行一次目录备份。
 func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
+		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
 		return
 	}
 	cfg := s.cfgMgr.Get()
 	if cfg.Backup.DirBackup.Dir == "" {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "未配置备份目录"})
+		s.writeAPIError(w, http.StatusConflict, "backup_not_configured", "未配置备份目录", nil)
 		return
 	}
 	forceFull := r.URL.Query().Get("forceFull") == "1"
 	if err := s.backup.RunDirBackup(forceFull); err != nil {
 		s.logger.Error("dir_backup_manual_failed", err, nil)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		s.writeAPIError(w, http.StatusInternalServerError, "backup_failed", "目录备份失败，请查看日志", err)
 		return
 	}
 	s.logger.Info("dir_backup_manual_ok", map[string]any{"forceFull": forceFull})
@@ -141,13 +141,13 @@ func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request
 // handleBackupEmailNow 立即执行一次邮件备份。
 func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
+		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
 		return
 	}
 	forceFull := r.URL.Query().Get("forceFull") == "1"
 	if err := s.backup.RunEmailBackup(forceFull); err != nil {
 		s.logger.Error("email_backup_manual_failed", err, nil)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		s.writeAPIError(w, http.StatusInternalServerError, "backup_failed", "邮件备份失败，请查看日志", err)
 		return
 	}
 	s.logger.Info("email_backup_manual_ok", map[string]any{"forceFull": forceFull})
@@ -157,12 +157,12 @@ func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Reque
 // handleBackupEmailTest 发送一封测试邮件。
 func (s *SearchServer) handleBackupEmailTest(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "备份服务未启动"})
+		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
 		return
 	}
 	if err := s.backup.SendTestEmail(); err != nil {
 		s.logger.Error("email_test_failed", err, nil)
-		s.writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		s.writeAPIError(w, http.StatusInternalServerError, "email_test_failed", "测试邮件发送失败，请查看日志", err)
 		return
 	}
 	s.logger.Info("email_test_ok", nil)

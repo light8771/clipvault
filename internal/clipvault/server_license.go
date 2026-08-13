@@ -51,14 +51,14 @@ func (s *SearchServer) handleLicenseActivate(w http.ResponseWriter, r *http.Requ
 		Token string `json:"token"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil || strings.TrimSpace(req.Token) == "" {
-		s.writeJSON(w, map[string]any{"ok": false, "error": "license_bad_format"})
+		s.writeAPIError(w, http.StatusBadRequest, "license_bad_format", "激活码格式错误", err)
 		return
 	}
 	ctx, err := s.license.Activate(req.Token)
 	if err != nil {
 		code := licenseErrorCode(err)
 		s.logger.Warn("license_activation_failed", map[string]any{"error": code, "machineCode": ctx.MachineCode})
-		s.writeJSON(w, map[string]any{"ok": false, "error": code, "machineCode": ctx.MachineCode})
+		s.writeAPIError(w, http.StatusBadRequest, code, licenseErrorMessage(code), err)
 		return
 	}
 	if s.backup != nil {
@@ -66,6 +66,23 @@ func (s *SearchServer) handleLicenseActivate(w http.ResponseWriter, r *http.Requ
 	}
 	s.logger.Info("license_activated", map[string]any{"licenseId": ctx.LicenseID, "machineCode": ctx.MachineCode})
 	s.writeJSON(w, map[string]any{"ok": true, "licenseId": ctx.LicenseID, "edition": ctx.Edition})
+}
+
+func licenseErrorMessage(code string) string {
+	switch code {
+	case "license_bad_format":
+		return "激活码格式错误"
+	case "license_bad_signature":
+		return "激活码签名无效"
+	case "license_machine_mismatch":
+		return "激活码不适用于当前设备"
+	case "license_unsupported":
+		return "激活码版本或签发方不受支持"
+	case "license_machine_unavailable":
+		return "无法获取当前设备标识"
+	default:
+		return "激活码保存失败"
+	}
 }
 
 func licenseErrorCode(err error) string {

@@ -95,14 +95,8 @@
   const unlockFilterBtn = document.getElementById('unlockFilterBtn');
   if (unlockFilterBtn) {
     unlockFilterBtn.addEventListener('click', async () => {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能查看过滤规则', 'err'); return; }
       try {
-        const d = await secondaryFetch('/api/v1/config/sensitive-rules').then(r => r.json());
-        if (d.code === 'secondary_required') {
-          toast('二次验证失败', 'err');
-          return;
-        }
+        const d = await protectedFetch('/api/v1/config/sensitive-rules').then(r => r.json());
         const patterns = d.customPatterns || [];
         document.getElementById('filterAuthGate').classList.add('hidden');
         document.getElementById('filterContent').classList.remove('hidden');
@@ -352,7 +346,7 @@
     }
   }
 
-  async function saveConfigNow(secondaryRetried = false) {
+  async function saveConfigNow() {
     const newCfg = collectConfig();
     if (!newCfg) return false;
     const emailMaxPartSizeMB = newCfg.backup.emailBackup.maxPartSize / (1024 * 1024);
@@ -428,25 +422,10 @@
     }
 
     try {
-      const res = await secondaryFetch('/api/v1/config', {
+      const res = await protectedFetch('/api/v1/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCfg),
       });
-      if (!res.ok) {
-        const secondary = await handleSecondaryRequired(
-          res,
-          secondaryRetried ? async () => false : requestSecondaryAuth,
-          () => {
-            authState.secondaryAuthed = false;
-            appStore.update({ secondaryAuthenticated: false });
-          },
-        );
-        if (secondary.required) {
-          if (secondary.retry) return saveConfigNow(true);
-          toast('需要二次验证才能保存配置', 'err');
-          return false;
-        }
-        throw new Error(secondary.error);
-      }
+      await requireOK(res, '配置保存失败');
       const d = await res.json();

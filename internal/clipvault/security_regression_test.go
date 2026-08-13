@@ -115,7 +115,7 @@ func TestFailedSecondaryAuthenticationDoesNotCreateSession(t *testing.T) {
 	result := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/auth/secondary", strings.NewReader(`{"password":"wrong-secondary-password"}`))
 	server.handleAuthSecondary(result, request)
-	if result.Code != http.StatusOK {
+	if result.Code != http.StatusUnauthorized || !strings.Contains(result.Body.String(), `"code":"invalid_password"`) {
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 	}
 	auth.mu.RLock()

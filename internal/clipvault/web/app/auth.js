@@ -55,9 +55,7 @@
 
   async function cancelIsolatedDatabaseSwitch() {
     try {
-      const verified = await requestSecondaryAuth(true);
-      if (!verified) return;
-      const res = await freshSecondaryFetch('/api/v1/recovery/isolated-switch', { method: 'DELETE' });
+      const res = await protectedFetch('/api/v1/recovery/isolated-switch', { method: 'DELETE' }, { fresh: true });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         toast(data.error || '无法取消数据库切换', 'err');
@@ -120,17 +118,11 @@
       submit.disabled = true;
       submit.textContent = '正在验证...';
       try {
-        const verified = await requestSecondaryAuth(true);
-        if (!verified) {
-          error.textContent = '需要重新输入二次密码才能切换数据库';
-          error.classList.remove('hidden');
-          return;
-        }
-        const res = await freshSecondaryFetch('/api/v1/recovery/isolated-switch', {
+        const res = await protectedFetch('/api/v1/recovery/isolated-switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: database.id, password: input.value }),
-        });
+        }, { fresh: true });
         const data = await res.json().catch(() => ({}));
         input.value = '';
         if (!res.ok || !data.ok) {
@@ -203,28 +195,16 @@
       if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
 
       try {
-        const ok = await requestSecondaryAuth(isReset);
-        if (!ok) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
         const baseUrl = isReset ? '/api/v1/recovery/reset' : '/api/v1/recovery/password';
         const body = isChange
           ? { oldPassword: oldPwd, newPassword: newPwd }
           : { password: newPwd };
 
-        const doFetch = async () => {
-          const fetcher = isReset ? freshSecondaryFetch : secondaryFetch;
-          return await fetcher(baseUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-        };
-
-        let res = await doFetch();
-        if (res.status === 403) {
-          const ok2 = await requestSecondaryAuth(isReset);
-          if (!ok2) { errEl.textContent = '需要二次验证才能操作'; errEl.classList.remove('hidden'); return; }
-          res = await doFetch();
-        }
+        const res = await protectedFetch(baseUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }, { fresh: isReset });
         const d = await res.json();
         if (d.ok) {
           closeRecDialog();
@@ -406,10 +386,9 @@
         body: JSON.stringify({ token }),
       });
       const d = await res.json();
-      if (!d.ok) {
-        message.textContent = licenseActivationError(d.error);
+      if (!res.ok || !d.ok) {
+        message.textContent = licenseActivationError(d.code, d.error);
         message.className = 'license-message err';
-        if (d.machineCode) document.getElementById('licenseMachineCode').value = d.machineCode;
         return;
       }
       input.value = '';
@@ -426,13 +405,13 @@
     }
   };
 
-  function licenseActivationError(code) {
+  function licenseActivationError(code, message) {
     if (code === 'license_bad_format') return '激活码不完整，请重新复制后粘贴';
     if (code === 'license_bad_signature') return '激活码验证未通过，请确认输入是否正确。';
     if (code === 'license_machine_mismatch') return '此激活码不适用于当前设备，请重新提供本机机器码。';
     if (code === 'license_unsupported') return '当前版本无法识别此激活码，请联系技术支持。';
     if (code === 'license_machine_unavailable') return '无法读取设备信息，尚未进行激活';
-    return '激活码有效性或本地保存失败，请重试';
+    return message || '激活码有效性或本地保存失败，请重试';
   }
 
   // ── Utils ─────────────────────────────────────────────────

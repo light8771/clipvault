@@ -151,21 +151,13 @@
       storageRelocationInFlight = true;
       let scheduled = false;
       try {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const ok = await requestSecondaryAuth(attempt > 0);
-          if (!ok) break;
-          const res = await secondaryFetch('/api/v1/storage/relocation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dataDir: target }),
-          });
-          if (res.status === 403) continue;
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || '数据目录迁移准备失败');
-          scheduled = true;
-          break;
-        }
-        if (!scheduled) throw new Error('需要二次验证才能迁移数据目录');
+        const res = await protectedFetch('/api/v1/storage/relocation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataDir: target }),
+        });
+        await requireOK(res, '数据目录迁移准备失败');
+        scheduled = true;
 
         states[1] = 'done'; states[2] = 'active';
         renderProgress(states);

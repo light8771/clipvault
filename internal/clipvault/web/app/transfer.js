@@ -337,17 +337,13 @@
   // ── Export ─────────────────────────────────────────────────────────
   // authedDownload 处理二次认证后通过 fetch 下载文件（blob），避免 <a> 标签无法捕获 403。
   async function authedDownload(baseUrl, fallbackFilename, requestInit) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能导出', 'err'); return false; }
       try {
-        const res = await secondaryFetch(baseUrl, requestInit);
-        if (res.status === 403) continue; // token 失效，重试
+        const res = await protectedFetch(baseUrl, requestInit);
         if (res.status === 402) {
           // 付费墙：未激活
           try {
             const d = await res.json();
-            toast(d.message || '导出为付费功能，请先激活', 'err');
+            toast(d.error || '导出为付费功能，请先激活', 'err');
           } catch (_) { toast('导出为付费功能，请先激活', 'err'); }
           openLicenseSettings();
           return false;
@@ -366,9 +362,6 @@
         URL.revokeObjectURL(a.href);
         return true;
       } catch (_) { toast('导出失败: 网络错误', 'err'); return false; }
-    }
-    toast('需要二次验证才能导出', 'err');
-    return false;
   }
 
   // ── Export scope dialog (full / date range) ─────────────────

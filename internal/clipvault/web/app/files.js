@@ -110,17 +110,10 @@
       if (url === '/api/v1/items' || url === '/api/v1/items/sensitive') {
         currentSourceExes.forEach(n => p.append('source_exe', n));
       }
-      const request = url === '/api/v1/items/sensitive' ? secondaryFetch : fetch;
+      const request = url === '/api/v1/items/sensitive' ? protectedFetch : fetch;
       const response = await request(url + '?' + p, { signal: controller.signal });
       const d = await response.json();
       if (revision !== searchRevision) return;
-      if (d.code === 'secondary_required') {
-        const ok = await requestSecondaryAuth();
-        if (revision !== searchRevision) return;
-        if (ok) { await search(); return; }
-        toast('需要二次验证才能查看敏感数据', 'err');
-        return;
-      }
       if (!response.ok) {
         toast(d.error || '搜索失败，请重试', 'err');
         return;
@@ -352,10 +345,7 @@
       CLEAR_BTN.classList.add('loading');
       CLEAR_TX.textContent = '清除中...';
       try {
-        const ok = await requestSecondaryAuth();
-        if (!ok) { throw new Error('secondary_required'); }
-        const res = await secondaryFetch('/api/v1/items/clear', { method: 'POST' });
-        if (res.status === 403) { throw new Error('secondary_required'); }
+        const res = await protectedFetch('/api/v1/items/clear', { method: 'POST' });
         const d = await res.json();
         if (d.ok) {
           toast('已清除 ' + d.deleted + ' 条记录');
@@ -372,7 +362,7 @@
           </div>`;
         } else { throw 0; }
       } catch (e) {
-        if (e && e.message === 'secondary_required') {
+        if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
           toast('需要二次验证才能清除记录', 'err');
         } else {
           toast('清除失败', 'err');

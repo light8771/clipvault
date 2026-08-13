@@ -69,7 +69,7 @@ func TestApplicationModuleIsComposedInOrder(t *testing.T) {
 		t.Fatalf("application module status=%d", res.Code)
 	}
 	body := res.Body.String()
-	if !strings.HasPrefix(body, "import { apiFetch") || !strings.Contains(body, "// ── Boot") || !strings.HasSuffix(strings.TrimSpace(body), "}());") {
+	if !strings.HasPrefix(body, "import { APIError, apiFetch") || !strings.Contains(body, "// ── Boot") || !strings.HasSuffix(strings.TrimSpace(body), "}());") {
 		t.Fatal("application module fragments are missing or out of order")
 	}
 }

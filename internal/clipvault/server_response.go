@@ -23,9 +23,9 @@ func (s *SearchServer) writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeAPIError 统一 JSON 错误契约：{ok:false, code, message}。
-// 原始 err 只写日志，不回传客户端（防 SQL/DuckDB 内部细节泄漏，#19）。
-// 前端以 d.error 字段消费错误，message 保留为可读文案；code 供程序化判断。
+// writeAPIError writes the current API error contract. envelopeJSON converts
+// this internal representation to {"error":{"code","message"}}.
+// Original errors are logged only and are never returned to the client.
 func (s *SearchServer) writeAPIError(w http.ResponseWriter, status int, code, userMsg string, err error) {
 	if err != nil && s.logger != nil {
 		s.logger.Warn("api_error", map[string]any{"code": code, "error": err.Error()})
@@ -66,13 +66,8 @@ func formatDuration(d time.Duration) string {
 }
 
 func (s *SearchServer) writeRateLimitBlocked(w http.ResponseWriter, status RateLimitStatus) {
-	s.writeJSON(w, map[string]any{
-		"ok":                     false,
-		"error":                  fmt.Sprintf("5 分钟内最多尝试 10 次，请 %s 后再试", formatDuration(status.RetryAfter)),
-		"remainingAttempts":      0,
-		"retryAfterSeconds":      int((status.RetryAfter + time.Second - 1) / time.Second),
-		"rateLimitWindowMinutes": 5,
-	})
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", int((status.RetryAfter+time.Second-1)/time.Second)))
+	s.writeAPIError(w, http.StatusTooManyRequests, "rate_limited", fmt.Sprintf("5 分钟内最多尝试 10 次，请 %s 后再试", formatDuration(status.RetryAfter)), nil)
 }
 
 func (s *SearchServer) writePasswordFailure(w http.ResponseWriter, label string, status RateLimitStatus) {
@@ -80,10 +75,5 @@ func (s *SearchServer) writePasswordFailure(w http.ResponseWriter, label string,
 		s.writeRateLimitBlocked(w, status)
 		return
 	}
-	s.writeJSON(w, map[string]any{
-		"ok":                     false,
-		"error":                  fmt.Sprintf("%s；5 分钟内还可尝试 %d 次", label, status.Remaining),
-		"remainingAttempts":      status.Remaining,
-		"rateLimitWindowMinutes": 5,
-	})
+	s.writeAPIError(w, http.StatusUnauthorized, "invalid_password", fmt.Sprintf("%s；5 分钟内还可尝试 %d 次", label, status.Remaining), nil)
 }
