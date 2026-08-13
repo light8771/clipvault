@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"clipboard_ext/internal/clipvault/transport/httpui"
@@ -12,6 +13,56 @@ import (
 
 func (s *SearchServer) envelopeJSON(next http.HandlerFunc) http.Handler {
 	return httpui.Envelope(next)
+}
+
+type apiContractWriter struct {
+	http.ResponseWriter
+	requestPath string
+	suppressed  bool
+}
+
+func (w *apiContractWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *apiContractWriter) WriteHeader(status int) {
+	if w.suppressed {
+		return
+	}
+	if (w.requestPath == "/api/v1" || strings.HasPrefix(w.requestPath, "/api/v1/")) && status >= http.StatusBadRequest &&
+		!strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
+		code := "request_failed"
+		message := http.StatusText(status)
+		switch status {
+		case http.StatusNotFound:
+			code = "not_found"
+			message = "资源不存在"
+		case http.StatusMethodNotAllowed:
+			code = "method_not_allowed"
+			message = "请求方法不允许"
+		}
+		w.Header().Del("Content-Length")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.ResponseWriter.WriteHeader(status)
+		_ = json.NewEncoder(w.ResponseWriter).Encode(map[string]any{
+			"error": map[string]string{"code": code, "message": message},
+		})
+		w.suppressed = true
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *apiContractWriter) Write(data []byte) (int, error) {
+	if w.suppressed {
+		return len(data), nil
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func ensureAPIErrorContract(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&apiContractWriter{ResponseWriter: w, requestPath: r.URL.Path}, r)
+	})
 }
 
 func decodeJSONRequest(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {

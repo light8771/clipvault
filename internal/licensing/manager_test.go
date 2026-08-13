@@ -27,7 +27,7 @@ func TestUnloadedManagerDeniesPaidFeatures(t *testing.T) {
 //   - Enforced 必须与 EnforcementEnabled() 同源：Load() 的每条返回路径都写
 //     Enforced: EnforcementEnabled()，构造期默认值若不同源，两者就会在未来某个
 //     构建变体下分叉，fail-open 缺口重新打开。
-//   - Status 必须保持零值 ""：/api/license/status 会把 Status 原样透出，构造期
+//   - Status 必须保持零值 ""：/api/v1/license 会把 Status 原样透出，构造期
 //     擅自填 StatusUnconfigured 会改变未 Load 时的对外可观测行为，超出"只堵
 //     fail-open"的范围。
 func TestUnloadedManagerContextMatchesEnforcement(t *testing.T) {

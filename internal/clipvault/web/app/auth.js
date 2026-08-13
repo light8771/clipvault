@@ -1,172 +1,220 @@
-    list.replaceChildren();
-
-    if (recoveryState.pendingSwitchId) {
-      pending.replaceChildren();
-      const pendingText = document.createElement('span');
-      pendingText.textContent = '数据库切换已准备完成。请从托盘退出 ClipVault，再重新打开；不要直接关闭这个浏览器页面代替退出应用。';
-      const cancelButton = document.createElement('button');
-      cancelButton.type = 'button';
-      cancelButton.className = 'btn-export';
-      cancelButton.textContent = '取消切换';
-      cancelButton.addEventListener('click', cancelIsolatedDatabaseSwitch);
-      pending.append(pendingText, cancelButton);
-      pending.classList.remove('hidden');
-    } else {
-      pending.replaceChildren();
-      pending.classList.add('hidden');
-    }
-
-    if (!databases.length) {
-      const empty = document.createElement('p');
-      empty.className = 'isolated-empty';
-      empty.textContent = '没有隔离的旧数据库。';
-      list.appendChild(empty);
-      return;
-    }
-
-    databases.forEach((database) => {
-      const row = document.createElement('div');
-      row.className = 'isolated-item' + (database.canSwitch ? '' : ' is-unavailable');
-
-      const main = document.createElement('div');
-      main.className = 'isolated-item-main';
-      const title = document.createElement('div');
-      title.className = 'isolated-item-title';
-      title.textContent = formatIsolatedTime(database.isolatedAt);
-      const meta = document.createElement('div');
-      meta.className = 'isolated-item-meta';
-      meta.textContent = formatIsolatedSize(database.sizeBytes) + (database.canSwitch ? ' · 可验证恢复' : ' · 缺少恢复文件，无法切换');
-      main.append(title, meta);
-
-      const actions = document.createElement('div');
-      actions.className = 'isolated-item-actions';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'btn-export';
-      button.textContent = recoveryState.pendingSwitchId === database.id ? '等待重启' : '切换查看';
-      button.disabled = !database.canSwitch || Boolean(recoveryState.pendingSwitchId);
-      button.addEventListener('click', () => showIsolatedDatabaseDialog(database.id));
-      actions.appendChild(button);
-
-      row.append(main, actions);
-      list.appendChild(row);
-    });
-  }
-
-  async function cancelIsolatedDatabaseSwitch() {
+import { app } from "./app-context.js";
+export function registerAuth() {
+  app.checkAuthStatus = async function checkAuthStatus() {
     try {
-      const res = await protectedFetch('/api/v1/recovery/isolated-switch', { method: 'DELETE' }, { fresh: true });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        toast(data.error || '无法取消数据库切换', 'err');
-        return;
+      const d = await app.fetch('/api/v1/session').then(r => r.json());
+      app.authState = d;
+      app.appStore.update({
+        authenticated: d.authenticated,
+        secondaryAuthenticated: d.secondaryAuthed
+      });
+      if (d.hasLockPassword && !d.authenticated) {
+        app.showLockScreen();
+        return false;
       }
-      recoveryState.pendingSwitchId = '';
-      renderIsolatedDatabases();
-      toast('数据库切换已取消');
+      app.hideLockScreen();
+      return true;
     } catch (_) {
-      toast('无法取消数据库切换', 'err');
+      return false;
     }
-  }
-
-  showIsolatedDatabaseDialog = function(id) {
-    const database = recoveryState.isolatedDatabases.find((item) => item.id === id);
-    if (!database || !database.canSwitch || recoveryState.pendingSwitchId) return;
-    const html = `
-      <div class="modal-overlay" id="isolatedDatabaseOverlay">
-        <div class="modal-box secondary-box isolated-database-modal" data-modal-panel>
-          <div class="modal-head">
-            <span class="modal-title">切换到旧数据库</span>
-            <button class="modal-close" type="button" data-action="close-isolated-database" aria-label="关闭">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-          <div class="modal-body u-inline-16">
-            <div class="migrate-notes">
-              <p>验证成功后，本次切换会在下次完整启动时执行。当前数据库不会被覆盖，而是作为另一份隔离数据保留，之后可用它自己的恢复密码切回。</p>
-            </div>
-            <form id="isolatedDatabaseForm" class="lock-form">
-              <label class="migrate-label" for="isolatedDatabasePassword">这份旧数据库的数据恢复密码</label>
-              <input type="password" id="isolatedDatabasePassword" class="lock-input" placeholder="输入旧数据库的恢复密码" autocomplete="current-password">
-              <button type="submit" class="lock-btn" id="isolatedDatabaseSubmit">验证并准备切换</button>
-            </form>
-            <p class="lock-err hidden" id="isolatedDatabaseError"></p>
-          </div>
-        </div>
-      </div>`;
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
-    document.body.appendChild(wrapper.firstElementChild);
-    const overlay = document.getElementById('isolatedDatabaseOverlay');
-    const form = document.getElementById('isolatedDatabaseForm');
-    const input = document.getElementById('isolatedDatabasePassword');
-    const submit = document.getElementById('isolatedDatabaseSubmit');
-    const error = document.getElementById('isolatedDatabaseError');
-    closeIsolatedDatabaseDialog = function() { overlay.remove(); };
-    overlay.addEventListener('click', (event) => { if (event.target === overlay) closeIsolatedDatabaseDialog(); });
-    setTimeout(() => input.focus(), 50);
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      error.classList.add('hidden');
-      if (!input.value) {
-        error.textContent = '请输入这份旧数据库的数据恢复密码';
-        error.classList.remove('hidden');
-        input.focus();
-        return;
+  };
+  app.showLockScreen = function showLockScreen() {
+    app.LOCK_OVERLAY.classList.add('show');
+    app.LOCK_INPUT.value = '';
+    app.LOCK_ERR.classList.add('hidden');
+    setTimeout(() => app.LOCK_INPUT.focus(), 50);
+  };
+  app.hideLockScreen = function hideLockScreen() {
+    app.LOCK_OVERLAY.classList.remove('show');
+  };
+  app.LOCK_FORM.addEventListener('submit', async e => {
+    e.preventDefault();
+    const pwd = app.LOCK_INPUT.value;
+    app.LOCK_ERR.classList.add('hidden');
+    try {
+      const res = await app.fetch('/api/v1/session/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          password: pwd
+        })
+      });
+      const d = await res.json();
+      if (d.ok) {
+        app.hideLockScreen();
+        app.authState.authenticated = true;
+        app.appStore.update({
+          authenticated: true
+        });
+        app.init();
+      } else {
+        app.LOCK_ERR.textContent = d.error || '密码错误';
+        app.LOCK_ERR.classList.remove('hidden');
+        app.LOCK_INPUT.value = '';
+        app.LOCK_INPUT.focus();
       }
-      submit.disabled = true;
-      submit.textContent = '正在验证...';
-      try {
-        const res = await protectedFetch('/api/v1/recovery/isolated-switch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: database.id, password: input.value }),
-        }, { fresh: true });
-        const data = await res.json().catch(() => ({}));
-        input.value = '';
-        if (!res.ok || !data.ok) {
-          error.textContent = data.error || '无法准备数据库切换';
-          error.classList.remove('hidden');
-          return;
-        }
-        recoveryState.pendingSwitchId = database.id;
-        closeIsolatedDatabaseDialog();
-        renderIsolatedDatabases();
-        toast('切换已准备，请退出 ClipVault 后重新打开');
-      } catch (_) {
-        error.textContent = '无法连接本机服务，请稍后重试';
-        error.classList.remove('hidden');
-      } finally {
-        submit.disabled = false;
-        submit.textContent = '验证并准备切换';
-      }
+    } catch (_) {
+      app.LOCK_ERR.textContent = '网络错误';
+      app.LOCK_ERR.classList.remove('hidden');
+    }
+  });
+
+  // ── Secondary auth ───────────────────────────────────────
+  app.pendingSecondaryToken = null;
+  app.protectedItemRequestQueue = Promise.resolve();
+  app.withSecondaryToken = function withSecondaryToken(init) {
+    const opts = Object.assign({}, init || {});
+    const headers = new Headers(opts.headers || {});
+    if (app.pendingSecondaryToken) {
+      headers.set('X-ClipVault-Secondary-Token', app.pendingSecondaryToken);
+      app.pendingSecondaryToken = null;
+    }
+    opts.headers = headers;
+    return opts;
+  };
+  app.secondaryFetch = function secondaryFetch(url, init) {
+    return app.fetch(url, app.withSecondaryToken(init));
+  };
+  app.freshSecondaryFetch = function freshSecondaryFetch(url, init) {
+    const opts = Object.assign({}, init || {});
+    const headers = new Headers(opts.headers || {});
+    if (app.pendingSecondaryToken) {
+      headers.set('X-ClipVault-Fresh-Secondary', app.pendingSecondaryToken);
+      app.pendingSecondaryToken = null;
+    }
+    opts.headers = headers;
+    return app.fetch(url, opts);
+  };
+  app.expireSecondaryAuth = function expireSecondaryAuth() {
+    app.authState.secondaryAuthed = false;
+    app.pendingSecondaryToken = null;
+    app.appStore.update({
+      secondaryAuthenticated: false
     });
   };
+  app.protectedFetch = function protectedFetch(url, init, options) {
+    const fresh = options?.fresh === true;
+    const send = () => fresh ? app.freshSecondaryFetch(url, init) : app.secondaryFetch(url, init);
+    return app.requestWithSecondaryAuth(send, app.requestSecondaryAuth, app.expireSecondaryAuth, {
+      fresh
+    });
+  };
+  app.requireOK = async function requireOK(response, fallback) {
+    if (response.ok) return response;
+    const failure = await app.readAPIError(response, fallback);
+    throw new app.APIError(failure.code, failure.message, failure.status);
+  };
+  app.requestSecondaryAuth = function requestSecondaryAuth(forceFresh = false) {
+    if (!app.authState.hasSecondaryPassword) return Promise.resolve(true);
+    if (!forceFresh && app.pendingSecondaryToken) return Promise.resolve(true);
+    if (app.secondaryAuthPromise) return app.secondaryAuthPromise;
+    const run = (async () => {
+      if (!forceFresh) {
+        try {
+          const st = await app.fetch('/api/v1/session').then(r => r.json());
+          app.authState.secondaryAuthed = st.secondaryAuthed;
+          app.appStore.update({
+            secondaryAuthenticated: st.secondaryAuthed
+          });
+          if (st.secondaryAuthed) return true;
+        } catch (_) {}
+      }
+      return new Promise(resolve => {
+        app.secondaryResolve = resolve;
+        app.SECONDARY_MODAL.classList.remove('hidden');
+        app.SECONDARY_INPUT.value = '';
+        app.SECONDARY_ERR.classList.add('hidden');
+        setTimeout(() => app.SECONDARY_INPUT.focus(), 50);
+      });
+    })();
+    app.secondaryAuthPromise = run.finally(() => {
+      app.secondaryAuthPromise = null;
+    });
+    return app.secondaryAuthPromise;
+  };
+  app.closeSecondaryModal = function () {
+    app.SECONDARY_MODAL.classList.add('hidden');
+    if (app.secondaryResolve) {
+      app.secondaryResolve(false);
+      app.secondaryResolve = null;
+    }
+  };
+  app.SECONDARY_FORM.addEventListener('submit', async e => {
+    e.preventDefault();
+    const pwd = app.SECONDARY_INPUT.value;
+    app.SECONDARY_ERR.classList.add('hidden');
+    try {
+      const res = await app.fetch('/api/v1/session/secondary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          password: pwd
+        })
+      });
+      const d = await res.json();
+      if (d.ok) {
+        app.SECONDARY_MODAL.classList.add('hidden');
+        app.authState.secondaryAuthed = d.secondaryCached === true;
+        app.appStore.update({
+          secondaryAuthenticated: app.authState.secondaryAuthed
+        });
+        app.pendingSecondaryToken = d.secondaryToken || null;
+        app.toast(d.message || '二次验证成功');
+        if (app.secondaryResolve) {
+          app.secondaryResolve(true);
+          app.secondaryResolve = null;
+        }
+      } else {
+        app.SECONDARY_ERR.textContent = d.error || '二次密码错误';
+        app.SECONDARY_ERR.classList.remove('hidden');
+        app.SECONDARY_INPUT.value = '';
+        app.SECONDARY_INPUT.focus();
+      }
+    } catch (_) {
+      app.SECONDARY_ERR.textContent = '网络错误';
+      app.SECONDARY_ERR.classList.remove('hidden');
+    }
+  });
+  app.SECONDARY_MODAL.addEventListener('click', e => {
+    if (e.target === app.SECONDARY_MODAL) app.closeSecondaryModal();
+  });
 
-  showRecoveryDialog = function(action) {
+  // ── Password set/change dialog ───────────────────────────
+  app.showPwdDialog = function (type, action) {
+    const trigger = document.activeElement;
     const isChange = action === 'change';
-    const isReset = action === 'reset';
-    const title = '数据恢复密码' + (isReset ? '重置' : '修改');
-    const oldLabel = isChange ? '当前恢复密码' : null;
+    const isRemove = action === 'remove';
+    const passwordName = type === 'lock' ? '锁屏密码' : '二次密码';
+    const title = passwordName + (isRemove ? '删除' : isChange ? '修改' : '设置');
+    const oldLabel = isChange || isRemove ? '当前密码' : null;
+    const removeWarning = type === 'lock' ? '删除后，任何能打开此服务的人都可以直接进入 ClipVault。' : '删除后，敏感数据、导出、备份和安全设置将不再受二次密码保护。';
     const html = `
-      <div class="modal-overlay" id="recDialogOverlay">
-        <div class="modal-box secondary-box" data-modal-panel>
+      <div class="modal-overlay" id="pwdDialogOverlay">
+        <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="pwdDialogTitle" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${title}</span>
-            <button class="modal-close" data-action="close-recovery">
+            <span class="modal-title" id="pwdDialogTitle">${title}</span>
+            <button class="modal-close" type="button" aria-label="关闭密码设置" data-action="close-password">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
-            <form id="recDialogForm" class="lock-form">
+            <form id="pwdDialogForm" class="lock-form">
               <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
-              ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
-              <input type="password" id="recDlgNew" class="lock-input" placeholder="新恢复密码" autocomplete="new-password">
-              <input type="password" id="recDlgConfirm" class="lock-input" placeholder="确认新恢复密码" autocomplete="new-password">
-              <button type="submit" class="lock-btn">确定</button>
+              ${oldLabel ? `<label class="field-label" for="pwdDlgOld">${oldLabel}</label><input type="password" id="pwdDlgOld" class="lock-input" autocomplete="current-password">` : ''}
+              ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
+              <label class="field-label" for="pwdDlgNew">新密码</label>
+              <input type="password" id="pwdDlgNew" class="lock-input" autocomplete="new-password" aria-describedby="pwdDlgHint">
+              <p class="field-hint" id="pwdDlgHint">至少 8 个字符，首尾不能有空格</p>
+              <label class="field-label" for="pwdDlgConfirm">确认新密码</label>
+              <input type="password" id="pwdDlgConfirm" class="lock-input" autocomplete="new-password">`}
+              <label class="password-show"><input type="checkbox" id="pwdDlgShow"> 显示密码</label>
+              <button type="submit" class="lock-btn${isRemove ? ' danger' : ''}">${isRemove ? '确认删除' : isChange ? '修改' : '设置'}${passwordName}</button>
             </form>
-            <p class="lock-err hidden" id="recDlgErr"></p>
+            <p class="lock-err hidden" id="pwdDlgErr" role="alert" aria-live="assertive"></p>
           </div>
         </div>
       </div>
@@ -174,43 +222,82 @@
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
-    const overlay = document.getElementById('recDialogOverlay');
-    const form = document.getElementById('recDialogForm');
-    const errEl = document.getElementById('recDlgErr');
-    const oldInput = document.getElementById('recDlgOld');
-    const newInput = document.getElementById('recDlgNew');
-    const confirmInput = document.getElementById('recDlgConfirm');
+    const overlay = document.getElementById('pwdDialogOverlay');
+    const form = document.getElementById('pwdDialogForm');
+    const errEl = document.getElementById('pwdDlgErr');
+    const oldInput = document.getElementById('pwdDlgOld');
+    const newInput = document.getElementById('pwdDlgNew');
+    const confirmInput = document.getElementById('pwdDlgConfirm');
+    const showInput = document.getElementById('pwdDlgShow');
     setTimeout(() => (oldInput || newInput).focus(), 50);
-
-    closeRecDialog = function() { overlay.remove(); };
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRecDialog(); });
-
-    form.addEventListener('submit', async (e) => {
+    app.closePwdDialog = function () {
+      overlay.remove();
+      if (trigger && trigger.focus) trigger.focus();
+    };
+    showInput.addEventListener('change', () => {
+      const visible = showInput.checked;
+      [oldInput, newInput, confirmInput].filter(Boolean).forEach(input => {
+        input.type = visible ? 'text' : 'password';
+      });
+    });
+    overlay.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        app.closePwdDialog();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusable = Array.from(overlay.querySelectorAll('button:not([disabled]), input:not([disabled])')).filter(el => el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0],
+        last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) app.closePwdDialog();
+    });
+    form.addEventListener('submit', async e => {
       e.preventDefault();
       const oldPwd = oldInput ? oldInput.value : '';
-      const newPwd = newInput.value;
-      const confirmPwd = confirmInput.value;
+      const newPwd = newInput ? newInput.value : '';
+      const confirmPwd = confirmInput ? confirmInput.value : '';
       errEl.classList.add('hidden');
-
-      if (newPwd !== confirmPwd) { errEl.textContent = '两次输入的密码不一致'; errEl.classList.remove('hidden'); return; }
-
+      if (!isRemove && newPwd !== confirmPwd) {
+        errEl.textContent = '两次输入的密码不一致';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      if (!isRemove && (Array.from(newPwd).length < 8 || newPwd.trim() !== newPwd)) {
+        errEl.textContent = '密码至少需要 8 个字符，且首尾不能有空格';
+        errEl.classList.remove('hidden');
+        return;
+      }
       try {
-        const baseUrl = isReset ? '/api/v1/recovery/reset' : '/api/v1/recovery/password';
-        const body = isChange
-          ? { oldPassword: oldPwd, newPassword: newPwd }
-          : { password: newPwd };
-
-        const res = await protectedFetch(baseUrl, {
+        const res = await app.fetch('/api/v1/session/password', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        }, { fresh: isReset });
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            type,
+            action,
+            oldPassword: oldPwd,
+            newPassword: newPwd
+          })
+        });
         const d = await res.json();
         if (d.ok) {
-          closeRecDialog();
-          toast('数据恢复密码已' + (isReset ? '重置' : '修改'));
-          recoveryState.hasRecovery = true;
-          updateRecoveryPwdUI();
+          app.closePwdDialog();
+          const successMessage = passwordName + '已' + (isRemove ? '删除' : isChange ? '修改' : '设置');
+          app.toast(d.runtimeError ? successMessage + '，但' + d.runtimeError : successMessage, d.runtimeError ? 'err' : undefined);
+          await app.checkAuthStatus();
+          app.updatePwdStatusUI();
         } else {
           errEl.textContent = d.error || '操作失败';
           errEl.classList.remove('hidden');
@@ -221,209 +308,21 @@
       }
     });
   };
-
-  // ── View switch ───────────────────────────────────────────
-  let viewSwitchSequence = 0;
-
-  switchView = async function(view) {
-    const request = ++viewSwitchSequence;
-    const isHistory = view === 'history';
-    if (!isHistory) {
-      setupAutoSave();
-      const ok = await requestSecondaryAuth();
-      if (request !== viewSwitchSequence) return false;
-      if (!ok) {
-        document.getElementById('viewHistory').classList.remove('hidden');
-        document.getElementById('viewSettings').classList.add('hidden');
-        document.getElementById('tabHistory').classList.add('active');
-        document.getElementById('tabSettings').classList.remove('active');
-        toast('已取消进入设置，需要二次密码验证', 'err');
-        return false;
-      }
-      await loadSettings();
-      if (request !== viewSwitchSequence) return false;
-    }
-    document.getElementById('viewHistory').classList.toggle('hidden', !isHistory);
-    document.getElementById('viewSettings').classList.toggle('hidden', isHistory);
-    document.getElementById('tabHistory').classList.toggle('active', isHistory);
-    document.getElementById('tabSettings').classList.toggle('active', !isHistory);
-    return true;
+  app.updatePwdStatusUI = function updatePwdStatusUI() {
+    const lockSet = app.authState.hasLockPassword;
+    const secSet = app.authState.hasSecondaryPassword;
+    const lockStatus = document.getElementById('lockPwdStatus');
+    const lockSetBtn = document.getElementById('lockPwdSetBtn');
+    const lockChangeBtn = document.getElementById('lockPwdChangeBtn');
+    const lockRemoveBtn = document.getElementById('lockPwdRemoveBtn');
+    const secStatus = document.getElementById('secondaryPwdStatus');
+    const secChangeBtn = document.getElementById('secondaryPwdChangeBtn');
+    if (lockStatus) lockStatus.textContent = lockSet ? '已设置' : '未设置';
+    if (lockSetBtn) lockSetBtn.classList.toggle('hidden', lockSet);
+    if (lockChangeBtn) lockChangeBtn.classList.toggle('hidden', !lockSet);
+    if (lockRemoveBtn) lockRemoveBtn.classList.toggle('hidden', !lockSet);
+    if (secStatus) secStatus.textContent = secSet ? '已设置（必需）' : '状态异常';
+    if (secChangeBtn) secChangeBtn.classList.toggle('hidden', !secSet);
+    app.updateRecoveryPwdUI();
   };
-
-  // ── Filter chips ──────────────────────────────────────────
-  const GROUP_CHIP = document.getElementById('groupChip');
-
-  document.getElementById('kindFilters').addEventListener('click', async e => {
-    const chip = e.target.closest('.filter-chip');
-    if (!chip) return;
-    const kind = chip.dataset.kind;
-    // 分组 chip：打开分组选择弹窗
-    if (kind === '__group__') {
-      if (allGroups.length === 0) { await loadGroups(); }
-      openGroupModal('filter');
-      return;
-    }
-    // 敏感数据分组需要二次验证
-    if (kind === '__sensitive__') {
-      const ok = await requestSecondaryAuth();
-      if (!ok) { toast('需要二次验证才能查看敏感数据', 'err'); return; }
-    }
-    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    currentKind = kind;
-    currentGroupID = 0; // reset group filter when switching to other kinds
-    resetSearch();
-  });
-
-  // ── Toast ─────────────────────────────────────────────────
-  function toast(msg, type = 'ok') {
-    const el = document.createElement('div');
-    el.className = 'tk ' + type;
-    el.textContent = msg;
-	el.setAttribute('role', type === 'err' ? 'alert' : 'status');
-	el.setAttribute('aria-live', type === 'err' ? 'assertive' : 'polite');
-    TC.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('show'));
-    const duration = type === 'err' ? 7000 : 3500;
-    setTimeout(() => {
-      el.classList.remove('show');
-      setTimeout(() => el.remove(), 260);
-    }, duration);
-  }
-
-  // 归一化后端授权状态。后端未下发 freeLimit、或下发了非正数/非数字时一律归零，
-  // 避免把 undefined/0 直接拼进用户可见文案（例如"仅显示最近 undefined 条"）。
-  function normalizeLicenseState(d) {
-    const raw = Number(d && d.freeLimit);
-    const freeLimit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
-    return Object.assign({}, d, { freeLimit });
-  }
-
-  async function loadLicenseStatus() {
-    try {
-      const d = await fetch('/api/v1/license').then(r => r.json());
-      licenseState = normalizeLicenseState(d);
-      const banner = document.getElementById('licenseBanner');
-      const badge = document.getElementById('licenseStatusBadge');
-      const hint = document.getElementById('licenseStatusHint');
-      const code = document.getElementById('licenseMachineCode');
-      const activateBlock = document.getElementById('licenseActivateBlock');
-      const details = document.getElementById('licenseDetailsRow');
-      badge.classList.toggle('warn', !d.licensed);
-      if (d.licensed) {
-        badge.textContent = '已激活';
-        hint.textContent = '当前设备永久有效';
-      } else {
-        badge.textContent = '未激活';
-        hint.textContent = licenseStatusText(d.status);
-      }
-      banner.classList.toggle('hidden', d.licensed);
-      activateBlock.classList.toggle('hidden', d.licensed);
-      details.classList.toggle('hidden', !d.licensed);
-      if (!d.licensed) {
-        // 限额未知时退化为不带数字的说法，但保留横幅本身（它同时是激活入口）。
-        const limit = licenseState.freeLimit;
-        banner.querySelector('span').textContent = limit > 0
-          ? '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索最近 ' + limit + ' 条。激活后解锁完整历史记录，以及导出与备份功能。'
-          : '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。';
-      }
-      if (d.licenseId) document.getElementById('licenseIdText').textContent = d.licenseId;
-      if (d.machineCode) code.value = d.machineCode;
-      await loadMachineID();
-      await refreshState();
-    } catch (_) {
-      document.getElementById('licenseStatusBadge').textContent = '读取失败';
-      document.getElementById('licenseStatusHint').textContent = '无法读取本机授权状态，请查看本地日志';
-    }
-  }
-
-  function licenseStatusText(status) {
-    if (status === 'machine_mismatch') return '授权与当前设备不匹配，请申请重新签发';
-    if (status === 'corrupt') return '本地授权信息损坏，请重新输入激活码';
-    if (status === 'machine_error') return '无法读取设备信息，请复制诊断信息联系支持';
-    if (status === 'unconfigured') return '正式授权公钥尚未配置';
-    return '输入对应当前设备的激活码后即可永久使用';
-  }
-
-  async function loadMachineID() {
-    try {
-      const d = await fetch('/api/v1/license/machine').then(r => r.json());
-      fullMachineId = d.machineId || '';
-      if (d.machineCode) document.getElementById('licenseMachineCode').value = d.machineCode;
-    } catch (_) {}
-  }
-
-  openLicenseSettings = async function() {
-    if (await switchView('settings')) snavTo('s-license', 'snav-license');
-  };
-
-  copyPurchaseInfo = async function() {
-    if (!fullMachineId) await loadMachineID();
-    if (!fullMachineId) { toast('机器码读取失败', 'err'); return; }
-    const displayCode = document.getElementById('licenseMachineCode').value || '';
-    const info = '产品：ClipVault\n版本：' + (licenseState.version || '未知') +
-      '\n机器码：' + fullMachineId +
-      (displayCode && displayCode !== '读取中…' ? '\n识别码：' + displayCode : '');
-    try {
-      await navigator.clipboard.writeText(info);
-      toast('购买信息已复制');
-    } catch (_) { toast('复制失败', 'err'); }
-  };
-
-  activateLicense = async function() {
-    const input = document.getElementById('licenseTokenInput');
-    const button = document.getElementById('licenseActivateBtn');
-    const message = document.getElementById('licenseMessage');
-    const token = input.value.trim();
-    if (!token) { message.textContent = '请粘贴完整激活码'; message.className = 'license-message err'; return; }
-    button.disabled = true;
-    button.textContent = '正在验证…';
-    message.textContent = '';
-    try {
-      const res = await fetch('/api/v1/license/activation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) {
-        message.textContent = licenseActivationError(d.code, d.error);
-        message.className = 'license-message err';
-        return;
-      }
-      input.value = '';
-      message.textContent = '激活成功，已解锁全部历史记录与导出备份功能';
-      message.className = 'license-message ok';
-      toast('激活成功');
-      await loadLicenseStatus();
-    } catch (_) {
-      message.textContent = '本地服务暂时无法完成激活，请重试';
-      message.className = 'license-message err';
-    } finally {
-      button.disabled = false;
-      button.textContent = '立即激活';
-    }
-  };
-
-  function licenseActivationError(code, message) {
-    if (code === 'license_bad_format') return '激活码不完整，请重新复制后粘贴';
-    if (code === 'license_bad_signature') return '激活码验证未通过，请确认输入是否正确。';
-    if (code === 'license_machine_mismatch') return '此激活码不适用于当前设备，请重新提供本机机器码。';
-    if (code === 'license_unsupported') return '当前版本无法识别此激活码，请联系技术支持。';
-    if (code === 'license_machine_unavailable') return '无法读取设备信息，尚未进行激活';
-    return message || '激活码有效性或本地保存失败，请重试';
-  }
-
-  // ── Utils ─────────────────────────────────────────────────
-  function esc(v) {
-    return String(v).replace(/[&<>"']/g, c =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
-    );
-  }
-
-  function highlight(text, q) {
-    const e = esc(text);
-    if (!q.trim()) return e;
-    const p = esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    try { return e.replace(new RegExp(p, 'gi'), m => '<mark>' + m + '</mark>'); }
-    catch (_) { return e; }
+}

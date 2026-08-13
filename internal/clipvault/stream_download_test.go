@@ -18,7 +18,7 @@ func TestServeExportFileSupportsPostDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/export", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/export", nil)
 	if err := serveExportFile(recorder, request, file, "data.cvexport", "application/octet-stream"); err != nil {
 		t.Fatal(err)
 	}

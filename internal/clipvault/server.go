@@ -73,7 +73,7 @@ func (s *SearchServer) Start() (string, error) {
 		mux.Handle(methodPath, s.envelopeJSON(handler))
 	}
 
-	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
@@ -84,7 +84,9 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /hotkey-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /api.js", s.handleStatic)
 	mux.HandleFunc("GET /store.js", s.handleStatic)
-	mux.HandleFunc("GET /script.js", s.handleStatic)
+	for _, asset := range applicationModuleAssets {
+		mux.HandleFunc("GET "+asset, s.handleStatic)
+	}
 	api("GET /api/v1/session/csrf", s.handleCSRF)
 	api("GET /api/v1/appearance", s.handlePublicAppearance)
 	api("POST /api/v1/session/login", s.handleAuthLogin)
@@ -173,7 +175,7 @@ func (s *SearchServer) Start() (string, error) {
 	}
 	s.url = "http://" + addr + "/"
 	s.server = &http.Server{
-		Handler:           s.secureHTTP(mux, host, ln.Addr().(*net.TCPAddr).Port),
+		Handler:           s.secureHTTP(ensureAPIErrorContract(mux), host, ln.Addr().(*net.TCPAddr).Port),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      5 * time.Minute,

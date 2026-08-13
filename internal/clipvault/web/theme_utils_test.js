@@ -1,12 +1,12 @@
-'use strict';
+import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as theme from './theme-utils.js';
+import * as hotkey from './hotkey-utils.js';
 
-const assert = require('node:assert/strict');
-const childProcess = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const theme = require('./theme-utils.js');
-const hotkey = require('./hotkey-utils.js');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const surfaces = ['#FFFFFF', '#101820', '#102038', '#2B1C10', '#182230'];
 const paletteSurfaces = [
@@ -82,44 +82,52 @@ assert.equal(hotkey.vkToDisplay(0x70), 'F1');
 assert.equal(hotkey.vkToDisplay(0x87), 'F24');
 assert.equal(hotkey.vkToDisplay(0x1B), '');
 
-const script = fs.readdirSync(path.join(__dirname, 'app'))
-  .filter(name => name.endsWith('.js'))
-  .sort((a, b) => ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(a) - ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(b))
-  .map(name => fs.readFileSync(path.join(__dirname, 'app', name), 'utf8'))
-  .join('\n');
+const modules = fs.readdirSync(path.join(__dirname, 'app')).filter(name => name.endsWith('.js'));
+const moduleSources = new Map(modules.map(name => [name, fs.readFileSync(path.join(__dirname, 'app', name), 'utf8')]));
+const applicationSource = [...moduleSources.values()].join('\n');
 const apiSource = fs.readFileSync(path.join(__dirname, 'api.js'), 'utf8');
-const syntaxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipvault-module-'));
-try {
-  const syntaxFile = path.join(syntaxDir, 'application.mjs');
-  fs.writeFileSync(syntaxFile, script, 'utf8');
-  const syntax = childProcess.spawnSync(process.execPath, ['--check', syntaxFile], { encoding: 'utf8' });
-  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || 'composed application module has invalid syntax');
-} finally {
-  fs.rmSync(syntaxDir, { recursive: true, force: true });
+for (const module of modules) {
+  const syntax = childProcess.spawnSync(process.execPath, ['--check', path.join(__dirname, 'app', module)], { encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || `${module} has invalid syntax`);
 }
 const stylesheet = fs.readdirSync(__dirname)
   .filter(name => name.endsWith('.css'))
   .map(name => fs.readFileSync(path.join(__dirname, name), 'utf8'))
   .join('\n');
-assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.primary/);
-assert.match(script, /ensureContrastOnSurfaces\(validHex\(theme\.accent/);
-assert.match(script, /--on-p/, 'the primary foreground token must be set at runtime');
+for (const [name, source] of moduleSources) {
+  const lines = source.split(/\r?\n/).length;
+  assert.ok(lines <= 500, `${name} has ${lines} lines; application modules must stay at or below 500`);
+  assert.doesNotMatch(source, /window\.[A-Za-z_$][\w$]*\s*=/, `${name} exports business state through window`);
+  assert.doesNotMatch(source, /\.(?:onclick|onchange|oninput|onsubmit|onkeydown|onkeyup|onload)\s*=/, `${name} assigns an event-handler property`);
+  for (const access of source.matchAll(/window\.([A-Za-z_$][\w$]*)/g)) {
+    assert.ok(
+      new Set(['addEventListener', 'confirm', 'location', 'matchMedia', 'scrollTo', 'scrollY']).has(access[1]),
+      `${name} accesses non-platform window member ${access[0]}`
+    );
+  }
+  for (const token of source.matchAll(/["'`]\/api\/[^"'`\s]*/g)) {
+    assert.match(token[0], /^["'`]\/api\/v1\//, `${name} contains an unversioned API path ${token[0]}`);
+  }
+}
+assert.match(applicationSource, /ensureContrastOnSurfaces\(app\.validHex\(theme\.primary/);
+assert.match(applicationSource, /ensureContrastOnSurfaces\(app\.validHex\(theme\.accent/);
+assert.match(applicationSource, /--on-p/, 'the primary foreground token must be set at runtime');
 assert.match(stylesheet, /color:\s*var\(--on-p\)/, 'solid primary controls must use the calculated foreground');
 assert.match(stylesheet, /\.background-range input\[type=range\]\s*\{[^}]*accent-color:\s*var\(--p\)/, 'background adjustment sliders must use the theme primary color');
 assert.doesNotMatch(
-  script,
+  applicationSource,
   /try\s*\{\s*new RegExp\(p\);\s*\}/,
   'sensitive rules must be validated by the Go RE2 backend, not JavaScript RegExp'
 );
 assert.match(
-  script,
+  applicationSource,
   /protectedFetch\('\/api\/v1\/config'/,
   'config autosave must use the shared secondary authentication request path'
 );
 assert.match(apiSource, /export function unwrapAPIEnvelope/, 'API error envelopes must have a directly testable decoder');
 assert.match(apiSource, /export async function requestWithSecondaryAuth/, 'secondary authentication retry must have one shared implementation');
 assert.doesNotMatch(
-  script,
+  applicationSource,
   /res\.status\s*===\s*403|res\.status\s*!==\s*403/,
   'feature modules must not implement ad-hoc HTTP 403 retry logic'
 );

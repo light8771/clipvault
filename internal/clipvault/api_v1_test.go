@@ -85,3 +85,45 @@ func TestAPIEnvelopeNeverReturnsBusinessFailureAsSuccess(t *testing.T) {
 		})
 	}
 }
+
+func TestAPIContractNormalizesRouterErrors(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("index"))
+	})
+	mux.HandleFunc("GET /api/v1/items", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write([]byte(`{"data":{"ok":true}}`))
+	})
+	handler := ensureAPIErrorContract(mux)
+	for _, test := range []struct {
+		name   string
+		method string
+		path   string
+		status int
+		code   string
+	}{
+		{name: "unknown route", method: http.MethodGet, path: "/api/v1/missing", status: http.StatusNotFound, code: "not_found"},
+		{name: "wrong method", method: http.MethodPost, path: "/api/v1/items", status: http.StatusMethodNotAllowed, code: "method_not_allowed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := httptest.NewRecorder()
+			handler.ServeHTTP(result, httptest.NewRequest(test.method, test.path, nil))
+			if result.Code != test.status || result.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+				t.Fatalf("status=%d content-type=%q body=%s", result.Code, result.Header().Get("Content-Type"), result.Body.String())
+			}
+			var envelope struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(result.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Error.Code != test.code || envelope.Error.Message == "" {
+				t.Fatalf("error envelope=%s", result.Body.String())
+			}
+		})
+	}
+}

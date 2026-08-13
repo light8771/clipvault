@@ -61,16 +61,19 @@ func TestModuleAssetsServed(t *testing.T) {
 	}
 }
 
-func TestApplicationModuleIsComposedInOrder(t *testing.T) {
+func TestApplicationModulesAreServedIndependently(t *testing.T) {
 	server := &SearchServer{}
-	res := httptest.NewRecorder()
-	server.handleStatic(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local/script.js", nil))
-	if res.Code != http.StatusOK {
-		t.Fatalf("application module status=%d", res.Code)
+	for _, path := range applicationModuleAssets {
+		res := httptest.NewRecorder()
+		server.handleStatic(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+path, nil))
+		if res.Code != http.StatusOK || !strings.HasPrefix(res.Header().Get("Content-Type"), "application/javascript") {
+			t.Errorf("application module %s status=%d content-type=%q", path, res.Code, res.Header().Get("Content-Type"))
+		}
 	}
-	body := res.Body.String()
-	if !strings.HasPrefix(body, "import { APIError, apiFetch") || !strings.Contains(body, "// ── Boot") || !strings.HasSuffix(strings.TrimSpace(body), "}());") {
-		t.Fatal("application module fragments are missing or out of order")
+	legacy := httptest.NewRecorder()
+	server.handleStatic(legacy, httptest.NewRequest(http.MethodGet, "http://clipvault.local/script.js", nil))
+	if legacy.Code != http.StatusNotFound {
+		t.Fatalf("removed composed module status=%d, want 404", legacy.Code)
 	}
 }
 

@@ -8,10 +8,6 @@ import (
 )
 
 func (s *SearchServer) handleStatic(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/script.js" {
-		s.serveApplicationModule(w)
-		return
-	}
 	name := r.URL.Path
 	ct := "text/css; charset=utf-8"
 	if strings.HasSuffix(name, ".js") {
@@ -20,9 +16,12 @@ func (s *SearchServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 	s.serveFile(w, "web"+name, ct)
 }
 
-var applicationModuleParts = []string{
-	"web/app/bootstrap.js", "web/app/auth.js", "web/app/history.js", "web/app/files.js", "web/app/appearance.js",
-	"web/app/settings.js", "web/app/config-form.js", "web/app/transfer.js", "web/app/groups.js", "web/app/lifecycle.js",
+var applicationModuleAssets = []string{
+	"/app/actions.js", "/app/app-context.js", "/app/appearance-form.js", "/app/appearance-media.js", "/app/appearance-theme.js",
+	"/app/auth.js", "/app/bootstrap.js", "/app/config-events.js", "/app/config-save.js", "/app/groups.js",
+	"/app/history-actions.js", "/app/history-list.js", "/app/license.js", "/app/lifecycle.js", "/app/navigation.js",
+	"/app/recovery.js", "/app/settings-sources.js", "/app/settings-storage.js", "/app/text-utils.js", "/app/transfer.js",
+	"/app/view-navigation.js",
 }
 
 var applicationPageParts = []string{
@@ -43,22 +42,6 @@ func (s *SearchServer) serveApplicationPage(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(page.Bytes())
-}
-
-func (s *SearchServer) serveApplicationModule(w http.ResponseWriter) {
-	var module bytes.Buffer
-	for _, name := range applicationModuleParts {
-		data, err := fs.ReadFile(webFS, name)
-		if err != nil {
-			s.writeAPIError(w, http.StatusInternalServerError, "asset_missing", "应用资源不完整", err)
-			return
-		}
-		module.Write(data)
-		module.WriteByte('\n')
-	}
-	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(module.Bytes())
 }
 
 func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string) {

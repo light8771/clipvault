@@ -1,18 +1,11 @@
-(function(root, factory) {
-  const api = factory();
-  root.ClipVaultHotkey = api;
-  if (typeof module === 'object' && module.exports) module.exports = api;
-}(typeof window !== 'undefined' ? window : globalThis, function() {
-  'use strict';
-
-  function isSupportedVirtualKey(vk) {
+export function isSupportedVirtualKey(vk) {
     return vk === 0x20 ||
       (vk >= 0x30 && vk <= 0x39) ||
       (vk >= 0x41 && vk <= 0x5A) ||
       (vk >= 0x70 && vk <= 0x87);
   }
 
-  function vkToDisplay(vk) {
+export function vkToDisplay(vk) {
     if (!vk) return '';
     if (vk === 0x20) return 'Space';
     if (vk >= 0x70 && vk <= 0x87) return 'F' + (vk - 0x70 + 1);
@@ -21,7 +14,7 @@
   }
 
   // 0 means an intentionally empty input; null means non-empty but invalid.
-  function parseVkInput(value) {
+export function parseVkInput(value) {
     const input = (value || '').trim().toUpperCase();
     if (!input) return 0;
     if (input === 'SPACE' || input === '空格') return 0x20;
@@ -30,6 +23,3 @@
     if (functionKey) return 0x70 + Number(functionKey[1]) - 1;
     return null;
   }
-
-  return { isSupportedVirtualKey, vkToDisplay, parseVkInput };
-}));

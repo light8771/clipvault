@@ -189,7 +189,7 @@ func TestSecureHTTPAllowsOnlyTrustedLoopbackReverseProxy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765/api/test", nil)
+			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765/api/v1/test", nil)
 			req.Host = "127.0.0.1:18765"
 			req.RemoteAddr = tt.remoteAddr
 			req.Header[forwardedProtoHeaderName] = tt.forwardedProto
@@ -213,7 +213,7 @@ func TestSecureHTTPKeepsDirectLoopbackHTTPAvailableInProxyMode(t *testing.T) {
 	h := s.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}), "127.0.0.1", 18765)
-	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765/api/test", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765/api/v1/test", nil)
 	req.Host = "127.0.0.1:18765"
 	req.Header.Set("Origin", "http://127.0.0.1:18765")
 	req.Header.Set(csrfHeaderName, "test-token")
@@ -245,7 +245,7 @@ func TestRequestUsesHTTPSOnlyForValidatedEndpoint(t *testing.T) {
 		Enabled:   true,
 		PublicURL: "https://clipvault.example.com",
 	}}
-	proxyRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18765/api/auth/status", nil)
+	proxyRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18765/api/v1/session", nil)
 	proxyRequest.RemoteAddr = "127.0.0.1:54321"
 	proxyRequest.Header.Set(forwardedProtoHeaderName, "https")
 	proxyRequest.Header.Set(forwardedHostHeaderName, "clipvault.example.com")
@@ -259,7 +259,7 @@ func TestRequestUsesHTTPSOnlyForValidatedEndpoint(t *testing.T) {
 		t.Fatal("non-loopback forwarded request was treated as HTTPS")
 	}
 
-	directRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18765/api/auth/status", nil)
+	directRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18765/api/v1/session", nil)
 	if s.requestUsesHTTPS(directRequest) {
 		t.Fatal("direct HTTP request was treated as HTTPS")
 	}

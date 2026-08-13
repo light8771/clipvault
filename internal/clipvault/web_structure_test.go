@@ -11,7 +11,9 @@ import (
 
 func TestWebUIHasNoInlineBehaviorOrPresentation(t *testing.T) {
 	files := append([]string{}, applicationPageParts...)
-	files = append(files, applicationModuleParts...)
+	for _, asset := range applicationModuleAssets {
+		files = append(files, "web"+asset)
+	}
 	for _, name := range files {
 		data, err := fs.ReadFile(webFS, name)
 		if err != nil {

@@ -8,9 +8,9 @@ the smoke run needs to exercise secondary-authentication expiry and retry. The
 preview stores only its hash in the temporary data directory and removes that
 directory at shutdown.
 
-Before launching the browser, run `scripts/check-web.ps1`. The application
-feature sources under `web/app/` are ordered fragments of the single native ES
-module served at `/script.js`; the script checks that composed module plus the
+Before launching the browser, run `scripts/check-web.ps1`. Every application
+feature under `web/app/` is an independently parsed native ES module loaded from
+the `/app/bootstrap.js` module graph. The script checks each module plus the
 standalone `api.js`, `store.js`, `startup.js`, and `recovery.js` modules.
 
 Required checks:

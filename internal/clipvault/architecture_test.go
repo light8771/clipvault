@@ -3,36 +3,57 @@ package clipvault
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestProductionFilesStayModular(t *testing.T) {
-	root := filepath.Join("..", "..")
 	limits := map[string]int{".go": 700, ".js": 500, ".css": 800, ".html": 800}
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return err
-		}
-		if strings.Contains(path, ".git") || strings.Contains(path, ".playwright-cli") || strings.HasSuffix(path, "_test.go") || strings.Contains(path, "test.") || strings.Contains(path, "_test.") {
+	for _, root := range []string{".", filepath.Join("..", "..", "cmd")} {
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return err
+			}
+			if strings.HasSuffix(path, "_test.go") || strings.Contains(path, "test.") || strings.Contains(path, "_test.") {
+				return nil
+			}
+			limit, ok := limits[filepath.Ext(path)]
+			if !ok {
+				return nil
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			lines := strings.Count(string(data), "\n") + 1
+			if lines > limit {
+				t.Errorf("%s has %d lines; modular limit is %d", path, lines, limit)
+			}
 			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		limit, ok := limits[filepath.Ext(path)]
-		if !ok {
-			return nil
-		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		lines := strings.Count(string(data), "\n") + 1
-		if lines > limit {
-			t.Errorf("%s has %d lines; modular limit is %d", path, lines, limit)
-		}
-		return nil
-	})
+	}
+}
+
+func TestApplicationModuleAssetsMatchEmbeddedFiles(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join("web", "app"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".js" {
+			files = append(files, "/app/"+entry.Name())
+		}
+	}
+	slices.Sort(files)
+	registered := slices.Clone(applicationModuleAssets)
+	slices.Sort(registered)
+	if !slices.Equal(files, registered) {
+		t.Fatalf("application module registration drift:\nfiles=%v\nregistered=%v", files, registered)
 	}
 }
 

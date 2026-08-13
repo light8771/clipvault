@@ -36,7 +36,7 @@ func TestBrandLogoUploadServeAndReset(t *testing.T) {
 		t.Fatalf("encode png: %v", err)
 	}
 
-	upload := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/brand/logo", bytes.NewReader(imageData.Bytes()))
+	upload := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/logo", bytes.NewReader(imageData.Bytes()))
 	upload.Header.Set("Content-Type", "image/png")
 	uploadResult := httptest.NewRecorder()
 	server.handleBrandLogoUpload(uploadResult, upload)
@@ -89,7 +89,7 @@ func TestBrandLogoUploadServeAndReset(t *testing.T) {
 	if err := png.Encode(&replacement, replacementImage); err != nil {
 		t.Fatalf("encode replacement png: %v", err)
 	}
-	replaceReq := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/brand/logo", bytes.NewReader(replacement.Bytes()))
+	replaceReq := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/logo", bytes.NewReader(replacement.Bytes()))
 	replaceReq.Header.Set("Content-Type", "image/png")
 	replaceRes := httptest.NewRecorder()
 	server.handleBrandLogoUpload(replaceRes, replaceReq)
@@ -107,7 +107,7 @@ func TestBrandLogoUploadServeAndReset(t *testing.T) {
 	replacementVersion := manager.Get().Brand.LogoVersion
 
 	reset := httptest.NewRecorder()
-	server.handleBrandLogoReset(reset, httptest.NewRequest(http.MethodDelete, "http://clipvault.local/api/brand/logo", nil))
+	server.handleBrandLogoReset(reset, httptest.NewRequest(http.MethodDelete, "http://clipvault.local/api/v1/appearance/logo", nil))
 	if reset.Code != http.StatusOK {
 		t.Fatalf("reset status = %d, want %d", reset.Code, http.StatusOK)
 	}
@@ -136,7 +136,7 @@ func TestBrandFaviconUploadServeAndReset(t *testing.T) {
 	if err := png.Encode(&imageData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode PNG: %v", err)
 	}
-	upload := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/brand/favicon", bytes.NewReader(imageData.Bytes()))
+	upload := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/favicon", bytes.NewReader(imageData.Bytes()))
 	upload.Header.Set("Content-Type", "image/png")
 	uploadResult := httptest.NewRecorder()
 	server.handleBrandFaviconUpload(uploadResult, upload)
@@ -158,7 +158,7 @@ func TestBrandFaviconUploadServeAndReset(t *testing.T) {
 	}
 
 	reset := httptest.NewRecorder()
-	server.handleBrandFaviconReset(reset, httptest.NewRequest(http.MethodDelete, "http://clipvault.local/api/brand/favicon", nil))
+	server.handleBrandFaviconReset(reset, httptest.NewRequest(http.MethodDelete, "http://clipvault.local/api/v1/appearance/favicon", nil))
 	if reset.Code != http.StatusOK {
 		t.Fatalf("reset status = %d, want %d", reset.Code, http.StatusOK)
 	}
@@ -190,7 +190,7 @@ func TestBrandUploadKeepsAssetWhenRuntimeApplyFails(t *testing.T) {
 	if err := png.Encode(&imageData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode PNG: %v", err)
 	}
-	request := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/brand/logo", bytes.NewReader(imageData.Bytes()))
+	request := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/logo", bytes.NewReader(imageData.Bytes()))
 	request.Header.Set("Content-Type", "image/png")
 	result := httptest.NewRecorder()
 	server.handleBrandLogoUpload(result, request)
@@ -422,7 +422,7 @@ func TestBrandUploadRejectsFilesOverTenMegabytes(t *testing.T) {
 	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
 
 	body := bytes.Repeat([]byte{0}, maxBrandAssetBytes+1)
-	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/brand/logo", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/logo", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "image/png")
 	res := httptest.NewRecorder()
 	server.handleBrandLogoUpload(res, req)
@@ -682,7 +682,7 @@ func TestBrandUploadRejectsMismatchedContentType(t *testing.T) {
 	if err := png.Encode(&imageData, img); err != nil {
 		t.Fatalf("encode png: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/brand/logo", bytes.NewReader(imageData.Bytes()))
+	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/logo", bytes.NewReader(imageData.Bytes()))
 	req.Header.Set("Content-Type", "image/jpeg")
 	res := httptest.NewRecorder()
 	server.handleBrandLogoUpload(res, req)
