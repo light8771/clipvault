@@ -145,3 +145,18 @@ func TestRecoveryAppearanceRouteIsAvailableAfterStart(t *testing.T) {
 		t.Fatalf("appearance route status=%d contentType=%q", response.StatusCode, response.Header.Get("Content-Type"))
 	}
 }
+
+func TestOpenBrowserCaptureFile(t *testing.T) {
+	capture := filepath.Join(t.TempDir(), "browser.url")
+	t.Setenv("CLIPVAULT_BROWSER_URL_FILE", capture)
+	want := "http://127.0.0.1:12345/#one-time-capability"
+
+	openBrowser(want)
+	got, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("captured URL = %q, want %q", got, want)
+	}
+}

@@ -18,3 +18,8 @@ Required checks:
 5. Emulate dark color scheme and reduced motion; verify theme contrast and usable focus indicators.
 6. Confirm unknown legacy `/api/*` URLs return 404 while `/api/v1/session` returns the API envelope.
 7. Stop the preview and verify its temporary data directory is removed.
+
+For first-start and recovery-gate automation, set
+`CLIPVAULT_BROWSER_URL_FILE` to an ignored file under `output/playwright/`.
+ClipVault writes the one-time local URL there instead of opening the system
+browser. Treat the file as a short-lived secret and remove it after the run.

@@ -275,6 +275,10 @@ func writeRecoveryJSON(w http.ResponseWriter, ok bool, errMsg string) {
 
 // openBrowser tries to open the default browser to the given URL.
 func openBrowser(url string) {
+	if capturePath := strings.TrimSpace(os.Getenv("CLIPVAULT_BROWSER_URL_FILE")); capturePath != "" {
+		_ = os.WriteFile(capturePath, []byte(url), 0o600)
+		return
+	}
 	switch runtime.GOOS {
 	case "windows":
 		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
