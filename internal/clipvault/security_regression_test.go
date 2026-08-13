@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -811,6 +813,138 @@ func TestStartupGateRejectsInvalidHostOriginAndCapability(t *testing.T) {
 				t.Fatalf("status=%d, want %d", result.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestStartupGateAcceptsSessionCookieAndRejectsMissingCapability(t *testing.T) {
+	gate := &StartupGate{token: "startup-token", port: 18766}
+	handler := gate.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := func(cookie *http.Cookie) int {
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18766/api/complete", nil)
+		req.Header.Set("Origin", "http://127.0.0.1:18766")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		result := httptest.NewRecorder()
+		handler.ServeHTTP(result, req)
+		return result.Code
+	}
+	if got := request(nil); got != http.StatusForbidden {
+		t.Fatalf("missing capability status=%d", got)
+	}
+	if got := request(&http.Cookie{Name: startupGateCookieName, Value: "startup-token"}); got != http.StatusNoContent {
+		t.Fatalf("valid startup session cookie status=%d", got)
+	}
+}
+
+func TestStartupGateCapabilityURLCompletesWithSessionCookie(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	gate := NewStartupGate(store, dir, startupGateSetCredentials)
+	capabilityURL, err := gate.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.Close()
+	safeURL := strings.SplitN(capabilityURL, "#", 2)[0]
+	if browserURLFile := os.Getenv("CLIPVAULT_STARTUP_GATE_BROWSER_URL_FILE"); browserURLFile != "" {
+		if err := os.WriteFile(browserURLFile, []byte(capabilityURL), 0o600); err != nil {
+			t.Fatalf("publish browser test URL: %v", err)
+		}
+		select {
+		case <-gate.Done():
+			if !gate.Success() {
+				t.Fatal("startup gate completed without success")
+			}
+		case <-time.After(2 * time.Minute):
+			t.Fatal("browser did not complete startup gate")
+		}
+		gate.SetRecordURL("about:blank")
+		time.Sleep(3 * time.Second)
+		return
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	indexResponse, err := client.Get(safeURL)
+	if err != nil {
+		t.Fatalf("open safe startup URL: %v", err)
+	}
+	indexBody, err := io.ReadAll(indexResponse.Body)
+	_ = indexResponse.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexResponse.StatusCode != http.StatusOK {
+		t.Fatalf("safe startup URL status=%d", indexResponse.StatusCode)
+	}
+	if len(indexResponse.Cookies()) != 0 {
+		t.Fatal("opening the token-free URL must not grant a startup session")
+	}
+	html := string(indexBody)
+	if strings.Count(html, `<form `) != 2 || strings.Count(html, `autocomplete="username"`) != 2 {
+		t.Fatalf("startup credential forms are not separated or lack usernames")
+	}
+
+	capability := strings.SplitN(capabilityURL, "#", 2)[1]
+	sessionRequest, err := http.NewRequest(http.MethodPost, safeURL+"api/session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionRequest.Header.Set("Origin", strings.TrimSuffix(safeURL, "/"))
+	sessionRequest.Header.Set("X-ClipVault-Startup-Token", capability)
+	sessionResponse, err := client.Do(sessionRequest)
+	if err != nil {
+		t.Fatalf("establish startup session: %v", err)
+	}
+	_ = sessionResponse.Body.Close()
+	var sessionCookie *http.Cookie
+	for _, cookie := range sessionResponse.Cookies() {
+		if cookie.Name == startupGateCookieName {
+			sessionCookie = cookie
+			break
+		}
+	}
+	if sessionResponse.StatusCode != http.StatusOK || sessionCookie == nil || !sessionCookie.HttpOnly || sessionCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("startup session handshake did not issue an HttpOnly/SameSite=Strict cookie: status=%d cookie=%#v", sessionResponse.StatusCode, sessionCookie)
+	}
+
+	body := bytes.NewBufferString(`{"password":"Recovery-Pass-2026","confirm":"Recovery-Pass-2026","secondaryPassword":"Secondary-Pass-2026","secondaryConfirm":"Secondary-Pass-2026"}`)
+	request, err := http.NewRequest(http.MethodPost, safeURL+"api/complete", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", strings.TrimSuffix(safeURL, "/"))
+	completeResponse, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("complete from safe startup URL: %v", err)
+	}
+	completeBody, err := io.ReadAll(completeResponse.Body)
+	_ = completeResponse.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completeResponse.StatusCode != http.StatusOK || !strings.Contains(string(completeBody), `"ok":true`) {
+		t.Fatalf("complete status=%d body=%s", completeResponse.StatusCode, completeBody)
+	}
+	select {
+	case <-gate.Done():
+		if !gate.Success() {
+			t.Fatal("startup gate completed without success")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup gate did not complete")
 	}
 }
 

@@ -251,7 +251,7 @@ func runStartupGate(store *Store, env Environment, mode startupGateMode, logger 
 	}
 	safeURL := strings.SplitN(url, "#", 2)[0]
 	logger.Info("startup_gate_started", map[string]any{"mode": mode, "url": safeURL})
-	fmt.Printf("安全设置页面: %s\n", safeURL)
+	fmt.Printf("安全设置页面: %s\n", url)
 	openBrowser(url)
 	<-gate.Done()
 	if !gate.Success() {

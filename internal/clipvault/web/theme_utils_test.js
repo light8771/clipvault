@@ -1,7 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const theme = require('./theme-utils.js');
 const hotkey = require('./hotkey-utils.js');
@@ -85,6 +87,15 @@ const script = fs.readdirSync(path.join(__dirname, 'app'))
   .sort((a, b) => ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(a) - ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(b))
   .map(name => fs.readFileSync(path.join(__dirname, 'app', name), 'utf8'))
   .join('\n');
+const syntaxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipvault-module-'));
+try {
+  const syntaxFile = path.join(syntaxDir, 'application.mjs');
+  fs.writeFileSync(syntaxFile, script, 'utf8');
+  const syntax = childProcess.spawnSync(process.execPath, ['--check', syntaxFile], { encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || 'composed application module has invalid syntax');
+} finally {
+  fs.rmSync(syntaxDir, { recursive: true, force: true });
+}
 const stylesheet = fs.readdirSync(__dirname)
   .filter(name => name.endsWith('.css'))
   .map(name => fs.readFileSync(path.join(__dirname, name), 'utf8'))

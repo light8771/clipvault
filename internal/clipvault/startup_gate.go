@@ -20,6 +20,7 @@ type startupGateMode string
 const (
 	startupGateSetCredentials startupGateMode = "set_credentials"
 	startupGateRepairConfig   startupGateMode = "repair_config"
+	startupGateCookieName                     = "clipvault_startup_session"
 )
 
 type startupGatePageData struct {
@@ -83,6 +84,7 @@ func (g *StartupGate) Start() (string, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", g.handleIndex)
 	mux.HandleFunc("GET /api/status", g.handleStatus)
+	mux.HandleFunc("POST /api/session", g.handleSession)
 	mux.HandleFunc("POST /api/complete", g.handleComplete)
 	g.server = &http.Server{
 		Handler:           g.secureHTTP(mux),
@@ -155,14 +157,21 @@ func (g *StartupGate) secureHTTP(next http.Handler) http.Handler {
 			return
 		}
 		if isMutationMethod(r.Method) {
-			if !originMatchesRequest(r.Header.Get("Origin"), r.Host, g.port) ||
-				subtle.ConstantTimeCompare([]byte(r.Header.Get("X-ClipVault-Startup-Token")), []byte(g.token)) != 1 {
+			if !originMatchesRequest(r.Header.Get("Origin"), r.Host, g.port) || !g.hasStartupCapability(r) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (g *StartupGate) hasStartupCapability(r *http.Request) bool {
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-ClipVault-Startup-Token")), []byte(g.token)) == 1 {
+		return true
+	}
+	cookie, err := r.Cookie(startupGateCookieName)
+	return err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(g.token)) == 1
 }
 
 func (g *StartupGate) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -173,6 +182,18 @@ func (g *StartupGate) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	default:
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false})
 	}
+}
+
+func (g *StartupGate) handleSession(w http.ResponseWriter, _ *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     startupGateCookieName,
+		Value:    g.token,
+		Path:     "/",
+		MaxAge:   10 * 60,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+	writeStartupGateJSON(w, true, "")
 }
 
 func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
@@ -245,6 +266,13 @@ func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.complete = true
+	http.SetCookie(w, &http.Cookie{
+		Name:     startupGateCookieName,
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
 	writeStartupGateJSON(w, true, "")
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -320,32 +348,41 @@ h1{font-size:22px;margin:0 0 8px;font-weight:700}
 button.submit{width:100%;border:0;border-radius:10px;padding:13px 14px;font:inherit;font-weight:700;cursor:pointer;background:#10b981;color:#052e24;transition:opacity .15s}
 button.submit:disabled{opacity:.4;cursor:not-allowed}
 .error{color:#fca5a5;font-size:13px;margin-top:12px;min-height:20px;text-align:center;line-height:1.5}
+.credential-form{margin:0}
 </style></head><body><main class="main">
 <h1>{{.Title}}</h1>
 <p class="desc">{{.Description}}</p>
-<form id="form" novalidate>
 {{if eq .Mode "set_credentials"}}
+<form id="recovery-form" class="credential-form" novalidate>
+<input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
 <div class="section">
 <p class="section-title">恢复密码</p>
 <p class="section-hint">用于重装系统、迁移电脑或 Windows 密钥失效时恢复数据库，请离线妥善保存。</p>
-<div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" type="password" autocomplete="new-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
-<div class="field"><label for="confirm">确认恢复密码</label><div class="wrap"><input id="confirm" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="confirm">显示</button></div><div class="msg" id="msg-confirm"></div></div>
+<div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="new-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
+<div class="field"><label for="confirm">确认恢复密码</label><div class="wrap"><input id="confirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="confirm">显示</button></div><div class="msg" id="msg-confirm"></div></div>
 </div>
+</form>
+<form id="secondary-form" class="credential-form" novalidate>
+<input type="text" name="username" value="ClipVault 二次密码" autocomplete="username" hidden>
 <div class="section">
 <p class="section-title">二次密码</p>
 <p class="section-hint">用于查看或操作敏感数据时的二次确认。</p>
-<div class="field"><label for="secondaryPassword">二次密码</label><div class="wrap"><input id="secondaryPassword" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">显示</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
-<div class="field"><label for="secondaryConfirm">确认二次密码</label><div class="wrap"><input id="secondaryConfirm" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">显示</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
+<div class="field"><label for="secondaryPassword">二次密码</label><div class="wrap"><input id="secondaryPassword" name="password" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">显示</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
+<div class="field"><label for="secondaryConfirm">确认二次密码</label><div class="wrap"><input id="secondaryConfirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">显示</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
 </div>
+</form>
 <div class="warn">请妥善离线保存：如果 Windows 密钥和恢复密码同时丢失，数据库将无法恢复。</div>
 {{else}}
-<div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
-{{end}}
-<button type="submit" class="submit" id="submit" disabled>{{.Button}}</button>
-<div class="error" id="error"></div>
+<form id="recovery-form" class="credential-form" novalidate>
+<input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
+<div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
 </form>
+{{end}}
+<button type="button" class="submit" id="submit" disabled>{{.Button}}</button>
+<div class="error" id="error"></div>
 </main><script>
-const token=location.hash.slice(1);history.replaceState(null,'',location.pathname);
+const startupToken=location.hash.slice(1);
+history.replaceState(null,'',location.pathname);
 const mode='{{.Mode}}',isSetup=mode==='set_credentials';
 const $=id=>document.getElementById(id);
 const els={password:$('password'),confirm:$('confirm'),secondaryPassword:$('secondaryPassword'),secondaryConfirm:$('secondaryConfirm')};
@@ -354,6 +391,20 @@ const submit=$('submit'),errBox=$('error');
 const MIN_REC={{.MinRecoveryRunes}},MAX_REC_BYTES={{.MaxRecoveryBytes}},MIN_SEC={{.MinSecondaryRunes}},MAX_SEC_BYTES={{.MaxSecondaryBytes}};
 const utf8Encoder=new TextEncoder();
 const edgeWhitespace=/^\p{White_Space}|\p{White_Space}$/u;
+let startupSessionReady=!startupToken;
+
+async function establishStartupSession(){
+  if(!startupToken)return;
+  try{
+    const res=await fetch('/api/session',{method:'POST',headers:{'X-ClipVault-Startup-Token':startupToken}});
+    startupSessionReady=res.ok;
+    if(!res.ok)errBox.textContent='安全设置链接已失效，请重启 ClipVault 后重试';
+  }catch(_){
+    startupSessionReady=false;
+    errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';
+  }
+  validate();
+}
 
 document.querySelectorAll('.eye').forEach(btn=>{btn.addEventListener('click',()=>{const input=$(btn.dataset.target);const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'隐藏':'显示';});});
 
@@ -381,20 +432,26 @@ function validate(){
   }else{
     ok=els.password.value.length>0;
   }
-  submit.disabled=!ok;
+  submit.disabled=!ok||!startupSessionReady;
 }
 Object.values(els).forEach(el=>{if(el)el.addEventListener('input',validate);});
 validate();
+establishStartupSession();
 
-$('form').addEventListener('submit',async e=>{
-  e.preventDefault();errBox.textContent='';submit.disabled=true;
+async function submitCredentials(e){
+  if(e)e.preventDefault();
+  if(submit.disabled)return;
+  errBox.textContent='';submit.disabled=true;
   try{
-    const res=await fetch('/api/complete',{method:'POST',headers:{'Content-Type':'application/json','X-ClipVault-Startup-Token':token},body:JSON.stringify({password:els.password.value,confirm:els.confirm?els.confirm.value:'',secondaryPassword:els.secondaryPassword?els.secondaryPassword.value:'',secondaryConfirm:els.secondaryConfirm?els.secondaryConfirm.value:''})});
-    const data=await res.json();
+    const res=await fetch('/api/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:els.password.value,confirm:els.confirm?els.confirm.value:'',secondaryPassword:els.secondaryPassword?els.secondaryPassword.value:'',secondaryConfirm:els.secondaryConfirm?els.secondaryConfirm.value:''})});
+    let data={};try{data=await res.json();}catch(_){data={};}
+    if(!res.ok){errBox.textContent=res.status===403?'安全会话已失效，请刷新页面后重试':(data.error||'本地服务请求失败');submit.disabled=false;return;}
     if(!data.ok){errBox.textContent=data.error||'操作失败';submit.disabled=false;return;}
     const card=document.querySelector('.main');
     card.innerHTML='<h1>设置完成</h1><p class="desc">正在打开记录页面...</p><p class="warn">如未自动跳转，请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p>';
     let polled=0;const poll=async()=>{try{const r=await fetch('/api/status');const d=await r.json();if(d.ok&&d.recordURL){location.href=d.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<h1>设置完成</h1><p class="desc">记录页面未自动打开。</p><p class="warn">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p>';return;}setTimeout(poll,500);};poll();
-  }catch(_){errBox.textContent='无法连接本地服务';submit.disabled=false;}
-});
+  }catch(_){errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';submit.disabled=false;}
+}
+document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',submitCredentials));
+submit.addEventListener('click',submitCredentials);
 </script></body></html>`))
