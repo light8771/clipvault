@@ -638,7 +638,7 @@ func TestStoredConfigAndImportsRejectUnknownJSONFields(t *testing.T) {
 	}
 
 	export := ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		Items:         []StoredItem{},
 		Groups:        []StoredGroup{},
@@ -1381,7 +1381,7 @@ func TestGroupHierarchyRejectsCyclesAndMissingIDs(t *testing.T) {
 
 func TestXLSXRoundTripPreservesSourceApplication(t *testing.T) {
 	export := &ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		Items: []StoredItem{{
 			ID: 1, CreatedAt: time.Now().UTC(), Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",

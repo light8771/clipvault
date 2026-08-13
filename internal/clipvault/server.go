@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-//go:embed web/*
+//go:embed web/* web/app/* web/pages/*
 var webFS embed.FS
 
 const (

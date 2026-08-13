@@ -80,7 +80,11 @@ assert.equal(hotkey.vkToDisplay(0x70), 'F1');
 assert.equal(hotkey.vkToDisplay(0x87), 'F24');
 assert.equal(hotkey.vkToDisplay(0x1B), '');
 
-const script = fs.readFileSync(path.join(__dirname, 'script.js'), 'utf8');
+const script = fs.readdirSync(path.join(__dirname, 'app'))
+  .filter(name => name.endsWith('.js'))
+  .sort((a, b) => ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(a) - ['bootstrap.js','auth.js','history.js','files.js','appearance.js','settings.js','config-form.js','transfer.js','groups.js','lifecycle.js'].indexOf(b))
+  .map(name => fs.readFileSync(path.join(__dirname, 'app', name), 'utf8'))
+  .join('\n');
 const stylesheet = fs.readdirSync(__dirname)
   .filter(name => name.endsWith('.css'))
   .map(name => fs.readFileSync(path.join(__dirname, name), 'utf8'))

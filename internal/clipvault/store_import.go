@@ -40,7 +40,7 @@ func decodeImportJSON(data []byte) (ExportData, error) {
 	if export.App != "ClipVault" {
 		return ExportData{}, fmt.Errorf("not a ClipVault export (app=%q)", export.App)
 	}
-	if export.ExportVersion != 3 {
+	if export.ExportVersion != currentExportVersion {
 		return ExportData{}, fmt.Errorf("unsupported export version %d", export.ExportVersion)
 	}
 	return export, nil

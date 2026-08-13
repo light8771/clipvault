@@ -24,8 +24,8 @@ import (
 // trailing data. There is deliberately no reader for the unpublished former
 // whole-buffer format.
 const (
-	cvexportMagic                 = "CVEXP002"
-	cvexportVersion          byte = 1
+	cvexportMagic                 = "CVEXP003"
+	cvexportVersion          byte = 2
 	cvexportMagicLen              = len(cvexportMagic)
 	cvexportNoncePrefixSize       = 8
 	cvexportChunkSize             = 64 << 10

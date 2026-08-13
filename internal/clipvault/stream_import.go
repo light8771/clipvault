@@ -169,7 +169,7 @@ func stageJSONImport(src io.Reader) (_ *stagedJSONImport, resultErr error) {
 	if app != "ClipVault" {
 		return nil, fmt.Errorf("not a ClipVault export (app=%q)", app)
 	}
-	if exportVersion != 3 {
+	if exportVersion != currentExportVersion {
 		return nil, fmt.Errorf("unsupported export version %d", exportVersion)
 	}
 	if err := validateSensitiveRules(staged.settings.Sensitive); err != nil {

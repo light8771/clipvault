@@ -12,7 +12,7 @@ func TestStageJSONImportStreamsPayloadsToDisk(t *testing.T) {
 	now := time.Now().UTC()
 	text := "large-ish staged payload"
 	export := ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		ExportedAt:    now.Format(time.RFC3339),
 		SourceEngine:  "duckdb",
@@ -51,7 +51,7 @@ func TestStageJSONImportStreamsPayloadsToDisk(t *testing.T) {
 
 func TestStageJSONImportRejectsMissingLinkTarget(t *testing.T) {
 	data := []byte(`{
-		"exportVersion":3,"app":"ClipVault","exportedAt":"2026-08-11T00:00:00Z",
+		"exportVersion":4,"app":"ClipVault","exportedAt":"2026-08-11T00:00:00Z",
 		"sourceEngine":"duckdb","warning":"test","items":[],"groups":[],
 		"itemGroups":[{"itemId":99,"groupId":1}],
 		"settings":{"sensitive":{"customPatterns":[]}}

@@ -60,3 +60,29 @@ func TestModuleAssetsServed(t *testing.T) {
 		}
 	}
 }
+
+func TestApplicationModuleIsComposedInOrder(t *testing.T) {
+	server := &SearchServer{}
+	res := httptest.NewRecorder()
+	server.handleStatic(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local/script.js", nil))
+	if res.Code != http.StatusOK {
+		t.Fatalf("application module status=%d", res.Code)
+	}
+	body := res.Body.String()
+	if !strings.HasPrefix(body, "import { apiFetch }") || !strings.Contains(body, "// ── Boot") || !strings.HasSuffix(strings.TrimSpace(body), "}());") {
+		t.Fatal("application module fragments are missing or out of order")
+	}
+}
+
+func TestApplicationPageIsComposedInOrder(t *testing.T) {
+	server := &SearchServer{}
+	res := httptest.NewRecorder()
+	server.handleIndex(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local/", nil))
+	if res.Code != http.StatusOK {
+		t.Fatalf("application page status=%d", res.Code)
+	}
+	body := res.Body.String()
+	if !strings.HasPrefix(strings.TrimSpace(body), "<!doctype html>") || !strings.Contains(body, "id=\"s-backup\"") || !strings.HasSuffix(strings.TrimSpace(body), "</html>") {
+		t.Fatal("application page fragments are missing or out of order")
+	}
+}

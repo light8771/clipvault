@@ -163,7 +163,7 @@ func (s *Store) ExportFullForJSON(ctx context.Context) (*ExportData, error) {
 	}
 
 	export := &ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
 		SourceEngine:  "duckdb",
@@ -202,7 +202,7 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 		SourceEngine  string `json:"sourceEngine"`
 		Warning       string `json:"warning"`
 	}{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
 		SourceEngine:  "duckdb",

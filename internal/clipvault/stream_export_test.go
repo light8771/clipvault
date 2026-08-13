@@ -309,7 +309,7 @@ func TestImportDeduplicatesLinksAfterGroupMerge(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	export := ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		ExportedAt:    now.Format(time.RFC3339),
 		SourceEngine:  "duckdb",

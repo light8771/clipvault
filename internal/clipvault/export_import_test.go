@@ -152,7 +152,7 @@ func TestExportImportRoundtrip(t *testing.T) {
 	if export.App != "ClipVault" {
 		t.Fatalf("export app: %q", export.App)
 	}
-	if export.ExportVersion != 3 {
+	if export.ExportVersion != currentExportVersion {
 		t.Fatalf("export version: %d", export.ExportVersion)
 	}
 	if !sameStrings(export.Settings.Sensitive.CustomPatterns, sourceConfig.Sensitive.CustomPatterns) {
@@ -339,7 +339,7 @@ func TestImportFullJSONRequiresSensitiveRules(t *testing.T) {
 	}
 	defer store.Close()
 
-	data := []byte(`{"exportVersion":3,"app":"ClipVault"}`)
+	data := []byte(`{"exportVersion":4,"app":"ClipVault"}`)
 	err = store.ImportFullJSON(context.Background(), data)
 	if err == nil || !strings.Contains(err.Error(), "settings is required") {
 		t.Fatalf("missing settings import error = %v", err)
@@ -364,7 +364,7 @@ func TestImportRejectsInvalidSensitiveRulesAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	export := ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		Settings:      ExportSettings{Sensitive: SensitiveConfig{CustomPatterns: []string{"[invalid"}}},
 	}
@@ -405,7 +405,7 @@ func TestImportRejectsDuplicateItemGroupLinksAtomically(t *testing.T) {
 	defer store.Close()
 	now := time.Now().UTC()
 	export := ExportData{
-		ExportVersion: 3,
+		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		Items: []StoredItem{{
 			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: hashString("record"), MetaJSON: "{}",

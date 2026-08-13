@@ -9,7 +9,9 @@ import (
 )
 
 func TestWebUIHasNoInlineBehaviorOrPresentation(t *testing.T) {
-	for _, name := range []string{"web/index.html", "web/script.js"} {
+	files := append([]string{}, applicationPageParts...)
+	files = append(files, applicationModuleParts...)
+	for _, name := range files {
 		data, err := fs.ReadFile(webFS, name)
 		if err != nil {
 			t.Fatal(err)

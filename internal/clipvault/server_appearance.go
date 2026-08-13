@@ -20,7 +20,7 @@ func (s *SearchServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.serveFile(w, "web/index.html", "text/html; charset=utf-8")
+	s.serveApplicationPage(w)
 }
 
 const maxBrandAssetBytes = 10 << 20
