@@ -458,7 +458,7 @@ func TestStoreRejectsIncompleteOrUnsupportedSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec(`UPDATE settings SET value = 'unsupported' WHERE key = 'schema.version'`); err != nil {
+	if _, err := store.db.Exec(`UPDATE settings SET value = '"unsupported"' WHERE key = 'schema.version'`); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -565,7 +565,7 @@ func TestCorruptConfigFailsClosedAndRestoresLastGood(t *testing.T) {
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec(`UPDATE settings SET value = '{broken' WHERE key = 'config'`); err != nil {
+	if _, err := store.db.Exec(`UPDATE settings SET value = 'null' WHERE key = 'config'`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.GetConfig(); !errors.Is(err, ErrConfigCorrupt) {
@@ -596,7 +596,7 @@ func TestStoredConfigAndImportsRejectUnknownJSONFields(t *testing.T) {
 	}
 	defer store.Close()
 	var original string
-	if err := store.db.QueryRow(`SELECT value FROM settings WHERE key = 'config'`).Scan(&original); err != nil {
+	if err := store.db.QueryRow(`SELECT CAST(value AS VARCHAR) FROM settings WHERE key = 'config'`).Scan(&original); err != nil {
 		t.Fatal(err)
 	}
 	raw := strings.TrimSuffix(original, "}") + `,"unknown":true}`

@@ -449,7 +449,7 @@ func (s *Store) GetBackupWatermark(ctx context.Context, kind string) (BackupWate
 		return BackupWatermark{}, err
 	}
 	var raw string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, "backup."+kind+".watermark").Scan(&raw)
+	err := s.db.QueryRowContext(ctx, `SELECT CAST(value AS VARCHAR) FROM settings WHERE key = ?`, "backup."+kind+".watermark").Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return BackupWatermark{}, nil
 	}

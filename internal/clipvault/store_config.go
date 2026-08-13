@@ -20,7 +20,7 @@ func (s *Store) GetConfig() (Config, error) {
 func getConfig(ctx context.Context, queryer storeQueryer) (Config, error) {
 	var cfg Config
 	var jsonStr string
-	err := queryer.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = 'config'`).Scan(&jsonStr)
+	err := queryer.QueryRowContext(ctx, `SELECT CAST(value AS VARCHAR) FROM settings WHERE key = 'config'`).Scan(&jsonStr)
 	if err != nil {
 		return Config{}, fmt.Errorf("%w: %v", ErrConfigCorrupt, err)
 	}
@@ -63,7 +63,7 @@ func (s *Store) SaveConfig(cfg Config) error {
 // 调用方负责在调用前验证恢复密码。
 func (s *Store) RestoreLastGoodConfig() (Config, error) {
 	var raw string
-	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'config.last_good'`).Scan(&raw); err != nil {
+	if err := s.db.QueryRow(`SELECT CAST(value AS VARCHAR) FROM settings WHERE key = 'config.last_good'`).Scan(&raw); err != nil {
 		return Config{}, fmt.Errorf("read last-known-good configuration: %w", err)
 	}
 	var cfg Config

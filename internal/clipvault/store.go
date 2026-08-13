@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	duckdbstorage "clipboard_ext/internal/clipvault/storage/duckdb"
 )
 
 type Store struct {
@@ -25,7 +27,7 @@ var (
 	errItemOrGroupNotFound = errors.New("item or group not found")
 )
 
-const storeSchemaVersion = "1"
+const storeSchemaVersion = duckdbstorage.SchemaVersion
 
 const maxGroupNameRunes = 100
 
@@ -102,7 +104,7 @@ type StoredItem struct {
 // clipboardItemColumns 是 clipboard_items 行查询的统一列清单，
 // Search/GetByID/exportAll/exportItemsQuery 共用，防止多处列清单漂移。
 // 扫描顺序必须与 scanStoredItem 一致。
-const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, ` +
+const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char_len, sha256, CAST(meta_json AS VARCHAR), starred, sensitive, ` +
 	`source_exe_name, source_exe_path, source_window_title, source_method`
 
 // rowScanner 同时抽象 *sql.Row 与 *sql.Rows 的 Scan。
@@ -307,60 +309,7 @@ func (s *Store) initializeSchema() error {
 		return fmt.Errorf("begin schema initialization: %w", err)
 	}
 	defer tx.Rollback()
-	stmts := []string{
-		`CREATE SEQUENCE seq_clipboard_items START 1`,
-		`CREATE TABLE clipboard_items (
-			id INTEGER PRIMARY KEY DEFAULT nextval('seq_clipboard_items'),
-			created_at TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			format TEXT NOT NULL,
-			text TEXT NOT NULL,
-			byte_len INTEGER NOT NULL,
-			char_len INTEGER NOT NULL,
-			sha256 TEXT NOT NULL,
-			meta_json TEXT NOT NULL,
-			starred BOOLEAN NOT NULL DEFAULT false,
-			sensitive BOOLEAN NOT NULL DEFAULT false,
-			source_exe_name TEXT NOT NULL DEFAULT '',
-			source_exe_path TEXT NOT NULL DEFAULT '',
-			source_window_title TEXT NOT NULL DEFAULT '',
-			source_method TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE INDEX idx_clipboard_items_created_at ON clipboard_items(created_at DESC)`,
-		`CREATE INDEX idx_clipboard_items_kind ON clipboard_items(kind)`,
-		`CREATE INDEX idx_clipboard_items_sha256 ON clipboard_items(sha256)`,
-		`CREATE INDEX idx_clipboard_items_sensitive ON clipboard_items(sensitive)`,
-		`CREATE INDEX idx_clipboard_items_source_exe_name ON clipboard_items(source_exe_name)`,
-		`CREATE TABLE settings (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)`,
-		`CREATE SEQUENCE seq_groups START 1`,
-		`CREATE TABLE groups (
-			id INTEGER PRIMARY KEY DEFAULT nextval('seq_groups'),
-			name TEXT NOT NULL,
-			parent_id INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX idx_groups_parent ON groups(parent_id)`,
-		`CREATE TABLE item_groups (
-			item_id INTEGER NOT NULL,
-			group_id INTEGER NOT NULL,
-			PRIMARY KEY (item_id, group_id)
-		)`,
-		`CREATE INDEX idx_item_groups_group ON item_groups(group_id)`,
-		`CREATE SEQUENCE seq_email_backup_history START 1`,
-		`CREATE TABLE email_backup_history (
-			id INTEGER PRIMARY KEY DEFAULT nextval('seq_email_backup_history'),
-			sent_at TEXT NOT NULL,
-			mode TEXT NOT NULL,
-			from_address TEXT NOT NULL,
-			to_address TEXT NOT NULL,
-			format TEXT NOT NULL
-		)`,
-		`CREATE INDEX idx_email_backup_history_sent_at ON email_backup_history(sent_at DESC)`,
-	}
-	for _, stmt := range stmts {
+	for _, stmt := range duckdbstorage.SchemaStatements {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("initialize schema: %w\nSQL: %s", err, stmt)
 		}
@@ -388,7 +337,7 @@ func (s *Store) initializeSchema() error {
 
 func (s *Store) validateSchema() error {
 	var version string
-	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'schema.version'`).Scan(&version); err != nil {
+	if err := s.db.QueryRow(`SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.version'`).Scan(&version); err != nil {
 		return fmt.Errorf("unsupported database schema; rebuild the development database: %w", err)
 	}
 	if version != storeSchemaVersion {
