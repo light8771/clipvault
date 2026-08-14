@@ -1,5 +1,10 @@
 import { app } from "./app-context.js";
+import { trapModalFocus } from './modal-controller.js';
 export function registerHistoryActions() {
+  app.items = new Map();
+  app.filePaths = new Map();
+  app.NON_TEXT_KINDS = ['image', 'video', 'archive', 'office', 'files'];
+  app.IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif', 'avif'];
   app.relTime = function relTime(s) {
     const d = Math.floor((Date.now() - new Date(s).getTime()) / 1000);
     if (d < 5) return '刚刚';
@@ -8,18 +13,6 @@ export function registerHistoryActions() {
     if (d < 86400) return Math.floor(d / 3600) + '小时前';
     if (d < 604800) return Math.floor(d / 86400) + '天前';
     return new Date(s).toLocaleString();
-  };
-  app.refreshState = async function refreshState() {
-    try {
-      const d = await app.fetch('/api/v1/runtime').then(r => r.json());
-      app.DOT.className = 'dot' + (d.paused ? ' paused' : '');
-      app.ST.textContent = d.paused ? '已暂停' : '记录中';
-      app.TOG.className = 'btn-toggle' + (d.paused ? ' off' : '');
-      app.TOG.disabled = false;
-      app.TOGTX.textContent = d.paused ? '恢复' : '暂停';
-      const togIcon = document.getElementById('togIcon');
-      togIcon.innerHTML = d.paused ? '<polygon points="5 3 19 12 5 21 5 3"/>' : '<circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/>';
-    } catch (_) {}
   };
   app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
   app.fetchSensitiveText = async function fetchSensitiveText(id) {
@@ -96,12 +89,12 @@ export function registerHistoryActions() {
       app.toast('操作失败', 'err');
     }
   };
-  app.doExpand = function doExpand(btn) {};
   app.currentModalId = 0;
   app.VIEW_MODAL = document.getElementById('viewModal');
   app.MODAL_PRE = document.getElementById('modalPre');
   app.MODAL_TITLE = document.getElementById('modalTitle');
   app.doView = async function doView(id) {
+    app.viewModalTrigger = document.activeElement;
     const item = app.items.get(id);
     if (!item) return;
     app.currentModalId = id;
@@ -151,6 +144,7 @@ export function registerHistoryActions() {
     }
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    requestAnimationFrame(() => document.getElementById('modalCopyBtn')?.focus());
   };
   app.closeModal = function () {
     app.VIEW_MODAL.classList.add('hidden');
@@ -161,7 +155,18 @@ export function registerHistoryActions() {
       preview.innerHTML = '';
       preview.style.display = 'none';
     }
+    if (app.viewModalTrigger?.isConnected && typeof app.viewModalTrigger.focus === 'function') app.viewModalTrigger.focus();
+    app.viewModalTrigger = null;
   };
+  app.VIEW_MODAL.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      app.closeModal();
+      return;
+    }
+    trapModalFocus(app.VIEW_MODAL, event);
+  });
   app.modalCopy = async function () {
     const item = app.items.get(app.currentModalId);
     if (!item) return;

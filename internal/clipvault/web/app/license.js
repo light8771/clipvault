@@ -1,5 +1,14 @@
 import { app } from "./app-context.js";
 export function registerLicense() {
+  app.licenseState = {
+    licensed: true,
+    enforced: true,
+    status: 'loading',
+    machineCode: '',
+    version: '',
+    freeLimit: 0
+  };
+  app.fullMachineId = '';
   app.normalizeLicenseState = function normalizeLicenseState(d) {
     const raw = Number(d && d.freeLimit);
     const freeLimit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
@@ -17,29 +26,32 @@ export function registerLicense() {
       const code = document.getElementById('licenseMachineCode');
       const activateBlock = document.getElementById('licenseActivateBlock');
       const details = document.getElementById('licenseDetailsRow');
-      badge.classList.toggle('warn', !d.licensed);
-      if (d.licensed) {
+      badge?.classList.toggle('warn', !d.licensed);
+      if (d.licensed && badge && hint) {
         badge.textContent = '已激活';
         hint.textContent = '当前设备永久有效';
-      } else {
+      } else if (badge && hint) {
         badge.textContent = '未激活';
         hint.textContent = app.licenseStatusText(d.status);
       }
-      banner.classList.toggle('hidden', d.licensed);
-      activateBlock.classList.toggle('hidden', d.licensed);
-      details.classList.toggle('hidden', !d.licensed);
-      if (!d.licensed) {
+      banner?.classList.toggle('hidden', d.licensed);
+      activateBlock?.classList.toggle('hidden', d.licensed);
+      details?.classList.toggle('hidden', !d.licensed);
+      if (!d.licensed && banner) {
         // 限额未知时退化为不带数字的说法，但保留横幅本身（它同时是激活入口）。
         const limit = app.licenseState.freeLimit;
         banner.querySelector('span').textContent = limit > 0 ? '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索最近 ' + limit + ' 条。激活后解锁完整历史记录，以及导出与备份功能。' : '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。';
       }
-      if (d.licenseId) document.getElementById('licenseIdText').textContent = d.licenseId;
-      if (d.machineCode) code.value = d.machineCode;
-      await app.loadMachineID();
-      await app.refreshState();
+      const licenseID = document.getElementById('licenseIdText');
+      if (d.licenseId && licenseID) licenseID.textContent = d.licenseId;
+      if (d.machineCode && code) code.value = d.machineCode;
+      if (d.enforced !== false) await app.loadMachineID();
+      if (app.refreshState) await app.refreshState();
     } catch (_) {
-      document.getElementById('licenseStatusBadge').textContent = '读取失败';
-      document.getElementById('licenseStatusHint').textContent = '无法读取本机授权状态，请查看本地日志';
+      const badge = document.getElementById('licenseStatusBadge');
+      const hint = document.getElementById('licenseStatusHint');
+      if (badge) badge.textContent = '读取失败';
+      if (hint) hint.textContent = '无法读取本机授权状态，请查看本地日志';
     }
   };
   app.licenseStatusText = function licenseStatusText(status) {
@@ -53,11 +65,16 @@ export function registerLicense() {
     try {
       const d = await app.fetch('/api/v1/license/machine').then(r => r.json());
       app.fullMachineId = d.machineId || '';
-      if (d.machineCode) document.getElementById('licenseMachineCode').value = d.machineCode;
+      const code = document.getElementById('licenseMachineCode');
+      if (d.machineCode && code) code.value = d.machineCode;
     } catch (_) {}
   };
   app.openLicenseSettings = async function () {
-    if (await app.switchView('settings')) app.snavTo('s-license', 'snav-license');
+    if (window.location.pathname === '/settings') {
+      app.navigateToSettingsSection('s-license', true);
+      return;
+    }
+    window.location.href = '/settings#s-license';
   };
   app.copyPurchaseInfo = async function () {
     if (!app.fullMachineId) await app.loadMachineID();

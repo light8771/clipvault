@@ -1,5 +1,11 @@
 import { app } from "./app-context.js";
+import { createRemovableModal } from './modal-controller.js';
 export function registerSettingsStorage() {
+  const smtpUser = document.getElementById('cfg-emailBackupSMTPUser');
+  const smtpCredentialUser = document.getElementById('cfg-emailBackupSMTPCredentialUser');
+  smtpUser.addEventListener('input', () => {
+    smtpCredentialUser.value = smtpUser.value;
+  });
   app.loadSettings = async function loadSettings() {
     const request = ++app.configRequestSequence;
     const revision = app.configRevision;
@@ -81,7 +87,7 @@ export function registerSettingsStorage() {
         <div class="modal-box secondary-box migrate-modal" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">迁移数据目录</span>
-            <button class="modal-close" data-action="close-migrate">
+            <button class="modal-close" type="button" data-action="close-migrate" aria-label="关闭数据目录迁移">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -118,14 +124,12 @@ export function registerSettingsStorage() {
     const progressEl = document.getElementById('migrateProgress');
     const oldDirEl = document.getElementById('migrateOldDir');
     oldDirEl.textContent = currentDirText;
-    app.closeMigrateDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) app.closeMigrateDialog();
+    const modal = createRemovableModal(overlay, {
+      initialFocus: newDirInput,
+      canClose: () => !app.storageRelocationInFlight
     });
+    app.closeMigrateDialog = modal.close;
     cancelBtn.addEventListener('click', app.closeMigrateDialog);
-    setTimeout(() => newDirInput.focus(), 50);
     const steps = [{
       label: '验证目标目录'
     }, {

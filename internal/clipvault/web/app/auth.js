@@ -1,5 +1,22 @@
 import { app } from "./app-context.js";
+import { trapModalFocus } from './modal-controller.js';
 export function registerAuth() {
+  app.authState = {
+    hasLockPassword: false,
+    hasSecondaryPassword: false,
+    authenticated: false,
+    secondaryAuthed: false
+  };
+  app.secondaryResolve = null;
+  app.secondaryAuthPromise = null;
+  app.LOCK_OVERLAY = document.getElementById('lockOverlay');
+  app.LOCK_FORM = document.getElementById('lockForm');
+  app.LOCK_INPUT = document.getElementById('lockPassword');
+  app.LOCK_ERR = document.getElementById('lockErr');
+  app.SECONDARY_MODAL = document.getElementById('secondaryModal');
+  app.SECONDARY_FORM = document.getElementById('secondaryForm');
+  app.SECONDARY_INPUT = document.getElementById('secondaryPassword');
+  app.SECONDARY_ERR = document.getElementById('secondaryErr');
   app.checkAuthStatus = async function checkAuthStatus() {
     try {
       const d = await app.fetch('/api/v1/session').then(r => r.json());
@@ -122,6 +139,7 @@ export function registerAuth() {
         } catch (_) {}
       }
       return new Promise(resolve => {
+        app.secondaryTrigger = document.activeElement;
         app.secondaryResolve = resolve;
         app.SECONDARY_MODAL.classList.remove('hidden');
         app.SECONDARY_INPUT.value = '';
@@ -140,6 +158,8 @@ export function registerAuth() {
       app.secondaryResolve(false);
       app.secondaryResolve = null;
     }
+    if (app.secondaryTrigger?.isConnected && typeof app.secondaryTrigger.focus === 'function') app.secondaryTrigger.focus();
+    app.secondaryTrigger = null;
   };
   app.SECONDARY_FORM.addEventListener('submit', async e => {
     e.preventDefault();
@@ -168,6 +188,8 @@ export function registerAuth() {
           app.secondaryResolve(true);
           app.secondaryResolve = null;
         }
+        if (app.secondaryTrigger?.isConnected && typeof app.secondaryTrigger.focus === 'function') app.secondaryTrigger.focus();
+        app.secondaryTrigger = null;
       } else {
         app.SECONDARY_ERR.textContent = d.error || '二次密码错误';
         app.SECONDARY_ERR.classList.remove('hidden');
@@ -181,6 +203,14 @@ export function registerAuth() {
   });
   app.SECONDARY_MODAL.addEventListener('click', e => {
     if (e.target === app.SECONDARY_MODAL) app.closeSecondaryModal();
+  });
+  app.SECONDARY_MODAL.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      app.closeSecondaryModal();
+      return;
+    }
+    trapModalFocus(app.SECONDARY_MODAL, e);
   });
 
   // ── Password set/change dialog ───────────────────────────

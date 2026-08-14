@@ -1,0 +1,26 @@
+  <!-- ── 重启遮罩 ── -->
+  <div class="modal-overlay hidden" id="restartOverlay">
+    <div class="modal-box secondary-box" role="status" aria-live="polite" data-modal-panel>
+      <div class="modal-body u-inline-17">
+        <div class="restart-spinner" id="restartSpinner"></div>
+        <h2 class="restart-title">正在重启服务</h2>
+        <p class="restart-desc">新页面将自动在新标签页打开，可关闭本页面</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 重启确认对话框 ── -->
+  <div class="modal-overlay hidden" id="restartConfirm">
+    <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="restartConfirmTitle" data-modal-panel>
+      <div class="modal-head">
+        <span class="modal-title" id="restartConfirmTitle">重启确认</span>
+      </div>
+      <div class="modal-body u-inline-16">
+        <p class="u-inline-18">监听地址已修改，需要重启服务才能生效。是否立即重启？</p>
+        <div class="u-inline-19">
+          <button class="btn-cancel" type="button" id="restartCancelBtn">稍后</button>
+          <button class="lock-btn u-inline-20" type="button" id="restartConfirmBtn">立即重启</button>
+        </div>
+      </div>
+    </div>
+  </div>

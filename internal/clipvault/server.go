@@ -74,6 +74,7 @@ func (s *SearchServer) Start() (string, error) {
 	}
 
 	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /settings", s.handleIndex)
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)

@@ -1,0 +1,20 @@
+  <!-- ── 内容预览弹窗 ── -->
+  <div class="modal-overlay hidden" id="viewModal" data-action="close-view-modal">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle" data-modal-panel>
+      <div class="modal-head">
+        <span class="modal-title" id="modalTitle">内容预览</span>
+        <div class="modal-acts">
+          <button class="ab cp" id="modalCopyBtn" type="button" data-action="modal-copy">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制
+          </button>
+          <button class="modal-close" type="button" data-action="close-view-modal" aria-label="关闭内容预览" title="关闭">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <pre class="modal-pre" id="modalPre"></pre>
+      </div>
+    </div>
+  </div>

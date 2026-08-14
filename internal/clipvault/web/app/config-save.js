@@ -1,4 +1,5 @@
 import { app } from "./app-context.js";
+import { trapModalFocus } from './modal-controller.js';
 export function registerConfigSave() {
   app.RESTART_OVERLAY = document.getElementById('restartOverlay');
   app.RESTART_CONFIRM = document.getElementById('restartConfirm');
@@ -17,7 +18,6 @@ export function registerConfigSave() {
   app.hasPendingConfigSave = function hasPendingConfigSave() {
     return app.pendingConfigRevision !== app.savedConfigRevision || app.saveInFlight;
   };
-  app.pendingRestart = false;
   app.collectConfig = function collectConfig() {
     if (!app.currentCfg) return null;
     // 当过滤规则被遮蔽（auth gate 可见）时，保留原配置中的 patterns，避免用空数组覆盖
@@ -292,11 +292,23 @@ export function registerConfigSave() {
     }
   };
   app.showRestartConfirm = function showRestartConfirm() {
+    app.restartConfirmTrigger = document.activeElement;
     app.RESTART_CONFIRM.classList.remove('hidden');
+    requestAnimationFrame(() => app.RESTART_CANCEL.focus());
   };
   app.hideRestartConfirm = function hideRestartConfirm() {
     app.RESTART_CONFIRM.classList.add('hidden');
+    if (app.restartConfirmTrigger?.isConnected && typeof app.restartConfirmTrigger.focus === 'function') app.restartConfirmTrigger.focus();
+    app.restartConfirmTrigger = null;
   };
+  app.RESTART_CONFIRM.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      app.hideRestartConfirm();
+      return;
+    }
+    trapModalFocus(app.RESTART_CONFIRM, event);
+  });
   app.RESTART_CANCEL.addEventListener('click', () => {
     app.hideRestartConfirm();
     app.toast('监听地址将在下次重启后生效');

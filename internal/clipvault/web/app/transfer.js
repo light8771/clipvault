@@ -1,4 +1,5 @@
 import { app } from "./app-context.js";
+import { createRemovableModal } from './modal-controller.js';
 export function registerTransfer() {
   app.authedDownload = async function authedDownload(baseUrl, fallbackFilename, requestInit) {
     try {
@@ -42,7 +43,7 @@ export function registerTransfer() {
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">选择导出范围</span>
-            <button class="modal-close" data-action="close-export-scope">
+            <button class="modal-close" type="button" data-action="close-export-scope" aria-label="关闭导出范围">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -71,12 +72,7 @@ export function registerTransfer() {
         if (r.checked) rangeFields.classList.toggle('hidden', r.value !== 'range');
       });
     });
-    app.closeExportScopeDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) app.closeExportScopeDialog();
-    });
+    app.closeExportScopeDialog = createRemovableModal(overlay).close;
     app.confirmExportScope = function () {
       const mode = document.querySelector('input[name=exportScopeMode]:checked').value;
       let params = '';
@@ -133,7 +129,7 @@ export function registerTransfer() {
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">加密导出</span>
-            <button class="modal-close" data-action="close-encrypted-export">
+            <button class="modal-close" type="button" data-action="close-encrypted-export" aria-label="关闭加密导出">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -168,13 +164,7 @@ export function registerTransfer() {
     const errEl = document.getElementById('cvexportErr');
     const pwdInput = document.getElementById('cvexportPwd');
     const confirmInput = document.getElementById('cvexportConfirm');
-    setTimeout(() => pwdInput.focus(), 50);
-    app.closeCvexportDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) app.closeCvexportDialog();
-    });
+    app.closeCvexportDialog = createRemovableModal(overlay, { initialFocus: pwdInput }).close;
     const rangeFields = document.getElementById('cvexportRangeFields');
     document.querySelectorAll('input[name=cvexportScopeMode]').forEach(r => {
       r.addEventListener('change', () => {
@@ -231,7 +221,7 @@ export function registerTransfer() {
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">导入数据</span>
-            <button class="modal-close" data-action="close-import">
+            <button class="modal-close" type="button" data-action="close-import" aria-label="关闭导入">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -239,9 +229,11 @@ export function registerTransfer() {
             <p class="u-inline-29">
               选择 JSON、Excel 或加密 .cvexport 文件导入。导入为追加模式：不会清空现有数据，也不做去重，重复导入同一文件会产生重复记录。加密文件需输入密码。提示：Excel 文件较大时解析慢且占内存，大数据量建议用 JSON 或加密 .cvexport 格式。
             </p>
-            <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" class="u-inline-30">
-            <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off">
-            <button class="lock-btn" data-action="import">开始导入</button>
+            <form id="importForm" class="lock-form">
+              <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" class="u-inline-30">
+              <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off">
+              <button class="lock-btn" type="submit">开始导入</button>
+            </form>
             <p class="lock-err hidden u-inline-32" id="importErr"></p>
           </div>
         </div>
@@ -251,11 +243,12 @@ export function registerTransfer() {
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
     const overlay = document.getElementById('importOverlay');
-    app.closeImportDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) app.closeImportDialog();
+    app.closeImportDialog = createRemovableModal(overlay, {
+      initialFocus: document.getElementById('importFile')
+    }).close;
+    document.getElementById('importForm').addEventListener('submit', event => {
+      event.preventDefault();
+      app.doImport();
     });
   };
   app.doImport = async function doImport() {
@@ -451,11 +444,8 @@ export function registerTransfer() {
           </table>
         </div>
       </div>`;
-    const close = () => overlay.remove();
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) close();
-    });
-    overlay.querySelector('.modal-close').addEventListener('click', close);
     document.body.appendChild(overlay);
+    const close = createRemovableModal(overlay).close;
+    overlay.querySelector('.modal-close').addEventListener('click', close);
   };
 }

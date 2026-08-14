@@ -70,22 +70,54 @@ func TestApplicationModulesAreServedIndependently(t *testing.T) {
 			t.Errorf("application module %s status=%d content-type=%q", path, res.Code, res.Header().Get("Content-Type"))
 		}
 	}
-	legacy := httptest.NewRecorder()
-	server.handleStatic(legacy, httptest.NewRequest(http.MethodGet, "http://clipvault.local/script.js", nil))
-	if legacy.Code != http.StatusNotFound {
-		t.Fatalf("removed composed module status=%d, want 404", legacy.Code)
+	for _, path := range []string{
+		"/script.js", "/app/bootstrap.js", "/app/lifecycle.js", "/app/navigation.js", "/app/view-navigation.js",
+	} {
+		removed := httptest.NewRecorder()
+		server.handleStatic(removed, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+path, nil))
+		if removed.Code != http.StatusNotFound {
+			t.Errorf("removed module %s status=%d, want 404", path, removed.Code)
+		}
 	}
 }
 
 func TestApplicationPageIsComposedInOrder(t *testing.T) {
 	server := &SearchServer{}
-	res := httptest.NewRecorder()
-	server.handleIndex(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local/", nil))
-	if res.Code != http.StatusOK {
-		t.Fatalf("application page status=%d", res.Code)
+	tests := []struct {
+		path        string
+		present     []string
+		absent      []string
+		currentPage string
+	}{
+		{
+			path:        "/",
+			present:     []string{`id="viewHistory"`, `/history.css`, `/app/history-bootstrap.js`, `id="viewModal"`, `id="clearBtn"`},
+			absent:      []string{`id="viewSettings"`, `/settings.css`, `/app/settings-bootstrap.js`, `id="sourceAppsModal"`, `id="restartOverlay"`},
+			currentPage: `id="tabHistory" href="/" aria-current="page"`,
+		},
+		{
+			path:        "/settings",
+			present:     []string{`id="viewSettings"`, `/settings.css`, `/app/settings-bootstrap.js`, `id="sourceAppsModal"`, `id="restartOverlay"`},
+			absent:      []string{`id="viewHistory"`, `/history.css`, `/app/history-bootstrap.js`, `id="viewModal"`, `id="clearBtn"`},
+			currentPage: `id="tabSettings" href="/settings" aria-current="page"`,
+		},
 	}
-	body := res.Body.String()
-	if !strings.HasPrefix(strings.TrimSpace(body), "<!doctype html>") || !strings.Contains(body, "id=\"s-backup\"") || !strings.HasSuffix(strings.TrimSpace(body), "</html>") {
-		t.Fatal("application page fragments are missing or out of order")
+	for _, tt := range tests {
+		res := httptest.NewRecorder()
+		server.handleIndex(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+tt.path, nil))
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s page status=%d", tt.path, res.Code)
+		}
+		body := res.Body.String()
+		valid := strings.HasPrefix(strings.TrimSpace(body), "<!doctype html>") && strings.Contains(body, tt.currentPage) && strings.HasSuffix(strings.TrimSpace(body), "</html>")
+		for _, required := range tt.present {
+			valid = valid && strings.Contains(body, required)
+		}
+		for _, forbidden := range tt.absent {
+			valid = valid && !strings.Contains(body, forbidden)
+		}
+		if !valid {
+			t.Fatalf("%s page is not independently composed", tt.path)
+		}
 	}
 }

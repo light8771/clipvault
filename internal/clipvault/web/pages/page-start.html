@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN" data-page-title="{{.Title}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{.Title}} · ClipVault</title>
+  <link id="brandFavicon" rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/tokens.css">
+  {{if eq .Name "history"}}
+  <link rel="stylesheet" href="/history.css">
+  {{else}}
+  <link rel="stylesheet" href="/settings.css">
+  <link rel="stylesheet" href="/source-apps.css">
+  {{end}}
+  <link rel="stylesheet" href="/modals.css">
+  <link rel="stylesheet" href="/responsive.css">
+  <link rel="stylesheet" href="/components.css">
+  <link rel="stylesheet" href="/security.css">
+  <link rel="stylesheet" href="/groups.css">
+  <link rel="stylesheet" href="/mobile.css">
+  <link rel="stylesheet" href="/utilities.css">
+</head>
+<body>
+  <div class="background-media-layer hidden" id="backgroundMediaLayer" aria-hidden="true">
+    <img id="backgroundImage" alt="">
+    <video id="backgroundVideo" muted loop playsinline preload="metadata"></video>
+  </div>
+  <div class="background-shield hidden" id="backgroundShield" aria-hidden="true"></div>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <div class="nav-brand">
+        <div class="brand-icon">
+          <svg id="brandDefaultLogo" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+            <rect x="9" y="3" width="6" height="4" rx="1"/>
+            <path d="M9 12h6M9 16h4"/>
+          </svg>
+          <img id="brandLogo" class="hidden" alt="">
+        </div>
+        <span class="brand-name" id="brandName">ClipVault</span>
+        <div class="status-pill">
+          <div class="dot" id="dot"></div>
+          <span class="st" id="st">-</span>
+        </div>
+      </div>
+      <div class="nav-center">
+        <a class="nav-tab{{if eq .Name "history"}} active{{end}}" id="tabHistory" href="/"{{if eq .Name "history"}} aria-current="page"{{end}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          历史
+        </a>
+        <a class="nav-tab{{if eq .Name "settings"}} active{{end}}" id="tabSettings" href="/settings"{{if eq .Name "settings"}} aria-current="page"{{end}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+          设置
+        </a>
+      </div>
+      {{if eq .Name "history"}}<div class="nav-right">
+        <span class="count-badge" id="badge">0</span>
+        <button class="btn-toggle" id="tog">
+          <svg class="tog-icon" id="togIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/>
+          </svg>
+          <span id="togTx">暂停</span>
+        </button>
+        <button class="btn-clear" id="clearBtn" title="清除全部历史">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          <span id="clearTx">清除</span>
+        </button>
+      </div>{{end}}
+    </div>
+  </nav>
+
+  <div class="license-banner hidden" id="licenseBanner" role="status">
+    <span>免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。</span>
+    <button type="button" data-action="open-license-settings">立即激活</button>
+  </div>

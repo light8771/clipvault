@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
+import { trapModalFocus } from './modal-controller.js';
 export function registerSettingsSources() {
+  const sourceAppsModal = document.getElementById('sourceAppsModal');
+  let sourceAppsTrigger = null;
   app.updateSourceAppsSummary = function updateSourceAppsSummary() {
     const summary = document.getElementById('sourceAppsSummary');
     if (!summary) return;
@@ -65,6 +68,7 @@ export function registerSettingsSources() {
     });
   };
   app.openSourceAppsDialog = function () {
+    sourceAppsTrigger = document.activeElement;
     const existing = app.sourceWhitelist?.length ? app.sourceWhitelist.slice() : app.allSourceExes.map(e => e.name);
     app.sourceAppsDraft = {
       aliases: {
@@ -83,9 +87,19 @@ export function registerSettingsSources() {
     setTimeout(() => filter?.focus(), 50);
   };
   app.closeSourceAppsDialog = function () {
-    document.getElementById('sourceAppsModal')?.classList.add('hidden');
+    sourceAppsModal?.classList.add('hidden');
     app.sourceAppsDraft = null;
+    if (sourceAppsTrigger?.isConnected && typeof sourceAppsTrigger.focus === 'function') sourceAppsTrigger.focus();
+    sourceAppsTrigger = null;
   };
+  sourceAppsModal?.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      app.closeSourceAppsDialog();
+      return;
+    }
+    trapModalFocus(sourceAppsModal, event);
+  });
   app.saveSourceAppsDialog = async function () {
     if (!app.sourceAppsDraft) return;
     app.syncVisibleSourceAppsDraft();

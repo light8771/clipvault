@@ -1,0 +1,121 @@
+  <!-- ── 历史视图 ── -->
+  <main id="viewHistory">
+    <div class="search-wrap">
+      <div class="search-box">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input id="q" type="search" placeholder="搜索剪切板历史..." autocomplete="off" autofocus>
+        <kbd class="search-kbd">Ctrl K</kbd>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="filter-group" id="kindFilters">
+        <button class="filter-chip active" data-kind="">全部</button>
+        <button class="filter-chip" data-kind="__starred__">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          收藏
+        </button>
+        <button class="filter-chip" data-kind="text">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+          文本
+        </button>
+        <button class="filter-chip" data-kind="image">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+          图片
+        </button>
+        <button class="filter-chip" data-kind="video">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          视频
+        </button>
+        <button class="filter-chip" data-kind="archive">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+          压缩包
+        </button>
+        <button class="filter-chip" data-kind="office">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Office
+        </button>
+        <button class="filter-chip" data-kind="files">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          其他文件
+        </button>
+        <button class="filter-chip" data-kind="__sensitive__">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          敏感数据
+        </button>
+        <button class="filter-chip filter-chip-group" data-kind="__group__" id="groupChip">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
+          分组
+          <svg class="group-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <div class="ctrl-right">
+        <div class="src-exe-dropdown" id="srcExeDropdown">
+          <button type="button" class="src-exe-btn" id="srcExeBtn">来源应用 <span class="src-exe-count" id="srcExeCount"></span></button>
+          <div class="src-exe-pop" id="srcExePop" hidden>
+            <div class="src-exe-search"><input type="search" id="srcExeFilter" placeholder="筛选应用..."></div>
+            <div class="src-exe-list" id="srcExeList"></div>
+          </div>
+        </div>
+        <label class="ar-toggle">
+          <input type="checkbox" id="ar">
+          <span>自动刷新</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="date-filter-bar" id="dateFilterBar">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-1"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span class="dfb-label">日期</span>
+      <input type="date" id="dateFrom" class="date-input">
+      <span class="dfb-sep">—</span>
+      <input type="date" id="dateTo" class="date-input">
+      <button id="clearDateBtn" class="btn-date-clear hidden">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        清除
+      </button>
+    </div>
+
+    <div class="list-meta">
+      <span id="rc" class="result-count">加载中...</span>
+    </div>
+
+    <section class="list" id="list">
+      <div class="loading">
+        <div class="spinner"></div>
+        <span>加载中...</span>
+      </div>
+    </section>
+
+    <div class="pagination hidden" id="pagination">
+      <button class="page-btn" id="prevBtn" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        上一页
+      </button>
+      <span class="page-info" id="pageInfo"></span>
+      <div class="pagesize-combo" id="pagesizeCombo">
+        <input type="number" id="pagesize" class="pagesize-input" value="50" min="10" max="500" />
+        <button class="pagesize-dropdown-btn" id="pagesizeDropdownBtn" type="button">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="pagesize-dropdown" id="pagesizeDropdown">
+          <div class="pagesize-opt" data-val="20">20/页</div>
+          <div class="pagesize-opt" data-val="50">50/页</div>
+          <div class="pagesize-opt" data-val="100">100/页</div>
+          <div class="pagesize-opt" data-val="200">200/页</div>
+          <div class="pagesize-opt" data-val="500">500/页</div>
+        </div>
+        <span class="pagesize-suffix">/页</span>
+      </div>
+      <span class="page-jump">
+        <input type="number" id="pageJumpInput" class="page-jump-input" min="1" value="1" />
+        <button class="page-jump-btn" id="pageJumpBtn">跳转</button>
+      </span>
+      <button class="page-btn" id="nextBtn">
+        下一页
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+  </main>

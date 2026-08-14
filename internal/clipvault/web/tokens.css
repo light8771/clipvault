@@ -103,7 +103,6 @@ body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay)
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-bottom: 1px solid var(--card-border);
 }
-
 .nav-inner {
   max-width: 880px;
   margin: 0 auto;

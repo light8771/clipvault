@@ -174,9 +174,9 @@
   /* Settings become a single readable column. */
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
+    --settings-nav-sticky-top: calc(88px + env(safe-area-inset-top));
+    --settings-section-scroll-margin: calc(144px + env(safe-area-inset-top));
   }
-
-  .settings-sidebar { display: none; }
 
   .settings-content {
     min-width: 0;
@@ -413,16 +413,15 @@
   }
 }
 
-/* Portrait tablets need the same single-column form treatment, while there is
-   still enough room to keep the settings anchors as a horizontal sticky bar. */
-@media (min-width: 721px) and (max-width: 840px) {
+/* Narrow layouts keep settings anchors in a horizontally scrollable sticky bar. */
+@media (max-width: 840px) {
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .settings-sidebar {
     position: sticky;
-    top: 54px;
+    top: var(--settings-nav-sticky-top, 54px);
     z-index: 90;
     display: block;
     padding: 8px 0;
@@ -461,7 +460,7 @@
   }
 
   .ssec {
-    scroll-margin-top: 112px;
+    scroll-margin-top: var(--settings-section-scroll-margin, 112px);
   }
 
   .field-row {

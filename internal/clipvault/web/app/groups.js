@@ -1,5 +1,10 @@
 import { app } from "./app-context.js";
+import { createRemovableModal } from './modal-controller.js';
 export function registerGroups() {
+  app.allGroups = [];
+  app.GROUP_EXPAND = new Set();
+  app.groupModalMode = null;
+  app.groupModalOpts = {};
   app.loadGroups = async function loadGroups() {
     try {
       const d = await app.fetch('/api/v1/groups').then(r => r.json());
@@ -46,11 +51,17 @@ export function registerGroups() {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'groupModalOverlay';
-    overlay.innerHTML = '<div class="modal-box ' + boxClass + '" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + titles[mode] + '</span>' + '<button class="modal-close" id="groupModalCloseBtn">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body group-modal-body" id="groupModalBody"></div>' + '</div>';
+    overlay.innerHTML = '<div class="modal-box ' + boxClass + '" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + titles[mode] + '</span>' + '<button class="modal-close" id="groupModalCloseBtn" type="button" aria-label="关闭分组对话框">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body group-modal-body" id="groupModalBody"></div>' + '</div>';
     document.body.appendChild(overlay);
     document.body.style.overflow = 'hidden';
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) app.closeGroupModal();
+    app.groupModalController = createRemovableModal(overlay, {
+      initialFocus: () => document.getElementById('groupModalCloseBtn'),
+      onClose: () => {
+        app.groupModalController = null;
+        document.body.style.overflow = '';
+        app.groupModalMode = null;
+        app.groupModalOpts = {};
+      }
     });
     document.getElementById('groupModalCloseBtn').addEventListener('click', app.closeGroupModal);
     app.groupModalMode = mode;
@@ -58,8 +69,11 @@ export function registerGroups() {
     app.renderGroupModalContent();
   };
   app.closeGroupModal = function closeGroupModal() {
-    const overlay = document.getElementById('groupModalOverlay');
-    if (overlay) overlay.remove();
+    if (app.groupModalController) {
+      app.groupModalController.close();
+      return;
+    }
+    document.getElementById('groupModalOverlay')?.remove();
     document.body.style.overflow = '';
     app.groupModalMode = null;
     app.groupModalOpts = {};
@@ -401,28 +415,21 @@ export function registerGroups() {
   };
   app.showGroupEditDialog = function showGroupEditDialog(mode, parentId, defaultName, onConfirm) {
     const title = mode === 'create' ? '新建分组' : '重命名分组';
-    const html = '<div class="modal-overlay" id="groupEditOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + title + '</span>' + '<button class="modal-close" data-action="close-group-edit">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body u-inline-16">' + '<form id="groupEditForm" class="lock-form">' + '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="分组名称" value="' + app.esc(defaultName) + '" autofocus>' + '<button type="submit" class="lock-btn">确定</button>' + '</form>' + '</div>' + '</div>' + '</div>';
+    const html = '<div class="modal-overlay" id="groupEditOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + title + '</span>' + '<button class="modal-close" type="button" aria-label="关闭分组编辑" data-action="close-group-edit">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body u-inline-16">' + '<form id="groupEditForm" class="lock-form">' + '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="分组名称" value="' + app.esc(defaultName) + '" autofocus>' + '<button type="submit" class="lock-btn">确定</button>' + '</form>' + '</div>' + '</div>' + '</div>';
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
     const overlay = document.getElementById('groupEditOverlay');
     const input = document.getElementById('groupEditInput');
     const form = document.getElementById('groupEditForm');
-    setTimeout(function () {
-      input.focus();
-      input.select();
-    }, 50);
-    app.closeGroupEditDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) overlay.remove();
-    });
+    const modal = createRemovableModal(overlay, { initialFocus: input });
+    app.closeGroupEditDialog = modal.close;
+    requestAnimationFrame(() => input.select());
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       const name = input.value.trim();
       if (!name) return;
-      overlay.remove();
+      modal.close();
       onConfirm(name);
     });
   };
@@ -432,14 +439,12 @@ export function registerGroups() {
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
     const overlay = document.getElementById('confirmDialogOverlay');
-    app.closeConfirmDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) overlay.remove();
-    });
-    document.getElementById('confirmDialogBtn').addEventListener('click', function () {
-      overlay.remove();
+    const confirmButton = document.getElementById('confirmDialogBtn');
+    const cancelButton = overlay.querySelector('[data-action="close-confirm"]');
+    const modal = createRemovableModal(overlay, { initialFocus: cancelButton });
+    app.closeConfirmDialog = modal.close;
+    confirmButton.addEventListener('click', function () {
+      modal.close();
       onConfirm();
     });
   };

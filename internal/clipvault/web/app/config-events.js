@@ -2,7 +2,6 @@ import { app } from "./app-context.js";
 export function registerConfigEvents() {
   app.setupAutoSave = function setupAutoSave() {
     const settingsEl = document.getElementById('viewSettings');
-    if (!settingsEl) return;
     if (app.autoSaveBound) return;
     app.autoSaveBound = true;
     const listenAddrEl = document.getElementById('cfg-listenAddr');

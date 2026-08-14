@@ -1,4 +1,5 @@
 import { app } from "./app-context.js";
+import { createRemovableModal } from './modal-controller.js';
 export function registerRecovery() {
   app.recoveryState = {
     hasRecovery: false,
@@ -146,13 +147,7 @@ export function registerRecovery() {
     const input = document.getElementById('isolatedDatabasePassword');
     const submit = document.getElementById('isolatedDatabaseSubmit');
     const error = document.getElementById('isolatedDatabaseError');
-    app.closeIsolatedDatabaseDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', event => {
-      if (event.target === overlay) app.closeIsolatedDatabaseDialog();
-    });
-    setTimeout(() => input.focus(), 50);
+    app.closeIsolatedDatabaseDialog = createRemovableModal(overlay, { initialFocus: input }).close;
     form.addEventListener('submit', async event => {
       event.preventDefault();
       error.classList.add('hidden');
@@ -207,7 +202,7 @@ export function registerRecovery() {
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">${title}</span>
-            <button class="modal-close" data-action="close-recovery">
+            <button class="modal-close" type="button" data-action="close-recovery" aria-label="关闭恢复密码对话框">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -233,13 +228,9 @@ export function registerRecovery() {
     const oldInput = document.getElementById('recDlgOld');
     const newInput = document.getElementById('recDlgNew');
     const confirmInput = document.getElementById('recDlgConfirm');
-    setTimeout(() => (oldInput || newInput).focus(), 50);
-    app.closeRecDialog = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) app.closeRecDialog();
-    });
+    app.closeRecDialog = createRemovableModal(overlay, {
+      initialFocus: oldInput || newInput
+    }).close;
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const oldPwd = oldInput ? oldInput.value : '';

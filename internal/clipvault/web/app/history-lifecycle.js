@@ -1,5 +1,5 @@
 import { app } from "./app-context.js";
-export function registerLifecycle() {
+export function registerHistoryLifecycle() {
   app.SCROLL_TOP_BTN = document.getElementById('scrollTopBtn');
   app.scrollTicking = false;
   window.addEventListener('scroll', () => {
@@ -15,12 +15,11 @@ export function registerLifecycle() {
   app.SCROLL_TOP_BTN.addEventListener('click', () => {
     window.scrollTo({
       top: 0,
-      behavior: 'smooth'
+      behavior: app.scrollBehavior()
     });
   });
   app.init = async function init() {
-    app.setupAutoSave();
-    await app.loadTheme();
+    await app.loadConfigAppearance();
     await app.loadLicenseStatus();
     app.setupSrcExeUI();
     await app.loadSourceExes();

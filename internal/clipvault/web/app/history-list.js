@@ -1,5 +1,22 @@
 import { app } from "./app-context.js";
 export function registerHistoryList() {
+  app.Q = document.getElementById('q');
+  app.PAGESIZE = document.getElementById('pagesize');
+  app.LIST = document.getElementById('list');
+  app.BADGE = document.getElementById('badge');
+  app.RC = document.getElementById('rc');
+  app.AR = document.getElementById('ar');
+  app.debounce = 0;
+  app.arTimer = 0;
+  app.currentKind = '';
+  app.currentPage = 0;
+  app.totalCount = 0;
+  app.fullTotalCount = 0;
+  app.pendingLocateId = 0;
+  app.locateActive = false;
+  app.filterDateFrom = '';
+  app.filterDateTo = '';
+  app.currentGroupID = 0;
   app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 查看';
   app.delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   app.groupBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>';
@@ -90,7 +107,7 @@ export function registerHistoryList() {
       if (el) {
         el.classList.add('locate-highlight');
         el.scrollIntoView({
-          behavior: 'smooth',
+          behavior: app.scrollBehavior(),
           block: 'center'
         });
         setTimeout(() => el.classList.remove('locate-highlight'), 3500);
@@ -184,15 +201,6 @@ export function registerHistoryList() {
     } catch (e) {
       if (e && e.name === 'AbortError') return;
     }
-  };
-  app.loadSourceExes = async function loadSourceExes() {
-    try {
-      const data = await app.fetch('/api/v1/items/sources').then(r => r.json());
-      app.allSourceExes = Array.isArray(data) ? data : [];
-    } catch (_) {
-      app.allSourceExes = [];
-    }
-    app.renderSrcExeDropdown();
   };
   app.renderSrcExeDropdown = function renderSrcExeDropdown() {
     const wrap = document.getElementById('srcExeDropdown');

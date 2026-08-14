@@ -45,26 +45,4 @@ export function registerAppearanceForm() {
       surfaceOpacity: surfaceOpacityValue
     });
   };
-  app.loadTheme = async function loadTheme() {
-    const request = ++app.configRequestSequence;
-    const revision = app.configRevision;
-    try {
-      const cfg = await app.fetch('/api/v1/config').then(r => r.json());
-      if (request !== app.configRequestSequence || revision !== app.configRevision) return;
-      app.replaceCurrentConfig(cfg);
-      app.applyTheme(cfg.theme);
-      app.applyBrand(cfg.brand);
-      app.applyBackground(cfg.background);
-    } catch (_) {
-      if (request !== app.configRequestSequence || revision !== app.configRevision) return;
-      app.applyTheme();
-      app.applyBrand();
-      app.applyBackground();
-    }
-  };
-  if (window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      if (app.currentCfg?.theme?.mode === 'system') app.applyTheme(app.currentCfg.theme);
-    });
-  }
 }

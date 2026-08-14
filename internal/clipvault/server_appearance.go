@@ -16,11 +16,12 @@ import (
 )
 
 func (s *SearchServer) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	page, ok := applicationPages[r.URL.Path]
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	s.serveApplicationPage(w)
+	s.serveApplicationPage(w, page)
 }
 
 const maxBrandAssetBytes = 10 << 20

@@ -449,9 +449,11 @@ clipboard_ext/
 │   ├── store.go                # DuckDB 存储层（记录 + 配置 + 分组 + 导入导出）
 │   ├── windows_runtime.go      # Win32 托盘/窗口/消息循环
 │   └── web/                    # 前端静态资源（编译时嵌入）
-│       ├── index.html
-│       ├── style.css
-│       └── script.js
+│       ├── app/                # 按历史页/设置页拆分的原生 ES 模块
+│       ├── pages/              # 服务端启动时编译的页面片段
+│       ├── history.css         # 历史页样式
+│       ├── settings.css        # 设置页样式
+│       └── tokens.css          # 主题变量与共享基础样式
 ├── internal/licensing/         # 机器码、Ed25519 验签、DPAPI 授权凭据
 ├── scripts/build-release.ps1   # Garble 正式发布构建与校验和
 ├── go.mod
@@ -460,7 +462,7 @@ clipboard_ext/
 
 ## 技术栈
 
-- **Go 1.25** + CGO
+- **Go 1.25+** + CGO
 - **DuckDB**（`github.com/duckdb/duckdb-go/v2`）— 加密列式数据库
 - **Windows DPAPI** — 用户级密钥保护
 - **scrypt + AES-256-GCM** — 恢复密码和加密导出包

@@ -3,29 +3,9 @@ export function registerAppearanceTheme() {
   app.currentCfg = null;
   app.configRevision = 0;
   app.configRequestSequence = 0;
-  app.assetOperationTail = {
-    logo: Promise.resolve(),
-    favicon: Promise.resolve(),
-    background: Promise.resolve()
-  };
   app.replaceCurrentConfig = function replaceCurrentConfig(config) {
     app.configRevision++;
     app.currentCfg = config;
-  };
-  app.updateCurrentConfig = function updateCurrentConfig(update) {
-    app.replaceCurrentConfig({
-      ...app.currentCfg,
-      ...update
-    });
-  };
-  app.reserveAssetOperation = async function reserveAssetOperation(kind) {
-    const previous = app.assetOperationTail[kind];
-    let complete;
-    app.assetOperationTail[kind] = new Promise(resolve => {
-      complete = resolve;
-    });
-    await previous;
-    return complete;
   };
   app.THEME_PALETTES = {
     mint: {
@@ -222,7 +202,8 @@ export function registerAppearanceTheme() {
   app.applyBrand = function applyBrand(brand) {
     const value = brand || {};
     const title = String(value.title || 'ClipVault').trim() || 'ClipVault';
-    document.title = title;
+    const pageTitle = document.documentElement.dataset.pageTitle;
+    document.title = `${pageTitle} · ${title}`;
     const name = document.getElementById('brandName');
     if (name) name.textContent = title;
     const logoURL = app.brandAssetURL('logo', value.logoVersion);

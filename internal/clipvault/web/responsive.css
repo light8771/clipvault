@@ -16,10 +16,13 @@
 
 /* ── Motion safe ───────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .dot     { animation: none !important; }
-  .spinner { animation: none !important; border-top-color: var(--p); }
-  article  { transition: none !important; }
-  .tk      { transition: opacity .2s !important; transform: none !important; }
+  html { scroll-behavior: auto !important; }
+  *, *::before, *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+  .spinner, .restart-spinner { border-top-color: var(--p); }
 }
 
 /* ── Dark mode extras ──────────────────────────────────────── */

@@ -1,0 +1,30 @@
+  <!-- ── 来源应用管理弹窗 ── -->
+  <div class="modal-overlay hidden" id="sourceAppsModal" data-action="close-source-apps">
+    <div class="modal-box source-apps-modal" role="dialog" aria-modal="true" aria-labelledby="sourceAppsTitle" data-modal-panel>
+      <div class="modal-head">
+
+        <span class="modal-title" id="sourceAppsTitle">管理来源应用</span>
+        <button class="modal-close" type="button" data-action="close-source-apps" aria-label="关闭">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="source-apps-toolbar">
+        <input type="search" id="sourceAppsFilter" class="field-input source-apps-search" placeholder="搜索应用名或别名" autocomplete="off">
+        <div class="source-apps-mode" role="radiogroup" aria-label="搜索下拉显示范围">
+          <label><input type="radio" name="sourceAppsMode" value="all"> 下拉显示全部</label>
+          <label><input type="radio" name="sourceAppsMode" value="selected"> 仅显示选中</label>
+        </div>
+      </div>
+      <div class="modal-body source-apps-body">
+        <div class="source-apps-head" aria-hidden="true"><span>出现在下拉</span><span>原始应用名</span><span>显示别名</span></div>
+        <div id="srcAliases" class="src-aliases"></div>
+      </div>
+      <div class="source-apps-footer">
+        <span class="field-hint" id="sourceAppsSelectionHint"></span>
+        <div class="source-apps-actions">
+          <button class="btn-cancel" type="button" data-action="close-source-apps">取消</button>
+          <button class="lock-btn" id="sourceAppsSaveBtn" type="button" data-action="save-source-apps">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>

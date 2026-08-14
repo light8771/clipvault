@@ -20,7 +20,7 @@ func TestWebUIHasNoInlineBehaviorOrPresentation(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(data)
-		for _, forbidden := range []string{"onclick=", "onchange=", "oninput=", "onsubmit=", "style=", "window.do", "window.openLicense", "window.closeSecondary", "window.switchView"} {
+		for _, forbidden := range []string{"onclick=", "onchange=", "oninput=", "onsubmit=", "style=", "window.do", "window.openLicense", "window.closeSecondary", "switchView", "switch-view", "viewSwitchSequence"} {
 			if strings.Contains(text, forbidden) {
 				t.Fatalf("%s contains forbidden inline/global pattern %q", name, forbidden)
 			}
@@ -82,6 +82,14 @@ func TestSecurityPageAssetsAreEmbedded(t *testing.T) {
 		}
 		if len(data) == 0 {
 			t.Errorf("%s is empty", name)
+		}
+	}
+}
+
+func TestRemovedSinglePageShellIsNotEmbedded(t *testing.T) {
+	for _, name := range []string{"web/pages/shell.html", "web/pages/overlays.html"} {
+		if _, err := fs.ReadFile(webFS, name); err == nil {
+			t.Errorf("removed single-page asset %s is still embedded", name)
 		}
 	}
 }

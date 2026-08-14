@@ -249,4 +249,80 @@
   color: var(--muted);
   word-break: break-all;
 }
+/* ── Toast ─────────────────────────────────────────────────── */
+.tc {
+  position: fixed;
+  bottom: 28px; right: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1500;
+  pointer-events: none;
+}
+.brand-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+
+.tk {
+  background: var(--card);
+  color: var(--tx);
+  min-width: 280px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 13px 18px 13px 15px;
+  border-radius: var(--radius-md);
+  font: 600 14px/1.45 sans-serif;
+  box-shadow: 0 14px 40px rgba(0,0,0,.22), 0 3px 10px rgba(0,0,0,.12);
+  border: 1px solid currentColor;
+  transform: translateY(12px) scale(.96);
+  opacity: 0;
+  transition: all .22s cubic-bezier(.34, 1.56, .64, 1);
+  pointer-events: auto;
+  user-select: text;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tk::before {
+  content: '';
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 4px rgba(255,255,255,.38);
+}
+.tk.show     { transform: translateY(0) scale(1); opacity: 1; }
+.tk.ok       { color: var(--on-p); background: var(--p); border-color: var(--p2); }
+.tk.err      { color: #991b1b; background: #fef2f2; border-color: #f87171; }
+.tk.ok::before  { background: var(--on-p); }
+.tk.err::before { background: var(--danger); }
+[data-theme-mode="dark"] .tk.err { color: #fecaca; background: #4c1115; border-color: #ef4444; }
+
+/* ── Nav tabs ──────────────────────────────────────────────── */
+.nav-center {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.nav-tab {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--sub);
+  font: 500 13px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color .15s, border-color .15s, background .15s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.nav-tab:hover  { color: var(--p); background: var(--p-dim); }
+.nav-tab.active { background: var(--p-dim); border-color: var(--p-border); color: var(--p); font-weight: 600; }
+
+/* ── Hidden utility ─────────────────────────────────────────── */
+.hidden { display: none !important; }
 
