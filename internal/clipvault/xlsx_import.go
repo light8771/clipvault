@@ -216,6 +216,14 @@ func parseXLSXItem(values []string) (StoredItem, error) {
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("sensitive: %w", err)
 	}
+	contentAvailable, err := strconv.ParseBool(values[11])
+	if err != nil {
+		return StoredItem{}, fmt.Errorf("contentAvailable: %w", err)
+	}
+	isDuplicate, err := strconv.ParseBool(values[12])
+	if err != nil {
+		return StoredItem{}, fmt.Errorf("isDuplicate: %w", err)
+	}
 	maxInt := int64(^uint(0) >> 1)
 	if byteLen > maxInt || charLen > maxInt {
 		return StoredItem{}, fmt.Errorf("byteLen and charLen exceed the platform integer limit")
@@ -223,8 +231,10 @@ func parseXLSXItem(values []string) (StoredItem, error) {
 	return StoredItem{
 		ID: id, CreatedAt: createdAt, Kind: values[2], Format: values[3], Text: values[4],
 		ByteLen: int(byteLen), CharLen: int(charLen), SHA256: values[7], MetaJSON: values[8],
-		Starred: starred, Sensitive: sensitive, SourceExeName: values[11], SourceExePath: values[12],
-		SourceWindowTitle: values[13], SourceMethod: values[14],
+		Starred: starred, Sensitive: sensitive,
+		ContentAvailable: contentAvailable, IsDuplicate: isDuplicate, UnavailableReason: values[13],
+		SourceExeName: values[14], SourceExePath: values[15],
+		SourceWindowTitle: values[16], SourceMethod: values[17],
 	}, nil
 }
 

@@ -105,6 +105,56 @@ func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
+// handleItemImage 内联返回一条托管剪贴板图片（format=CLIPVAULT_IMAGE_FILE）。
+// 路径必须解析到 DataDir/images 之内，防止穿越。
+func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id <= 0 {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		return
+	}
+	item, err := s.store.GetByID(r.Context(), id)
+	if errors.Is(err, ErrItemNotFound) {
+		s.writeAPIError(w, http.StatusNotFound, "item_not_found", "记录不存在", nil)
+		return
+	}
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		pos, perr := s.store.GetPositionByID(r.Context(), id)
+		if perr != nil {
+			s.writeError(w, perr)
+			return
+		}
+		if pos >= FreeTierVisibleLimit {
+			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside", "该记录不在免费版可查看范围内", nil)
+			return
+		}
+	}
+	if item.Format != "CLIPVAULT_IMAGE_FILE" || !item.ContentAvailable {
+		s.writeAPIError(w, http.StatusBadRequest, "not_image", "该记录不是托管图片", nil)
+		return
+	}
+	if item.Sensitive && !s.authorizeSecondaryRequest(w, r) {
+		return
+	}
+	imagesRoot := filepath.Clean(s.env.ImagesDirectory())
+	full := filepath.Clean(filepath.Join(imagesRoot, filepath.FromSlash(strings.TrimPrefix(item.Text, "images/"))))
+	if full != imagesRoot && !strings.HasPrefix(full, imagesRoot+string(os.PathSeparator)) {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_image_path", "图片路径无效", nil)
+		return
+	}
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		s.writeAPIError(w, http.StatusNotFound, "file_not_found", "图片文件不存在", nil)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	http.ServeFile(w, r, full)
+}
+
 // ErrFreeWindowOutside 表示请求的文件所属记录在免费版可见窗口之外。
 // 调用方据此返回 402（与 enforceFreeWindow / handleItemPosition 语义一致，#2b）。
 var ErrFreeWindowOutside = errors.New("file record is outside the free-tier visible window")

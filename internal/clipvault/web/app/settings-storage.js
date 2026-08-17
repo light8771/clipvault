@@ -285,6 +285,24 @@ export function registerSettingsStorage() {
       cb.checked = (smods & parseInt(cb.value)) !== 0;
     });
     if (shkKey) shkKey.value = app.vkToDisplay(shk.key);
+
+    // 图片捕获与弹窗行为
+    const imageCfg = cfg.image || {};
+    const imageEnabledEl = document.getElementById('cfg-imageEnabled');
+    if (imageEnabledEl) imageEnabledEl.checked = imageCfg.enabled !== false;
+    const imageMaxMBEl = document.getElementById('cfg-imageMaxMB');
+    if (imageMaxMBEl) imageMaxMBEl.value = Math.round((imageCfg.maxBytes || 32 * 1024 * 1024) / (1024 * 1024));
+    const popupCfg = cfg.popup || {};
+    const popupDupEl = document.getElementById('cfg-popupHideDuplicates');
+    if (popupDupEl) popupDupEl.checked = !!popupCfg.hideDuplicates;
+    const popupUnEl = document.getElementById('cfg-popupHideUnavailable');
+    if (popupUnEl) popupUnEl.checked = !!popupCfg.hideUnavailable;
+    const popupKeyOpen = document.getElementById('cfg-popupKeyOpen');
+    if (popupKeyOpen) popupKeyOpen.value = popupCfg.keyOpen || 'Enter';
+    const popupKeyRestore = document.getElementById('cfg-popupKeyRestore');
+    if (popupKeyRestore) popupKeyRestore.value = popupCfg.keyRestore || 'Shift+Enter';
+    const popupKeyPaste = document.getElementById('cfg-popupKeyPaste');
+    if (popupKeyPaste) popupKeyPaste.value = popupCfg.keyPaste || 'Ctrl+Enter';
     const pauseResumeNotifications = document.getElementById('cfg-pauseResumeNotifications');
     if (pauseResumeNotifications) {
       pauseResumeNotifications.checked = cfg.notifications.pauseResume;
@@ -398,7 +416,8 @@ export function registerSettingsStorage() {
     if (emailPwdClear) emailPwdClear.checked = false;
     const emailHasPwd = eb.password === '__set__';
     if (emailPwdClearRow) emailPwdClearRow.style.display = emailHasPwd ? '' : 'none';
-    if (emailPwdRow) emailPwdRow.style.display = eb.format === 'cvexport' ? '' : 'none';
+    // 邮件备份仅支持加密导出：任何格式都必须设置加密密码，密码行恒显示。
+    if (emailPwdRow) emailPwdRow.style.display = '';
 
     // 加载备份状态
     app.loadBackupStatus();

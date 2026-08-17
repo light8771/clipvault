@@ -34,6 +34,18 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Backup.EmailBackup.Format == "" {
 		cfg.Backup.EmailBackup.Format = def.Backup.EmailBackup.Format
 	}
+	if cfg.Image.MaxBytes <= 0 {
+		cfg.Image.MaxBytes = def.Image.MaxBytes
+	}
+	if cfg.Popup.KeyOpen == "" {
+		cfg.Popup.KeyOpen = def.Popup.KeyOpen
+	}
+	if cfg.Popup.KeyRestore == "" {
+		cfg.Popup.KeyRestore = def.Popup.KeyRestore
+	}
+	if cfg.Popup.KeyPaste == "" {
+		cfg.Popup.KeyPaste = def.Popup.KeyPaste
+	}
 	cfg.Source.normalize()
 }
 

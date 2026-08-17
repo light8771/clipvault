@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -380,6 +381,7 @@ func completeScheduledBackupConfig() Config {
 		From:        "from@example.com",
 		To:          "to@example.com",
 		Format:      "json",
+		Password:    "scheduled-backup-password",
 		Subject:     "ClipVault 备份 - {time}",
 		Body:        "已生成 {format} 备份文件：{filename}",
 		Style:       "card",
@@ -532,7 +534,7 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 		format   string
 		password string
 	}{
-		{name: "JSON", format: "json"},
+		{name: "JSONZipEncrypted", format: "json", password: "empty-part-password"},
 		{name: "Encrypted", format: "cvexport", password: "empty-part-password"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -551,18 +553,21 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 			if exportedMaxID != 0 {
 				t.Fatalf("empty store should report exportedMaxID=0, got %d", exportedMaxID)
 			}
+			if ext != "cvexport" {
+				t.Fatalf("email attachment ext = %q, want cvexport", ext)
+			}
 			raw, err := os.ReadFile(parts[0].path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if test.format == "cvexport" {
-				if ext != "cvexport" {
-					t.Fatalf("ext = %q", ext)
-				}
-				raw, err = DecryptExport(raw, test.password)
-				if err != nil {
-					t.Fatalf("decrypt empty part: %v", err)
-				}
+			// 邮件备份永远是加密容器：解密后 cvexport 直接是 JSON；
+			// json/xlsx 格式的明文文件在 zip 内。
+			raw, err = DecryptExport(raw, test.password)
+			if err != nil {
+				t.Fatalf("decrypt empty part: %v", err)
+			}
+			if test.format == "json" {
+				raw = unzipSingleEntry(t, raw, "clipvault-export.json")
 			}
 			var data ExportData
 			if err := json.Unmarshal(raw, &data); err != nil {
@@ -591,4 +596,112 @@ func TestExportEmailPartsEmptyStoreProducesOneImportablePart(t *testing.T) {
 			t.Logf("[OK] empty store produced 1 importable %s part (%d bytes)", ext, len(raw))
 		})
 	}
+}
+
+// TestEmailBackupZipPayloadRoundtrip 验证邮件备份的强制加密语义：
+// 任何格式都产出 .cvexport 容器；json/xlsx 的明文文件在容器内的 zip 中；
+// 解密解包后可完整导入。
+func TestEmailBackupZipPayloadRoundtrip(t *testing.T) {
+	ctx := context.Background()
+	src, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	if err := src.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "zip-payload-record"}); err != nil {
+		t.Fatal(err)
+	}
+	backup := &BackupService{store: src}
+
+	// 未设置密码时任何格式都拒绝导出
+	for _, format := range []string{"json", "xlsx", "cvexport"} {
+		if _, err := backup.exportEmailBackupTo(io.Discard, format, "", ExportScope{Mode: "full"}); err == nil {
+			t.Fatalf("email backup without password was accepted for %s", format)
+		}
+	}
+
+	for _, format := range []string{"json", "xlsx", "cvexport"} {
+		t.Run(format, func(t *testing.T) {
+			var buf bytes.Buffer
+			maxID, err := backup.exportEmailBackupTo(&buf, format, "zip-roundtrip-pw", ExportScope{Mode: "full"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if maxID == 0 {
+				t.Fatal("expected exported max id > 0")
+			}
+			if !IsCVExport(buf.Bytes()) {
+				t.Fatal("email backup is not an encrypted container")
+			}
+			plain, err := DecryptExport(buf.Bytes(), "zip-roundtrip-pw")
+			if err != nil {
+				t.Fatalf("decrypt: %v", err)
+			}
+			if format == "cvexport" {
+				if bytes.HasPrefix(plain, []byte("PK")) {
+					t.Fatal("cvexport payload should be plain JSON, not zip")
+				}
+			} else {
+				entry := "clipvault-export.json"
+				if format == "xlsx" {
+					entry = "clipvault-export.xlsx"
+				}
+				payload := unzipSingleEntry(t, plain, entry)
+				if len(payload) == 0 {
+					t.Fatal("empty zipped payload")
+				}
+			}
+			// 通过导入端点同款路径还原（自动识别 zip 载荷）
+			tmp, err := os.CreateTemp(t.TempDir(), "payload-*")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tmp.Write(plain); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+				t.Fatal(err)
+			}
+			defer tmp.Close()
+			dst, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dst.Close()
+			server := &SearchServer{store: dst}
+			if err := server.importDecryptedExport(ctx, tmp); err != nil {
+				t.Fatalf("importDecryptedExport: %v", err)
+			}
+			_, total, err := dst.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+			if err != nil || total != 1 {
+				t.Fatalf("restored items=%d err=%v", total, err)
+			}
+		})
+	}
+}
+
+// unzipSingleEntry 从内存 zip 中读取指定条目（邮件备份的明文载荷打包格式）。
+func unzipSingleEntry(t *testing.T, data []byte, name string) []byte {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open payload zip: %v", err)
+	}
+	for _, f := range zr.File {
+		if f.Name != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open zip entry %s: %v", name, err)
+		}
+		defer rc.Close()
+		content, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatalf("read zip entry %s: %v", name, err)
+		}
+		return content
+	}
+	t.Fatalf("zip entry %s not found", name)
+	return nil
 }

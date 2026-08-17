@@ -13,6 +13,7 @@ import { registerAppearanceTheme } from './appearance-theme.js';
 import { registerAppearanceBackground } from './appearance-background.js';
 import { registerAppearanceLoader } from './appearance-loader.js';
 import { registerGroups } from './groups.js';
+import { registerCleanupModal } from './cleanup-modal.js';
 import { registerHistoryLifecycle } from './history-lifecycle.js';
 
 registerActions({
@@ -26,8 +27,12 @@ registerActions({
   'locate-item': element => app.doLocate(Number(element.dataset.itemId)),
   'copy-item': element => app.doCopy(Number(element.dataset.itemId), element),
   'star-item': element => app.doStar(Number(element.dataset.itemId), element),
+  'toggle-sensitive': element => app.doToggleSensitive(Number(element.dataset.itemId)),
+  'view-managed-image': element => app.doViewManagedImage(Number(element.dataset.itemId)),
   'assign-group': element => app.openGroupModal('assign', { itemId: Number(element.dataset.itemId) }),
-  'delete-item': element => app.doDelete(Number(element.dataset.itemId), element.closest('article'))
+  'delete-item': element => app.doDelete(Number(element.dataset.itemId), element.closest('article')),
+  'close-cleanup-modal': () => app.closeCleanupModal(),
+  'confirm-cleanup': () => app.doCleanup()
 });
 registerNotifications();
 registerRuntimeState();
@@ -42,4 +47,5 @@ registerAppearanceTheme();
 registerAppearanceBackground();
 registerAppearanceLoader();
 registerGroups();
+registerCleanupModal();
 registerHistoryLifecycle();

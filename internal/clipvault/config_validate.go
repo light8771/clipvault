@@ -2,6 +2,7 @@ package clipvault
 
 import (
 	"fmt"
+	"path/filepath"
 )
 
 func validateConfig(cfg Config) error {
@@ -49,6 +50,12 @@ func validateConfig(cfg Config) error {
 	if cfg.Hotkey.Enabled && cfg.SearchHotkey.Enabled &&
 		cfg.Hotkey.Modifiers == cfg.SearchHotkey.Modifiers && cfg.Hotkey.Key == cfg.SearchHotkey.Key {
 		return fmt.Errorf("hotkey and searchHotkey must not use the same key combination")
+	}
+	if cfg.Image.MaxBytes < minImageMaxBytes || cfg.Image.MaxBytes > maxImageMaxBytes {
+		return fmt.Errorf("image.maxBytes must be between %d and %d", minImageMaxBytes, maxImageMaxBytes)
+	}
+	if err := validatePopupKeys(cfg.Popup); err != nil {
+		return err
 	}
 	if cfg.Backup.DirBackup.Interval < 1 || cfg.Backup.DirBackup.Interval > maxBackupIntervalHours ||
 		cfg.Backup.EmailBackup.Interval < 1 || cfg.Backup.EmailBackup.Interval > maxBackupIntervalHours {
@@ -133,4 +140,9 @@ func (e Environment) StateFile() string {
 // LogDirectory 返回日志目录路径。
 func (e Environment) LogDirectory() string {
 	return e.LogDir
+}
+
+// ImagesDirectory 返回托管图片（剪贴板图片转码 PNG）的根目录。
+func (e Environment) ImagesDirectory() string {
+	return filepath.Join(e.DataDir, "images")
 }

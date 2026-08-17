@@ -24,7 +24,29 @@ type Config struct {
 	Security      SecurityConfig     `json:"security"`
 	Hotkey        HotkeyConfig       `json:"hotkey"`
 	SearchHotkey  HotkeyConfig       `json:"searchHotkey"`
+	Image         ImageCaptureConfig `json:"image"`
+	Popup         SearchPopupConfig  `json:"popup"`
 	Backup        BackupConfig       `json:"backup"`
+}
+
+// ImageCaptureConfig 图片捕获配置（Win+Shift+S 截图、浏览器 Copy Image、
+// 微信/QQ 图片等）。图片统一转码为托管 PNG 文件保存。
+type ImageCaptureConfig struct {
+	Enabled bool `json:"enabled"`
+	// MaxBytes 是单张图片（转码后 PNG）的最大字节数；0 = 32MiB 默认值。
+	MaxBytes int `json:"maxBytes"`
+}
+
+// SearchPopupConfig 快速搜索弹窗行为配置。
+// 显示过滤（HideDuplicates/HideUnavailable）对免费版同样生效：免费版始终
+// 先在最新 100 条原始记录内过滤，不会向更早的记录补数量。
+type SearchPopupConfig struct {
+	HideDuplicates  bool `json:"hideDuplicates"`  // 弹窗默认过滤重复事件（is_duplicate）
+	HideUnavailable bool `json:"hideUnavailable"` // 弹窗默认过滤无内容记录（content_available=false）
+	// 三个动作的弹窗内快捷键，格式为 [Ctrl+][Shift+][Alt+]Enter。
+	KeyOpen    string `json:"keyOpen"`    // 在浏览器中打开，默认 Enter
+	KeyRestore string `json:"keyRestore"` // 仅恢复到 Windows 剪贴板，默认 Shift+Enter
+	KeyPaste   string `json:"keyPaste"`   // 恢复并粘贴到之前窗口，默认 Ctrl+Enter
 }
 
 // UnmarshalJSON enforces the complete current configuration contract. This
@@ -40,7 +62,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	top, err := requiredJSONObject(data, "config",
 		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
 		"brand", "background", "theme", "search", "sensitive", "autostart",
-		"notifications", "security", "hotkey", "searchHotkey", "backup")
+		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup")
 	if err != nil {
 		return err
 	}
@@ -57,6 +79,8 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"security", []string{"lockPasswordHash", "secondaryPasswordHash", "lockSessionTimeout", "secondaryAuthTimeout"}},
 		{"hotkey", []string{"enabled", "modifiers", "key"}},
 		{"searchHotkey", []string{"enabled", "modifiers", "key"}},
+		{"image", []string{"enabled", "maxBytes"}},
+		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
 	}
 	for _, object := range objects {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {

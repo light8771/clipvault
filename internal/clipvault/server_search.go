@@ -32,20 +32,20 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	dateFrom := r.URL.Query().Get("date_from")
 	dateTo := r.URL.Query().Get("date_to")
-	createdFrom, createdBefore, err := localDateFilterBounds(r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"), s.configuredTimeZone())
+	createdFromMS, createdBeforeMS, err := localDateFilterBounds(dateFrom, dateTo, s.configuredTimeZone())
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "日期范围无效", err)
 		return
 	}
 	hasContentOracleFilter := query != "" || kind != "" || starredOnly || dateFrom != "" || dateTo != "" || groupID != 0 || len(sourceExeNames) != 0
 	opts := SearchOptions{
-		Query:         query,
-		Limit:         limit,
-		Offset:        offset,
-		StarredOnly:   starredOnly,
-		Kind:          kind,
-		CreatedFrom:   createdFrom,
-		CreatedBefore: createdBefore,
+		Query:           query,
+		Limit:           limit,
+		Offset:          offset,
+		StarredOnly:     starredOnly,
+		Kind:            kind,
+		CreatedFromMS:   createdFromMS,
+		CreatedBeforeMS: createdBeforeMS,
 
 		IncludeSensitive: secondaryReadable || !hasContentOracleFilter,
 		GroupID:          groupID,
@@ -191,21 +191,21 @@ func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Requ
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", "收藏筛选参数无效", err)
 		return
 	}
-	createdFrom, createdBefore, err := localDateFilterBounds(r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"), s.configuredTimeZone())
+	createdFromMS, createdBeforeMS, err := localDateFilterBounds(r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"), s.configuredTimeZone())
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "日期范围无效", err)
 		return
 	}
 	opts := SearchOptions{
-		Query:         r.URL.Query().Get("q"),
-		Limit:         limit,
-		Offset:        offset,
-		Kind:          r.URL.Query().Get("kind"),
-		StarredOnly:   starredOnly,
-		CreatedFrom:   createdFrom,
-		CreatedBefore: createdBefore,
-		SensitiveOnly: true,
-		GroupID:       groupID,
+		Query:           r.URL.Query().Get("q"),
+		Limit:           limit,
+		Offset:          offset,
+		Kind:            r.URL.Query().Get("kind"),
+		StarredOnly:     starredOnly,
+		CreatedFromMS:   createdFromMS,
+		CreatedBeforeMS: createdBeforeMS,
+		SensitiveOnly:   true,
+		GroupID:         groupID,
 
 		SourceExeNames: sourceExeNames,
 		ExeAliases:     cfg.Source.ExeAliases,

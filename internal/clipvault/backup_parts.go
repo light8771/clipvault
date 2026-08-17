@@ -37,9 +37,14 @@ func cleanupEmailPartFiles(parts []emailBackupPartFile) {
 // no longer multiplies heap usage.
 func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope ExportScope) (_ []emailBackupPartFile, ext string, maxID int64, resultErr error) {
 	format := cfg.Format
-	ext = format
+	// 邮件备份永远产出加密容器：cvexport = 加密导出；json/xlsx = 明文文件
+	// 打进 zip 后再用同一容器加密。附件扩展名恒为 cvexport。
+	ext = "cvexport"
 	if format != "json" && format != "xlsx" && format != "cvexport" {
 		return nil, "", 0, fmt.Errorf("不支持的备份格式: %s", format)
+	}
+	if cfg.Password == "" {
+		return nil, "", 0, errors.New("邮件备份必须设置加密密码（仅支持加密导出）")
 	}
 	if cfg.MaxPartSize <= 0 {
 		return nil, "", 0, errors.New("单封邮件大小上限必须大于 0")
@@ -183,7 +188,7 @@ func nextEmailPartProbe(current, remaining int) int {
 }
 
 func (bs *BackupService) exportEmailPartFile(format, password string, scope ExportScope) (_ emailBackupPartFile, resultErr error) {
-	file, err := os.CreateTemp("", "clipvault-email-part-*."+format)
+	file, err := os.CreateTemp("", "clipvault-email-part-*.cvexport")
 	if err != nil {
 		return emailBackupPartFile{}, fmt.Errorf("创建邮件分片文件失败: %w", err)
 	}
@@ -195,7 +200,7 @@ func (bs *BackupService) exportEmailPartFile(format, password string, scope Expo
 			_ = os.Remove(path)
 		}
 	}()
-	if _, err := bs.exportBackupTo(file, format, password, scope); err != nil {
+	if _, err := bs.exportEmailBackupTo(file, format, password, scope); err != nil {
 		return emailBackupPartFile{}, err
 	}
 	if err := file.Sync(); err != nil {

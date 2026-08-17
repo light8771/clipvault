@@ -512,3 +512,61 @@ article[data-starred="1"]:hover {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── 事件优先：重复/无内容状态与托管图片 ───────────────────── */
+.mdup {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--sub);
+  background: var(--p-dim);
+  border: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+pre.event-only {
+  color: var(--muted);
+  font-style: italic;
+}
+.managed-image img {
+  max-width: 220px;
+  max-height: 140px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  cursor: zoom-in;
+  display: block;
+}
+.managed-image-missing::after {
+  content: "图片文件已丢失";
+  color: var(--muted);
+  font-size: 12px;
+}
+.ab.sens {
+  width: 24px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.ab.sens:hover { border-color: rgba(220,38,38,.4); color: #DC2626; background: rgba(220,38,38,.08); }
+.ab.sens.on { color: #DC2626; border-color: rgba(220,38,38,.3); background: rgba(220,38,38,.1); }
+
+/* ── 清理历史弹窗 ─────────────────────────────────────────── */
+.cleanup-form { display: flex; flex-direction: column; gap: 10px; }
+.cleanup-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.cleanup-range { display: flex; align-items: center; gap: 8px; }
+.cleanup-range input { flex: 1; }
+.cleanup-preview { font-size: 13px; color: var(--sub); }
+.cleanup-acts { display: flex; justify-content: flex-end; }
+.btn-danger {
+  height: 30px;
+  padding: 0 16px;
+  border-radius: 6px;
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #fff;
+  font: 500 13px sans-serif;
+  cursor: pointer;
+}
+.btn-danger:disabled { opacity: .4; cursor: not-allowed; }
+.popup-key-input { width: 110px; }
+

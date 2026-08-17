@@ -56,10 +56,15 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 		case idcSearchList:
 			switch notify {
 			case lbnDblClk:
-				sw.confirmSelection()
+				// 双击只恢复到 Windows 剪贴板，不打开浏览器。
+				sw.restoreSelection(false)
 			}
 		case 2003:
 			sw.confirmSelection()
+		case idcSearchFilterDup:
+			sw.toggleFilter(true)
+		case idcSearchFilterUnavail:
+			sw.toggleFilter(false)
 		case idcSearchClose:
 			sw.close()
 		case idcSearchClear:
@@ -93,7 +98,7 @@ func (sw *searchWindow) editProc(hwnd uintptr, message uint32, wParam, lParam ui
 	case wmKeydown:
 		switch wParam {
 		case vkReturn:
-			sw.confirmSelection()
+			sw.dispatchEnterAction()
 			return 0
 		case vkEscape:
 			sw.close()
@@ -108,6 +113,72 @@ func (sw *searchWindow) editProc(hwnd uintptr, message uint32, wParam, lParam ui
 	}
 	ret, _, _ := procCallWindowProcW.Call(sw.oldEdit, hwnd, uintptr(message), wParam, lParam)
 	return ret
+}
+
+var procGetKeyState = user32.NewProc("GetKeyState")
+
+const (
+	vkShiftKey   = 0x10
+	vkControlKey = 0x11
+	vkMenuKey    = 0x12
+)
+
+func keyStateDown(vk int) bool {
+	state, _, _ := procGetKeyState.Call(uintptr(vk))
+	return state&0x8000 != 0
+}
+
+// dispatchEnterAction 按系统配置的三动作快捷键分派 Enter 组合键。
+// 未绑定的修饰键组合不触发任何动作。
+func (sw *searchWindow) dispatchEnterAction() {
+	mods := 0
+	if keyStateDown(vkControlKey) {
+		mods |= popupModCtrl
+	}
+	if keyStateDown(vkShiftKey) {
+		mods |= popupModShift
+	}
+	if keyStateDown(vkMenuKey) {
+		mods |= popupModAlt
+	}
+	switch mods {
+	case sw.keyOpenMods:
+		sw.confirmSelection()
+	case sw.keyRestoreMods:
+		sw.restoreSelection(false)
+	case sw.keyPasteMods:
+		sw.restoreSelection(true)
+	}
+}
+
+// toggleFilter 切换显示过滤（重复事件 / 无内容记录），持久化到系统配置并重新搜索。
+func (sw *searchWindow) toggleFilter(duplicates bool) {
+	if duplicates {
+		sw.hideDuplicates = !sw.hideDuplicates
+	} else {
+		sw.hideUnavailable = !sw.hideUnavailable
+	}
+	sw.refreshFilterButtons()
+	if sw.cfgMgr != nil {
+		cfg := sw.cfgMgr.Get()
+		cfg.Popup.HideDuplicates = sw.hideDuplicates
+		cfg.Popup.HideUnavailable = sw.hideUnavailable
+		if err := sw.cfgMgr.Update(cfg); err != nil && sw.logger != nil {
+			sw.logger.Warn("search_window_filter_persist_failed", map[string]any{"error": err.Error()})
+		}
+	}
+	sw.startSearch(sw.getEdit_text())
+}
+
+func (sw *searchWindow) refreshFilterButtons() {
+	if sw.hFilterDup != 0 {
+		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤重", sw.hideDuplicates))
+		procSetWindowTextW.Call(sw.hFilterDup, uintptr(unsafe.Pointer(label)))
+	}
+	if sw.hFilterUn != 0 {
+		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤无效", sw.hideUnavailable))
+		procSetWindowTextW.Call(sw.hFilterUn, uintptr(unsafe.Pointer(label)))
+	}
 }
 
 func (sw *searchWindow) moveListSelection(delta int) {
@@ -182,8 +253,11 @@ func (sw *searchWindow) startSearch(q string) {
 			Limit:            quickSearchResultLimit,
 			IncludeSensitive: false,
 			SkipTotal:        true,
+			HideDuplicates:   sw.hideDuplicates,
+			HideUnavailable:  sw.hideUnavailable,
 		}
 		if sw.license != nil && !sw.license.CanUsePaidFeatures() {
+			// 免费版：先在最新 100 条原始记录内过滤，不向更早的记录补数量。
 			opts.RestrictToLatestN = FreeTierVisibleLimit
 		}
 		items, _, err := sw.store.Search(ctx, opts)
@@ -247,6 +321,8 @@ func (sw *searchWindow) refreshList(items []StoredItem, query string) {
 		procSendMessageW.Call(sw.hList, lbAddString, 0, uintptr(unsafe.Pointer(text)))
 		procSendMessageW.Call(sw.hList, lbSetItemData, uintptr(i), uintptr(it.ID))
 	}
+	// 有结果时默认选中第一项。
+	procSendMessageW.Call(sw.hList, lbSetCurSel, 0, 0)
 }
 
 func (sw *searchWindow) showSearchStatus(message string) {

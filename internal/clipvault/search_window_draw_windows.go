@@ -2,6 +2,7 @@ package clipvault
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -102,6 +103,15 @@ func (sw *searchWindow) drawSearchButton(lParam uintptr) bool {
 		brush = sw.closeBrush
 		labelText = "X"
 		textColor = searchColorText
+	case idcSearchFilterDup, idcSearchFilterUnavail:
+		// 过滤开关：文本取自控件当前标题（含 ●/○ 状态前缀），开启时高亮。
+		labelText = windowTextString(item.hwndItem)
+		on := strings.HasPrefix(labelText, "●")
+		brush = sw.surfaceBrush
+		textColor = searchColorSubtle
+		if on {
+			textColor = searchColorAccent
+		}
 	default:
 		return false
 	}
@@ -120,6 +130,17 @@ func (sw *searchWindow) drawSearchButton(lParam uintptr) bool {
 		dtCenter|dtVCenter|dtSingleLine,
 	)
 	return true
+}
+
+// windowTextString 读取控件标题文本。
+func windowTextString(hwnd uintptr) string {
+	n, _, _ := procGetWindowTextLength.Call(hwnd)
+	if n == 0 {
+		return ""
+	}
+	buf := make([]uint16, int(n)+1)
+	read, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	return syscall.UTF16ToString(buf[:read])
 }
 
 func (sw *searchWindow) releaseModernTheme() {

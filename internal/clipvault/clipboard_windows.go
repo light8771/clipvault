@@ -14,8 +14,11 @@ import (
 )
 
 const (
+	cfBitmap      = 2
+	cfDIB         = 8
 	cfUnicodeText = 13
 	cfHDrop       = 15
+	cfDIBV5       = 17
 )
 
 var (
@@ -27,6 +30,9 @@ var (
 	procGetClipboardData           = user32.NewProc("GetClipboardData")
 	procIsClipboardFormatAvailable = user32.NewProc("IsClipboardFormatAvailable")
 	procGetClipboardSequenceNumber = user32.NewProc("GetClipboardSequenceNumber")
+	procEnumClipboardFormats       = user32.NewProc("EnumClipboardFormats")
+	procGetClipboardFormatNameW    = user32.NewProc("GetClipboardFormatNameW")
+	procRegisterClipboardFormatW   = user32.NewProc("RegisterClipboardFormatW")
 	procGlobalLock                 = kernel32.NewProc("GlobalLock")
 	procGlobalUnlock               = kernel32.NewProc("GlobalUnlock")
 	procGlobalSize                 = kernel32.NewProc("GlobalSize")
@@ -40,25 +46,30 @@ func clipboardSequenceNumber() uint32 {
 	return uint32(seq)
 }
 
-// ReadClipboardSnapshot 读取当前剪贴板内容。
-// 优先级：Unicode 文本 > 文件拖放路径清单。其他二进制格式忽略。
+// ReadClipboardSnapshot 读取当前剪贴板内容（诊断/调试入口）。
+// 录制链路使用 readClipboardEventForSequence。
+func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
+	snapshot, _, err := readClipboardEventForSequence(cfg, 0)
+	return snapshot, err
+}
+
+// readClipboardEventForSequence 读取一次剪贴板事件。
+//
+// 返回值语义（事件优先）：
+//   - snapshot != nil：读到了可入库的内容（文本/文件/图片）。
+//   - snapshot == nil 且 err == nil：剪贴板只有不支持的格式，formats 为
+//     打开期间枚举到的全部格式名，调用方应落 event-only 记录。
+//   - err == ErrClipboardSuperseded：等待/读取期间序列已变化，事件被覆盖。
 //
 // Win32 剪贴板所有权是按线程记账的：OpenClipboard / CloseClipboard 必须在
 // 同一线程上调用。Go 调度器可能在任意 syscall 返回点把 goroutine 迁移到别的
 // OS 线程，因此这里锁定当前线程，避免 CloseClipboard 落到错误的线程上导致
 // 剪贴板被永久占用（全系统粘贴失效）。
-func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
-	return readClipboardSnapshotForSequence(cfg, 0)
-}
-
-// readClipboardSnapshotForSequence 仅在剪贴板仍对应派发事件时读取。成功
-// OpenClipboard 后内容在 CloseClipboard 前不会再变化，因此来源信息可以安全
-// 绑定到该序列；若等待占用期间已发生新复制，则返回 ErrClipboardSuperseded。
-func readClipboardSnapshotForSequence(cfg Config, expectedSequence uint32) (*ClipboardSnapshot, error) {
+func readClipboardEventForSequence(cfg Config, expectedSequence uint32) (*ClipboardSnapshot, []string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
-		return nil, ErrClipboardSuperseded
+		return nil, nil, ErrClipboardSuperseded
 	}
 
 	// 剪贴板常被 Office/浏览器等短暂占用，OpenClipboard 立即失败是常态，
@@ -66,20 +77,71 @@ func readClipboardSnapshotForSequence(cfg Config, expectedSequence uint32) (*Cli
 	// 8 次退避总窗口约 1.3s（10ms 起倍增），覆盖 Electron 等长占用场景；
 	// 重试发生在 worker goroutine 而非消息泵线程，拉长不会卡住 UI。
 	if err := openClipboardWithRetry(8); err != nil {
-		return nil, fmt.Errorf("OpenClipboard: %w", err)
+		return nil, nil, fmt.Errorf("OpenClipboard: %w", err)
 	}
 	defer procCloseClipboard.Call()
 	if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
-		return nil, ErrClipboardSuperseded
+		return nil, nil, ErrClipboardSuperseded
 	}
 
+	formats := enumClipboardFormatNames()
+
 	if isClipboardFormatAvailable(cfUnicodeText) {
-		return readUnicodeTextClipboard()
+		snapshot, err := readUnicodeTextClipboard()
+		return snapshot, formats, err
+	}
+	if cfg.Image.Enabled {
+		if snapshot, ok, err := readClipboardImage(cfg); err != nil {
+			return nil, formats, err
+		} else if ok {
+			return snapshot, formats, nil
+		}
 	}
 	if isClipboardFormatAvailable(cfHDrop) {
-		return readFileDropClipboard(cfg)
+		snapshot, err := readFileDropClipboard(cfg)
+		return snapshot, formats, err
 	}
-	return nil, nil
+	return nil, formats, nil
+}
+
+// enumClipboardFormatNames 枚举当前剪贴板的全部格式并返回可读名称。
+// 剪贴板必须已由调用方打开。标准格式返回常量名，注册格式（>=0xC000）
+// 返回 RegisterClipboardFormat 注册名，其余返回十六进制 id。
+func enumClipboardFormatNames() []string {
+	var names []string
+	format := uintptr(0)
+	for {
+		next, _, _ := procEnumClipboardFormats.Call(format)
+		if next == 0 {
+			break
+		}
+		format = next
+		names = append(names, clipboardFormatName(uint32(format)))
+	}
+	return names
+}
+
+func clipboardFormatName(format uint32) string {
+	switch format {
+	case cfUnicodeText:
+		return "CF_UNICODETEXT"
+	case cfHDrop:
+		return "CF_HDROP"
+	case cfDIB:
+		return "CF_DIB"
+	case cfDIBV5:
+		return "CF_DIBV5"
+	case cfBitmap:
+		return "CF_BITMAP"
+	}
+	if format >= 0xC000 {
+		buf := make([]uint16, 128)
+		n, _, _ := procGetClipboardFormatNameW.Call(uintptr(format), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		if n > 0 {
+			return syscall.UTF16ToString(buf[:n])
+		}
+	}
+	return fmt.Sprintf("CF_%04X", format)
 }
 
 // openClipboardWithRetry 以指数退避重试打开剪贴板，最多 attempts 次。
@@ -105,6 +167,31 @@ func openClipboardWithRetry(attempts int) error {
 func isClipboardFormatAvailable(format uint32) bool {
 	ok, _, _ := procIsClipboardFormatAvailable.Call(uintptr(format))
 	return ok != 0
+}
+
+// readClipboardBytes 拷贝指定格式的剪贴板数据。剪贴板必须已由调用方打开。
+func readClipboardBytes(format uint32) ([]byte, error) {
+	handle, _, err := procGetClipboardData.Call(uintptr(format))
+	if handle == 0 {
+		if err != syscall.Errno(0) {
+			return nil, fmt.Errorf("GetClipboardData(%d): %w", format, err)
+		}
+		return nil, nil
+	}
+	ptr, _, err := procGlobalLock.Call(handle)
+	if ptr == 0 {
+		if err != syscall.Errno(0) {
+			return nil, fmt.Errorf("GlobalLock(%d): %w", format, err)
+		}
+		return nil, nil
+	}
+	defer procGlobalUnlock.Call(handle)
+	size, _, _ := procGlobalSize.Call(handle)
+	if size == 0 {
+		return nil, nil
+	}
+	raw := unsafe.Slice((*byte)(pointerFromWin32(ptr)), int(size))
+	return append([]byte(nil), raw...), nil
 }
 
 func readUnicodeTextClipboard() (*ClipboardSnapshot, error) {

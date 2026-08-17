@@ -186,7 +186,10 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 		return 0, fmt.Errorf("write items header: %w", err)
 	}
 
-	itemSQL, itemArgs := exportItemsQuery(scope)
+	itemSQL, itemArgs, err := exportItemsQuery(scope)
+	if err != nil {
+		return 0, fmt.Errorf("build items query: %w", err)
+	}
 	rows, err := tx.QueryContext(ctx, itemSQL, itemArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("query items: %w", err)
@@ -242,7 +245,10 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 		return 0, fmt.Errorf("write groups: %w", err)
 	}
 
-	linkSQL, linkArgs := exportLinksQuery(scope)
+	linkSQL, linkArgs, err := exportLinksQuery(scope)
+	if err != nil {
+		return 0, fmt.Errorf("build item_groups query: %w", err)
+	}
 	if _, err := w.Write([]byte(`,"itemGroups":[`)); err != nil {
 		return 0, fmt.Errorf("write itemGroups header: %w", err)
 	}
@@ -309,15 +315,18 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 }
 
 // exportItemsQuery builds the clipboard_items SELECT for the given scope.
-func exportItemsQuery(scope ExportScope) (string, []any) {
+func exportItemsQuery(scope ExportScope) (string, []any, error) {
 	base := `SELECT ` + clipboardItemColumns + ` FROM clipboard_items`
-	where, args := exportScopeWhere(scope)
-	return base + where + ` ORDER BY id ASC`, args
+	where, args, err := exportScopeWhere(scope)
+	if err != nil {
+		return "", nil, err
+	}
+	return base + where + ` ORDER BY id ASC`, args, nil
 }
 
 // exportLinksQuery builds the item_groups SELECT for the given scope. Links are
 // filtered to the exported item range so a partial export stays self-consistent.
-func exportLinksQuery(scope ExportScope) (string, []any) {
+func exportLinksQuery(scope ExportScope) (string, []any, error) {
 	const base = `SELECT item_id, group_id FROM item_groups`
 	switch scope.Mode {
 	case "incremental":
@@ -327,25 +336,38 @@ func exportLinksQuery(scope ExportScope) (string, []any) {
 			sql += ` AND item_id <= ?`
 			args = append(args, scope.MaxID)
 		}
-		return sql + ` ORDER BY item_id ASC`, args
+		return sql + ` ORDER BY item_id ASC`, args, nil
 	default:
 
-		subWhere, args := exportScopeWhere(scope)
-		return base + ` WHERE item_id IN (SELECT id FROM clipboard_items` + subWhere + `) ORDER BY item_id ASC`, args
+		subWhere, args, err := exportScopeWhere(scope)
+		if err != nil {
+			return "", nil, err
+		}
+		return base + ` WHERE item_id IN (SELECT id FROM clipboard_items` + subWhere + `) ORDER BY item_id ASC`, args, nil
 	}
 }
 
 // exportScopeWhere builds the WHERE clause (without leading " WHERE") for
 // clipboard_items, shared by count/boundary/export queries.
+// range 模式的 From/To 是 RFC3339 字符串（导出契约），在此转换为存储层的
+// Unix 毫秒边界；created_at 列为 BIGINT。
 // 除自身过滤条件外，当 MaxID>0 时叠加 keyset 分片窗口 (id > SinceID AND id <= MaxID)，
 // 供邮件分片导出按行数切分使用；非分片调用不传 MaxID，不受影响。
-func exportScopeWhere(scope ExportScope) (string, []any) {
+func exportScopeWhere(scope ExportScope) (string, []any, error) {
 	var where string
 	var args []any
 	switch scope.Mode {
 	case "range":
+		fromMS, err := rfc3339ToUnixMS(scope.From)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid range start: %w", err)
+		}
+		toMS, err := rfc3339ToUnixMS(scope.To)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid range end: %w", err)
+		}
 		where = ` WHERE created_at >= ? AND created_at < ?`
-		args = []any{scope.From, scope.To}
+		args = []any{fromMS, toMS}
 	case "incremental":
 		where = ` WHERE id > ?`
 		args = []any{scope.SinceID}
@@ -366,16 +388,19 @@ func exportScopeWhere(scope ExportScope) (string, []any) {
 			args = append(args, scope.SinceID, scope.MaxID)
 		}
 	}
-	return where, args
+	return where, args, nil
 }
 
 // CountInScope returns the number of items matching the scope. Used by
 // chunked exports to size parts by actual row count (id holes are irrelevant).
 func (s *Store) CountInScope(ctx context.Context, scope ExportScope) (int, error) {
-	where, args := exportScopeWhere(scope)
+	where, args, err := exportScopeWhere(scope)
+	if err != nil {
+		return 0, err
+	}
 	q := `SELECT COUNT(*) FROM clipboard_items` + where
 	var n int
-	err := s.db.QueryRowContext(ctx, q, args...).Scan(&n)
+	err = s.db.QueryRowContext(ctx, q, args...).Scan(&n)
 	return n, err
 }
 
@@ -384,7 +409,10 @@ func (s *Store) CountInScope(ctx context.Context, scope ExportScope) (int, error
 // from unrelated rows outside their date interval.
 func (s *Store) NthIDInScopeAfter(ctx context.Context, scope ExportScope, after int64, n int) (int64, error) {
 	scope.MaxID = 0
-	where, args := exportScopeWhere(scope)
+	where, args, err := exportScopeWhere(scope)
+	if err != nil {
+		return 0, err
+	}
 	if where == "" {
 		where = ` WHERE id > ?`
 	} else {

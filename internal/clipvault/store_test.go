@@ -39,7 +39,7 @@ func TestStoreSaveAndSearch(t *testing.T) {
 	}
 }
 
-func TestCurrentSchemaUsesTypedTimestampsAndIdentity(t *testing.T) {
+func TestCurrentSchemaUsesUnixMillisecondsAndIdentity(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -59,8 +59,15 @@ func TestCurrentSchemaUsesTypedTimestampsAndIdentity(t *testing.T) {
 			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, column.table, column.name).Scan(&dataType); err != nil {
 			t.Fatalf("query %s.%s type: %v", column.table, column.name, err)
 		}
-		if dataType != "TIMESTAMP WITH TIME ZONE" {
+		if dataType != "BIGINT" {
 			t.Errorf("%s.%s type=%q", column.table, column.name, dataType)
+		}
+	}
+	for _, column := range []string{"content_available", "is_duplicate", "unavailable_reason"} {
+		var dataType string
+		if err := store.db.QueryRow(`SELECT data_type FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = 'clipboard_items' AND column_name = ?`, column).Scan(&dataType); err != nil {
+			t.Fatalf("query clipboard_items.%s type: %v", column, err)
 		}
 	}
 	var identity string
@@ -228,7 +235,7 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 	if err := store.AddItemToGroup(ctx, items[0].ID, group.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ClearAll(ctx); err != nil {
+	if _, err := store.Cleanup(ctx, CleanupOptions{Mode: "all"}); err != nil {
 		t.Fatal(err)
 	}
 	export, err = store.ExportFullForJSON(ctx)

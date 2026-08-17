@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 func (s *SearchServer) handleState(w http.ResponseWriter, r *http.Request) {
@@ -56,14 +57,131 @@ func (s *SearchServer) handleStarItem(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]any{"ok": true, "starred": starred})
 }
 
-func (s *SearchServer) handleClear(w http.ResponseWriter, r *http.Request) {
-	n, err := s.store.ClearAll(r.Context())
+// cleanupRequest 是 /items/cleanup-preview 与 /items/cleanup 共用的请求体。
+// from/to 支持两种精度：
+//   - 本地日期（2006-01-02）：按配置时区解释为天级范围（to 当天闭区间）；
+//   - RFC3339 瞬间：精确到秒，to 按「结束秒 +1000ms」转为开区间上界。
+type cleanupRequest struct {
+	Mode            string `json:"mode"`
+	From            string `json:"from"`
+	To              string `json:"to"`
+	PreserveStarred bool   `json:"preserveStarred"`
+}
+
+// parseCleanupOptions 把 HTTP 请求体解析为存储层清理条件。
+// preview 与 delete 走同一解析 + 同一 cleanupWhere，保证命中集合一致。
+func (s *SearchServer) parseCleanupOptions(w http.ResponseWriter, r *http.Request) (CleanupOptions, bool) {
+	var req cleanupRequest
+	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		return CleanupOptions{}, false
+	}
+	opts := CleanupOptions{Mode: req.Mode, PreserveStarred: req.PreserveStarred}
+	switch req.Mode {
+	case "all":
+		if req.From != "" || req.To != "" {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "全部清理不接受时间范围", nil)
+			return CleanupOptions{}, false
+		}
+	case "range":
+		if req.From == "" || req.To == "" {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围清理需要 from 和 to", nil)
+			return CleanupOptions{}, false
+		}
+		_, fromDateErr := time.Parse("2006-01-02", req.From)
+		_, toDateErr := time.Parse("2006-01-02", req.To)
+		if fromDateErr == nil && toDateErr == nil {
+			fromMS, beforeMS, err := localDateFilterBounds(req.From, req.To, s.configuredTimeZone())
+			if err != nil {
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "清理范围无效", err)
+				return CleanupOptions{}, false
+			}
+			opts.FromMS, opts.ToExclusiveMS = fromMS, beforeMS
+		} else {
+			if (fromDateErr == nil) != (toDateErr == nil) {
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围边界必须同为日期或同为 RFC3339 时间", nil)
+				return CleanupOptions{}, false
+			}
+			from, err := parseExportInstant(req.From)
+			if err != nil {
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围起始时间无效", err)
+				return CleanupOptions{}, false
+			}
+			to, err := parseExportInstant(req.To)
+			if err != nil {
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围结束时间无效", err)
+				return CleanupOptions{}, false
+			}
+			// 范围精确到秒：起始向下取整（含该秒），结束秒 +1000ms 作为开区间上界。
+			opts.FromMS = from.UTC().Truncate(time.Second).UnixMilli()
+			opts.ToExclusiveMS = to.UTC().Truncate(time.Second).Add(time.Second).UnixMilli()
+		}
+	default:
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_mode", "不支持的清理模式", nil)
+		return CleanupOptions{}, false
+	}
+	if err := validateCleanupOptions(opts); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "清理条件无效", err)
+		return CleanupOptions{}, false
+	}
+	return opts, true
+}
+
+// handleCleanupPreview 预览将删除的记录数，不执行删除。
+func (s *SearchServer) handleCleanupPreview(w http.ResponseWriter, r *http.Request) {
+	opts, ok := s.parseCleanupOptions(w, r)
+	if !ok {
+		return
+	}
+	n, err := s.store.PreviewCleanup(r.Context(), opts)
 	if err != nil {
 		s.writeError(w, err)
 		return
 	}
-	s.logger.Info("history_cleared", map[string]any{"deleted": n})
+	s.writeJSON(w, map[string]any{"ok": true, "matched": n, "preserveStarred": opts.PreserveStarred})
+}
+
+// handleCleanup 按与预览完全相同的条件执行删除。
+// PreserveStarred=true 时收藏记录一定保留。
+func (s *SearchServer) handleCleanup(w http.ResponseWriter, r *http.Request) {
+	opts, ok := s.parseCleanupOptions(w, r)
+	if !ok {
+		return
+	}
+	n, err := s.store.Cleanup(r.Context(), opts)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.logger.Info("history_cleanup", map[string]any{
+		"deleted":         n,
+		"mode":            opts.Mode,
+		"preserveStarred": opts.PreserveStarred,
+	})
 	s.writeJSON(w, map[string]any{"ok": true, "deleted": n})
+}
+
+// handleSensitiveMark 手动标记/取消标记一条记录的敏感属性。
+// 取消标记会使内容重新明文可见，因此需要二次认证；标记操作只需登录。
+func (s *SearchServer) handleSensitiveMark(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id <= 0 {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		return
+	}
+	sensitive := r.URL.Query().Get("sensitive") != "0"
+	if !s.authorizeItemAccess(w, r, id) {
+		return
+	}
+	if !sensitive && !s.authorizeSecondaryRequest(w, r) {
+		return
+	}
+	if err := s.store.SetSensitive(r.Context(), id, sensitive); err != nil {
+		s.writeItemLookupError(w, err)
+		return
+	}
+	s.logger.Info("item_sensitive_marked", map[string]any{"id": id, "sensitive": sensitive})
+	s.writeJSON(w, map[string]any{"ok": true, "sensitive": sensitive})
 }
 
 // handleGetConfig 返回当前完整配置（用于设置页面初始化）。

@@ -25,7 +25,7 @@ const (
 
 var (
 	xlsxManifestHeader       = []string{"app", "exportVersion"}
-	xlsxRecordsHeader        = []string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive", "sourceExeName", "sourceExePath", "sourceWindowTitle", "sourceMethod"}
+	xlsxRecordsHeader        = []string{"id", "createdAt", "kind", "format", "text", "byteLen", "charLen", "sha256", "metaJson", "starred", "sensitive", "contentAvailable", "isDuplicate", "unavailableReason", "sourceExeName", "sourceExePath", "sourceWindowTitle", "sourceMethod"}
 	xlsxGroupsHeader         = []string{"id", "name", "parentId", "createdAt"}
 	xlsxItemGroupsHeader     = []string{"itemId", "groupId"}
 	xlsxSensitiveRulesHeader = []string{"pattern"}
@@ -94,7 +94,10 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err := writeXLSXStreamRow(records, xlsxRecordsSheet, 1, xlsxRecordsHeader); err != nil {
 		return 0, err
 	}
-	itemSQL, itemArgs := exportItemsQuery(scope)
+	itemSQL, itemArgs, err := exportItemsQuery(scope)
+	if err != nil {
+		return 0, fmt.Errorf("build XLSX records query: %w", err)
+	}
 	rows, err := tx.QueryContext(ctx, itemSQL, itemArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("query XLSX records: %w", err)
@@ -111,6 +114,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 			strconv.FormatInt(item.ID, 10), item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Kind, item.Format, item.Text,
 			strconv.Itoa(item.ByteLen), strconv.Itoa(item.CharLen), item.SHA256, item.MetaJSON,
 			strconv.FormatBool(item.Starred), strconv.FormatBool(item.Sensitive),
+			strconv.FormatBool(item.ContentAvailable), strconv.FormatBool(item.IsDuplicate), item.UnavailableReason,
 			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod,
 		}
 		if err := writeXLSXStreamRow(records, xlsxRecordsSheet, rowNumber, values); err != nil {
@@ -145,12 +149,12 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	for groupRows.Next() {
 		var id, parentID int64
 		var name string
-		var created time.Time
-		if err := groupRows.Scan(&id, &name, &parentID, &created); err != nil {
+		var createdMS int64
+		if err := groupRows.Scan(&id, &name, &parentID, &createdMS); err != nil {
 			groupRows.Close()
 			return 0, fmt.Errorf("scan XLSX group: %w", err)
 		}
-		if err := writeXLSXStreamRow(groups, xlsxGroupsSheet, rowNumber, []string{strconv.FormatInt(id, 10), name, strconv.FormatInt(parentID, 10), created.UTC().Format(time.RFC3339Nano)}); err != nil {
+		if err := writeXLSXStreamRow(groups, xlsxGroupsSheet, rowNumber, []string{strconv.FormatInt(id, 10), name, strconv.FormatInt(parentID, 10), time.UnixMilli(createdMS).UTC().Format(time.RFC3339Nano)}); err != nil {
 			groupRows.Close()
 			return 0, err
 		}
@@ -173,7 +177,10 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err := writeXLSXStreamRow(links, xlsxItemGroupsSheet, 1, xlsxItemGroupsHeader); err != nil {
 		return 0, err
 	}
-	linkSQL, linkArgs := exportLinksQuery(scope)
+	linkSQL, linkArgs, err := exportLinksQuery(scope)
+	if err != nil {
+		return 0, fmt.Errorf("build XLSX item-groups query: %w", err)
+	}
 	linkRows, err := tx.QueryContext(ctx, linkSQL, linkArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("query XLSX item-groups: %w", err)
@@ -273,6 +280,7 @@ func encodeExportXLSX(export *ExportData) ([]byte, error) {
 			strconv.FormatInt(item.ID, 10), item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Kind, item.Format, item.Text,
 			strconv.Itoa(item.ByteLen), strconv.Itoa(item.CharLen), item.SHA256, item.MetaJSON,
 			strconv.FormatBool(item.Starred), strconv.FormatBool(item.Sensitive),
+			strconv.FormatBool(item.ContentAvailable), strconv.FormatBool(item.IsDuplicate), item.UnavailableReason,
 			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod,
 		}
 		if err := writeXLSXRow(book, xlsxRecordsSheet, index+2, row); err != nil {

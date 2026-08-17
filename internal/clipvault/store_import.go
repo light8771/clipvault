@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // ImportFullJSON imports clipboard data, group hierarchy, and portable
@@ -97,7 +99,7 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			var newID int64
 			err := tx.QueryRowContext(ctx,
 				`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
-				g.Name, parentID, g.CreatedAt.UTC(),
+				g.Name, parentID, g.CreatedAt.UTC().UnixMilli(),
 			).Scan(&newID)
 			if err != nil {
 				return fmt.Errorf("import group %d: %w", g.ID, err)
@@ -129,18 +131,19 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		}
 
 		var sb strings.Builder
-		sb.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, source_exe_name, source_exe_path, source_window_title, source_method) VALUES `)
-		args := make([]any, 0, len(batch)*14)
+		sb.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, content_available, is_duplicate, unavailable_reason, source_exe_name, source_exe_path, source_window_title, source_method) VALUES `)
+		args := make([]any, 0, len(batch)*17)
 		for j, item := range batch {
 			if j > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 			args = append(args,
-				item.CreatedAt.UTC(),
+				item.CreatedAt.UTC().UnixMilli(),
 				item.Kind, item.Format, item.Text,
 				item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
 				item.Starred, item.Sensitive,
+				item.ContentAvailable, item.IsDuplicate, item.UnavailableReason,
 				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod,
 			)
 		}
@@ -234,6 +237,9 @@ func validateExportData(export ExportData) error {
 		if item.ByteLen != len([]byte(item.Text)) || item.CharLen != textRuneLen(item.Text) || item.SHA256 != hashString(item.Text) {
 			return fmt.Errorf("invalid item %d: content metadata mismatch", item.ID)
 		}
+		if !validUnavailableState(item.ContentAvailable, item.UnavailableReason) {
+			return fmt.Errorf("invalid item %d: inconsistent content availability state", item.ID)
+		}
 		if _, exists := itemIDs[item.ID]; exists {
 			return fmt.Errorf("duplicate item ID %d", item.ID)
 		}
@@ -278,13 +284,21 @@ func validateExportData(export ExportData) error {
 	return nil
 }
 
+// validItemKindFormat 委托 domain 的唯一合法性矩阵（采集/导入/导出共用）。
 func validItemKindFormat(kind, format string) bool {
-	if kind == "text" {
-		return format == "CF_UNICODETEXT"
+	return domain.ValidItemKindFormat(kind, format)
+}
+
+// validUnavailableState 校验 content_available 与 unavailable_reason 的一致性：
+// 内容可用时 reason 必须为空；不可用时必须给出已知原因。
+func validUnavailableState(contentAvailable bool, reason string) bool {
+	if contentAvailable {
+		return reason == domain.ReasonNone
 	}
-	switch kind {
-	case "image", "video", "archive", "office", "files":
-		return format == "CF_HDROP"
+	switch reason {
+	case domain.ReasonSuperseded, domain.ReasonUnsupportedFormat,
+		domain.ReasonTextLimitExceeded, domain.ReasonImageLimitExceeded, domain.ReasonReadFailed:
+		return true
 	default:
 		return false
 	}

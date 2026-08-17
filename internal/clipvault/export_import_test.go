@@ -383,7 +383,7 @@ func TestImportFullJSONRequiresSensitiveRules(t *testing.T) {
 	}
 	defer store.Close()
 
-	data := []byte(`{"exportVersion":4,"app":"ClipVault"}`)
+	data := []byte(`{"exportVersion":5,"app":"ClipVault"}`)
 	err = store.ImportFullJSON(context.Background(), data)
 	if err == nil || !strings.Contains(err.Error(), "settings is required") {
 		t.Fatalf("missing settings import error = %v", err)
@@ -453,6 +453,7 @@ func TestImportRejectsDuplicateItemGroupLinksAtomically(t *testing.T) {
 		App:           "ClipVault",
 		Items: []StoredItem{{
 			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: hashString("record"), MetaJSON: "{}",
+			ContentAvailable: true,
 		}},
 		Groups:     []StoredGroup{{ID: 1, Name: "group", CreatedAt: now}},
 		ItemGroups: []ItemGroupLink{{ItemID: 1, GroupID: 1}, {ItemID: 1, GroupID: 1}},
@@ -491,6 +492,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	now := time.Now().UTC()
 	export := &ExportData{Items: []StoredItem{{
 		ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "safe", ByteLen: 4, CharLen: 4, SHA256: "abc", MetaJSON: "{}",
+		ContentAvailable: true,
 	}}}
 	data, err := encodeExportXLSX(export)
 	if err != nil {
@@ -526,7 +528,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellStr(xlsxRecordsSheet, "P2", "unexpected"); err != nil {
+	if err := book.SetCellStr(xlsxRecordsSheet, "S2", "unexpected"); err != nil {
 		t.Fatal(err)
 	}
 	extraColumnData, err := book.WriteToBuffer()
@@ -544,7 +546,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellFormula(xlsxRecordsSheet, "P2", `=""`); err != nil {
+	if err := book.SetCellFormula(xlsxRecordsSheet, "S2", `=""`); err != nil {
 		t.Fatal(err)
 	}
 	blankFormulaData, err := book.WriteToBuffer()

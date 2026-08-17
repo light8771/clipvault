@@ -1,6 +1,9 @@
 package clipvault
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +11,11 @@ import (
 	"os"
 	"strconv"
 	"time"
+)
+
+const (
+	maxStreamImportBytes = 520 << 20
+	maxXLSXImportBytes   = 64 << 20
 )
 
 // handleExportData exports complete data as JSON, XLSX, or encrypted cvexport.
@@ -148,10 +156,6 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	const (
-		maxStreamImportBytes = 520 << 20
-		maxXLSXImportBytes   = 64 << 20
-	)
 	maxBytes := int64(maxStreamImportBytes)
 	if format == "xlsx" {
 		maxBytes = maxXLSXImportBytes
@@ -211,7 +215,7 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 		if _, err := plain.Seek(0, io.SeekStart); err != nil {
 			importErr = err
 		} else {
-			importErr = s.store.ImportFullJSONReader(r.Context(), plain)
+			importErr = s.importDecryptedExport(r.Context(), plain)
 		}
 	case "xlsx":
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
@@ -248,6 +252,56 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 	}
 	s.logger.Info("data_imported", map[string]any{"format": format})
 	s.writeJSON(w, response)
+}
+
+// importDecryptedExport 导入解密后的 cvexport 载荷：
+// 纯 JSON（目录备份 / cvexport 邮件备份）直接导入；zip（邮件备份的
+// json/xlsx 加密打包）解包出 clipvault-export.json/.xlsx 后按内层格式导入。
+func (s *SearchServer) importDecryptedExport(ctx context.Context, plain *os.File) error {
+	info, err := plain.Stat()
+	if err != nil {
+		return err
+	}
+	var header [4]byte
+	if _, err := plain.ReadAt(header[:], 0); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if !bytes.Equal(header[:], []byte{'P', 'K', 0x03, 0x04}) {
+		if _, err := plain.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		return s.store.ImportFullJSONReader(ctx, plain)
+	}
+	zr, err := zip.NewReader(plain, info.Size())
+	if err != nil {
+		return fmt.Errorf("open zipped export payload: %w", err)
+	}
+	for _, entry := range zr.File {
+		switch entry.Name {
+		case "clipvault-export.json":
+			rc, err := entry.Open()
+			if err != nil {
+				return fmt.Errorf("open zipped JSON payload: %w", err)
+			}
+			defer rc.Close()
+			return s.store.ImportFullJSONReader(ctx, rc)
+		case "clipvault-export.xlsx":
+			rc, err := entry.Open()
+			if err != nil {
+				return fmt.Errorf("open zipped XLSX payload: %w", err)
+			}
+			data, err := io.ReadAll(io.LimitReader(rc, maxXLSXImportBytes+1))
+			rc.Close()
+			if err != nil {
+				return fmt.Errorf("read zipped XLSX payload: %w", err)
+			}
+			if len(data) > maxXLSXImportBytes {
+				return errors.New("zipped XLSX payload exceeds size limit")
+			}
+			return s.store.ImportXLSX(ctx, data)
+		}
+	}
+	return errors.New("zipped export payload has no clipvault-export entry")
 }
 
 func serveExportFile(w http.ResponseWriter, _ *http.Request, file *os.File, downloadName, contentType string) error {

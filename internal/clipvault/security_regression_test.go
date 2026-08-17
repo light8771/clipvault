@@ -685,7 +685,7 @@ func TestStoreRejectsInvalidMetadataAndDatabaseRejectsInvalidTimestamp(t *testin
 		t.Fatal(err)
 	}
 	if _, err := store.db.Exec(`UPDATE clipboard_items SET created_at = 'invalid'`); err == nil {
-		t.Fatal("typed timestamp column accepted an invalid timestamp")
+		t.Fatal("BIGINT event-time column accepted an invalid timestamp string")
 	}
 	if items, _, err := store.Search(context.Background(), SearchOptions{Limit: 10, IncludeSensitive: true}); err != nil || len(items) != 1 {
 		t.Fatalf("rejected timestamp update changed valid data: items=%d err=%v", len(items), err)
@@ -1217,8 +1217,11 @@ func TestLocalDateBoundsUseConfiguredTimeZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if from != "2026-08-06T16:00:00Z" || before != "2026-08-07T16:00:00Z" {
-		t.Fatalf("bounds=(%q,%q)", from, before)
+	// schema v3：边界以 Unix 毫秒表示（2026-08-06T16:00:00Z / 2026-08-07T16:00:00Z）。
+	wantFrom := time.Date(2026, 8, 6, 16, 0, 0, 0, time.UTC).UnixMilli()
+	wantBefore := time.Date(2026, 8, 7, 16, 0, 0, 0, time.UTC).UnixMilli()
+	if from != wantFrom || before != wantBefore {
+		t.Fatalf("bounds=(%d,%d)", from, before)
 	}
 }
 
@@ -1561,6 +1564,7 @@ func TestXLSXRoundTripPreservesSourceApplication(t *testing.T) {
 			ID: 1, CreatedAt: time.Now().UTC(), Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",
 			ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}", SourceExeName: "editor.exe",
 			SourceExePath: `C:\Apps\editor.exe`, SourceWindowTitle: "draft", SourceMethod: "foreground",
+			ContentAvailable: true,
 		}},
 	}
 	data, err := encodeExportXLSX(export)
@@ -1592,16 +1596,17 @@ func TestEmailPartsRespectFinalEstimatedSize(t *testing.T) {
 	service := &BackupService{store: store}
 	emailCfg := DefaultConfig().Backup.EmailBackup
 	emailCfg.Format = "json"
+	emailCfg.Password = "part-size-password"
 	firstID, err := store.NthIDInScopeAfter(context.Background(), ExportScope{Mode: "full"}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	one, err := service.exportEmailPartFile("json", "", ExportScope{Mode: "full", MaxID: firstID})
+	one, err := service.exportEmailPartFile("json", emailCfg.Password, ExportScope{Mode: "full", MaxID: firstID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(one.path)
-	oneSize, err := emailBackupFileMessageSize(emailCfg, "json", time.Unix(0, 0), maxEmailParts-1, maxEmailParts, one.path)
+	oneSize, err := emailBackupFileMessageSize(emailCfg, "cvexport", time.Unix(0, 0), maxEmailParts-1, maxEmailParts, one.path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1616,7 +1621,7 @@ func TestEmailPartsRespectFinalEstimatedSize(t *testing.T) {
 		t.Fatalf("parts=%d, want adaptive split", len(parts))
 	}
 	for i, part := range parts {
-		size, err := emailBackupFileMessageSize(emailCfg, "json", time.Unix(0, 0), maxEmailParts-1, maxEmailParts, part.path)
+		size, err := emailBackupFileMessageSize(emailCfg, "cvexport", time.Unix(0, 0), maxEmailParts-1, maxEmailParts, part.path)
 		if err != nil {
 			t.Fatal(err)
 		}

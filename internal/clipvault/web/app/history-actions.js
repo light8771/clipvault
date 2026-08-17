@@ -204,7 +204,74 @@ export function registerHistoryActions() {
     video: '视频',
     archive: '压缩包',
     office: 'Office',
-    files: '其他文件'
+    files: '其他文件',
+    other: '事件'
+  };
+  // 内容不可用原因（event-first 记录状态）
+  app.UNAVAILABLE_LABEL = {
+    superseded_before_read: '内容已被新复制覆盖',
+    unsupported_format: '不支持的剪贴板格式',
+    text_limit_exceeded: '文本超过长度上限，未保存内容',
+    image_limit_exceeded: '图片超过大小上限，未保存内容',
+    read_failed: '剪贴板读取失败'
+  };
+  app.sensBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+  app.isManagedImage = function isManagedImage(it) {
+    return !!it && it.format === 'CLIPVAULT_IMAGE_FILE' && it.contentAvailable !== false;
+  };
+  app.loadManagedImage = async function loadManagedImage(img, itemId) {
+    if (!img) return;
+    try {
+      const res = await app.authorizedItemFetch(itemId, '/api/v1/items/image?id=' + itemId);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const url = URL.createObjectURL(await res.blob());
+      app.fileObjectURLs.add(url);
+      img.src = url;
+    } catch (_) {
+      img.closest('.managed-image')?.classList.add('managed-image-missing');
+      img.style.display = 'none';
+    }
+  };
+  app.doViewManagedImage = async function doViewManagedImage(id) {
+    const item = app.items.get(id);
+    if (!item) return;
+    app.currentModalId = id;
+    app.viewModalTrigger = document.activeElement;
+    app.MODAL_TITLE.textContent = '剪贴板图片 · #' + id + (item.sensitive ? ' · 敏感' : '');
+    app.MODAL_PRE.style.display = 'none';
+    let preview = document.getElementById('modalFilePreview');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.id = 'modalFilePreview';
+      preview.className = 'modal-file-preview';
+      document.querySelector('.modal-body').appendChild(preview);
+    }
+    preview.style.display = 'flex';
+    preview.innerHTML = '<img alt="剪贴板图片 #' + id + '">';
+    await app.loadManagedImage(preview.querySelector('img'), id);
+    app.VIEW_MODAL.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  };
+  // doToggleSensitive 手动标记/取消标记敏感。取消标记需要二次认证
+  // （内容将重新明文可见），标记只需登录。
+  app.doToggleSensitive = async function doToggleSensitive(id) {
+    const item = app.items.get(id);
+    if (!item) return;
+    const next = !item.sensitive;
+    const url = '/api/v1/items/sensitive?id=' + id + '&sensitive=' + (next ? '1' : '0');
+    try {
+      const res = next ? await app.fetch(url, { method: 'PATCH' }) : await app.protectedFetch(url, { method: 'PATCH' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      item.sensitive = next;
+      app.toast(next ? '已标记为敏感' : '已取消敏感标记');
+      await app.search();
+    } catch (e) {
+      if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
+        app.toast('需要二次验证才能取消敏感标记', 'err');
+      } else {
+        app.toast('操作失败', 'err');
+      }
+    }
   };
   app.isNonTextKind = function isNonTextKind(k) {
     return app.NON_TEXT_KINDS.includes(k);

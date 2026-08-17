@@ -108,27 +108,13 @@ export function registerConfigEvents() {
         if (row) row.style.display = dirFmt.value === 'cvexport' ? '' : 'none';
       });
     }
+    // 邮件备份仅支持加密导出：cvexport 直接加密；json/xlsx 打进 zip 后加密。
+    // 密码行恒显示，任何格式都需要加密密码。
     const emailFmt = document.getElementById('cfg-emailBackupFormat');
     if (emailFmt) {
       emailFmt.addEventListener('change', () => {
         const row = document.getElementById('cfg-emailBackupPwdRow');
-        if (row) row.style.display = emailFmt.value === 'cvexport' ? '' : 'none';
-        if (emailFmt.value === 'cvexport') {
-          delete emailFmt.dataset.plainConfirmed;
-          return;
-        }
-        if ((app.currentCfg?.backup?.emailBackup?.format || 'cvexport') !== 'cvexport') {
-          emailFmt.dataset.plainConfirmed = 'true';
-          return;
-        }
-        if (emailFmt.dataset.plainConfirmed === 'true') return;
-        const confirmed = window.confirm('明文邮件附件会以可读形式保存在收件箱、邮件服务器和可能的转发副本中。确认使用未加密的备份格式吗？');
-        if (confirmed) {
-          emailFmt.dataset.plainConfirmed = 'true';
-          return;
-        }
-        emailFmt.value = app.currentCfg?.backup?.emailBackup?.format || 'cvexport';
-        if (row) row.style.display = emailFmt.value === 'cvexport' ? '' : 'none';
+        if (row) row.style.display = '';
       });
     }
     document.getElementById('storageOpenDirBtn')?.addEventListener('click', app.openDataDirectory);
@@ -235,10 +221,9 @@ export function registerConfigEvents() {
     if (Array.from(body).length > 5000) missing.push('邮件正文');
     if (!['plain', 'card', 'accent'].includes(style)) missing.push('邮件样式');
     if (!/^#[0-9A-Fa-f]{6}$/.test(accentColor)) missing.push('邮件主色');
-    if (format === 'cvexport') {
-      const effectivePwd = pwd || (clearChecked ? '' : hasExistingPwd ? '__set__' : '');
-      if (!effectivePwd) missing.push('加密密码');
-    }
+    // 邮件备份仅支持加密导出（json/xlsx 为 zip 加密打包），任何格式都需要加密密码
+    const effectivePwd = pwd || (clearChecked ? '' : hasExistingPwd ? '__set__' : '');
+    if (!effectivePwd) missing.push('加密密码（邮件备份仅支持加密导出）');
     return missing;
   };
 }

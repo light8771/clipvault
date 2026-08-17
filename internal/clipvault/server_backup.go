@@ -95,7 +95,8 @@ func validateDirBackupEnabled(db DirBackupConfig) string {
 
 // validateEmailBackupEnabled 校验已启用的邮件备份配置是否完整。
 // 返回非空字符串描述缺失项，空字符串表示通过。
-// 仅 cvexport 格式需要加密密码；json/xlsx 为明文导出，无需密码。
+// 邮件备份仅支持加密导出（cvexport）或明文 zip 加密打包（json/xlsx），
+// 因此任何格式都必须设置加密密码。
 func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 	var missing []string
 	if eb.Interval < 1 || eb.Interval > maxBackupIntervalHours {
@@ -104,8 +105,8 @@ func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 	missing = append(missing, smtpDeliveryErrors(eb)...)
 	if !isBackupFormat(eb.Format) {
 		missing = append(missing, "备份格式")
-	} else if eb.Format == "cvexport" && eb.Password == "" {
-		missing = append(missing, "加密密码")
+	} else if eb.Password == "" {
+		missing = append(missing, "加密密码（邮件备份仅支持加密导出）")
 	}
 	if eb.MaxPartSize < 1<<20 || eb.MaxPartSize > 50<<20 {
 		missing = append(missing, "单封邮件上限")

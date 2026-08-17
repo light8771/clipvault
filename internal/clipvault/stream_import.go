@@ -355,7 +355,7 @@ func importGroupsTx(ctx context.Context, tx *sql.Tx, groups []StoredGroup) (map[
 			var newID int64
 			if err := tx.QueryRowContext(ctx,
 				`INSERT INTO groups (name, parent_id, created_at) VALUES (?, ?, ?) RETURNING id`,
-				group.Name, parentID, group.CreatedAt.UTC()).Scan(&newID); err != nil {
+				group.Name, parentID, group.CreatedAt.UTC().UnixMilli()).Scan(&newID); err != nil {
 				return nil, fmt.Errorf("import group %d: %w", group.ID, err)
 			}
 			groupIDMap[group.ID] = newID
@@ -410,15 +410,16 @@ func insertItemBatchTx(ctx context.Context, tx *sql.Tx, batch []StoredItem, idMa
 		return fmt.Errorf("query max id before batch: %w", err)
 	}
 	var query strings.Builder
-	query.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, source_exe_name, source_exe_path, source_window_title, source_method) VALUES `)
-	args := make([]any, 0, len(batch)*14)
+	query.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, content_available, is_duplicate, unavailable_reason, source_exe_name, source_exe_path, source_window_title, source_method) VALUES `)
+	args := make([]any, 0, len(batch)*17)
 	for index, item := range batch {
 		if index > 0 {
 			query.WriteByte(',')
 		}
-		query.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-		args = append(args, item.CreatedAt.UTC(), item.Kind, item.Format, item.Text,
+		query.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+		args = append(args, item.CreatedAt.UTC().UnixMilli(), item.Kind, item.Format, item.Text,
 			item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON, item.Starred, item.Sensitive,
+			item.ContentAvailable, item.IsDuplicate, item.UnavailableReason,
 			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod)
 	}
 	if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {

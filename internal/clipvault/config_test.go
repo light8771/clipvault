@@ -561,8 +561,10 @@ func TestValidateEmailBackupEnabled(t *testing.T) {
 		{name: "unknown format", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "csv"; return c }(complete), wantErr: true},
 		{name: "part limit below minimum", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.MaxPartSize = (1 << 20) - 1; return c }(complete), wantErr: true},
 		{name: "part limit above maximum", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.MaxPartSize = (50 << 20) + 1; return c }(complete), wantErr: true},
-		{name: "json no password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "json"; c.Password = ""; return c }(complete)},
-		{name: "xlsx no password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "xlsx"; c.Password = ""; return c }(complete)},
+		{name: "json no password rejected", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "json"; c.Password = ""; return c }(complete), wantErr: true},
+		{name: "xlsx no password rejected", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "xlsx"; c.Password = ""; return c }(complete), wantErr: true},
+		{name: "json with password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "json"; return c }(complete)},
+		{name: "xlsx with password ok", cfg: func(c EmailBackupConfig) EmailBackupConfig { c.Format = "xlsx"; return c }(complete)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

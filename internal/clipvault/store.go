@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"clipboard_ext/internal/clipvault/domain"
 	duckdbstorage "clipboard_ext/internal/clipvault/storage/duckdb"
 )
 
@@ -23,7 +24,7 @@ type Store struct {
 }
 
 var (
-	ErrItemNotFound        = errors.New("item not found")
+	ErrItemNotFound        = domain.ErrItemNotFound
 	errItemOrGroupNotFound = errors.New("item or group not found")
 )
 
@@ -35,42 +36,22 @@ const maxGroupNameRunes = 100
 
 // FreeTierVisibleLimit 是未激活（免费版）可浏览/检索的最近记录条数。
 // 数据照常录制入库；未激活时所有读取入口（列表、搜索、弹窗）只作用于这个窗口。
-const FreeTierVisibleLimit = 100
+const FreeTierVisibleLimit = domain.FreeTierVisibleLimit
+
+// 业务模型的唯一定义在 internal/clipvault/domain；根包只保留别名，
+// 历史调用点无需改动，也避免再次出现双份定义漂移。
+type (
+	ClipboardItem  = domain.ClipboardItem
+	StoredItem     = domain.StoredItem
+	SearchOptions  = domain.SearchOptions
+	Group          = domain.Group
+	StoredGroup    = domain.StoredGroup
+	CleanupOptions = domain.CleanupOptions
+)
 
 type storeQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-type ClipboardItem struct {
-	Kind      string
-	Format    string
-	Text      string
-	ByteLen   int
-	CharLen   int
-	SHA256    string
-	MetaJSON  string
-	Sensitive bool
-	// 来源进程信息（前台窗口法）；空串表示未捕获或配置关闭。
-	SourceExeName     string
-	SourceExePath     string
-	SourceWindowTitle string
-	SourceMethod      string
-}
-
-// Group 表示一个用户自定义分组，支持嵌套（parent_id 为 0 表示顶级分组）。
-type Group struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	ParentID int64  `json:"parentId"` // 0 = 顶级分组
-}
-
-// StoredGroup 是从数据库读取的分组记录。
-type StoredGroup struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	ParentID  int64     `json:"parentId"`
-	CreatedAt time.Time `json:"createdAt"`
 }
 
 // EmailBackupHistory is an immutable record of a successfully sent backup email.
@@ -82,64 +63,26 @@ type EmailBackupHistory struct {
 	Format string    `json:"format"`
 }
 
-type StoredItem struct {
-	ID        int64     `json:"id"`
-	CreatedAt time.Time `json:"createdAt"`
-	Kind      string    `json:"kind"`
-	Format    string    `json:"format"`
-	Text      string    `json:"text"`
-	ByteLen   int       `json:"byteLen"`
-	CharLen   int       `json:"charLen"`
-	SHA256    string    `json:"sha256"`
-	MetaJSON  string    `json:"metaJson"`
-	Starred   bool      `json:"starred"`
-	Sensitive bool      `json:"sensitive"`
-	// 来源进程信息（前台窗口法）；未捕获时为空串。
-	SourceExeName     string `json:"sourceExeName"`
-	SourceExePath     string `json:"sourceExePath"`
-	SourceWindowTitle string `json:"sourceWindowTitle"`
-	SourceMethod      string `json:"sourceMethod"`
-}
-
 // clipboardItemColumns 是 clipboard_items 行查询的统一列清单，
 // Search/GetByID/exportAll/exportItemsQuery 共用，防止多处列清单漂移。
 // 扫描顺序必须与 scanStoredItem 一致。
 const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char_len, sha256, CAST(meta_json AS VARCHAR), starred, sensitive, ` +
+	`content_available, is_duplicate, unavailable_reason, ` +
 	`source_exe_name, source_exe_path, source_window_title, source_method`
 
 // rowScanner 同时抽象 *sql.Row 与 *sql.Rows 的 Scan。
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanStoredItem(row rowScanner, item *StoredItem) error {
-	if err := row.Scan(&item.ID, &item.CreatedAt, &item.Kind, &item.Format, &item.Text,
+	var createdAtMS int64
+	if err := row.Scan(&item.ID, &createdAtMS, &item.Kind, &item.Format, &item.Text,
 		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive,
+		&item.ContentAvailable, &item.IsDuplicate, &item.UnavailableReason,
 		&item.SourceExeName, &item.SourceExePath, &item.SourceWindowTitle, &item.SourceMethod); err != nil {
 		return err
 	}
-	item.CreatedAt = item.CreatedAt.UTC()
+	item.CreatedAt = time.UnixMilli(createdAtMS).UTC()
 	return nil
-}
-
-// SearchOptions holds parameters for Store.Search.
-type SearchOptions struct {
-	Query            string
-	Limit            int
-	Offset           int // pagination offset
-	StarredOnly      bool
-	Kind             string // filter by kind (empty = all)
-	CreatedFrom      string // RFC3339 inclusive UTC instant
-	CreatedBefore    string // RFC3339 exclusive UTC instant
-	SensitiveOnly    bool   // filter to sensitive items only
-	IncludeSensitive bool   // include sensitive items in results (default false)
-	GroupID          int64  // filter by group id (0 = no group filter)
-	SkipTotal        bool   // skip total count when the caller only needs the current page
-	// RestrictToLatestN > 0 时，查询仅作用于按 id DESC 取最近 N 条的窗口。
-	// 未激活（免费版）由调用方填充 FreeTierVisibleLimit；0 表示不限制。
-	RestrictToLatestN int
-	// SourceExeNames 用于"来源应用"下拉多选精确过滤（原始 exe 名等值比较，IN 子句）；空=不过滤。
-	SourceExeNames []string
-	// ExeAliases 用于主搜索框按别名子串匹配时，把命中的原始名以精确匹配并入该 term 的 OR 组；空=不展开。
-	ExeAliases map[string]string
 }
 
 const maxSearchTerms = 8

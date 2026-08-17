@@ -307,12 +307,12 @@
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupFormat">备份格式</label>
-              <p class="field-hint">推荐加密 .cvexport；JSON/Excel 附件会以明文保存在邮件系统中</p>
+              <p class="field-hint">邮件附件始终加密（.cvexport 容器）。选择 JSON/Excel 时，明文文件会先打进 zip 再整体加密，邮件系统中不会出现明文数据</p>
             </div>
             <select id="cfg-emailBackupFormat" class="field-input u-inline-10">
-              <option value="cvexport">加密（推荐）</option>
-              <option value="json">JSON（明文）</option>
-              <option value="xlsx">Excel（明文）</option>
+              <option value="cvexport">加密导出（推荐）</option>
+              <option value="json">JSON（zip 加密打包）</option>
+              <option value="xlsx">Excel（zip 加密打包）</option>
             </select>
           </div>
           <div class="field-row">
@@ -342,7 +342,7 @@
           <div class="field-row u-inline-11" id="cfg-emailBackupPwdRow">
             <div class="field-info">
               <label class="field-label" for="cfg-emailBackupPwd">加密密码</label>
-              <p class="field-hint">cvexport 格式的加密密码，留空则保留原密码</p>
+              <p class="field-hint">邮件备份必填：所有格式的附件都使用此密码加密，留空则保留原密码</p>
             </div>
             <form class="credential-form" data-credential-form>
               <input type="text" name="username" value="ClipVault email backup" autocomplete="username" class="credential-username">

@@ -59,6 +59,19 @@ export function registerConfigSave() {
       app.toast('搜索框快捷键不能与全局快捷键相同', 'err');
       return null;
     }
+    // 弹窗三动作快捷键：仅 [Ctrl+][Shift+][Alt+]Enter，三者互不相同
+    const popupKeyPattern = /^(?:(ctrl|shift|alt)\+){0,3}enter$/i;
+    const popupKeys = ['cfg-popupKeyOpen', 'cfg-popupKeyRestore', 'cfg-popupKeyPaste'].map(id => (document.getElementById(id)?.value || '').trim());
+    const popupKeyNormalized = popupKeys.map(k => k.toLowerCase());
+    if (popupKeyNormalized.some(k => !popupKeyPattern.test(k))) {
+      app.toast('弹窗动作快捷键仅支持 [Ctrl+][Shift+][Alt+]Enter 组合', 'err');
+      return null;
+    }
+    if (new Set(popupKeyNormalized).size !== popupKeyNormalized.length) {
+      app.toast('弹窗三个动作的快捷键不能相同', 'err');
+      return null;
+    }
+    const imageMaxMB = parseInt(document.getElementById('cfg-imageMaxMB')?.value) || 32;
     return {
       ...app.currentCfg,
       brand: {
@@ -103,6 +116,17 @@ export function registerConfigSave() {
         enabled: shkEnabled,
         modifiers: shkMods,
         key: shkKeyChar
+      },
+      image: {
+        enabled: !!document.getElementById('cfg-imageEnabled')?.checked,
+        maxBytes: imageMaxMB * 1024 * 1024
+      },
+      popup: {
+        hideDuplicates: !!document.getElementById('cfg-popupHideDuplicates')?.checked,
+        hideUnavailable: !!document.getElementById('cfg-popupHideUnavailable')?.checked,
+        keyOpen: popupKeys[0] || 'Enter',
+        keyRestore: popupKeys[1] || 'Shift+Enter',
+        keyPaste: popupKeys[2] || 'Ctrl+Enter'
       },
       notifications: {
         ...app.currentCfg.notifications,

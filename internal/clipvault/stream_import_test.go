@@ -20,6 +20,7 @@ func TestStageJSONImportStreamsPayloadsToDisk(t *testing.T) {
 		Items: []StoredItem{{
 			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: text,
 			ByteLen: len([]byte(text)), CharLen: textRuneLen(text), SHA256: hashString(text), MetaJSON: `{}`,
+			ContentAvailable: true,
 		}},
 		Groups:     []StoredGroup{{ID: 10, Name: "group", CreatedAt: now}},
 		ItemGroups: []ItemGroupLink{{ItemID: 1, GroupID: 10}},
@@ -51,7 +52,7 @@ func TestStageJSONImportStreamsPayloadsToDisk(t *testing.T) {
 
 func TestStageJSONImportRejectsMissingLinkTarget(t *testing.T) {
 	data := []byte(`{
-		"exportVersion":4,"app":"ClipVault","exportedAt":"2026-08-11T00:00:00Z",
+		"exportVersion":5,"app":"ClipVault","exportedAt":"2026-08-11T00:00:00Z",
 		"sourceEngine":"duckdb","warning":"test","items":[],"groups":[],
 		"itemGroups":[{"itemId":99,"groupId":1}],
 		"settings":{"sensitive":{"customPatterns":[]}}

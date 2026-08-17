@@ -5,29 +5,31 @@ import (
 	"time"
 )
 
-func localDateFilterBounds(from, to, timeZone string) (createdFrom, createdBefore string, err error) {
+// localDateFilterBounds 把 UI 的本地日期（2006-01-02）转换为 UTC Unix 毫秒边界：
+// from 为当天 00:00（闭区间），before 为结束日次日 00:00（开区间）。0 表示不限制。
+func localDateFilterBounds(from, to, timeZone string) (fromMS, beforeMS int64, err error) {
 	loc, err := configuredLocation(timeZone)
 	if err != nil {
-		return "", "", err
+		return 0, 0, err
 	}
 	if from != "" {
 		start, parseErr := time.ParseInLocation("2006-01-02", from, loc)
 		if parseErr != nil {
-			return "", "", fmt.Errorf("invalid start date: %w", parseErr)
+			return 0, 0, fmt.Errorf("invalid start date: %w", parseErr)
 		}
-		createdFrom = start.UTC().Format(time.RFC3339Nano)
+		fromMS = start.UTC().UnixMilli()
 	}
 	if to != "" {
 		end, parseErr := time.ParseInLocation("2006-01-02", to, loc)
 		if parseErr != nil {
-			return "", "", fmt.Errorf("invalid end date: %w", parseErr)
+			return 0, 0, fmt.Errorf("invalid end date: %w", parseErr)
 		}
-		createdBefore = end.AddDate(0, 0, 1).UTC().Format(time.RFC3339Nano)
+		beforeMS = end.AddDate(0, 0, 1).UTC().UnixMilli()
 	}
-	if createdFrom != "" && createdBefore != "" && createdFrom >= createdBefore {
-		return "", "", fmt.Errorf("start date must not be after end date")
+	if fromMS > 0 && beforeMS > 0 && fromMS >= beforeMS {
+		return 0, 0, fmt.Errorf("start date must not be after end date")
 	}
-	return createdFrom, createdBefore, nil
+	return fromMS, beforeMS, nil
 }
 
 // normalizeExportRange converts date-only ranges from the configured local
@@ -40,11 +42,12 @@ func normalizeExportRange(scope ExportScope, timeZone string) (ExportScope, erro
 	_, fromDateErr := time.Parse("2006-01-02", scope.From)
 	_, toDateErr := time.Parse("2006-01-02", scope.To)
 	if fromDateErr == nil && toDateErr == nil {
-		from, before, err := localDateFilterBounds(scope.From, scope.To, timeZone)
+		fromMS, beforeMS, err := localDateFilterBounds(scope.From, scope.To, timeZone)
 		if err != nil {
 			return scope, err
 		}
-		scope.From, scope.To = from, before
+		scope.From = time.UnixMilli(fromMS).UTC().Format(time.RFC3339Nano)
+		scope.To = time.UnixMilli(beforeMS).UTC().Format(time.RFC3339Nano)
 		return scope, validateExportScope(scope)
 	}
 	if (fromDateErr == nil) != (toDateErr == nil) {
@@ -65,4 +68,13 @@ func normalizeExportRange(scope ExportScope, timeZone string) (ExportScope, erro
 
 func parseExportInstant(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339, value)
+}
+
+// rfc3339ToUnixMS 把 RFC3339 瞬间转换为 Unix 毫秒（存储层时间表示）。
+func rfc3339ToUnixMS(value string) (int64, error) {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return 0, err
+	}
+	return t.UTC().UnixMilli(), nil
 }

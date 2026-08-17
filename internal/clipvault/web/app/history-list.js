@@ -50,6 +50,7 @@ export function registerHistoryList() {
       const starTitle = it.starred ? '取消收藏' : '收藏';
       const sensHTML = it.sensitive ? '<span class="msens">敏感</span>' : '';
       const sensAttr = it.sensitive ? ' data-sensitive="1"' : '';
+      const dupHTML = it.isDuplicate ? '<span class="msep">·</span><span class="mdup">重复</span>' : '';
       // 来源应用（前台窗口法）：ShowExe 缺省视为 true；标签用别名（若有），悬停看窗口标题与完整路径
       let srcHTML = '';
       if (app.currentCfg?.source?.showExe !== false && it.sourceExeName) {
@@ -57,12 +58,30 @@ export function registerHistoryList() {
         const srcTip = app.esc([it.sourceWindowTitle, it.sourceExePath].filter(Boolean).join('\n'));
         srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${app.esc(srcLabel)}</span>`;
       }
+      const managedImage = app.isManagedImage(it);
       let bodyHTML, charText, showView;
+      let viewAction = 'view-item';
       if (it.sensitive && !app.authState.secondaryAuthed) {
         // 敏感内容未通过二次认证时显示遮蔽占位
         bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>敏感内容已隐藏，点击查看按钮查看明文</pre>`;
         charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
         showView = true;
+      } else if (it.contentAvailable === false) {
+        // 事件优先：事件已落库但内容不可用（被覆盖/格式不支持/超限等）
+        const reasonLabel = app.UNAVAILABLE_LABEL[it.unavailableReason] || '无可用内容';
+        bodyHTML = `<pre class="open event-only">${app.esc(reasonLabel)}</pre>`;
+        charText = '事件';
+        showView = false;
+      } else if (managedImage) {
+        // 托管剪贴板图片（CLIPVAULT_IMAGE_FILE）：内联缩略图，点击查看大图
+        bodyHTML = `<div class="managed-image"><img data-action="view-managed-image" data-item-id="${it.id}" loading="lazy" alt="剪贴板图片"></div>`;
+        charText = '图片';
+        try {
+          const meta = JSON.parse(it.metaJson || '{}');
+          if (meta.width && meta.height) charText = meta.width + '×' + meta.height;
+        } catch (_) { /* 尺寸缺失时保持默认 */ }
+        showView = true;
+        viewAction = 'view-managed-image';
       } else if (isNonText) {
         const paths = it.text.split('\n').filter(Boolean);
         bodyHTML = app.renderFileList(it);
@@ -74,6 +93,7 @@ export function registerHistoryList() {
         charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
         showView = long;
       }
+      const canCopy = it.contentAvailable !== false && !managedImage;
       return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}"${sensAttr}>
         <div class="card-body">${bodyHTML}</div>
         <div class="card-foot">
@@ -82,6 +102,7 @@ export function registerHistoryList() {
             <span class="msep">·</span>
             <span class="${kindClass}">${kindLabel}</span>
             ${sensHTML ? '<span class="msep">·</span>' + sensHTML : ''}
+            ${dupHTML}
             <span class="msep">·</span>
             <span class="mtime" title="${fullTime}">${app.relTime(it.createdAt)}</span>
             <span class="msep">·</span>
@@ -89,10 +110,11 @@ export function registerHistoryList() {
             ${srcHTML}
           </div>
           <div class="card-acts">
-            ${showView ? `<button class="ab exp" data-action="view-item" data-item-id="${it.id}">${app.viewHTML}</button>` : ''}
+            ${showView ? `<button class="ab exp" data-action="${viewAction}" data-item-id="${it.id}">${app.viewHTML}</button>` : ''}
             ${q ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="定位到时间线">${app.locateHTML}</button>` : ''}
-            <button class="ab cp" data-action="copy-item" data-item-id="${it.id}">${app.cpHTML}</button>
+            ${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}">${app.cpHTML}</button>` : ''}
             <button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
+            <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? '取消敏感标记' : '标记为敏感'}">${app.sensBtnHTML}</button>
             <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="加入分组">${app.groupBtnHTML}</button>
             <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="删除">${app.delHTML}</button>
           </div>
@@ -100,7 +122,11 @@ export function registerHistoryList() {
       </article>`;
     }).join('');
     arr.forEach(it => {
-      if (app.isNonTextKind(it.kind || 'text')) app.checkFiles(it.id);
+      if (app.isNonTextKind(it.kind || 'text') && it.format !== 'CLIPVAULT_IMAGE_FILE') app.checkFiles(it.id);
+      if (app.isManagedImage(it)) {
+        const img = app.LIST.querySelector(`article[data-id="${it.id}"] .managed-image img`);
+        if (img) app.loadManagedImage(img, it.id);
+      }
     });
     if (app.pendingLocateId) {
       const el = app.LIST.querySelector(`article[data-id="${app.pendingLocateId}"]`);
@@ -415,57 +441,7 @@ export function registerHistoryList() {
     await app.refreshState();
   });
 
-  // ── Clear all ─────────────────────────────────────────────
-  app.clearTimer = 0;
-  app.CLEAR_BTN = document.getElementById('clearBtn');
-  app.CLEAR_TX = document.getElementById('clearTx');
-  app.CLEAR_BTN.addEventListener('click', async () => {
-    if (app.clearTimer) {
-      clearTimeout(app.clearTimer);
-      app.clearTimer = 0;
-      app.CLEAR_BTN.classList.add('loading');
-      app.CLEAR_TX.textContent = '清除中...';
-      try {
-        const res = await app.protectedFetch('/api/v1/items/clear', {
-          method: 'POST'
-        });
-        const d = await res.json();
-        if (d.ok) {
-          app.toast('已清除 ' + d.deleted + ' 条记录');
-          app.items.clear();
-          app.BADGE.textContent = '0';
-          app.RC.textContent = '0 条结果';
-          app.LIST.innerHTML = `<div class="empty">
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
-              <rect x="9" y="3" width="6" height="4" rx="1"/>
-              <line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>
-            </svg>
-            <span>暂无剪切板记录</span>
-          </div>`;
-        } else {
-          throw 0;
-        }
-      } catch (e) {
-        if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
-          app.toast('需要二次验证才能清除记录', 'err');
-        } else {
-          app.toast('清除失败', 'err');
-        }
-      }
-      app.CLEAR_BTN.classList.remove('loading');
-      app.CLEAR_BTN.classList.remove('confirm');
-      app.CLEAR_TX.textContent = '清除';
-      return;
-    }
-    app.CLEAR_BTN.classList.add('confirm');
-    app.CLEAR_TX.textContent = '确认清除？';
-    app.clearTimer = setTimeout(() => {
-      app.clearTimer = 0;
-      app.CLEAR_BTN.classList.remove('confirm');
-      app.CLEAR_TX.textContent = '清除';
-    }, 3000);
-  });
+  // 清理历史弹窗逻辑在 cleanup-modal.js（registerCleanupModal）。
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (!document.getElementById('sourceAppsModal')?.classList.contains('hidden')) {
@@ -474,6 +450,10 @@ export function registerHistoryList() {
       }
       if (document.getElementById('groupModalOverlay')) {
         app.closeGroupModal();
+        return;
+      }
+      if (!app.CLEANUP_MODAL.classList.contains('hidden')) {
+        app.closeCleanupModal();
         return;
       }
       if (!app.VIEW_MODAL.classList.contains('hidden')) {

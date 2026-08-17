@@ -86,6 +86,50 @@
 				<input type="text" id="cfg-searchHotkeyKey" class="field-input u-inline-5" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
               </div>
             </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-imageEnabled">剪贴板图片捕获</label>
+                <p class="field-hint">记录截图、浏览器复制的图片等，统一转码为 PNG 保存；关闭后图片事件只保留事件记录</p>
+              </div>
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-imageEnabled">
+                <span>启用</span>
+              </label>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label" for="cfg-imageMaxMB">图片大小上限（MB）</label>
+                <p class="field-hint">超过上限的图片只保留事件记录，不保存图片内容（1–256）</p>
+              </div>
+              <input type="number" id="cfg-imageMaxMB" class="field-input field-input-sm" min="1" max="256" step="1" placeholder="32">
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">弹窗显示过滤</label>
+                <p class="field-hint">快速搜索弹窗默认过滤重复事件 / 无内容记录；免费版始终在最新 100 条原始记录内过滤</p>
+              </div>
+              <div class="u-inline-3">
+                <label class="ar-toggle">
+                  <input type="checkbox" id="cfg-popupHideDuplicates">
+                  <span>过滤重复</span>
+                </label>
+                <label class="ar-toggle">
+                  <input type="checkbox" id="cfg-popupHideUnavailable">
+                  <span>过滤无内容</span>
+                </label>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-info">
+                <label class="field-label">弹窗动作快捷键</label>
+                <p class="field-hint">依次为：打开浏览器 / 仅恢复到剪贴板 / 恢复并粘贴到之前窗口。仅支持 [Ctrl+][Shift+][Alt+]Enter 组合且三者不能相同；双击列表恒为恢复</p>
+              </div>
+              <div class="u-inline-3">
+                <input type="text" id="cfg-popupKeyOpen" class="field-input popup-key-input" placeholder="Enter" aria-label="打开浏览器快捷键">
+                <input type="text" id="cfg-popupKeyRestore" class="field-input popup-key-input" placeholder="Shift+Enter" aria-label="恢复剪贴板快捷键">
+                <input type="text" id="cfg-popupKeyPaste" class="field-input popup-key-input" placeholder="Ctrl+Enter" aria-label="粘贴到之前窗口快捷键">
+              </div>
+            </div>
               <div class="field-row">
                 <div class="field-info">
                   <label class="field-label" for="cfg-pauseResumeNotifications">录制状态通知</label>
@@ -397,4 +441,4 @@
             <button class="btn-open-group-modal" data-action="open-groups" data-mode="manage">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
               打开分组管理
-            </button>
+            </button>

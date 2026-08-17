@@ -236,12 +236,14 @@ func seedStoreForExport(t *testing.T, store *Store) {
 }
 
 // insertItem 直接插入一条完整记录（绕过 Save，用于精确控制 created_at/starred/sensitive）。
+// created_at 为 BIGINT Unix 毫秒（schema v3）；事件状态列使用表默认值
+// （content_available=true, is_duplicate=false, unavailable_reason=”）。
 func insertItem(t *testing.T, store *Store, ts time.Time, text string, starred, sensitive bool) {
 	t.Helper()
 	_, err := store.db.ExecContext(context.Background(), `INSERT INTO clipboard_items
 		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ts.UTC().Format(time.RFC3339Nano),
+		ts.UTC().UnixMilli(),
 		"text", "CF_UNICODETEXT", text, len([]byte(text)), textRuneLen(text),
 		hashString(text), "{}", starred, sensitive,
 	)

@@ -74,6 +74,17 @@ func DefaultConfig() Config {
 			Modifiers: 0x0002 | 0x0004,
 			Key:       0x20,
 		},
+		Image: ImageCaptureConfig{
+			Enabled:  true,
+			MaxBytes: defaultImageMaxBytes,
+		},
+		Popup: SearchPopupConfig{
+			HideDuplicates:  false,
+			HideUnavailable: false,
+			KeyOpen:         "Enter",
+			KeyRestore:      "Shift+Enter",
+			KeyPaste:        "Ctrl+Enter",
+		},
 		Backup: BackupConfig{
 			DirBackup: DirBackupConfig{
 				Interval:                24,

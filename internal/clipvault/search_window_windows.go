@@ -87,9 +87,14 @@ const (
 	idcSearchClose = 2004
 	idcSearchClear = 2005
 
-	searchDebounceTimerID  = 1
-	searchDebounceDelay    = 80
-	quickSearchResultLimit = 20
+	idcSearchFilterDup     = 2006
+	idcSearchFilterUnavail = 2007
+
+	searchDebounceTimerID = 1
+	searchDebounceDelay   = 80
+	// quickSearchResultLimit 是弹窗展示条数上限。
+	// 免费版：先在最新 100 条原始记录内过滤（不回溯补数量）；激活版：过滤后取前 100 条。
+	quickSearchResultLimit = 100
 
 	dtCenter          = 0x0001
 	dtVCenter         = 0x0004
@@ -140,14 +145,29 @@ type searchWindow struct {
 	searchURL string
 	logger    *DailyLogger
 	license   *licensing.Manager
+	cfgMgr    *ConfigManager
+	dataDir   string
 
-	hwnd    uintptr
-	hEdit   uintptr
-	hList   uintptr
-	hHeader uintptr
-	hEmpty  uintptr
-	oldEdit uintptr      // 原始 edit 控件 wndproc
-	items   []StoredItem // 当前 listbox 对应的搜索结果
+	hwnd       uintptr
+	hEdit      uintptr
+	hList      uintptr
+	hHeader    uintptr
+	hEmpty     uintptr
+	hFilterDup uintptr
+	hFilterUn  uintptr
+	oldEdit    uintptr      // 原始 edit 控件 wndproc
+	items      []StoredItem // 当前 listbox 对应的搜索结果
+	prevHwnd   uintptr      // 弹窗打开前的前台窗口（粘贴目标）
+
+	// 弹窗内显示过滤与三动作快捷键（来自系统配置 popup.*）。
+	hideDuplicates  bool
+	hideUnavailable bool
+	keyOpenMods     int
+	keyRestoreMods  int
+	keyPasteMods    int
+	keyOpenLabel    string
+	keyRestoreLabel string
+	keyPasteLabel   string
 
 	mu              sync.Mutex
 	closed          bool
@@ -165,6 +185,14 @@ type searchResult struct {
 	items []StoredItem
 	err   error
 	query string
+}
+
+// filterToggleLabel 生成过滤开关按钮文本（开启时带 ● 前缀）。
+func (sw *searchWindow) filterToggleLabel(name string, on bool) string {
+	if on {
+		return "● " + name
+	}
+	return "○ " + name
 }
 
 type searchRect struct {
@@ -201,7 +229,8 @@ var (
 )
 
 // ShowSearchWindow 在新线程上启动搜索弹窗。如果已有弹窗则将其前置。
-func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger, license *licensing.Manager) {
+// prevHwnd（弹窗打开前的前台窗口）在创建前捕获，作为 Ctrl+Enter 的粘贴目标。
+func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger, license *licensing.Manager, cfgMgr *ConfigManager, env Environment) {
 	searchWindowMu.Lock()
 	existing := activeSearchWindow
 	if existing != nil {
@@ -210,12 +239,27 @@ func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger, licen
 		existing.focus()
 		return
 	}
+	prevHwnd, _, _ := procGetForegroundWindow.Call()
 	sw := &searchWindow{
 		store:          store,
 		searchURL:      searchURL,
 		logger:         logger,
 		license:        license,
+		cfgMgr:         cfgMgr,
+		dataDir:        env.DataDir,
+		prevHwnd:       prevHwnd,
 		pendingResults: make(map[uint64]searchResult),
+	}
+	if cfgMgr != nil {
+		popup := cfgMgr.Get().Popup
+		sw.hideDuplicates = popup.HideDuplicates
+		sw.hideUnavailable = popup.HideUnavailable
+		sw.keyOpenMods, _ = parsePopupKeyBinding(popup.KeyOpen)
+		sw.keyRestoreMods, _ = parsePopupKeyBinding(popup.KeyRestore)
+		sw.keyPasteMods, _ = parsePopupKeyBinding(popup.KeyPaste)
+		sw.keyOpenLabel = popup.KeyOpen
+		sw.keyRestoreLabel = popup.KeyRestore
+		sw.keyPasteLabel = popup.KeyPaste
 	}
 	activeSearchWindow = sw
 	searchWindowMu.Unlock()
@@ -323,6 +367,25 @@ func (sw *searchWindow) run() {
 		568, 64, 92, 34,
 		hwnd, 2003, instance, 0,
 	)
+	// 显示过滤开关（重复事件 / 无内容记录），初始状态来自系统配置 popup.*。
+	dupLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤重", sw.hideDuplicates))
+	sw.hFilterDup, _, _ = procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(btnCls)),
+		uintptr(unsafe.Pointer(dupLabel)),
+		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		420, 12, 100, 24,
+		hwnd, uintptr(idcSearchFilterDup), instance, 0,
+	)
+	unLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤无效", sw.hideUnavailable))
+	sw.hFilterUn, _, _ = procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(btnCls)),
+		uintptr(unsafe.Pointer(unLabel)),
+		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		528, 12, 100, 24,
+		hwnd, uintptr(idcSearchFilterUnavail), instance, 0,
+	)
 	sw.hList, _, _ = procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(listCls)),
@@ -344,9 +407,10 @@ func (sw *searchWindow) run() {
 	sw.applyTextFont(sw.hEdit)
 	sw.applyTextFont(sw.hList)
 	sw.applyTextFont(sw.hEmpty)
-	hintBase := fmt.Sprintf("最多显示最近 %d 条匹配记录   X 清空输入   Enter 打开   ↑↓ 选择   Esc 关闭", quickSearchResultLimit)
+	hintBase := fmt.Sprintf("最近 %d 条   %s 打开   双击/%s 恢复   %s 粘贴   Esc 关闭",
+		quickSearchResultLimit, sw.keyOpenLabel, sw.keyRestoreLabel, sw.keyPasteLabel)
 	if sw.license != nil && !sw.license.CanUsePaidFeatures() {
-		hintBase = fmt.Sprintf("免费版仅检索最近 %d 条记录，激活解锁全部   Esc 关闭", FreeTierVisibleLimit)
+		hintBase = fmt.Sprintf("免费版仅在最近 %d 条内筛选，激活解锁全部   Esc 关闭", FreeTierVisibleLimit)
 	}
 	hintText, _ := syscall.UTF16PtrFromString(hintBase)
 	procCreateWindowExW.Call(
@@ -371,6 +435,8 @@ func (sw *searchWindow) run() {
 	if sw.hEdit != 0 {
 		procSetFocus.Call(sw.hEdit)
 	}
+	// 弹窗打开即展示最近记录（空查询 = 最近 N 条）。
+	sw.startSearch("")
 
 	// 本地消息循环
 	var m msg

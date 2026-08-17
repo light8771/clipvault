@@ -107,13 +107,19 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		conds = append(conds, "kind = ?")
 		args = append(args, opts.Kind)
 	}
-	if opts.CreatedFrom != "" {
+	if opts.CreatedFromMS > 0 {
 		conds = append(conds, "created_at >= ?")
-		args = append(args, opts.CreatedFrom)
+		args = append(args, opts.CreatedFromMS)
 	}
-	if opts.CreatedBefore != "" {
+	if opts.CreatedBeforeMS > 0 {
 		conds = append(conds, "created_at < ?")
-		args = append(args, opts.CreatedBefore)
+		args = append(args, opts.CreatedBeforeMS)
+	}
+	if opts.HideDuplicates {
+		conds = append(conds, "is_duplicate = false")
+	}
+	if opts.HideUnavailable {
+		conds = append(conds, "content_available = true")
 	}
 	if opts.SensitiveOnly {
 		conds = append(conds, "sensitive = true")
@@ -221,6 +227,23 @@ func (s *Store) Star(ctx context.Context, id int64, starred bool) error {
 	return nil
 }
 
+// SetSensitive 手动标记/取消标记敏感。手动标记与录制时按敏感规则自动
+// 判定写在同一列：规则只在采集时生效，之后 sensitive 完全由用户控制。
+func (s *Store) SetSensitive(ctx context.Context, id int64, sensitive bool) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE clipboard_items SET sensitive = ? WHERE id = ?`, sensitive, id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %d", ErrItemNotFound, id)
+	}
+	return nil
+}
+
 func (s *Store) Delete(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -243,27 +266,4 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("%w: %d", ErrItemNotFound, id)
 	}
 	return tx.Commit()
-}
-
-func (s *Store) ClearAll(ctx context.Context) (int64, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM item_groups`); err != nil {
-		return 0, err
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM clipboard_items`)
-	if err != nil {
-		return 0, err
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return n, nil
 }

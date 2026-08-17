@@ -167,7 +167,7 @@ func Run(env Environment) error {
 	})
 
 	state := NewRuntimeState(false)
-	recorder := NewRecorder(cfgMgr, store, state, logger)
+	recorder := NewRecorder(cfgMgr, store, state, logger, env.ImagesDirectory())
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
 	defer backup.Stop()
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)

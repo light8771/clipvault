@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -121,19 +122,43 @@ type WindowsRuntime struct {
 	pendingHotkeyResult chan error
 
 	// 剪贴板事件由单个 worker goroutine 串行消费。每个事件携带 Win32
-	// sequence number 与派发现场捕获的来源；worker 只在序列仍匹配时读取，
-	// 防止旧来源错配到新内容。队列满时淘汰最旧事件并保留最新事件。
-	// 这些字段只在 Run() 启动 worker 前写入，之后仅由消息循环线程读取，无需加锁。
-	clipCh        chan clipEvent
+	// sequence number、派发现场捕获的来源与事件发生时间（Unix ms）；
+	// worker 只在序列仍匹配时读取，防止旧来源错配到新内容。
+	// 队列是无界 FIFO（事件优先，绝不丢弃事件）。
+	clipQueue     *clipQueue
 	clipDone      chan struct{}
 	clipCloseOnce sync.Once
+
+	// suppressUntilSeq 是内部恢复（搜索弹窗写回剪贴板）的序列抑制水位：
+	// sequence <= 水位的事件视为应用自身写回，不进入录制队列。
+	suppressUntilSeq atomic.Uint32
 }
 
-// clipEvent 是一次剪贴板变化信号。source 在消息派发现场捕获（此时前台窗口
-// 还是复制动作的来源进程）；启动补捕事件使用剪贴板所有者进程。
+// clipEvent 是一次剪贴板变化信号。source 与 capturedAtMS 在消息派发现场捕获
+// （此时前台窗口还是复制动作的来源进程，事件时间也不会被 worker 拥塞污染）；
+// 启动补捕事件使用剪贴板所有者进程。
 type clipEvent struct {
-	source   SourceInfo
-	sequence uint32
+	source       SourceInfo
+	sequence     uint32
+	capturedAtMS int64
+}
+
+// suppressClipboardSequencesThrough 把内部恢复产生的剪贴板序列纳入抑制水位。
+func (r *WindowsRuntime) suppressClipboardSequencesThrough(sequence uint32) {
+	if sequence == 0 {
+		return
+	}
+	for {
+		cur := r.suppressUntilSeq.Load()
+		if cur >= sequence || r.suppressUntilSeq.CompareAndSwap(cur, sequence) {
+			return
+		}
+	}
+}
+
+// isSequenceSuppressed 判定事件序列是否被内部恢复抑制。
+func (r *WindowsRuntime) isSequenceSuppressed(sequence uint32) bool {
+	return sequence <= r.suppressUntilSeq.Load()
 }
 
 // HotkeyError 表示全局快捷键注册失败。
