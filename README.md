@@ -1,25 +1,28 @@
 # ClipVault
 
-ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘运行，所有历史写入**加密的 DuckDB 数据库**，并提供内置 Web 搜索与配置界面。数据库密钥通过 Windows DPAPI 保护，支持恢复密码备份与跨设备恢复。
+ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘运行，**事件优先**记录每一次剪贴板变化，所有历史写入**加密的 DuckDB 数据库**，并提供内置 Web 搜索与配置界面。数据库密钥通过 Windows DPAPI 保护，支持恢复密码备份与跨设备恢复。
 
 ## 功能
 
+- **事件优先录制**：每一次剪贴板变化都必然落库——连续复制相同内容会保存多条并标记「重复」；内容被覆盖、格式不支持、文本/图片超限时保存「无内容」事件记录（含原因与剪贴板格式清单），任何分支都不静默丢事件
+- **图片捕获**：支持 Win+Shift+S 截图、浏览器 Copy Image、微信/QQ 图片（注册 PNG / CF_DIBV5 / CF_DIB / CF_BITMAP），统一转码为托管 PNG 保存，可在历史页内联预览并恢复到剪贴板
+- **快速搜索弹窗**：`Ctrl+Shift+Space` 呼出桌面弹窗，打开即展示最近 100 条；支持「过滤重复」「过滤无内容」开关（持久化到配置）；`Enter` 浏览器打开 / `Shift+Enter` 仅恢复到剪贴板 / `Ctrl+Enter` 恢复并粘贴到之前窗口，三个动作的快捷键可自定义；双击列表恒为恢复
 - **托盘后台运行**：右键菜单支持暂停/恢复、搜索历史/设置、打开数据目录、开机自启动、退出
-- **全局快捷键**：`Ctrl+Alt+P` 暂停/恢复（可在 Web 设置页配置）
+- **全局快捷键**：`Ctrl+Alt+P` 暂停/恢复、`Ctrl+Shift+Space` 搜索弹窗（均可在 Web 设置页配置）
 - **星标收藏**：点击卡片上的 ⭐ 按钮收藏条目，支持「收藏」筛选器快速查看
-- **敏感内容规则**：通过正则表达式标记敏感内容；记录仍会加密保存，查看、复制、文件与条目变更操作需要二次验证
+- **敏感内容**：自定义正则规则在采集时自动标记；历史页也可对任意记录**手动标记/取消敏感**（取消需二次验证）。敏感记录仍加密保存，查看、复制、文件与条目变更操作需要二次验证
 - **文件拖放记录**：复制文件时记录路径清单，按扩展名自动分类（图片/视频/压缩包/Office/其他）
-- **哈希去重**：相同内容连续复制只保存一条
-- **DuckDB 加密存储**：数据库使用 AES-256 加密，密钥由 DPAPI 保护
+- **DuckDB 加密存储**：数据库使用 AES-256 加密，密钥由 DPAPI 保护；事件时间以 Unix 毫秒存储（发生时间，非写入时间）
 - **恢复密码**：首次启动必须设置（至少 12 个字符），用于备份数据库密钥；DPAPI 失效时（换电脑、重装系统）可恢复数据
 - **锁屏密码 & 二次密码**：锁屏密码可选；二次密码首次启动必须设置且只能修改。两者均为 8–1024 个字符且首尾不能有空格
 - **加密导出包**：支持 `.cvexport` 加密格式，用密码加密导出数据，安全传输或备份
-- **定时备份**：目录和邮件备份支持 JSON、Excel 或加密 `.cvexport`；可在应用服务启动后自动执行一次，SMTP 强制 TLS
+- **定时备份**：目录备份支持 JSON、Excel 或加密 `.cvexport`；**邮件备份仅支持加密导出**——附件恒为 `.cvexport` 加密容器，JSON/Excel 会先打进 zip 再整体加密，任何格式都必须设置加密密码；SMTP 强制 TLS
+- **精确历史清理**：支持全部清理或按秒级时间范围清理，删除前可预览命中条数，预览与删除严格共用同一条件；可选保留收藏记录
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
 - **便携模式**：exe 同目录放置 `portable.flag` 普通文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`；便携模式写入 exe 同目录
 - **诊断日志**：可导出最近 7 天、最多 8 MiB 的脱敏日志与运行环境信息，用于问题排查；不包含数据库、配置、密钥或剪贴板内容
-- **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用
+- **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用。未激活（免费版）可浏览/检索最近 100 条记录——所有读取入口先圈定最新 100 条原始记录再过滤，不向更早记录补数量
 
 ### Web 界面（搜索 + 设置）
 
@@ -34,12 +37,15 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 类型过滤 | 按 `文本` / `图片` / `视频` / `压缩包` / `Office` / `其他文件` 分类筛选 |
 | 收藏筛选 | 点击「收藏」chip，只显示已星标条目 |
 | 日期范围筛选 | 按设置中的系统/IANA 时区选择起止日期过滤历史记录（结束日包含全天） |
+| 事件状态展示 | 重复事件标注「重复」；无内容事件展示原因（已被覆盖/不支持的格式/超长未保存/读取失败） |
+| 剪贴板图片 | 托管图片内联缩略图，点击查看大图 |
 | 分页 | 每页 50/100/200 条可选，显示当前页范围与总数 |
 | 相对时间 | 显示「3 分钟前」，悬浮可看完整时间 |
 | 一键复制 | 点击「复制」按钮，内容写入系统剪贴板并弹出 Toast 提示 |
 | 弹窗查看 | 长文本点击「查看」按钮弹出全文预览，支持弹窗内复制，`Esc` 关闭 |
+| 手动敏感标记 | 点击盾牌按钮标记/取消敏感；取消标记需二次验证 |
 | 删除单条 | 点击「删除」按钮，卡片滑出动画后移除；敏感条目需要二次验证 |
-| 清除全部 | 顶栏「清除」按钮，需二次确认 + 二次密码验证后删除所有记录 |
+| 清理历史 | 顶栏「清除」按钮打开清理弹窗：全部或秒级时间范围，实时预览命中条数，可选保留收藏；需二次密码验证 |
 | 暂停/恢复 | 顶栏按钮一键切换录制状态 |
 | 自动刷新 | 勾选后每 3 秒拉取最新记录 |
 | 键盘快捷键 | `Ctrl+K` 聚焦搜索框，`Esc` 清空并失焦 / 关闭弹窗 |
@@ -50,13 +56,14 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 分区 | 可配置项 |
 |------|---------|
 | 基本 | 最大文字长度（0 = 不限）、最大文件路径数（0 = 不限）、来源应用采集与展示 |
+| 图片与弹窗 | 剪贴板图片捕获开关与单张大小上限；弹窗「过滤重复」「过滤无内容」默认开关；弹窗三个动作的快捷键（[Ctrl+][Shift+][Alt+]Enter，三者不能相同） |
 | 服务 | Web 监听地址、本机 HTTPS 反向代理、日期筛选时区；管理服务始终启动，避免配置死路 |
 | 存储与诊断 | 查看并迁移数据库、密钥和应用数据（目标必须由用户提前创建、为空且可读写；诊断日志保留原位置）；导出最近 7 天、最多 8 MiB 的脱敏诊断日志 |
 | 安全 | 锁屏密码、二次密码、数据恢复密码（必需，可修改；忘记旧密码时需刚刚完成二次认证后重置）、锁屏会话超时、二次认证缓存时长 |
 | 授权 | 查看授权状态与机器码、复制购买信息、粘贴激活码并即时激活 |
 | 过滤 | 自定义正则敏感规则，支持增删；匹配内容会标为敏感并继续写入加密数据库，查看和文件操作受二次认证保护 |
 | 分组 | 创建/编辑/删除分组，支持嵌套，可将记录加入分组 |
-| 导出 | 按全部或日期范围导出（JSON / Excel / 加密 .cvexport）、导入数据（JSON / Excel / .cvexport）；Excel 保留来源应用信息 |
+| 导出 | 按全部或日期范围导出（JSON / Excel / 加密 .cvexport）、导入数据（JSON / Excel / .cvexport，自动识别 zip 加密打包载荷）；Excel 保留来源应用信息 |
 | 备份 | 目录和邮件定时备份（可选启动后自动执行）、SMTP 与安全邮件模板、立即备份/发送、测试邮件、最近备份状态；邮件发送历史以只读弹窗展示最近 100 条成功记录（自动/手动、收发账号、时间、文件类型） |
 
 > 过滤规则和文字限制**即时生效**；监听地址或反向代理配置变更需**重启应用**后生效。
@@ -268,14 +275,17 @@ New-Item -ItemType File "portable.flag"
 | `GET /api/v1/license/machine` | GET | 锁屏 | 获取当前完整机器码 |
 | `POST /api/v1/license/activation` | POST | 锁屏 + CSRF | 离线激活 |
 | `GET /api/v1/items` | GET | 锁屏 | 搜索历史 |
+| `GET /api/v1/items/image?id=N` | GET | 锁屏；敏感条目另需二次 | 内联返回托管剪贴板图片（PNG） |
 | `GET /api/v1/runtime` | GET | 锁屏 | 返回运行状态 |
 | `POST /api/v1/runtime/pause` | POST | 锁屏 + CSRF | 暂停/恢复 |
 | `DELETE /api/v1/items?id=N` | DELETE | 锁屏；敏感条目另需二次 | 删除指定记录 |
 | `PATCH /api/v1/items?id=N&starred=1` | PATCH | 锁屏；敏感条目另需二次 | 收藏/取消收藏 |
+| `PATCH /api/v1/items/sensitive?id=N&sensitive=1` | PATCH | 锁屏；取消标记另需二次 | 手动标记/取消敏感 |
+| `POST /api/v1/items/cleanup-preview` | POST | 二次 + CSRF | 预览清理将删除的记录数（不执行删除） |
+| `POST /api/v1/items/cleanup` | POST | 二次 + CSRF | 按与预览完全相同的条件执行清理；支持全部/秒级范围，可保留收藏 |
 | `GET /api/v1/items/groups?item_id=N` | GET | 锁屏；敏感条目另需二次 | 获取指定记录所属分组 |
 | `POST /api/v1/items/group` | POST | 锁屏 + CSRF；敏感条目另需二次 | 将指定记录加入分组 |
 | `DELETE /api/v1/items/group?item_id=N&group_id=N` | DELETE | 锁屏 + CSRF；敏感条目另需二次 | 将指定记录移出分组 |
-| `POST /api/v1/items/clear` | POST | 二次 + CSRF | 清除全部记录 |
 | `GET /api/v1/config` | GET | 锁屏 | 获取配置 |
 | `PUT /api/v1/config` | PUT | 二次 + CSRF | 保存配置 |
 | `GET /api/v1/storage` | GET | 锁屏 | 查看当前数据目录与是否允许迁移 |
@@ -283,7 +293,7 @@ New-Item -ItemType File "portable.flag"
 | `GET /api/v1/diagnostics` | GET | 二次 | 导出最近 7 天的脱敏诊断日志 ZIP |
 | `GET /api/v1/transfer/export?format=json` | GET | 二次 | 导出记录（json/xlsx，支持 full/range/incremental） |
 | `POST /api/v1/transfer/export?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
-| `POST /api/v1/transfer/import` | POST | 二次 + CSRF | 导入数据（JSON / Excel / .cvexport；必须设置 `X-ClipVault-Import-Format`） |
+| `POST /api/v1/transfer/import` | POST | 二次 + CSRF | 导入数据（JSON / Excel / .cvexport，自动识别 zip 载荷；必须设置 `X-ClipVault-Import-Format`） |
 | `GET /api/v1/recovery` | GET | 二次 | 查询恢复密码状态 |
 | `POST /api/v1/recovery/password` | POST | 二次 + CSRF | 修改恢复密码 |
 | `POST /api/v1/recovery/reset` | POST | 刚刚完成的二次认证 + CSRF | 忘记旧恢复密码时原子重置 |
@@ -294,7 +304,7 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/v1/backup/email-test` | POST | 二次 + CSRF | 发送测试邮件 |
 | `/api/v1/groups` | GET/POST/PUT/DELETE | 锁屏；变更请求需 CSRF | 列出、创建、更新和删除分组 |
 
-导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules` 五个工作表；`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存记录、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
+导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules` 五个工作表；`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存记录、事件状态（重复/无内容及原因）、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
 所有 API 成功响应使用 `{ "data": ... }`，错误统一使用 `{ "error": { "code": "...", "message": "..." } }`。所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/v1/session/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
 
@@ -312,11 +322,11 @@ New-Item -ItemType File "portable.flag"
 | `group_id` | 按正整数分组 ID 筛选 |
 | `source_exe` | 按来源程序名精确筛选；可重复，最多 50 个 |
 
-`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v4，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
+`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v5，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
 
 ## 配置说明
 
-配置存储在 DuckDB schema v2 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+配置存储在 DuckDB schema v3 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {
@@ -333,6 +343,17 @@ New-Item -ItemType File "portable.flag"
   },
   "sensitive": {
     "customPatterns": []
+  },
+  "image": {
+    "enabled": true,
+    "maxBytes": 33554432
+  },
+  "popup": {
+    "hideDuplicates": false,
+    "hideUnavailable": false,
+    "keyOpen": "Enter",
+    "keyRestore": "Shift+Enter",
+    "keyPaste": "Ctrl+Enter"
   },
   "autostart": {
     "enabled": false,
@@ -376,13 +397,18 @@ New-Item -ItemType File "portable.flag"
 | 字段 | 说明 |
 |------|------|
 | `version` | 配置结构版本；必须与当前程序一致 |
-| `maxTextChars` | 超过此字符数的文本直接跳过；`0` 表示不限制 |
+| `maxTextChars` | 超过此字符数的文本保存为「无内容」事件记录（不截断保存内容）；`0` 表示不限制 |
 | `maxFileDropPaths` | 文件拖放时最多记录的路径数；`0` 表示不限制 |
 | `search.listenAddr` | Web 服务监听地址；默认仅 localhost/回环地址。开放局域网监听必须先设置锁屏密码并确认风险；端口被占时自动尝试下 5 个端口 |
 | `search.timeZone` | 日期筛选和范围导出的时区；`system` 表示 Windows 当前时区，也可填 IANA 时区名 |
 | `search.reverseProxy.enabled` | 是否信任同机回环反向代理传入的 HTTPS 主机信息；启用时必须设置锁屏密码且 `listenAddr` 必须保持为回环地址 |
 | `search.reverseProxy.publicUrl` | 客户端实际访问的 HTTPS 根地址；主机和非默认端口必须与 `X-Forwarded-Host` 完全匹配 |
-| `sensitive.customPatterns` | 自定义正则列表；匹配记录仍加密保存，搜索、查看和文件操作受二次认证保护 |
+| `sensitive.customPatterns` | 自定义正则列表；匹配记录仍加密保存，搜索、查看和文件操作受二次认证保护。规则只在采集时生效，之后记录的敏感属性完全由用户手动控制 |
+| `image.enabled` | 是否捕获剪贴板图片（截图/浏览器 Copy Image 等），统一转码为托管 PNG |
+| `image.maxBytes` | 单张图片（转码后 PNG）的最大字节数，默认 32 MiB；超限保存为「无内容」事件记录 |
+| `popup.hideDuplicates` | 搜索弹窗默认过滤重复事件 |
+| `popup.hideUnavailable` | 搜索弹窗默认过滤无内容记录 |
+| `popup.keyOpen` / `keyRestore` / `keyPaste` | 弹窗三个动作的快捷键：`[Ctrl+][Shift+][Alt+]Enter`，三者不能相同；双击列表恒为恢复 |
 | `autostart.enabled` | 是否开机自启动 |
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |
 | `security.secondaryAuthTimeout` | 二次认证缓存时长（分钟），0 = 每次都校验 |
@@ -401,8 +427,8 @@ New-Item -ItemType File "portable.flag"
 | `backup.emailBackup.smtpPass` | SMTP 密码或授权码；与用户名同时填写或同时留空 |
 | `backup.emailBackup.from` | 发件人邮箱 |
 | `backup.emailBackup.to` | 收件人邮箱 |
-| `backup.emailBackup.format` | 备份格式：`json`（明文）/ `xlsx`（明文 Excel）/ `cvexport`（加密） |
-| `backup.emailBackup.password` | cvexport 格式的加密密码 |
+| `backup.emailBackup.format` | 备份格式：`json` / `xlsx` / `cvexport`。**附件恒为 `.cvexport` 加密容器**：json/xlsx 的明文文件先打进 zip 再整体加密 |
+| `backup.emailBackup.password` | 邮件备份的加密密码（**任何格式都必填**，仅支持加密导出） |
 | `backup.emailBackup.subject` | 邮件标题，支持 `{time}`、`{filename}`、`{format}` |
 | `backup.emailBackup.body` | 邮件正文，支持 `{time}`、`{filename}`、`{format}` |
 | `backup.emailBackup.style` | 邮件样式：`plain` / `card` / `accent` |
@@ -425,12 +451,23 @@ clipboard_ext/
 │   └── rsrc_windows_386.syso   # 同上（32 位）
 ├── cmd/license-keygen/         # 离线密钥生成与永久激活码签发工具
 ├── cmd/dev-activate/           # 开发用：给当前机器签发激活码并写入 receipt
-├── internal/clipvault/         # 核心逻辑
+├── internal/clipvault/         # 核心逻辑（适配层）
+│   ├── domain/                 # 业务模型唯一定义（记录/分组/搜索/清理、事件状态常量）
+│   ├── application/            # 运行时状态等应用层
+│   ├── storage/duckdb/         # schema v3（BIGINT Unix 毫秒 + 事件状态列）
+│   ├── transfer/               # 导入导出范围契约（export v5）
+│   ├── backup/                 # 增量备份策略（纯逻辑）
+│   ├── security/               # 密码散列与 DPAPI
+│   ├── transport/httpui/       # JSON envelope 与严格解码
+│   ├── platform/windows/       # Windows 平台适配
+│   ├── bootstrap/              # 命令解析与生命周期装配
 │   ├── app_windows.go          # Windows 启动流程 + 恢复入口
 │   ├── auth.go                 # 锁屏密码 & 二次密码认证管理
 │   ├── autostart_windows.go    # 开机启动（注册表）
 │   ├── backup.go               # 定时备份服务（目录备份 + 邮件备份 + SMTP）
-│   ├── clipboard_windows.go    # 剪贴板监听与读取、文件类型识别
+│   ├── clipboard_windows.go    # 剪贴板事件读取（文本/文件/格式枚举）
+│   ├── clipboard_image_windows.go   # 剪贴板图片捕获（PNG/DIBV5/DIB/BITMAP → PNG）
+│   ├── clipboard_restore_windows.go # 恢复记录到剪贴板 + 粘贴到之前窗口
 │   ├── config.go               # 配置结构、默认值、环境路径解析
 │   ├── config_manager.go       # 配置管理器（内存缓存 + 变更通知）
 │   ├── cvexport.go             # 加密导出包（scrypt + AES-256-GCM + gzip）
@@ -438,16 +475,20 @@ clipboard_ext/
 │   ├── filter.go               # 自定义正则过滤引擎
 │   ├── keyfile.go              # DPAPI 密钥文件 + 恢复文件读写
 │   ├── logger.go               # 按日期分文件日志
+│   ├── popup_keys.go           # 弹窗动作快捷键解析与冲突校验
 │   ├── recovery.go             # 恢复逻辑（密码恢复 + 新建数据库）
 │   ├── recovery_password.go    # 恢复密码管理（设置/修改/安全重置/验证/强度检查）
 │   ├── recovery_server.go      # DPAPI 失效时的恢复 HTTP 服务
-│   ├── recorder.go             # 剪贴板事件处理与持久化
+│   ├── recorder.go             # 事件优先录制状态机（绝不丢事件）
 │   ├── search_server.go        # HTTP 服务器（API + 嵌入式前端）
+│   ├── search_window_windows.go     # 桌面快速搜索弹窗（Win32）
 │   ├── shell_windows.go        # Shell 操作（打开目录等）
 │   ├── state.go                # 运行时状态（暂停/恢复）
 │   ├── statefile.go            # 应用状态文件（引擎、密钥指纹、时间戳）
 │   ├── store.go                # DuckDB 存储层（记录 + 配置 + 分组 + 导入导出）
-│   ├── windows_runtime.go      # Win32 托盘/窗口/消息循环
+│   ├── store_cleanup.go        # 精确历史清理（preview/delete 共用条件）
+│   ├── windows_runtime.go      # Win32 托盘/窗口/消息循环 + 恢复抑制水位
+│   ├── windows_clipboard_runtime.go # 无界 FIFO 剪贴板事件队列
 │   └── web/                    # 前端静态资源（编译时嵌入）
 │       ├── app/                # 按历史页/设置页拆分的原生 ES 模块
 │       ├── pages/              # 服务端启动时编译的页面片段
@@ -468,5 +509,5 @@ clipboard_ext/
 - **scrypt + AES-256-GCM** — 恢复密码和加密导出包
 - **Ed25519 + DPAPI** — 永久离线激活码验签与当前用户授权凭据保护
 - **SMTP** — 定时邮件备份发送
-- **Win32 API** — 系统托盘、剪贴板监听、全局热键
+- **Win32 API** — 系统托盘、剪贴板监听与恢复、全局热键、桌面搜索弹窗、SendInput 粘贴
 - **embed.FS** — 前端静态资源编译时嵌入
