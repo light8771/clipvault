@@ -230,16 +230,26 @@ export function registerHistoryList() {
   };
   app.renderSrcExeDropdown = function renderSrcExeDropdown() {
     const wrap = document.getElementById('srcExeDropdown');
+    const btn = document.getElementById('srcExeBtn');
     const list = document.getElementById('srcExeList');
     const counter = document.getElementById('srcExeCount');
+    const footInfo = document.getElementById('srcExeFootInfo');
+    const resetBtn = document.getElementById('srcExeReset');
     const filterInput = document.getElementById('srcExeFilter');
     if (!wrap || !list) return;
+    const selected = app.currentSourceExes.length;
+    if (counter) {
+      counter.textContent = selected || '';
+      counter.classList.toggle('hidden', !selected);
+    }
+    if (btn) btn.classList.toggle('active', selected > 0);
+    if (footInfo) footInfo.textContent = selected ? '已筛选 ' + selected + ' 个应用' : '显示全部来源';
+    if (resetBtn) resetBtn.classList.toggle('hidden', !selected);
     const cfg = app.currentCfg || {};
     const recordingOn = cfg.recordSourceInfo !== false;
     if (!recordingOn) {
       wrap.classList.add('disabled');
       list.innerHTML = '<p class="src-exe-empty">来源采集已关闭</p>';
-      if (counter) counter.textContent = '';
       return;
     }
     wrap.classList.remove('disabled');
@@ -255,36 +265,51 @@ export function registerHistoryList() {
       });
     }
     if (!items.length) {
-      list.innerHTML = '<p class="src-exe-empty">无可筛选来源应用</p>';
+      list.innerHTML = '<p class="src-exe-empty">没有匹配的应用</p>';
     } else {
       list.innerHTML = items.map(e => {
         const label = app.sourceAliases[e.name] || e.name;
         const checked = app.currentSourceExes.includes(e.name);
-        return `<label class="src-exe-opt"><input type="checkbox" value="${app.esc(e.name)}"${checked ? ' checked' : ''}><span class="src-exe-name">${app.esc(label)}</span><span class="src-exe-cnt">${e.count}</span></label>`;
+        return `<label class="src-exe-opt"><input type="checkbox" value="${app.esc(e.name)}"${checked ? ' checked' : ''}><span class="src-exe-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg></span><span class="src-exe-name">${app.esc(label)}</span><span class="src-exe-cnt">${e.count}</span></label>`;
       }).join('');
     }
-    if (counter) counter.textContent = app.currentSourceExes.length ? '(' + app.currentSourceExes.length + ')' : '';
   };
   app.setupSrcExeUI = function setupSrcExeUI() {
     const btn = document.getElementById('srcExeBtn');
     const pop = document.getElementById('srcExePop');
     const list = document.getElementById('srcExeList');
     const filterInput = document.getElementById('srcExeFilter');
+    const resetBtn = document.getElementById('srcExeReset');
     if (btn && pop) {
       btn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
         pop.hidden = !pop.hidden;
+        btn.classList.toggle('open', !pop.hidden);
+        if (!pop.hidden && filterInput) {
+          filterInput.value = '';
+          app.renderSrcExeDropdown();
+          filterInput.focus();
+        }
       });
       document.addEventListener('click', e => {
         if (pop.hidden) return;
         if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
           pop.hidden = true;
+          btn.classList.remove('open');
         }
       });
     }
     if (filterInput) {
       filterInput.addEventListener('input', () => app.renderSrcExeDropdown());
+    }
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (!app.currentSourceExes.length) return;
+        app.currentSourceExes = [];
+        app.renderSrcExeDropdown();
+        app.search();
+      });
     }
     if (list) {
       list.addEventListener('change', e => {
@@ -441,7 +466,6 @@ export function registerHistoryList() {
     await app.refreshState();
   });
 
-  // 清理历史弹窗逻辑在 cleanup-modal.js（registerCleanupModal）。
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (!document.getElementById('sourceAppsModal')?.classList.contains('hidden')) {
@@ -450,10 +474,6 @@ export function registerHistoryList() {
       }
       if (document.getElementById('groupModalOverlay')) {
         app.closeGroupModal();
-        return;
-      }
-      if (!app.CLEANUP_MODAL.classList.contains('hidden')) {
-        app.closeCleanupModal();
         return;
       }
       if (!app.VIEW_MODAL.classList.contains('hidden')) {

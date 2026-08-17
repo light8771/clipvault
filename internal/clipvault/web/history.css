@@ -550,23 +550,5 @@ pre.event-only {
 .ab.sens:hover { border-color: rgba(220,38,38,.4); color: #DC2626; background: rgba(220,38,38,.08); }
 .ab.sens.on { color: #DC2626; border-color: rgba(220,38,38,.3); background: rgba(220,38,38,.1); }
 
-/* ── 清理历史弹窗 ─────────────────────────────────────────── */
-.cleanup-form { display: flex; flex-direction: column; gap: 10px; }
-.cleanup-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.cleanup-range { display: flex; align-items: center; gap: 8px; }
-.cleanup-range input { flex: 1; }
-.cleanup-preview { font-size: 13px; color: var(--sub); }
-.cleanup-acts { display: flex; justify-content: flex-end; }
-.btn-danger {
-  height: 30px;
-  padding: 0 16px;
-  border-radius: 6px;
-  border: 1px solid var(--danger);
-  background: var(--danger);
-  color: #fff;
-  font: 500 13px sans-serif;
-  cursor: pointer;
-}
-.btn-danger:disabled { opacity: .4; cursor: not-allowed; }
 .popup-key-input { width: 110px; }
 

@@ -207,29 +207,6 @@ body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay)
 .btn-toggle.off      { background: var(--danger-dim); border-color: var(--danger); color: var(--danger); }
 .btn-toggle.off:hover{ background: rgba(239,68,68,.18); }
 
-/* Clear all button */
-.btn-clear {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--card-border);
-  background: var(--card);
-  color: var(--sub);
-  font: 500 13px sans-serif;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: color .15s, border-color .15s, background .15s;
-  white-space: nowrap;
-}
-.btn-clear:hover       { border-color: var(--danger); color: var(--danger); }
-.btn-clear.confirm     { background: var(--danger); border-color: var(--danger); color: #fff; animation: clearPulse .6s ease-in-out infinite; }
-.btn-clear.confirm:hover { background: #DC2626; }
-.btn-clear.loading     { opacity: .6; pointer-events: none; }
-
-@keyframes clearPulse { 0%,100%{opacity:1} 50%{opacity:.75} }
-
 /* ── Main ──────────────────────────────────────────────────── */
 main {
   max-width: 880px;

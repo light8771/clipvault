@@ -156,6 +156,155 @@ pre.modal-pre::after {
   display: none;
 }
 
+/* ── 清理历史弹窗 ─────────────────────────────────────── */
+.cleanup-modal { max-width: 480px; }
+.cleanup-modal .modal-body { height: auto; }
+.cleanup-body { display: flex; flex-direction: column; gap: 14px; }
+.cleanup-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.cleanup-mode {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.cleanup-mode:hover { border-color: var(--p); }
+.cleanup-mode input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.cleanup-mode:has(input:checked) {
+  border-color: var(--p);
+  background: var(--p-dim);
+}
+.cleanup-mode:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--p-dim); }
+.cleanup-mode-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  color: var(--sub);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, color .15s;
+}
+.cleanup-mode:has(input:checked) .cleanup-mode-icon {
+  background: var(--p);
+  color: #fff;
+}
+.cleanup-mode-text { min-width: 0; }
+.cleanup-mode-text strong {
+  display: block;
+  font: 600 13px sans-serif;
+  color: var(--tx);
+}
+.cleanup-mode-text small {
+  display: block;
+  margin-top: 2px;
+  font: 12px sans-serif;
+  color: var(--sub);
+}
+.cleanup-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cleanup-range input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  color: var(--tx);
+  font: 12.5px sans-serif;
+  outline: none;
+  color-scheme: light dark;
+}
+.cleanup-range input:focus { border-color: var(--p); }
+.cleanup-range-sep { color: var(--sub); font: 12px sans-serif; flex-shrink: 0; }
+.cleanup-keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: 13px sans-serif;
+  color: var(--tx);
+  width: fit-content;
+}
+.cleanup-keep input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.cleanup-keep-box {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--card-border);
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: background .12s, border-color .12s;
+}
+.cleanup-keep-box svg { opacity: 0; transform: scale(.5); transition: opacity .12s, transform .12s; }
+.cleanup-keep input:checked + .cleanup-keep-box {
+  background: var(--p);
+  border-color: var(--p);
+}
+.cleanup-keep input:checked + .cleanup-keep-box svg { opacity: 1; transform: scale(1); }
+.cleanup-keep input:focus-visible + .cleanup-keep-box { box-shadow: 0 0 0 3px var(--p-dim); }
+.cleanup-preview {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--danger-dim);
+  border: 1px solid rgba(239,68,68,.28);
+  color: var(--danger);
+  font: 500 13px sans-serif;
+  text-align: center;
+}
+.cleanup-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+.btn-danger {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #fff;
+  font: 500 13px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: filter .15s, opacity .15s;
+}
+.btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-danger:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 480px) {
+  .cleanup-modes { grid-template-columns: 1fr; }
+}
+
 @keyframes mOverlayIn { from { opacity:0 } to { opacity:1 } }
 @keyframes mBoxIn     { from { transform:translateY(10px) scale(.97); opacity:0 } to { transform:translateY(0) scale(1); opacity:1 } }
 

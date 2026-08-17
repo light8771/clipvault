@@ -426,6 +426,25 @@
 }
 .pattern-del:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-dim); }
 
+/* ── 历史清理入口 ─────────────────────────────────────── */
+.btn-cleanup-open {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(239,68,68,.4);
+  background: transparent;
+  color: var(--danger);
+  font: 500 12.5px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s;
+}
+.btn-cleanup-open:hover { background: var(--danger-dim); border-color: var(--danger); }
+
 .pattern-hint {
   display: flex;
   gap: 7px;

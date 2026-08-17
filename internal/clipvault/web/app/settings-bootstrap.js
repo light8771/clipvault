@@ -19,12 +19,16 @@ import { registerConfigSave } from './config-save.js';
 import { registerConfigEvents } from './config-events.js';
 import { registerTransfer } from './transfer.js';
 import { registerGroups } from './groups.js';
+import { registerCleanupModal } from './cleanup-modal.js';
 import { registerSettingsLifecycle } from './settings-lifecycle.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
   'activate-license': () => app.activateLicense(),
   'settings-nav': element => app.navigateToSettingsSection(element.dataset.section, true),
+  'open-cleanup': () => app.openCleanupModal(),
+  'close-cleanup-modal': () => app.closeCleanupModal(),
+  'confirm-cleanup': () => app.doCleanup(),
   'open-source-apps': () => app.openSourceAppsDialog(),
   'close-source-apps': () => app.closeSourceAppsDialog(),
   'save-source-apps': () => app.saveSourceAppsDialog(),
@@ -69,4 +73,5 @@ registerConfigSave();
 registerConfigEvents();
 registerTransfer();
 registerGroups();
+registerCleanupModal();
 registerSettingsLifecycle();

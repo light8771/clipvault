@@ -78,16 +78,14 @@
     padding: 4px 8px;
   }
 
-  .btn-toggle,
-  .btn-clear {
+  .btn-toggle {
     width: 36px;
     height: 36px;
     padding: 0;
     justify-content: center;
   }
 
-  #togTx,
-  #clearTx {
+  #togTx {
     display: none;
   }
 
@@ -384,8 +382,7 @@
     padding-inline: 6px;
   }
 
-  .btn-toggle,
-  .btn-clear {
+  .btn-toggle {
     width: 34px;
     height: 34px;
   }

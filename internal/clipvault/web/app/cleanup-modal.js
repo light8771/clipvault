@@ -1,12 +1,11 @@
 import { app } from "./app-context.js";
 
-// 清理历史弹窗：精确范围清理（preview/delete 与后端共用条件）。
+// 清理历史弹窗（设置页「清理」区块）：精确范围清理（preview/delete 与后端共用条件）。
 // 全部 / 时间范围（秒级）两种模式，可选保留收藏。
 export function registerCleanupModal() {
   app.CLEANUP_MODAL = document.getElementById('cleanupModal');
   app.CLEANUP_PREVIEW = document.getElementById('cleanupPreview');
   app.CLEANUP_CONFIRM = document.getElementById('cleanupConfirmBtn');
-  app.CLEAR_BTN = document.getElementById('clearBtn');
   app.cleanupMatched = 0;
   app.cleanupPayload = function cleanupPayload() {
     const mode = document.querySelector('input[name="cleanupMode"]:checked')?.value || 'all';
@@ -76,8 +75,10 @@ export function registerCleanupModal() {
       if (!res.ok || !d.ok) throw new Error(d.error || '清理失败');
       app.toast('已删除 ' + d.deleted + ' 条记录');
       app.closeCleanupModal();
-      app.currentPage = 0;
-      await app.search();
+      if (typeof app.search === 'function') {
+        app.currentPage = 0;
+        await app.search();
+      }
     } catch (e) {
       if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
         app.toast('需要二次验证才能清理记录', 'err');
@@ -89,7 +90,6 @@ export function registerCleanupModal() {
       app.CLEANUP_CONFIRM.disabled = false;
     }
   };
-  app.CLEAR_BTN.addEventListener('click', () => app.openCleanupModal());
   document.querySelectorAll('input[name="cleanupMode"]').forEach(radio => {
     radio.addEventListener('change', () => {
       const range = radio.value === 'range' && radio.checked;
@@ -100,4 +100,9 @@ export function registerCleanupModal() {
   document.getElementById('cleanupFrom').addEventListener('change', () => app.refreshCleanupPreview());
   document.getElementById('cleanupTo').addEventListener('change', () => app.refreshCleanupPreview());
   document.getElementById('cleanupPreserveStarred').addEventListener('change', () => app.refreshCleanupPreview());
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && app.CLEANUP_MODAL && !app.CLEANUP_MODAL.classList.contains('hidden')) {
+      app.closeCleanupModal();
+    }
+  });
 }

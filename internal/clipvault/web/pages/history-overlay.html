@@ -19,32 +19,3 @@
     </div>
   </div>
 
-  <!-- ── 清理历史弹窗 ── -->
-  <div class="modal-overlay hidden" id="cleanupModal">
-    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="cleanupModalTitle" data-modal-panel>
-      <div class="modal-head">
-        <span class="modal-title" id="cleanupModalTitle">清理历史记录</span>
-        <div class="modal-acts">
-          <button class="modal-close" type="button" data-action="close-cleanup-modal" aria-label="关闭清理窗口" title="关闭">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="modal-body">
-        <div class="cleanup-form">
-          <label class="cleanup-opt"><input type="radio" name="cleanupMode" value="all" checked> 全部历史</label>
-          <label class="cleanup-opt"><input type="radio" name="cleanupMode" value="range"> 按时间范围（精确到秒）</label>
-          <div class="cleanup-range hidden" id="cleanupRangeFields">
-            <input type="datetime-local" id="cleanupFrom" step="1" aria-label="开始时间">
-            <span class="dfb-sep">—</span>
-            <input type="datetime-local" id="cleanupTo" step="1" aria-label="结束时间">
-          </div>
-          <label class="cleanup-opt"><input type="checkbox" id="cleanupPreserveStarred" checked> 保留收藏的记录</label>
-          <div class="cleanup-preview" id="cleanupPreview">将删除 0 条记录</div>
-          <div class="cleanup-acts">
-            <button class="btn-danger" id="cleanupConfirmBtn" type="button" data-action="confirm-cleanup" disabled>删除</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>

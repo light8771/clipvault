@@ -53,10 +53,22 @@
       </div>
       <div class="ctrl-right">
         <div class="src-exe-dropdown" id="srcExeDropdown">
-          <button type="button" class="src-exe-btn" id="srcExeBtn">来源应用 <span class="src-exe-count" id="srcExeCount"></span></button>
+          <button type="button" class="src-exe-btn" id="srcExeBtn" aria-haspopup="true">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            <span>来源应用</span>
+            <span class="src-exe-count hidden" id="srcExeCount"></span>
+            <svg class="src-exe-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
           <div class="src-exe-pop" id="srcExePop" hidden>
-            <div class="src-exe-search"><input type="search" id="srcExeFilter" placeholder="筛选应用..."></div>
+            <div class="src-exe-search">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="search" id="srcExeFilter" placeholder="搜索应用..." autocomplete="off">
+            </div>
             <div class="src-exe-list" id="srcExeList"></div>
+            <div class="src-exe-foot">
+              <span class="src-exe-foot-info" id="srcExeFootInfo">显示全部来源</span>
+              <button type="button" class="src-exe-reset hidden" id="srcExeReset">清除筛选</button>
+            </div>
           </div>
         </div>
         <label class="ar-toggle">

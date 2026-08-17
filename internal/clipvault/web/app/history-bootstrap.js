@@ -13,7 +13,6 @@ import { registerAppearanceTheme } from './appearance-theme.js';
 import { registerAppearanceBackground } from './appearance-background.js';
 import { registerAppearanceLoader } from './appearance-loader.js';
 import { registerGroups } from './groups.js';
-import { registerCleanupModal } from './cleanup-modal.js';
 import { registerHistoryLifecycle } from './history-lifecycle.js';
 
 registerActions({
@@ -30,9 +29,7 @@ registerActions({
   'toggle-sensitive': element => app.doToggleSensitive(Number(element.dataset.itemId)),
   'view-managed-image': element => app.doViewManagedImage(Number(element.dataset.itemId)),
   'assign-group': element => app.openGroupModal('assign', { itemId: Number(element.dataset.itemId) }),
-  'delete-item': element => app.doDelete(Number(element.dataset.itemId), element.closest('article')),
-  'close-cleanup-modal': () => app.closeCleanupModal(),
-  'confirm-cleanup': () => app.doCleanup()
+  'delete-item': element => app.doDelete(Number(element.dataset.itemId), element.closest('article'))
 });
 registerNotifications();
 registerRuntimeState();
@@ -47,5 +44,4 @@ registerAppearanceTheme();
 registerAppearanceBackground();
 registerAppearanceLoader();
 registerGroups();
-registerCleanupModal();
 registerHistoryLifecycle();
