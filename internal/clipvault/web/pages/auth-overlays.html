@@ -1,18 +1,47 @@
   <!-- ── 锁屏遮罩 ── -->
   <div class="lock-overlay" id="lockOverlay">
     <div class="lock-box" role="dialog" aria-modal="true" aria-labelledby="lockTitle">
-      <div class="lock-icon">
-        <img id="lockBrandLogo" class="hidden" alt="">
-        <svg id="lockDefaultLogo" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <div class="lock-main">
+        <div class="lock-brand">
+          <div class="lock-icon">
+            <img id="lockBrandLogo" class="hidden" alt="">
+            <svg id="lockDefaultLogo" width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+        </div>
+        <div class="lock-panel">
+          <h2 class="lock-title" id="lockTitle">ClipVault 锁屏</h2>
+          <p class="lock-desc">请输入锁屏密码以访问 Web 界面</p>
+          <form id="lockForm" class="lock-form">
+            <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
+            <div class="lock-field">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input type="password" id="lockPassword" class="lock-input" placeholder="锁屏密码" autocomplete="current-password" autofocus>
+            </div>
+            <button type="submit" class="lock-btn" id="lockBtn">解锁</button>
+          </form>
+          <p class="lock-err hidden" id="lockErr"></p>
+        </div>
       </div>
-      <h2 class="lock-title" id="lockTitle">ClipVault 锁屏</h2>
-      <p class="lock-desc">请输入锁屏密码以访问 Web 界面</p>
-      <form id="lockForm" class="lock-form">
-        <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
-        <input type="password" id="lockPassword" class="lock-input" placeholder="锁屏密码" autocomplete="current-password" autofocus>
-        <button type="submit" class="lock-btn" id="lockBtn">解锁</button>
-      </form>
-      <p class="lock-err hidden" id="lockErr"></p>
+      <div class="lock-features">
+        <div class="lock-feature">
+          <span class="lock-feature-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+          </span>
+          <span class="lock-feature-text"><strong>安全访问</strong><small>从验证开始</small></span>
+        </div>
+        <div class="lock-feature">
+          <span class="lock-feature-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          <span class="lock-feature-text"><strong>隐私保护</strong><small>数据加密存储</small></span>
+        </div>
+        <div class="lock-feature">
+          <span class="lock-feature-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </span>
+          <span class="lock-feature-text"><strong>防止未授权访问</strong><small>守护你的安全</small></span>
+        </div>
+      </div>
     </div>
   </div>
 

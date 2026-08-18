@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-func (bs *BackupService) doDirBackup(cfg Config, forceFull bool) error {
-	bs.execMu.Lock()
-	defer bs.execMu.Unlock()
+// doDirBackup 执行一次目录备份。调用方必须已持有 execMu
+// （runDirBackupLocked / RunDirBackup）。trigger 记录触发方式，
+// 用于状态展示与历史记录。
+func (bs *BackupService) doDirBackup(cfg Config, trigger string, forceFull bool) error {
 	if bs.isStopped() {
 		return errBackupStopped
 	}
@@ -24,40 +25,55 @@ func (bs *BackupService) doDirBackup(cfg Config, forceFull bool) error {
 	if msg := validateDirBackupEnabled(db); msg != "" {
 		return fmt.Errorf("目录备份配置不完整: %s", msg)
 	}
-	normalizedScope, err := normalizeExportRange(db.Scope, cfg.Search.TimeZone)
-	if err != nil {
+	bs.markDirRunning(trigger)
+	fail := func(now time.Time, scope ExportScope, autoFallback bool, file string, err error) error {
+		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
+		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, err.Error(), file, trigger))
+		bs.recordBackupHistory("dir", trigger, scope.Mode, false, err, db.Dir, db.Format, 0, 0)
 		return err
 	}
-	db.Scope = normalizedScope
-	scope, autoFallback, err := resolveBackupScope(bs.store, "dir", db.Scope, db.IncrementalFullInterval, forceFull)
+	normalizedScope, err := normalizeExportRange(db.Scope, cfg.Search.TimeZone)
 	if err != nil {
-		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
-		bs.setDirStatus(makeBackupStatus(time.Now(), false, db.Scope, false, wm, db.IncrementalFullInterval, err.Error(), ""))
-		return err
+		return fail(time.Now(), db.Scope, false, "", err)
+	}
+	db.Scope = normalizedScope
+	scope, autoFallback, err := resolveBackupScope(bs.store, "dir", db.Scope, db.FullFallbackDays, forceFull)
+	if err != nil {
+		return fail(time.Now(), db.Scope, false, "", err)
 	}
 	now := time.Now()
 	format := db.Format
 	if format != "json" && format != "xlsx" && format != "cvexport" {
-		err := fmt.Errorf("不支持的备份格式: %s", format)
+		return fail(now, scope, autoFallback, "", fmt.Errorf("不支持的备份格式: %s", format))
+	}
+	// 无数据可备份时跳过：增量没有新记录、或全量时库为空，
+	// 都不产生空备份文件，水位线保持不动。
+	total, err := bs.store.CountInScope(context.Background(), scope)
+	if err != nil {
+		return fail(now, scope, autoFallback, "", fmt.Errorf("统计备份数据失败: %w", err))
+	}
+	if total == 0 {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
-		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, db.IncrementalFullInterval, err.Error(), ""))
-		return err
+		status := makeBackupStatus(now, true, scope, autoFallback, wm, "", "", trigger)
+		status.Skipped = true
+		bs.setDirStatus(status)
+		bs.recordBackupHistory("dir", trigger, "skipped", true, nil, db.Dir, format, 0, 0)
+		bs.logger.Info("dir_backup_skipped_empty", map[string]any{"mode": scope.Mode, "trigger": trigger})
+		return nil
 	}
 	fullPath, size, exportedMaxID, err := bs.writeBackupFileStream(db.Dir, now, format, db.Password, scope)
 	if err != nil {
-		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
-		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, db.IncrementalFullInterval, err.Error(), ""))
-		return err
+		return fail(now, scope, autoFallback, "", err)
 	}
 
 	wm, wmErr := updateBackupWatermark(bs.store, "dir", scope, exportedMaxID)
 	if wmErr != nil {
 		bs.logger.Error("dir_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
-		bs.setDirStatus(makeBackupStatus(now, false, scope, autoFallback, wm, db.IncrementalFullInterval, wmErr.Error(), fullPath))
-		return wmErr
+		return fail(now, scope, autoFallback, fullPath, fmt.Errorf("备份文件已生成，但更新备份进度失败: %w", wmErr))
 	}
-	bs.setDirStatus(makeBackupStatus(now, true, scope, autoFallback, wm, db.IncrementalFullInterval, "", fullPath))
-	bs.logger.Info("dir_backup_ok", map[string]any{"file": fullPath, "size": size, "mode": scope.Mode, "autoFallback": autoFallback})
+	bs.setDirStatus(makeBackupStatus(now, true, scope, autoFallback, wm, "", fullPath, trigger))
+	bs.recordBackupHistory("dir", trigger, scope.Mode, true, nil, db.Dir, format, 1, total)
+	bs.logger.Info("dir_backup_ok", map[string]any{"file": fullPath, "size": size, "mode": scope.Mode, "autoFallback": autoFallback, "trigger": trigger})
 	return nil
 }
 

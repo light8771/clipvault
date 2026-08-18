@@ -25,32 +25,31 @@ func (bs *BackupService) exportBackupData(format, password string, scope ExportS
 	return buf.Bytes(), "cvexport", maxID, nil
 }
 
-// resolveBackupScope resolves the actual scope to run: for incremental mode it
-// reads the watermark to fill SinceID; if no watermark exists or the incremental
-// chain reached fullInterval, it falls back to full. forceFull (manual trigger)
-// always runs full. Returns (scope, autoFallback) where autoFallback is true only
-// for automatic degradation (not manual forceFull).
-func resolveBackupScope(store *Store, kind string, configured ExportScope, fullInterval int, forceFull bool) (ExportScope, bool, error) {
-	if forceFull || (configured.Mode != "incremental" && configured.Mode != "") {
-		return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullInterval, forceFull)
-	}
-	if configured.Mode == "" {
-		return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullInterval, false)
+// resolveBackupScope 决定本次备份实际执行的范围：incremental 模式读取水位线
+// 填 SinceID；无水位线（首次）或距上次全量已满 fullFallbackDays 时转全量兜底。
+// forceFull（手动触发）总是执行全量。返回 (scope, autoFallback)，autoFallback
+// 仅在自动转全量时为 true（手动 forceFull 不算）。
+func resolveBackupScope(store *Store, kind string, configured ExportScope, fullFallbackDays int, forceFull bool) (ExportScope, bool, error) {
+	if configured.Mode != "incremental" || forceFull {
+		return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullFallbackDays, time.Now(), forceFull)
 	}
 	wm, err := store.GetBackupWatermark(context.Background(), kind)
 	if err != nil {
 		return configured, false, fmt.Errorf("读取备份水印失败: %w", err)
 	}
-	return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{LastItemID: wm.LastItemID, IncrementalCount: wm.IncrementalCount}, fullInterval, forceFull)
+	lastFullAt, _ := time.Parse(time.RFC3339, wm.LastFullAt) // 零值表示从未全量
+	return backuppolicy.ResolveScope(configured,
+		backuppolicy.Watermark{LastItemID: wm.LastItemID, LastFullAt: lastFullAt},
+		fullFallbackDays, time.Now(), false)
 }
 
-// updateBackupWatermark records the backup position from the id that was ACTUALLY
-// exported (exportedMaxID), not from a fresh query — a later query would race
-// with concurrent clipboard writes and could advance the watermark past rows
-// that were never exported, silently losing them from every future incremental
-// backup. exportedMaxID<=0 means "no data was exported" and the watermark is
-// left untouched (the existing watermark is returned so the UI status does not
-// flash a reset).
+// updateBackupWatermark 用实际导出的最大记录 id（exportedMaxID）推进水位线，
+// 而不是重新查询——重新查询会与并发剪贴板写入竞态，把从未导出的记录
+// 跳过，导致后续所有增量备份永久丢失它们。exportedMaxID<=0 表示没有导出
+// 任何数据，水位线保持不动（返回现有值，避免界面状态闪动）。
+// range 模式不参与水位线（一次性导出，不影响增量进度）。
+// 邮件分片备份逐片调用本函数（scope 视为 incremental）：中途失败时已发出的
+// 片段不回滚，下次备份从失败点续发，已发片段不会重复投递。
 func updateBackupWatermark(store *Store, kind string, scope ExportScope, exportedMaxID int64) (BackupWatermark, error) {
 	wm, err := store.GetBackupWatermark(context.Background(), kind)
 	if err != nil {
@@ -61,12 +60,8 @@ func updateBackupWatermark(store *Store, kind string, scope ExportScope, exporte
 		return wm, nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	newWM := BackupWatermark{LastItemID: exportedMaxID, LastSentAt: now}
-	if scope.Mode == "incremental" {
-		newWM.IncrementalCount = wm.IncrementalCount + 1
-		newWM.LastFullAt = wm.LastFullAt
-	} else {
-		newWM.IncrementalCount = 0
+	newWM := BackupWatermark{LastItemID: exportedMaxID, LastSentAt: now, LastFullAt: wm.LastFullAt}
+	if scope.Mode != "incremental" {
 		newWM.LastFullAt = now
 	}
 	if err := store.SetBackupWatermark(context.Background(), kind, newWM); err != nil {
@@ -75,19 +70,18 @@ func updateBackupWatermark(store *Store, kind string, scope ExportScope, exporte
 	return newWM, nil
 }
 
-// makeBackupStatus builds a BackupStatus with transparent incremental-chain info.
-// wm is provided by the caller (updateBackupWatermark's return on success, or a
-// fresh read on failure) to avoid a redundant settings lookup here.
-func makeBackupStatus(now time.Time, ok bool, scope ExportScope, autoFallback bool, wm BackupWatermark, fullInterval int, errMsg, file string) BackupStatus {
+// makeBackupStatus 构造一次备份执行的状态快照。
+// wm 由调用方提供（成功时取 updateBackupWatermark 的返回值，失败时取一次
+// 当前读数），避免这里再查一次 settings。
+func makeBackupStatus(now time.Time, ok bool, scope ExportScope, autoFallback bool, wm BackupWatermark, errMsg, file, trigger string) BackupStatus {
 	return BackupStatus{
-		LastTime:         now,
-		LastOK:           ok,
-		LastError:        errMsg,
-		BackupFile:       file,
-		ActualMode:       scope.Mode,
-		AutoFallback:     autoFallback,
-		IncrementalCount: wm.IncrementalCount,
-		FullInterval:     fullInterval,
-		LastFullAt:       wm.LastFullAt,
+		LastTime:     now,
+		LastOK:       ok,
+		LastError:    errMsg,
+		BackupFile:   file,
+		ActualMode:   scope.Mode,
+		AutoFallback: autoFallback,
+		LastFullAt:   wm.LastFullAt,
+		Trigger:      trigger,
 	}
 }

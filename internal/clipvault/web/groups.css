@@ -217,6 +217,17 @@ article.locate-highlight {
   position: relative;
 }
 
+/* ── 分组管理页（页内交互） ─────────────────────────────── */
+.group-page-tree { padding: 10px 16px 14px; }
+.gm-act.armed {
+  width: auto;
+  padding: 0 8px;
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-dim);
+  font: 500 12px sans-serif;
+}
+
 /* ── Group tree checkbox (assign mode) ────────────────────── */
 .gt-check {
   width: 16px;

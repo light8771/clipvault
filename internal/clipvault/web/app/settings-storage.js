@@ -369,15 +369,15 @@ export function registerSettingsStorage() {
     if (dirFormat) dirFormat.value = db.format || 'cvexport';
     const dirScope = document.getElementById('cfg-dirBackupScope');
     if (dirScope) dirScope.value = db.scope && db.scope.mode || 'full';
-    const dirIncrFullInterval = document.getElementById('cfg-dirBackupIncrementalFullInterval');
-    if (dirIncrFullInterval) dirIncrFullInterval.value = db.incrementalFullInterval !== undefined && db.incrementalFullInterval !== null ? db.incrementalFullInterval : 7;
+    const dirFullFallbackDays = document.getElementById('cfg-dirBackupFullFallbackDays');
+    if (dirFullFallbackDays) dirFullFallbackDays.value = db.fullFallbackDays !== undefined && db.fullFallbackDays !== null ? db.fullFallbackDays : 7;
     if (dirPwd) dirPwd.value = '';
     if (dirPwdClear) dirPwdClear.checked = false;
     const dirHasPwd = db.password === '__set__';
-    if (dirPwdClearRow) dirPwdClearRow.style.display = dirHasPwd ? '' : 'none';
+    if (dirPwdClearRow) dirPwdClearRow.style.display = dirHasPwd ? 'flex' : 'none';
     // 目录备份仅支持加密导出：cvexport 直接加密；json/xlsx 打进 zip 后加密。
     // 密码行恒显示，任何格式都需要加密密码。
-    if (dirPwdRow) dirPwdRow.style.display = '';
+    if (dirPwdRow) dirPwdRow.style.display = 'flex';
     const emailEnabled = document.getElementById('cfg-emailBackupEnabled');
     const emailRunOnStartup = document.getElementById('cfg-emailBackupRunOnStartup');
     const emailInterval = document.getElementById('cfg-emailBackupInterval');
@@ -412,8 +412,8 @@ export function registerSettingsStorage() {
     if (emailMaxPartSize) {
       emailMaxPartSize.value = Math.round(eb.maxPartSize / (1024 * 1024));
     }
-    const emailIncrFullInterval = document.getElementById('cfg-emailBackupIncrementalFullInterval');
-    if (emailIncrFullInterval) emailIncrFullInterval.value = eb.incrementalFullInterval !== undefined && eb.incrementalFullInterval !== null ? eb.incrementalFullInterval : 7;
+    const emailFullFallbackDays = document.getElementById('cfg-emailBackupFullFallbackDays');
+    if (emailFullFallbackDays) emailFullFallbackDays.value = eb.fullFallbackDays !== undefined && eb.fullFallbackDays !== null ? eb.fullFallbackDays : 7;
     if (emailSubject) emailSubject.value = eb.subject || '';
     if (emailBody) emailBody.value = eb.body || '';
     if (emailStyle) emailStyle.value = eb.style || 'card';
@@ -421,11 +421,16 @@ export function registerSettingsStorage() {
     if (emailPwd) emailPwd.value = '';
     if (emailPwdClear) emailPwdClear.checked = false;
     const emailHasPwd = eb.password === '__set__';
-    if (emailPwdClearRow) emailPwdClearRow.style.display = emailHasPwd ? '' : 'none';
+    if (emailPwdClearRow) emailPwdClearRow.style.display = emailHasPwd ? 'flex' : 'none';
     // 邮件备份仅支持加密导出：任何格式都必须设置加密密码，密码行恒显示。
-    if (emailPwdRow) emailPwdRow.style.display = '';
+    if (emailPwdRow) emailPwdRow.style.display = 'flex';
 
-    // 加载备份状态
+    // 加载备份状态，并在页面打开期间轮询（定时/启动备份的结果实时可见）
     app.loadBackupStatus();
+    if (!app._backupStatusTimer) {
+      app._backupStatusTimer = setInterval(() => {
+        if (!document.hidden) app.loadBackupStatus();
+      }, 15000);
+    }
   };
 }

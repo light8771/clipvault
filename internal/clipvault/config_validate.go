@@ -67,9 +67,9 @@ func validateConfig(cfg Config) error {
 	if cfg.Backup.EmailBackup.MaxPartSize < 1<<20 || cfg.Backup.EmailBackup.MaxPartSize > 50<<20 {
 		return fmt.Errorf("email maxPartSize must be between 1 and 50 MiB")
 	}
-	if cfg.Backup.DirBackup.IncrementalFullInterval < 0 || cfg.Backup.DirBackup.IncrementalFullInterval > 100 ||
-		cfg.Backup.EmailBackup.IncrementalFullInterval < 0 || cfg.Backup.EmailBackup.IncrementalFullInterval > 100 {
-		return fmt.Errorf("incremental full intervals must be between 0 and 100")
+	if cfg.Backup.DirBackup.FullFallbackDays < 0 || cfg.Backup.DirBackup.FullFallbackDays > 365 ||
+		cfg.Backup.EmailBackup.FullFallbackDays < 0 || cfg.Backup.EmailBackup.FullFallbackDays > 365 {
+		return fmt.Errorf("full fallback days must be between 0 and 365")
 	}
 	if err := validateConfiguredBackupScope(cfg.Backup.DirBackup.Scope, cfg.Search.TimeZone); err != nil {
 		return fmt.Errorf("invalid directory backup scope: %w", err)

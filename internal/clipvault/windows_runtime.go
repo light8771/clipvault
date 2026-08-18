@@ -105,14 +105,16 @@ type notifyIconData struct {
 }
 
 type WindowsRuntime struct {
-	env       Environment
-	cfgMgr    *ConfigManager
-	logger    *DailyLogger
-	state     *RuntimeState
-	recorder  *Recorder
-	license   *licensing.Manager
-	store     *Store
-	SearchURL string
+	env      Environment
+	cfgMgr   *ConfigManager
+	logger   *DailyLogger
+	state    *RuntimeState
+	recorder *Recorder
+	license  *licensing.Manager
+	store    *Store
+	// searchURL 由主 goroutine（Web 服务重启）写入、消息循环线程（托盘/
+	// 快捷搜索）读取，使用 atomic.Value 避免数据竞争。
+	searchURL atomic.Value
 	hwnd      uintptr
 	hIcon     uintptr
 
@@ -198,19 +200,32 @@ var (
 
 func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogger, state *RuntimeState, recorder *Recorder, store *Store, searchURL string, license *licensing.Manager) *WindowsRuntime {
 	r := &WindowsRuntime{
-		env:       env,
-		cfgMgr:    cfgMgr,
-		logger:    logger,
-		state:     state,
-		recorder:  recorder,
-		license:   license,
-		store:     store,
-		SearchURL: searchURL,
+		env:      env,
+		cfgMgr:   cfgMgr,
+		logger:   logger,
+		state:    state,
+		recorder: recorder,
+		license:  license,
+		store:    store,
 	}
+	r.SetSearchURL(searchURL)
 	if license != nil {
 		license.OnChange(func(licensing.Context) { r.updateTrayIcon() })
 	}
 	return r
+}
+
+// SearchURL 返回当前 Web 管理界面地址，可从任意线程调用。
+func (r *WindowsRuntime) SearchURL() string {
+	if v := r.searchURL.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
+}
+
+// SetSearchURL 更新 Web 管理界面地址，可从任意线程调用。
+func (r *WindowsRuntime) SetSearchURL(url string) {
+	r.searchURL.Store(url)
 }
 
 func (r *WindowsRuntime) Run() error {
@@ -340,16 +355,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			r.pendingHotkeyResult = nil
 			r.hotkeyMu.Unlock()
 			if resultCh != nil {
-				r.unregisterHotkey()
-				r.unregisterSearchHotkey()
-				var err error
-				if hk != nil {
-					err = r.doRegisterHotkey(idHotkeyToggle, *hk)
-				}
-				if shk != nil && err == nil {
-					err = r.doRegisterHotkey(idHotkeySearch, *shk)
-				}
-				resultCh <- err
+				resultCh <- r.applyHotkeyUpdate(hk, shk)
 			}
 		}
 		return 0

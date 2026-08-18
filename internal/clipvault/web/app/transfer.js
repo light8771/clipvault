@@ -324,65 +324,87 @@ export function registerTransfer() {
       error: `\u5bfc\u5165\u8bf7\u6c42\u5931\u8d25 (${res.status})`
     };
   };
-  app.backupAction = async function backupAction(url, successMsg) {
+  // 手动备份触发：服务端异步执行，这里只处理"是否成功启动"。
+  // 执行进度与结果由状态轮询（loadBackupStatus）展示。
+  app.backupAction = async function backupAction(url, startedMsg) {
     if (!(await app.flushPendingConfigSave())) return;
+    let res;
     try {
-      const res = await app.protectedFetch(url, {
+      res = await app.protectedFetch(url, {
         method: 'POST'
       });
-      const d = await res.json();
-      if (d.ok) {
-        app.toast(successMsg);
-        app.loadBackupStatus();
-      } else {
-        const message = d.code === 'license_required' ? '需要先激活 ClipVault 才能使用备份功能' : d.error || '操作失败';
-        app.toast(message, 'err');
-      }
     } catch (e) {
       app.toast('网络错误: ' + e.message, 'err');
+      return;
     }
+    let d = {};
+    try {
+      d = await res.json();
+    } catch (_) {
+      app.toast('操作失败 (HTTP ' + res.status + ')', 'err');
+      return;
+    }
+    if (res.ok && d.ok) {
+      app.toast(d.started ? startedMsg : (startedMsg || '操作成功'));
+      app.loadBackupStatus();
+      return;
+    }
+    const message = d.code === 'license_required' ? '需要先激活 ClipVault 才能使用备份功能' : d.error || ('操作失败 (HTTP ' + res.status + ')');
+    app.toast(message, 'err');
   };
   app.doBackupDirNow = function () {
-    app.backupAction('/api/v1/backup/directory', '目录备份成功');
+    app.backupAction('/api/v1/backup/directory', '目录备份已开始，状态会自动刷新');
   };
   app.doBackupDirFullNow = function () {
-    if (!window.confirm('将执行一次全量备份并重置增量链。是否继续？')) return;
-    app.backupAction('/api/v1/backup/directory?forceFull=1', '目录全量备份成功（增量链已重置）');
+    if (!window.confirm('本次将备份全部记录（而不是仅备份新增部分）。完成后，增量备份将以本次为起点继续。是否继续？')) return;
+    app.backupAction('/api/v1/backup/directory?forceFull=1', '目录全量备份已开始，状态会自动刷新');
   };
   app.doBackupEmailNow = function () {
-    app.backupAction('/api/v1/backup/email', '邮件备份已发送');
+    app.backupAction('/api/v1/backup/email', '邮件备份已开始，状态会自动刷新');
   };
   app.doBackupEmailFullNow = function () {
-    if (!window.confirm('将执行一次全量备份并重置增量链。是否继续？')) return;
-    app.backupAction('/api/v1/backup/email?forceFull=1', '邮件全量备份已发送（增量链已重置）');
+    if (!window.confirm('本次将备份全部记录（而不是仅备份新增部分）。完成后，增量备份将以本次为起点继续。是否继续？')) return;
+    app.backupAction('/api/v1/backup/email?forceFull=1', '邮件全量备份已开始，状态会自动刷新');
   };
   app.doBackupEmailTest = function () {
     app.backupAction('/api/v1/backup/email-test', '测试邮件已发送');
   };
   app.formatBackupStatus = function formatBackupStatus(s) {
-    if (!s || !s.lastTime || s.lastTime === '0001-01-01T00:00:00Z') return '';
+    if (!s) return '';
+    const triggerLabel = { scheduled: '定时', startup: '启动', manual: '手动' }[s.trigger] || '';
+    if (s.running) {
+      return '🔄 备份进行中（' + (triggerLabel || '未知触发') + '）…';
+    }
+    if (!s.lastTime || s.lastTime === '0001-01-01T00:00:00Z') return '';
     const time = new Date(s.lastTime).toLocaleString('zh-CN');
+    const via = triggerLabel ? triggerLabel + '触发 · ' : '';
     if (!s.lastOK) {
-      return '❌ 失败 · ' + time + ' · ' + (s.lastError || '未知错误');
+      return '❌ 失败 · ' + via + time + ' · ' + (s.lastError || '未知错误');
+    }
+    if (s.skipped) {
+      return '⏭ 无新数据，已跳过 · ' + via + time;
     }
     let modeLabel;
     if (s.actualMode === 'incremental') {
-      const interval = s.fullInterval > 0 ? '/' + s.fullInterval : '';
-      modeLabel = '增量(' + s.incrementalCount + interval + ')';
+      modeLabel = '增量';
+    } else if (s.actualMode === 'range') {
+      modeLabel = '时间范围';
     } else {
-      modeLabel = s.autoFallback ? '全量(自动兜底)' : '全量';
+      modeLabel = s.autoFallback ? '全量（自动兜底）' : '全量';
     }
     let detail = '';
-    if (s.lastFullAt) {
-      const fullTime = new Date(s.lastFullAt).toLocaleString('zh-CN');
-      if (s.actualMode === 'incremental' && s.fullInterval > 0) {
-        detail = ' · 上次全量：' + fullTime + ' · 下次自动全量：第' + s.fullInterval + '次后';
-      } else if (s.actualMode === 'incremental' && s.fullInterval === 0) {
-        detail = ' · 上次全量：' + fullTime + ' · 未启用自动兜底，建议定期手动全量';
+    if (s.actualMode === 'incremental') {
+      if (s.fullFallbackDays > 0 && s.nextFullDue) {
+        detail = ' · 下次自动全量：' + new Date(s.nextFullDue).toLocaleString('zh-CN');
+      } else if (s.fullFallbackDays > 0) {
+        detail = ' · 尚未全量，下次将先执行全量';
+      } else {
+        detail = ' · 未启用全量兜底，建议定期手动全量';
       }
     }
     const icon = s.autoFallback ? '⚠️' : '✅';
-    return icon + ' ' + modeLabel + ' · ' + time + ' · ' + (s.backupFile || '') + detail;
+    const file = s.backupFile ? ' · ' + s.backupFile : '';
+    return icon + ' ' + modeLabel + ' · ' + via + time + file + detail;
   };
   app.loadBackupStatus = async function loadBackupStatus() {
     try {
@@ -393,53 +415,68 @@ export function registerTransfer() {
         const row = document.getElementById('cfg-dirBackupStatusRow');
         const text = document.getElementById('cfg-dirBackupStatusText');
         const msg = app.formatBackupStatus(ds);
-        if (row) row.style.display = msg ? '' : 'none';
+        if (row) row.style.display = msg ? 'flex' : 'none';
         if (text) text.textContent = msg;
       }
       if (es) {
         const row = document.getElementById('cfg-emailBackupStatusRow');
         const text = document.getElementById('cfg-emailBackupStatusText');
         const msg = app.formatBackupStatus(es);
-        if (row) row.style.display = msg ? '' : 'none';
+        if (row) row.style.display = msg ? 'flex' : 'none';
         if (text) text.textContent = msg;
       }
     } catch (_) {}
   };
-  app.showEmailBackupHistory = async function () {
+  // 通用备份历史（目录/邮件共用），含成功、失败与跳过记录。
+  app.showBackupHistory = async function (kind) {
+    const label = kind === 'dir' ? '目录' : '邮件';
     try {
-      const res = await app.protectedFetch('/api/v1/backup/email-history');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '读取发送历史失败');
-      app.renderEmailBackupHistory(data.history || []);
+      const res = await app.protectedFetch('/api/v1/backup/history?kind=' + encodeURIComponent(kind));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      app.renderBackupHistory(kind, data.history || []);
     } catch (e) {
-      app.toast('读取发送历史失败：' + (e.message || e), 'err');
+      app.toast('读取' + label + '备份历史失败：' + (e.message || e), 'err');
     }
   };
-  app.renderEmailBackupHistory = function renderEmailBackupHistory(history) {
-    document.getElementById('emailBackupHistoryOverlay')?.remove();
+  app.showEmailBackupHistory = function () {
+    app.showBackupHistory('email');
+  };
+  app.renderBackupHistory = function renderBackupHistory(kind, history) {
+    document.getElementById('backupHistoryOverlay')?.remove();
+    const label = kind === 'dir' ? '目录' : '邮件';
+    const triggerLabel = { scheduled: '定时', startup: '启动', manual: '手动' };
+    const modeLabel = { full: '全量', incremental: '增量', range: '时间范围', skipped: '无新数据·跳过' };
+    const formatLabel = { cvexport: '加密 cvexport', json: 'JSON', xlsx: 'Excel' };
     const rows = history.map(record => {
-      const mode = record.mode === 'manual' ? '手动' : '自动';
-      const format = {
-        cvexport: '加密 cvexport',
-        json: 'JSON',
-        xlsx: 'Excel'
-      }[record.format] || record.format;
-      const time = new Date(record.sentAt).toLocaleString('zh-CN');
-      return `<tr><td>${app.esc(mode)}</td><td>${app.esc(record.from)}</td><td>${app.esc(record.to)}</td><td>${app.esc(time)}</td><td>${app.esc(format)}</td></tr>`;
+      const time = new Date(record.createdAt).toLocaleString('zh-CN');
+      const trigger = triggerLabel[record.trigger] || record.trigger || '-';
+      let result;
+      if (record.ok) {
+        const mode = modeLabel[record.mode] || record.mode || '-';
+        const parts = record.parts > 1 ? record.parts + ' 片 · ' : '';
+        const items = record.mode === 'skipped' ? '' : parts + (record.items || 0) + ' 条';
+        result = '✅ ' + mode + (items ? ' · ' + items : '');
+      } else {
+        result = '❌ ' + (record.error || '失败');
+      }
+      const format = formatLabel[record.format] || record.format || '-';
+      const target = record.mode === 'skipped' ? '' : (record.target || '');
+      return `<tr><td>${app.esc(time)}</td><td>${app.esc(trigger)}</td><td>${app.esc(result)}</td><td>${app.esc(format)}</td><td title="${app.esc(record.target || '')}">${app.esc(target)}</td></tr>`;
     }).join('');
-    const content = rows || '<tr><td colspan="5" class="backup-history-empty">暂无成功发送的邮件备份记录</td></tr>';
+    const content = rows || '<tr><td colspan="5" class="backup-history-empty">暂无' + label + '备份记录</td></tr>';
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
-    overlay.id = 'emailBackupHistoryOverlay';
+    overlay.id = 'backupHistoryOverlay';
     overlay.innerHTML = `
-      <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="emailBackupHistoryTitle" data-modal-panel>
+      <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="backupHistoryTitle" data-modal-panel>
         <div class="modal-head">
-          <span class="modal-title" id="emailBackupHistoryTitle">邮件备份发送历史</span>
+          <span class="modal-title" id="backupHistoryTitle">${label}备份历史</span>
           <button class="modal-close" type="button" aria-label="关闭">&times;</button>
         </div>
         <div class="modal-body backup-history-body">
           <table class="backup-history-table">
-            <thead><tr><th>方式</th><th>发件账号</th><th>收件账号</th><th>发送时间</th><th>文件类型</th></tr></thead>
+            <thead><tr><th>时间</th><th>触发</th><th>结果</th><th>格式</th><th>目标</th></tr></thead>
             <tbody>${content}</tbody>
           </table>
         </div>

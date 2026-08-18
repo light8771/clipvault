@@ -127,7 +127,7 @@ func (r *WindowsRuntime) showMenu() {
 
 	searchFlags := uint32(mfString)
 	searchText := "搜索历史 / 设置"
-	if r.SearchURL == "" {
+	if r.SearchURL() == "" {
 		searchFlags |= mfDisabled
 		searchText = "搜索历史 / 设置（端口不可用）"
 	}
@@ -175,11 +175,11 @@ func (r *WindowsRuntime) handleCommand(id uint16) {
 }
 
 func (r *WindowsRuntime) openSearch() {
-	if strings.TrimSpace(r.SearchURL) == "" {
+	if strings.TrimSpace(r.SearchURL()) == "" {
 		r.logger.Warn("search_open_skipped", map[string]any{"reason": "search_server_disabled"})
 		return
 	}
-	r.openPath(r.SearchURL)
+	r.openPath(r.SearchURL())
 }
 
 func (r *WindowsRuntime) openPath(target string) {

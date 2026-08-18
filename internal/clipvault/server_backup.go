@@ -33,37 +33,45 @@ func (s *SearchServer) handleBackupStatus(w http.ResponseWriter, r *http.Request
 		},
 	}
 	if s.backup != nil {
-		ds := s.backup.DirStatus()
-		es := s.backup.EmailStatus()
-		resp["dirStatus"] = map[string]any{
-			"lastTime":         ds.LastTime.Format(time.RFC3339),
-			"lastOK":           ds.LastOK,
-			"lastError":        ds.LastError,
-			"backupFile":       ds.BackupFile,
-			"actualMode":       ds.ActualMode,
-			"autoFallback":     ds.AutoFallback,
-			"incrementalCount": ds.IncrementalCount,
-			"fullInterval":     ds.FullInterval,
-			"lastFullAt":       ds.LastFullAt,
-		}
-		resp["emailStatus"] = map[string]any{
-			"lastTime":         es.LastTime.Format(time.RFC3339),
-			"lastOK":           es.LastOK,
-			"lastError":        es.LastError,
-			"backupFile":       es.BackupFile,
-			"actualMode":       es.ActualMode,
-			"autoFallback":     es.AutoFallback,
-			"incrementalCount": es.IncrementalCount,
-			"fullInterval":     es.FullInterval,
-			"lastFullAt":       es.LastFullAt,
-		}
+		resp["dirStatus"] = backupStatusJSON(s.backup.DirStatus(), cfg.Backup.DirBackup.FullFallbackDays)
+		resp["emailStatus"] = backupStatusJSON(s.backup.EmailStatus(), cfg.Backup.EmailBackup.FullFallbackDays)
 	}
 	s.writeJSON(w, resp)
 }
 
-// handleEmailBackupHistory returns a read-only list of recently sent backup emails.
-func (s *SearchServer) handleEmailBackupHistory(w http.ResponseWriter, r *http.Request) {
-	history, err := s.store.ListEmailBackupHistory(r.Context(), 100)
+// backupStatusJSON 把 BackupStatus 序列化为前端状态行需要的字段，
+// 并附上下次自动全量兜底时间（nextFullDue），前端不做时间推算。
+func backupStatusJSON(st BackupStatus, fullFallbackDays int) map[string]any {
+	out := map[string]any{
+		"lastTime":         st.LastTime.Format(time.RFC3339),
+		"lastOK":           st.LastOK,
+		"lastError":        st.LastError,
+		"backupFile":       st.BackupFile,
+		"actualMode":       st.ActualMode,
+		"autoFallback":     st.AutoFallback,
+		"lastFullAt":       st.LastFullAt,
+		"trigger":          st.Trigger,
+		"skipped":          st.Skipped,
+		"running":          st.Running,
+		"fullFallbackDays": fullFallbackDays,
+	}
+	if fullFallbackDays > 0 {
+		if lastFull, err := time.Parse(time.RFC3339, st.LastFullAt); err == nil {
+			out["nextFullDue"] = lastFull.AddDate(0, 0, fullFallbackDays).Format(time.RFC3339)
+		}
+	}
+	return out
+}
+
+// handleBackupHistory 返回指定通道（kind=dir|email）最近的备份历史，
+// 成功、失败、跳过都包含，只读。
+func (s *SearchServer) handleBackupHistory(w http.ResponseWriter, r *http.Request) {
+	kind := r.URL.Query().Get("kind")
+	if kind != "dir" && kind != "email" {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_kind", "kind 必须是 dir 或 email", nil)
+		return
+	}
+	history, err := s.store.ListBackupHistory(r.Context(), kind, 100)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -119,28 +127,37 @@ func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 	return strings.Join(missing, "、")
 }
 
-// handleBackupDirNow 立即执行一次目录备份。
+// writeBackupRunError 把手动触发的同步错误映射为 HTTP 响应。
+// 备份执行错误（SMTP、IO 等）的具体原因直接透传给用户——这些都是
+// 用户自己的配置/环境问题，需要看到原因才能修，而不是"请查看日志"。
+func (s *SearchServer) writeBackupRunError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errBackupLicenseRequired):
+		s.writeAPIError(w, http.StatusPaymentRequired, "license_required", err.Error(), nil)
+	case errors.Is(err, errBackupBusy):
+		s.writeAPIError(w, http.StatusConflict, "backup_busy", err.Error(), nil)
+	default:
+		// 配置不完整等同步错误：err.Error() 已包含具体缺失项
+		s.writeAPIError(w, http.StatusConflict, "backup_not_ready", err.Error(), err)
+	}
+}
+
+// handleBackupDirNow 异步启动一次目录备份。配置校验、占用检测在同步阶段
+// 完成；启动后返回 started=true，执行结果通过 GET /api/v1/backup 状态观察。
 func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
 		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
 		return
 	}
-	cfg := s.cfgMgr.Get()
-	if cfg.Backup.DirBackup.Dir == "" {
-		s.writeAPIError(w, http.StatusConflict, "backup_not_configured", "未配置备份目录", nil)
-		return
-	}
 	forceFull := r.URL.Query().Get("forceFull") == "1"
 	if err := s.backup.RunDirBackup(forceFull); err != nil {
-		s.logger.Error("dir_backup_manual_failed", err, nil)
-		s.writeAPIError(w, http.StatusInternalServerError, "backup_failed", "目录备份失败，请查看日志", err)
+		s.writeBackupRunError(w, err)
 		return
 	}
-	s.logger.Info("dir_backup_manual_ok", map[string]any{"forceFull": forceFull})
-	s.writeJSON(w, map[string]any{"ok": true})
+	s.writeJSON(w, map[string]any{"ok": true, "started": true})
 }
 
-// handleBackupEmailNow 立即执行一次邮件备份。
+// handleBackupEmailNow 异步启动一次邮件备份。语义同 handleBackupDirNow。
 func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
 		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
@@ -148,12 +165,10 @@ func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Reque
 	}
 	forceFull := r.URL.Query().Get("forceFull") == "1"
 	if err := s.backup.RunEmailBackup(forceFull); err != nil {
-		s.logger.Error("email_backup_manual_failed", err, nil)
-		s.writeAPIError(w, http.StatusInternalServerError, "backup_failed", "邮件备份失败，请查看日志", err)
+		s.writeBackupRunError(w, err)
 		return
 	}
-	s.logger.Info("email_backup_manual_ok", map[string]any{"forceFull": forceFull})
-	s.writeJSON(w, map[string]any{"ok": true})
+	s.writeJSON(w, map[string]any{"ok": true, "started": true})
 }
 
 // handleBackupEmailTest 发送一封测试邮件。
@@ -164,7 +179,7 @@ func (s *SearchServer) handleBackupEmailTest(w http.ResponseWriter, r *http.Requ
 	}
 	if err := s.backup.SendTestEmail(); err != nil {
 		s.logger.Error("email_test_failed", err, nil)
-		s.writeAPIError(w, http.StatusInternalServerError, "email_test_failed", "测试邮件发送失败，请查看日志", err)
+		s.writeAPIError(w, http.StatusInternalServerError, "email_test_failed", "测试邮件发送失败: "+err.Error(), err)
 		return
 	}
 	s.logger.Info("email_test_ok", nil)

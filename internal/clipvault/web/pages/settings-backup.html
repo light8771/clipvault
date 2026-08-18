@@ -89,10 +89,10 @@
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-dirBackupIncrementalFullInterval">增量自动全量间隔</label>
-              <p class="field-hint">增量多少次后自动全量兜底（0=不自动兜底，需手动全量）</p>
+              <label class="field-label" for="cfg-dirBackupFullFallbackDays">全量兜底周期（天）</label>
+              <p class="field-hint">增量备份时，距上次全量超过该天数会自动做一次全量，防止已删除的记录永远无法找回（0=不自动兜底）</p>
             </div>
-            <input type="number" id="cfg-dirBackupIncrementalFullInterval" class="field-input field-input-sm" min="0" max="100" step="1" placeholder="7">
+            <input type="number" id="cfg-dirBackupFullFallbackDays" class="field-input field-input-sm" min="0" max="365" step="1" placeholder="7">
           </div>
           <div class="field-row u-inline-11" id="cfg-dirBackupPwdRow">
             <div class="field-info">
@@ -124,7 +124,7 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 立即备份
               </button>
-              <button class="btn-export" data-action="backup-directory-full" title="强制全量并重置增量链">立即全量</button>
+              <button class="btn-export" data-action="backup-directory-full" title="备份全部记录，之后的增量备份以本次为起点">立即全量</button>
             </div>
           </div>
           <div class="field-row u-inline-11" id="cfg-dirBackupStatusRow">
@@ -132,6 +132,16 @@
               <label class="field-label">最近备份状态</label>
               <p class="field-hint" id="cfg-dirBackupStatusText">-</p>
             </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">备份历史</label>
+              <p class="field-hint">只读查看最近 100 条备份记录（含失败与跳过）</p>
+            </div>
+            <button class="btn-export" type="button" data-action="backup-dir-history">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-8"/></svg>
+              查看历史
+            </button>
           </div>
         </div>
 
@@ -274,10 +284,10 @@
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-emailBackupIncrementalFullInterval">增量自动全量间隔</label>
-              <p class="field-hint">增量多少次后自动全量兜底（0=不自动兜底，需手动全量）</p>
+              <label class="field-label" for="cfg-emailBackupFullFallbackDays">全量兜底周期（天）</label>
+              <p class="field-hint">增量备份时，距上次全量超过该天数会自动做一次全量，防止已删除的记录永远无法找回（0=不自动兜底）</p>
             </div>
-            <input type="number" id="cfg-emailBackupIncrementalFullInterval" class="field-input field-input-sm" min="0" max="100" step="1" placeholder="7">
+            <input type="number" id="cfg-emailBackupFullFallbackDays" class="field-input field-input-sm" min="0" max="365" step="1" placeholder="7">
           </div>
           <div class="field-row u-inline-11" id="cfg-emailBackupPwdRow">
             <div class="field-info">
@@ -319,7 +329,7 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 立即发送
               </button>
-              <button class="btn-export" data-action="backup-email-full" title="强制全量并重置增量链">立即全量</button>
+              <button class="btn-export" data-action="backup-email-full" title="备份全部记录，之后的增量备份以本次为起点">立即全量</button>
             </div>
           </div>
           <div class="field-row u-inline-11" id="cfg-emailBackupStatusRow">
@@ -330,8 +340,8 @@
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label">发送历史</label>
-              <p class="field-hint">只读查看最近 100 条成功发送的备份记录</p>
+              <label class="field-label">备份历史</label>
+              <p class="field-hint">只读查看最近 100 条备份记录（含失败与跳过）</p>
             </div>
             <button class="btn-export" type="button" data-action="backup-email-history">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-8"/></svg>

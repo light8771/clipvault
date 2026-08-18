@@ -1,14 +1,13 @@
 package duckdb
 
-const SchemaVersion = "3"
+const SchemaVersion = "5"
 
 // SchemaIdentity pins the exact supported schema shape. A database must match
 // both the version and this identity; every other shape is rejected.
 //
-// v3（事件优先）：所有时间列统一为 BIGINT Unix 毫秒（事件发生时间，而非
-// 数据库写入时间）；clipboard_items 新增 content_available / is_duplicate /
-// unavailable_reason 三个事件状态列。
-const SchemaIdentity = "clipvault.duckdb.v3.unixms-event-first"
+// v5（备份历史统一）：email_backup_history 被通用 backup_history 取代，
+// 目录/邮件备份的成功与失败都留痕（含触发方式、范围模式、条数、错误）。
+const SchemaIdentity = "clipvault.duckdb.v5.backup-history"
 
 var SchemaStatements = []string{
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
@@ -45,7 +44,14 @@ var SchemaStatements = []string{
 	`CREATE INDEX idx_groups_parent ON groups(parent_id)`,
 	`CREATE TABLE item_groups (item_id BIGINT NOT NULL, group_id BIGINT NOT NULL, PRIMARY KEY (item_id, group_id))`,
 	`CREATE INDEX idx_item_groups_group ON item_groups(group_id)`,
-	`CREATE SEQUENCE seq_email_backup_history START 1`,
-	`CREATE TABLE email_backup_history (id BIGINT PRIMARY KEY DEFAULT nextval('seq_email_backup_history'), sent_at BIGINT NOT NULL, mode VARCHAR NOT NULL, from_address VARCHAR NOT NULL, to_address VARCHAR NOT NULL, format VARCHAR NOT NULL)`,
-	`CREATE INDEX idx_email_backup_history_sent_at ON email_backup_history(sent_at DESC)`,
+	`CREATE SEQUENCE seq_backup_history START 1`,
+	`CREATE TABLE backup_history (id BIGINT PRIMARY KEY DEFAULT nextval('seq_backup_history'), created_at BIGINT NOT NULL, kind VARCHAR NOT NULL, trigger VARCHAR NOT NULL, mode VARCHAR NOT NULL, ok BOOLEAN NOT NULL, error VARCHAR NOT NULL DEFAULT '', target VARCHAR NOT NULL DEFAULT '', format VARCHAR NOT NULL DEFAULT '', parts BIGINT NOT NULL DEFAULT 0, items BIGINT NOT NULL DEFAULT 0)`,
+	`CREATE INDEX idx_backup_history_created_at ON backup_history(created_at DESC)`,
+	`CREATE INDEX idx_backup_history_kind ON backup_history(kind, created_at DESC)`,
+	`CREATE SEQUENCE seq_config_change_log START 1`,
+	`CREATE TABLE config_change_log (id BIGINT PRIMARY KEY DEFAULT nextval('seq_config_change_log'), changed_at BIGINT NOT NULL, changes JSON NOT NULL)`,
+	`CREATE INDEX idx_config_change_log_changed_at ON config_change_log(changed_at DESC)`,
+	`CREATE SEQUENCE seq_search_history START 1`,
+	`CREATE TABLE search_history (id BIGINT PRIMARY KEY DEFAULT nextval('seq_search_history'), searched_at BIGINT NOT NULL, query VARCHAR NOT NULL, filters JSON NOT NULL, result_count BIGINT NOT NULL)`,
+	`CREATE INDEX idx_search_history_searched_at ON search_history(searched_at DESC)`,
 }

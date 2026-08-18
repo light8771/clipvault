@@ -84,7 +84,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css"} {
+	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
 	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
@@ -158,8 +158,13 @@ func (s *SearchServer) Start() (string, error) {
 	api("POST /api/v1/recovery/isolated-switch", s.requireSecondary(s.handleIsolatedDatabaseSwitch))
 	api("DELETE /api/v1/recovery/isolated-switch", s.requireSecondary(s.handleIsolatedDatabaseSwitchCancel))
 
+	api("GET /api/v1/logs/config-changes", s.requireAuth(s.handleConfigChangeLog))
+	api("DELETE /api/v1/logs/config-changes", s.requireSecondary(s.handleConfigChangeLogClear))
+	api("GET /api/v1/logs/searches", s.requireAuth(s.handleSearchHistory))
+	api("DELETE /api/v1/logs/searches", s.requireSecondary(s.handleSearchHistoryClear))
+
 	api("GET /api/v1/backup", s.requireAuth(s.handleBackupStatus))
-	api("GET /api/v1/backup/email-history", s.requireSecondary(s.handleEmailBackupHistory))
+	api("GET /api/v1/backup/history", s.requireSecondary(s.handleBackupHistory))
 	api("POST /api/v1/backup/directory", s.requireSecondary(s.handleBackupDirNow))
 	api("POST /api/v1/backup/email", s.requireSecondary(s.handleBackupEmailNow))
 	api("POST /api/v1/backup/email-test", s.requireSecondary(s.handleBackupEmailTest))

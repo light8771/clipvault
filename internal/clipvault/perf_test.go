@@ -80,7 +80,7 @@ func TestBackupWatermarkReadWrite(t *testing.T) {
 	}
 
 	// 写入水位线
-	if err := store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 42, LastSentAt: "2026-07-29T10:00:00Z", IncrementalCount: 3}); err != nil {
+	if err := store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 42, LastSentAt: "2026-07-29T10:00:00Z", LastFullAt: "2026-07-01T00:00:00Z"}); err != nil {
 		t.Fatalf("SetBackupWatermark: %v", err)
 	}
 
@@ -89,12 +89,12 @@ func TestBackupWatermarkReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBackupWatermark after set: %v", err)
 	}
-	if wm.LastItemID != 42 || wm.IncrementalCount != 3 || wm.LastSentAt != "2026-07-29T10:00:00Z" {
+	if wm.LastItemID != 42 || wm.LastFullAt != "2026-07-01T00:00:00Z" || wm.LastSentAt != "2026-07-29T10:00:00Z" {
 		t.Fatalf("watermark not persisted correctly: %#v", wm)
 	}
 
 	// dir 与 email 水位线独立
-	store.SetBackupWatermark(ctx, "dir", BackupWatermark{LastItemID: 99, IncrementalCount: 1})
+	store.SetBackupWatermark(ctx, "dir", BackupWatermark{LastItemID: 99, LastFullAt: "2026-07-02T00:00:00Z"})
 	wmDir, _ := store.GetBackupWatermark(ctx, "dir")
 	wmEmail, _ := store.GetBackupWatermark(ctx, "email")
 	if wmDir.LastItemID != 99 || wmEmail.LastItemID != 42 {
@@ -118,32 +118,32 @@ func TestResolveBackupScopeFallback(t *testing.T) {
 		t.Fatalf("incremental without watermark should fall back to full (autoFallback=true), got mode=%q autoFB=%v err=%v", scope.Mode, autoFB, err)
 	}
 
-	// 设水位线后：incremental 应填入 SinceID（autoFallback=false）
-	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, IncrementalCount: 1})
+	// 设水位线且全量在兜底周期内：incremental 应填入 SinceID（autoFallback=false）
+	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, LastFullAt: time.Now().UTC().AddDate(0, 0, -3).Format(time.RFC3339)})
 	scope, autoFB, err = resolveBackupScope(store, "email", ExportScope{Mode: "incremental"}, 7, false)
 	if err != nil || scope.Mode != "incremental" || scope.SinceID != 100 || autoFB {
-		t.Fatalf("incremental with watermark should fill SinceID (autoFallback=false), got %#v autoFB=%v err=%v", scope, autoFB, err)
+		t.Fatalf("incremental with fresh watermark should fill SinceID (autoFallback=false), got %#v autoFB=%v err=%v", scope, autoFB, err)
 	}
 
-	// 增量链过长（>=fullInterval）：降级 full（autoFallback=true）
-	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, IncrementalCount: 7})
+	// 距上次全量已满兜底天数：降级 full（autoFallback=true）
+	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, LastFullAt: time.Now().UTC().AddDate(0, 0, -8).Format(time.RFC3339)})
 	scope, autoFB, err = resolveBackupScope(store, "email", ExportScope{Mode: "incremental"}, 7, false)
 	if err != nil || scope.Mode != "full" || !autoFB {
-		t.Fatalf("incremental chain too long should fall back to full (autoFallback=true), got mode=%q autoFB=%v err=%v", scope.Mode, autoFB, err)
+		t.Fatalf("stale full backup should fall back to full (autoFallback=true), got mode=%q autoFB=%v err=%v", scope.Mode, autoFB, err)
 	}
 
 	// forceFull=true：强制 full（autoFallback=false，手动不算自动兜底）
-	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, IncrementalCount: 1})
+	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, LastFullAt: time.Now().UTC().AddDate(0, 0, -1).Format(time.RFC3339)})
 	scope, autoFB, err = resolveBackupScope(store, "email", ExportScope{Mode: "incremental"}, 7, true)
 	if err != nil || scope.Mode != "full" || autoFB {
 		t.Fatalf("forceFull should run full (autoFallback=false), got mode=%q autoFB=%v err=%v", scope.Mode, autoFB, err)
 	}
 
-	// fullInterval=0：不自动兜底，链过长也不降级
-	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, IncrementalCount: 99})
+	// fullFallbackDays=0：不自动兜底，全量再旧也不降级
+	store.SetBackupWatermark(ctx, "email", BackupWatermark{LastItemID: 100, LastFullAt: time.Now().UTC().AddDate(-1, 0, 0).Format(time.RFC3339)})
 	scope, autoFB, err = resolveBackupScope(store, "email", ExportScope{Mode: "incremental"}, 0, false)
 	if err != nil || scope.Mode != "incremental" || autoFB {
-		t.Fatalf("fullInterval=0 should not auto-fallback, got mode=%q autoFB=%v err=%v", scope.Mode, autoFB, err)
+		t.Fatalf("fullFallbackDays=0 should not auto-fallback, got mode=%q autoFB=%v err=%v", scope.Mode, autoFB, err)
 	}
 	t.Logf("[OK] resolveBackupScope transparency logic works")
 }

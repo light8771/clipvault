@@ -1,0 +1,90 @@
+/* ── 操作记录 / 搜索记录 ─────────────────────────────── */
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--card-border);
+}
+.log-total { font: 12.5px sans-serif; color: var(--muted); }
+.log-list { display: flex; flex-direction: column; }
+.log-entry { padding: 12px 16px; }
+.log-entry:not(:last-child) { border-bottom: 1px solid var(--card-border); }
+.log-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.log-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); font-variant-numeric: tabular-nums; }
+.log-count { font: 11.5px sans-serif; color: var(--muted); flex-shrink: 0; }
+.log-changes { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.log-change {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font: 13px sans-serif;
+}
+.log-label { color: var(--tx); flex-shrink: 0; }
+.log-values {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  text-align: right;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.log-old, .log-new {
+  font: 12px ui-monospace, Consolas, monospace;
+  padding: 1px 7px;
+  border-radius: 6px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-old { color: var(--muted); background: var(--bg2); text-decoration: line-through; }
+.log-new { color: var(--p); background: var(--p-dim, var(--bg2)); }
+.log-arrow { color: var(--muted); font-size: 12px; }
+.log-empty { padding: 26px 16px; font: 13px sans-serif; color: var(--muted); text-align: center; }
+.log-search-main { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
+.log-query {
+  font: 500 13.5px sans-serif;
+  color: var(--p);
+  text-decoration: none;
+  word-break: break-all;
+}
+.log-query:hover { text-decoration: underline; }
+.log-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.log-chip {
+  font: 11.5px sans-serif;
+  color: var(--sub);
+  background: var(--bg2);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.log-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--card-border);
+}
+.log-page-btn {
+  font: 12.5px sans-serif;
+  color: var(--tx);
+  background: var(--bg2);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.log-page-btn:hover:not(:disabled) { border-color: var(--p); color: var(--p); }
+.log-page-btn:disabled { opacity: .45; cursor: default; }
+.log-page-info { font: 12px sans-serif; color: var(--muted); font-variant-numeric: tabular-nums; }

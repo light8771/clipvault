@@ -3,63 +3,136 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: color-mix(in srgb, var(--bg) 74%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--bg);
   display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  overflow-y: auto;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+           max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
 }
 .lock-overlay.show { display: flex; }
 
-.lock-box {
-  text-align: center;
-  max-width: 360px;
-  width: 100%;
+/* 背景装饰：主色渐变光晕 + 边缘点阵，均随主题变量自适应亮/暗 */
+.lock-overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(560px 420px at 10% -10%, var(--p-glow), transparent 65%),
+    radial-gradient(640px 480px at 108% 112%, var(--p-dim), transparent 60%);
+}
+.lock-overlay::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(color-mix(in srgb, var(--p) 22%, transparent) 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: .45;
+  -webkit-mask-image: radial-gradient(72% 62% at 50% 42%, transparent 52%, #000 100%);
+  mask-image: radial-gradient(72% 62% at 50% 42%, transparent 52%, #000 100%);
 }
 
-.lock-icon {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 16px;
-  border-radius: var(--radius-lg);
-  background: var(--p-dim);
+.lock-box {
+  position: relative;
+  margin: auto;
+  width: 100%;
+  max-width: 860px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+/* 上部主区域：左品牌 / 右表单 */
+.lock-main {
+  display: grid;
+  grid-template-columns: minmax(220px, 5fr) 7fr;
+  align-items: center;
+  gap: 48px;
+  padding: 60px 56px 44px;
+}
+
+.lock-brand {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Logo 外圈装饰环 */
+.lock-brand::before,
+.lock-brand::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
   border: 1px solid var(--p-border);
+  pointer-events: none;
+}
+.lock-brand::before { width: 208px; height: 208px; }
+.lock-brand::after  { width: 262px; height: 262px; border-style: dashed; opacity: .55; }
+
+.lock-icon {
+  position: relative;
+  z-index: 1;
+  width: 148px;
+  height: 148px;
+  border-radius: 34px;
+  background: var(--p-dim);
+  border: 1.5px solid var(--p-border);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--p);
+  box-shadow: 0 12px 32px var(--p-glow);
 }
 .lock-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
 .lock-icon img.hidden { display: none; }
+.lock-icon svg { width: 72px; height: 72px; }
+
+.lock-panel {
+  width: 100%;
+  max-width: 380px;
+  justify-self: center;
+}
 
 .lock-title {
-  font: 700 20px sans-serif;
+  font: 700 28px/1.3 sans-serif;
   color: var(--tx);
-  margin-bottom: 6px;
+  letter-spacing: -.4px;
+  margin-bottom: 8px;
 }
 
 .lock-desc {
-  font: 14px sans-serif;
+  font: 14.5px sans-serif;
   color: var(--muted);
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .lock-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+}
+
+.lock-field { position: relative; }
+.lock-field svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .lock-input {
-  height: 42px;
-  padding: 0 14px;
+  height: 48px;
+  padding: 0 16px;
   border: 1.5px solid var(--card-border);
   border-radius: var(--radius-md);
   background: var(--card);
   color: var(--tx);
-  font: 15px sans-serif;
+  font: 16px sans-serif;
   outline: none;
   transition: border-color .15s, box-shadow .15s;
   text-align: center;
@@ -70,24 +143,113 @@
 }
 .lock-input::placeholder { color: var(--muted); }
 
+/* 锁屏卡片内的输入框/按钮：左对齐、带图标、更高 */
+.lock-box .lock-input {
+  width: 100%;
+  height: 50px;
+  padding: 0 16px 0 42px;
+  text-align: left;
+}
+
 .lock-btn {
-  height: 42px;
+  height: 48px;
   border-radius: var(--radius-md);
   border: none;
   background: var(--p);
   color: var(--on-p);
-  font: 600 15px sans-serif;
+  font: 600 16px sans-serif;
   cursor: pointer;
   transition: opacity .15s, transform .1s;
   box-shadow: 0 2px 8px var(--p-glow);
 }
 .lock-btn:hover  { opacity: .88; transform: translateY(-1px); }
 .lock-btn:active { transform: translateY(0); }
+.lock-box .lock-btn { height: 50px; letter-spacing: 4px; }
 
 .lock-err {
   font: 13px sans-serif;
   color: var(--danger);
-  margin-top: 4px;
+  margin-top: 8px;
+}
+
+/* 底部特性栏 */
+.lock-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--bg2) 42%, var(--card));
+  padding: 20px 32px;
+}
+.lock-feature {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 16px;
+  min-width: 0;
+}
+.lock-feature + .lock-feature { border-left: 1px solid var(--card-border); }
+.lock-feature-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--p-dim);
+  border: 1px solid var(--p-border);
+  color: var(--p);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lock-feature-text { text-align: left; }
+.lock-feature-text strong {
+  display: block;
+  font: 600 13.5px sans-serif;
+  color: var(--tx);
+  white-space: nowrap;
+}
+.lock-feature-text small {
+  display: block;
+  font: 12px sans-serif;
+  color: var(--muted);
+  margin-top: 1px;
+  white-space: nowrap;
+}
+
+/* ── H5 / 窄屏：纵向布局 ── */
+@media (max-width: 760px) {
+  .lock-box { max-width: 440px; border-radius: var(--radius-lg); }
+  .lock-main {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: 44px 26px 30px;
+  }
+  .lock-brand::before { width: 150px; height: 150px; }
+  .lock-brand::after  { width: 188px; height: 188px; }
+  .lock-icon { width: 104px; height: 104px; border-radius: 26px; }
+  .lock-icon svg { width: 52px; height: 52px; }
+  .lock-panel { max-width: none; text-align: center; }
+  .lock-title { font-size: 23px; }
+  .lock-desc { font-size: 14px; margin-bottom: 22px; }
+  .lock-err { text-align: center; }
+  .lock-features {
+    grid-template-columns: 1fr;
+    padding: 10px 24px;
+  }
+  .lock-feature { justify-content: flex-start; padding: 12px 6px; }
+  .lock-feature + .lock-feature {
+    border-left: none;
+    border-top: 1px solid var(--card-border);
+  }
+}
+
+@media (max-width: 400px) {
+  .lock-overlay {
+    padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+             max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+  .lock-main { padding: 36px 20px 24px; gap: 24px; }
+  .lock-features { padding: 8px 18px; }
 }
 
 /* ── Secondary auth modal ────────────────────────────────── */

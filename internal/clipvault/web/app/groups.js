@@ -282,8 +282,7 @@ export function registerGroups() {
               const d = await res.json();
               if (d.ok) {
                 app.toast('分组已创建');
-                await app.loadGroups();
-                app.renderGroupModalContent();
+                await app.refreshGroupViews(true);
               } else {
                 app.toast(d.error || '创建失败', 'err');
               }
@@ -327,8 +326,7 @@ export function registerGroups() {
         if (d.ok) {
           app.toast('子分组已创建');
           app.GROUP_EXPAND.add(parentId);
-          await app.loadGroups();
-          app.renderGroupModalContent();
+          await app.refreshGroupViews(true);
         } else {
           app.toast(d.error || '创建失败', 'err');
         }
@@ -351,7 +349,7 @@ export function registerGroups() {
     async function save() {
       const newName = input.value.trim();
       if (!newName || newName === oldName) {
-        app.renderGroupModalContent();
+        await app.refreshGroupViews(false);
         return;
       }
       try {
@@ -368,15 +366,14 @@ export function registerGroups() {
         const d = await res.json();
         if (d.ok) {
           app.toast('已重命名');
-          await app.loadGroups();
-          app.renderGroupModalContent();
+          await app.refreshGroupViews(true);
         } else {
           app.toast(d.error || '重命名失败', 'err');
-          app.renderGroupModalContent();
+          await app.refreshGroupViews(false);
         }
       } catch (_) {
         app.toast('重命名失败', 'err');
-        app.renderGroupModalContent();
+        await app.refreshGroupViews(false);
       }
     }
     input.addEventListener('blur', save);
@@ -386,7 +383,7 @@ export function registerGroups() {
         input.blur();
       }
       if (e.key === 'Escape') {
-        app.renderGroupModalContent();
+        void app.refreshGroupViews(false);
       }
     });
   };
@@ -403,8 +400,7 @@ export function registerGroups() {
         const d = await res.json();
         if (d.ok) {
           app.toast('分组已删除');
-          await app.loadGroups();
-          app.renderGroupModalContent();
+          await app.refreshGroupViews(true);
         } else {
           app.toast('删除失败', 'err');
         }

@@ -167,7 +167,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	sess := s.auth.GetSession(token)
 	if sess == nil || !sess.Authenticated {
 		if s.auth.HasLockPassword(cfg) {
-			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
+			s.writeAPIError(w, http.StatusUnauthorized, "lock_session_expired", "锁屏会话已过期，请重新解锁后重试", nil)
 			return
 		}
 	}

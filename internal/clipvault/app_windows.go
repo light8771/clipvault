@@ -235,7 +235,7 @@ func Run(env Environment) error {
 				logger.Error("restart_search_failed", err, nil)
 				return fmt.Errorf("restart management server: %w", err)
 			}
-			runtime.SearchURL = searchURL
+			runtime.SetSearchURL(searchURL)
 			logger.Info("restart_done", map[string]any{"searchURL": searchURL})
 			fmt.Printf("Web 界面已重启: %s\n", searchURL)
 			shellExecute("open", searchURL, "")

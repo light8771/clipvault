@@ -82,7 +82,41 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	resp["items"] = items
 	resp["total"] = total
+	if query != "" && s.store != nil {
+		if err := s.store.LogSearchQuery(r.Context(), query,
+			searchHistoryFilters(kind, starredOnly, groupID, dateFrom, dateTo, sourceExeNames), int64(total)); err != nil {
+			s.logger.Warn("search_history_log_failed", map[string]any{"error": err.Error()})
+		}
+	}
 	s.writeJSON(w, resp)
+}
+
+// searchHistoryFilters 把搜索条件汇总为「中文标签 → 值」的展示用 map，
+// 与搜索历史记录一起落库，页面渲染时原样展示。
+func searchHistoryFilters(kind string, starredOnly bool, groupID int64, dateFrom, dateTo string, sourceExeNames []string) map[string]string {
+	filters := map[string]string{}
+	switch kind {
+	case "text":
+		filters["类型"] = "文本"
+	case "image":
+		filters["类型"] = "图片"
+	case "":
+	default:
+		filters["类型"] = kind
+	}
+	if starredOnly {
+		filters["收藏"] = "仅收藏"
+	}
+	if groupID != 0 {
+		filters["分组"] = strconv.FormatInt(groupID, 10)
+	}
+	if dateFrom != "" || dateTo != "" {
+		filters["日期"] = dateFrom + " ~ " + dateTo
+	}
+	if len(sourceExeNames) > 0 {
+		filters["来源应用"] = strings.Join(sourceExeNames, ", ")
+	}
+	return filters
 }
 
 // handleSourceExes 返回所有来源应用（原始 exe 名）及其记录数，供搜索下拉与别名/白名单编辑使用。
@@ -259,6 +293,14 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		return
+	}
+	item, err := s.store.GetByID(r.Context(), id)
+	if err != nil {
+		s.writeItemLookupError(w, err)
+		return
+	}
+	if item.Sensitive && !s.authorizeSecondaryRequest(w, r) {
 		return
 	}
 	pos, err := s.store.GetPositionByID(r.Context(), id)

@@ -19,9 +19,11 @@ import { registerConfigSave } from './config-save.js';
 import { registerConfigEvents } from './config-events.js';
 import { registerTransfer } from './transfer.js';
 import { registerGroups } from './groups.js';
+import { registerGroupsPage } from './groups-page.js';
 import { registerCleanupModal } from './cleanup-modal.js';
 import { registerSettingsLifecycle } from './settings-lifecycle.js';
 import { registerSettingsSystem } from './settings-system.js';
+import { registerLogs } from './logs.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
@@ -40,10 +42,11 @@ registerActions({
   'show-import': () => app.showImportDialog(),
   'backup-directory': () => app.doBackupDirNow(),
   'backup-directory-full': () => app.doBackupDirFullNow(),
+  'backup-dir-history': () => app.showBackupHistory('dir'),
   'backup-email': () => app.doBackupEmailNow(),
   'backup-email-full': () => app.doBackupEmailFullNow(),
   'backup-email-test': () => app.doBackupEmailTest(),
-  'backup-email-history': () => app.showEmailBackupHistory(),
+  'backup-email-history': () => app.showBackupHistory('email'),
   'close-password': () => app.closePwdDialog(),
   'close-isolated-database': () => app.closeIsolatedDatabaseDialog(),
   'close-recovery': () => app.closeRecDialog(),
@@ -52,7 +55,13 @@ registerActions({
   'confirm-export-scope': () => app.confirmExportScope(),
   'close-encrypted-export': () => app.closeCvexportDialog(),
   'close-import': () => app.closeImportDialog(),
-  'remove-pattern': element => app.removePattern(Number(element.dataset.index))
+  'remove-pattern': element => app.removePattern(Number(element.dataset.index)),
+  'clear-config-changes': element => app.clearConfigChangeLog(element),
+  'clear-search-history': element => app.clearSearchHistory(element),
+  'oplog-prev': () => app.turnConfigChangeLogPage(-1),
+  'oplog-next': () => app.turnConfigChangeLogPage(1),
+  'shlog-prev': () => app.turnSearchHistoryPage(-1),
+  'shlog-next': () => app.turnSearchHistoryPage(1)
 });
 registerNotifications();
 registerRuntimeState();
@@ -73,6 +82,8 @@ registerConfigSave();
 registerConfigEvents();
 registerTransfer();
 registerGroups();
+registerGroupsPage();
 registerCleanupModal();
 registerSettingsSystem();
 registerSettingsLifecycle();
+registerLogs();

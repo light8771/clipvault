@@ -123,7 +123,7 @@ export function registerConfigSave() {
             from: '',
             to: ''
           },
-          incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-dirBackupIncrementalFullInterval')?.value))
+          fullFallbackDays: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-dirBackupFullFallbackDays')?.value))
         },
         emailBackup: {
           ...cur.backup?.emailBackup,
@@ -148,7 +148,7 @@ export function registerConfigSave() {
             to: ''
           },
           maxPartSize: Number(document.getElementById('cfg-emailBackupMaxPartSize')?.value) * 1024 * 1024,
-          incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-emailBackupIncrementalFullInterval')?.value))
+          fullFallbackDays: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-emailBackupFullFallbackDays')?.value))
         }
       };
     }

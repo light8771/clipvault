@@ -52,7 +52,7 @@ func TestCurrentSchemaUsesUnixMillisecondsAndIdentity(t *testing.T) {
 	}{
 		{table: "clipboard_items", name: "created_at"},
 		{table: "groups", name: "created_at"},
-		{table: "email_backup_history", name: "sent_at"},
+		{table: "backup_history", name: "created_at"},
 	} {
 		var dataType string
 		if err := store.db.QueryRow(`SELECT data_type FROM information_schema.columns

@@ -642,6 +642,12 @@
   padding-top: 16px;
   border-top: 1px solid var(--card-border);
 }
+/* 位于页首（运行维护页）时不需要分隔线 */
+.sd-head + .sysinfo {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
 .sysinfo-head {
   display: flex;
   align-items: baseline;

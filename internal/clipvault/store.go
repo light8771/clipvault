@@ -54,13 +54,18 @@ type storeQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// EmailBackupHistory is an immutable record of a successfully sent backup email.
-type EmailBackupHistory struct {
-	SentAt time.Time `json:"sentAt"`
-	Mode   string    `json:"mode"`
-	From   string    `json:"from"`
-	To     string    `json:"to"`
-	Format string    `json:"format"`
+// BackupHistory 是一次备份执行（目录或邮件）的不可变记录，成功/失败/跳过都留痕。
+type BackupHistory struct {
+	CreatedAt time.Time `json:"createdAt"`       // 执行时间
+	Kind      string    `json:"kind"`            // "dir" / "email"
+	Trigger   string    `json:"trigger"`         // "scheduled" / "startup" / "manual"
+	Mode      string    `json:"mode"`            // "full" / "incremental" / "skipped"
+	OK        bool      `json:"ok"`              // 是否成功（跳过视为成功）
+	Error     string    `json:"error,omitempty"` // 失败原因（已截断）
+	Target    string    `json:"target"`          // 备份目录路径 / 收件邮箱
+	Format    string    `json:"format"`          // 内容格式
+	Parts     int       `json:"parts,omitempty"` // 邮件分片数（目录备份为 1）
+	Items     int       `json:"items"`           // 导出的记录条数
 }
 
 // clipboardItemColumns 是 clipboard_items 行查询的统一列清单，

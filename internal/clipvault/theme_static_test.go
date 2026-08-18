@@ -52,7 +52,7 @@ func TestModuleAssetsServed(t *testing.T) {
 			t.Fatalf("module %s status=%d content-type=%q", path, res.Code, res.Header().Get("Content-Type"))
 		}
 	}
-	for _, path := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css"} {
+	for _, path := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
 		res := httptest.NewRecorder()
 		server.handleStatic(res, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+path, nil))
 		if res.Code != http.StatusOK || !strings.HasPrefix(res.Header().Get("Content-Type"), "text/css") {

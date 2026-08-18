@@ -190,6 +190,19 @@ export function registerAuth() {
         }
         if (app.secondaryTrigger?.isConnected && typeof app.secondaryTrigger.focus === 'function') app.secondaryTrigger.focus();
         app.secondaryTrigger = null;
+      } else if (d.code === 'lock_session_expired') {
+        app.SECONDARY_MODAL.classList.add('hidden');
+        app.authState.authenticated = false;
+        app.appStore.update({ authenticated: false });
+        app.expireSecondaryAuth();
+        app.showLockScreen();
+        app.LOCK_ERR.textContent = d.error || '锁屏会话已过期，请重新解锁后重试';
+        app.LOCK_ERR.classList.remove('hidden');
+        if (app.secondaryResolve) {
+          app.secondaryResolve(false);
+          app.secondaryResolve = null;
+        }
+        app.secondaryTrigger = null;
       } else {
         app.SECONDARY_ERR.textContent = d.error || '二次密码错误';
         app.SECONDARY_ERR.classList.remove('hidden');

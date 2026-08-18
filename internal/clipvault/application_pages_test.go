@@ -45,18 +45,20 @@ func TestApplicationPagesHaveUniqueElementIDs(t *testing.T) {
 
 func TestApplicationPageRoutesAreExact(t *testing.T) {
 	want := map[string]string{
-		"/":                     "history",
-		"/settings":             "settings",
-		"/settings/appearance":  "settings",
-		"/settings/general":     "settings",
-		"/settings/security":    "settings",
-		"/settings/storage":     "settings",
-		"/settings/backup":      "settings",
-		"/settings/transfer":    "settings",
-		"/settings/maintenance": "settings",
-		"/settings/service":     "settings",
-		"/settings/groups":      "settings",
-		"/settings/license":     "settings",
+		"/":                    "history",
+		"/settings":            "settings",
+		"/settings/appearance": "settings",
+		"/settings/general":    "settings",
+		"/settings/security":   "settings",
+		"/settings/storage":    "settings",
+		"/settings/backup":     "settings",
+		"/settings/transfer":   "settings",
+		"/settings/service":    "settings",
+		"/groups":              "settings",
+		"/license":             "settings",
+		"/maintenance":         "settings",
+		"/logs/operations":     "settings",
+		"/logs/searches":       "settings",
 	}
 	if len(applicationPages) != len(want) {
 		t.Fatalf("application page count=%d, want %d", len(applicationPages), len(want))
@@ -67,7 +69,7 @@ func TestApplicationPageRoutesAreExact(t *testing.T) {
 			t.Errorf("route %s page=%q found=%v, want %q", route, page.Name, ok, name)
 		}
 	}
-	for _, route := range []string{"/history", "/settings/", "/index.html", "/app"} {
+	for _, route := range []string{"/history", "/settings/", "/index.html", "/app", "/settings/maintenance", "/settings/groups", "/settings/license"} {
 		result := httptest.NewRecorder()
 		(&SearchServer{}).handleIndex(result, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+route, nil))
 		if result.Code != http.StatusNotFound {

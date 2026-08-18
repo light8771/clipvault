@@ -146,53 +146,80 @@ func TestBackupDataRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
-func TestEmailBackupHistoryIsReadOnlyAndNewestFirst(t *testing.T) {
+func TestBackupHistoryIsReadOnlyNewestFirstAndPerKind(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	first := EmailBackupHistory{
-		SentAt: time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC),
-		Mode:   emailBackupModeAutomatic,
-		From:   "from@example.com",
-		To:     "to@example.com",
-		Format: "cvexport",
+	first := BackupHistory{
+		CreatedAt: time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC),
+		Kind:      "email",
+		Trigger:   backupTriggerScheduled,
+		Mode:      "full",
+		OK:        true,
+		Target:    "to@example.com",
+		Format:    "cvexport",
+		Parts:     2,
+		Items:     100,
 	}
 	second := first
-	second.SentAt = first.SentAt.Add(time.Nanosecond)
-	second.Mode = emailBackupModeManual
+	second.CreatedAt = first.CreatedAt.Add(time.Nanosecond)
+	second.Trigger = backupTriggerManual
+	second.Mode = "incremental"
 	second.Format = "xlsx"
-	if err := store.AddEmailBackupHistory(context.Background(), first); err != nil {
+	if err := store.AddBackupHistory(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddEmailBackupHistory(context.Background(), second); err != nil {
+	if err := store.AddBackupHistory(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	// 目录通道独立留痕，失败也记录
+	if err := store.AddBackupHistory(context.Background(), BackupHistory{
+		Kind: "dir", Trigger: backupTriggerScheduled, Mode: "full",
+		OK: false, Error: "磁盘已满", Target: `D:\backups`, Format: "cvexport",
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	history, err := store.ListEmailBackupHistory(context.Background(), 1)
+	history, err := store.ListBackupHistory(context.Background(), "email", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(history) != 1 || history[0].Mode != emailBackupModeManual || history[0].Format != "xlsx" {
+	if len(history) != 1 || history[0].Trigger != backupTriggerManual || history[0].Format != "xlsx" {
 		t.Fatalf("limited history = %#v", history)
+	}
+
+	dirHistory, err := store.ListBackupHistory(context.Background(), "dir", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dirHistory) != 1 || dirHistory[0].OK || dirHistory[0].Error != "磁盘已满" {
+		t.Fatalf("dir history = %#v", dirHistory)
 	}
 
 	server := &SearchServer{store: store}
 	result := httptest.NewRecorder()
-	server.handleEmailBackupHistory(result, httptest.NewRequest(http.MethodGet, "/api/v1/backup/email-history", nil))
+	server.handleBackupHistory(result, httptest.NewRequest(http.MethodGet, "/api/v1/backup/history?kind=email", nil))
 	if result.Code != http.StatusOK {
 		t.Fatalf("history status = %d, body=%s", result.Code, result.Body.String())
 	}
 	var response struct {
-		History []EmailBackupHistory `json:"history"`
+		History []BackupHistory `json:"history"`
 	}
 	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.History) != 2 || response.History[0].Mode != emailBackupModeManual || response.History[1].Mode != emailBackupModeAutomatic {
+	if len(response.History) != 2 || response.History[0].Trigger != backupTriggerManual || response.History[1].Trigger != backupTriggerScheduled {
 		t.Fatalf("history response = %#v", response.History)
+	}
+
+	// 非法 kind 返回 400
+	bad := httptest.NewRecorder()
+	server.handleBackupHistory(bad, httptest.NewRequest(http.MethodGet, "/api/v1/backup/history?kind=bogus", nil))
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid kind status = %d", bad.Code)
 	}
 }
 

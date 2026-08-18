@@ -24,6 +24,9 @@ import (
 // explicitly instead of producing a partially sent backup set.
 type emailBackupPartFile struct {
 	path string
+	// endID 是本片覆盖的最大记录 id（含）。逐片发送成功后用它推进备份
+	// 水位线：中途失败时已发出的片段不会重发，下次备份从断点续发。
+	endID int64
 }
 
 func cleanupEmailPartFiles(parts []emailBackupPartFile) {
@@ -163,6 +166,7 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 			removeBest()
 			return nil, "", 0, fmt.Errorf("至少一条记录单独导出后邮件仍超过上限 %d 字节；请提高上限或改用目录备份", cfg.MaxPartSize)
 		}
+		bestPart.endID = bestEndID
 		parts = append(parts, bestPart)
 		lastID = bestEndID
 		consumed += bestRows
@@ -213,10 +217,9 @@ func (bs *BackupService) exportEmailPartFile(format, password string, scope Expo
 	return emailBackupPartFile{path: path}, nil
 }
 
-// sendBackupFailureNotice sends a notification email when a multi-part backup
-// failed partway, so the recipient knows the partial parts cannot be restored
-// alone and a full retry is needed. Failure to send the notice is only logged
-// and does not mask the original backup error.
+// sendBackupFailureNotice 在多片备份中途失败时发送通知邮件。
+// 已发送的片段已计入备份进度（不会重发），剩余数据将在下次备份时
+// 自动从断点续发。通知发送失败只记日志，不掩盖原始备份错误。
 func (bs *BackupService) sendBackupFailureNotice(eb EmailBackupConfig, startedAt time.Time, sentParts, totalParts int, ext string, cause error) {
 	subject := fmt.Sprintf("⚠️ ClipVault 备份未完成（已发 %d/%d 片）", sentParts, totalParts)
 	body := fmt.Sprintf(`ClipVault 邮件备份未完成
@@ -228,11 +231,10 @@ func (bs *BackupService) sendBackupFailureNotice(eb EmailBackupConfig, startedAt
 失败位置：第 %d 片
 失败原因：%v
 
-重要说明：
-- 已发送的 %d 片已无法撤回，但数据不完整，无法单独还原。
-- 请勿仅凭已收到的部分片进行还原，否则会丢失数据。
-- 建议在 ClipVault 设置页查看备份状态（LastError），修复问题后重新触发一次完整备份。
-- 若频繁失败，可尝试：改用增量备份减少单次数据量、检查 SMTP 配置与网络、或降低单封附件上限。
+说明：
+- 已发送的 %d 片已计入备份进度，不会重复发送。
+- 剩余数据将在下一次备份时自动续发（从断点继续）。
+- 请在 ClipVault 设置页查看备份状态与历史，修复 SMTP 或网络问题后，等待下次定时备份，或点"立即发送"。
 
 —— ClipVault`, startedAt.Format("2006-01-02 15:04:05"), ext, totalParts, sentParts, sentParts+1, cause, sentParts)
 	htmlBody := renderEmailHTML(subject, strings.ReplaceAll(body, "\n", "<br>"), eb.Style, eb.AccentColor)

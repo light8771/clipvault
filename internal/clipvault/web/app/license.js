@@ -70,8 +70,8 @@ export function registerLicense() {
     } catch (_) {}
   };
   app.openLicenseSettings = async function () {
-    if (window.location.pathname === '/settings/license') return;
-    window.location.href = '/settings/license';
+    if (window.location.pathname === '/license') return;
+    window.location.href = '/license';
   };
   app.copyPurchaseInfo = async function () {
     if (!app.fullMachineId) await app.loadMachineID();

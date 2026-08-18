@@ -1,41 +1,48 @@
 package clipvault
 
 import (
-	"clipboard_ext/internal/licensing"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"clipboard_ext/internal/licensing"
 )
 
 var (
 	errBackupLicenseRequired = errors.New("需要先激活 ClipVault 才能使用备份功能")
 	errBackupStopped         = errors.New("备份服务已停止")
+	// errBackupBusy 表示已有备份正在执行（手动触发与定时触发共用全局执行锁）。
+	errBackupBusy = errors.New("已有备份任务正在执行，请等待其完成")
 )
 
 const (
-	emailBackupModeAutomatic = "automatic"
-	emailBackupModeManual    = "manual"
-	smtpOperationTimeout     = 5 * time.Minute
+	// 备份触发方式：定时 / 启动 / 手动。用于状态展示与历史记录。
+	backupTriggerScheduled = "scheduled"
+	backupTriggerStartup   = "startup"
+	backupTriggerManual    = "manual"
+
+	smtpOperationTimeout = 5 * time.Minute
 	// maxEmailParts 是单次邮件备份分片总数的硬上限，防止数据量异常时
 	// 连续发送海量邮件，触发 SMTP 限流、账号封禁或收件箱轰炸。
 	maxEmailParts             = 60
 	initialEmailPartProbeRows = 5000
 )
 
-// BackupStatus 记录最近一次备份的状态。
+// BackupStatus 记录最近一次备份执行的状态（含进行中标记）。
 type BackupStatus struct {
-	LastTime   time.Time
-	LastOK     bool
-	LastError  string
-	BackupFile string
-	// 透明增量链信息
-	ActualMode       string // 实际执行的模式：full / incremental
-	AutoFallback     bool   // 是否为自动兜底降级（配置incremental但跑了full）
-	IncrementalCount int    // 当前增量链已执行次数
-	FullInterval     int    // 配置的兜底阈值（0=不自动兜底）
-	LastFullAt       string // 上次全量备份时间
+	LastTime     time.Time // 最近一次执行结束时间
+	LastOK       bool
+	LastError    string
+	BackupFile   string
+	ActualMode   string // 实际执行的范围模式：full / incremental / range
+	AutoFallback bool   // 配置增量但因兜底规则自动转了全量
+	LastFullAt   string // 上次全量备份时间（RFC3339）
+	Trigger      string // scheduled / startup / manual
+	Skipped      bool   // 本次因无新数据而跳过（未产生文件/邮件）
+	Running      bool   // 当前有备份正在执行
 }
 
 // BackupService manages scheduled directory and email backups.
@@ -137,15 +144,15 @@ func (bs *BackupService) Stop() {
 func (bs *BackupService) runStartupBackups(cfg Config) {
 	runStartupBackups(cfg,
 		func(c Config) error {
-			err := bs.doDirBackup(c, false)
-			if err != nil && !errors.Is(err, errBackupStopped) {
+			err := bs.runDirBackupLocked(c, backupTriggerStartup, false)
+			if err != nil && !errors.Is(err, errBackupStopped) && !errors.Is(err, errBackupBusy) {
 				bs.logger.Error("dir_backup_startup_failed", err, nil)
 			}
 			return err
 		},
 		func(c Config) error {
-			err := bs.doEmailBackup(c, emailBackupModeAutomatic, false)
-			if err != nil && !errors.Is(err, errBackupStopped) {
+			err := bs.runEmailBackupLocked(c, backupTriggerStartup, false)
+			if err != nil && !errors.Is(err, errBackupStopped) && !errors.Is(err, errBackupBusy) {
 				bs.logger.Error("email_backup_startup_failed", err, nil)
 			}
 			return err
@@ -289,22 +296,115 @@ func (bs *BackupService) setEmailStatus(s BackupStatus) {
 	bs.statusMu.Unlock()
 }
 
-// RunDirBackup 立即执行一次目录备份（由 API 端点调用）。forceFull=true 强制全量并重置增量链。
+// markDirRunning / markEmailRunning 在执行开始时把状态标记为"进行中"，
+// 保留上一次的结果信息，供前端轮询展示进度。
+func (bs *BackupService) markDirRunning(trigger string) {
+	bs.statusMu.Lock()
+	bs.dirStatus.Running = true
+	bs.dirStatus.Trigger = trigger
+	bs.statusMu.Unlock()
+}
+
+func (bs *BackupService) markEmailRunning(trigger string) {
+	bs.statusMu.Lock()
+	bs.emailStatus.Running = true
+	bs.emailStatus.Trigger = trigger
+	bs.statusMu.Unlock()
+}
+
+// recordBackupHistory 追加一条备份历史（成功/失败/跳过都记录）。
+// 历史写入失败只记日志，不影响备份结果。
+func (bs *BackupService) recordBackupHistory(kind, trigger, mode string, ok bool, runErr error, target, format string, parts, items int) {
+	record := BackupHistory{
+		Kind:    kind,
+		Trigger: trigger,
+		Mode:    mode,
+		OK:      ok,
+		Target:  target,
+		Format:  format,
+		Parts:   parts,
+		Items:   items,
+	}
+	if runErr != nil {
+		record.Error = runErr.Error()
+	}
+	if err := bs.store.AddBackupHistory(context.Background(), record); err != nil {
+		bs.logger.Error("backup_history_record_failed", err, map[string]any{"kind": kind})
+	}
+}
+
+// runDirBackupLocked 尝试获取执行锁并同步执行目录备份。
+// 已有备份在执行时返回 errBackupBusy（调用方决定跳过还是报错）。
+func (bs *BackupService) runDirBackupLocked(cfg Config, trigger string, forceFull bool) error {
+	if !bs.execMu.TryLock() {
+		return errBackupBusy
+	}
+	defer bs.execMu.Unlock()
+	return bs.doDirBackup(cfg, trigger, forceFull)
+}
+
+// runEmailBackupLocked 同 runDirBackupLocked，针对邮件备份。
+func (bs *BackupService) runEmailBackupLocked(cfg Config, trigger string, forceFull bool) error {
+	if !bs.execMu.TryLock() {
+		return errBackupBusy
+	}
+	defer bs.execMu.Unlock()
+	return bs.doEmailBackup(cfg, trigger, forceFull)
+}
+
+// RunDirBackup 异步启动一次目录备份（手动触发）。
+// license、配置完整性、执行占用都在同步阶段校验并返回明确错误；
+// 校验通过后备份在后台执行，进度与结果通过 DirStatus / 历史记录观察。
+// forceFull=true 强制全量，并把本次全量设为增量备份的新起点。
 func (bs *BackupService) RunDirBackup(forceFull bool) error {
 	if bs.license != nil && !bs.license.CanUsePaidFeatures() {
 		return errBackupLicenseRequired
 	}
 	cfg := bs.cfgMgr.Get()
-	return bs.doDirBackup(cfg, forceFull)
+	if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
+		return fmt.Errorf("目录备份配置不完整: %s", msg)
+	}
+	if !bs.execMu.TryLock() {
+		return errBackupBusy
+	}
+	go func() {
+		defer bs.execMu.Unlock()
+		err := bs.doDirBackup(cfg, backupTriggerManual, forceFull)
+		switch {
+		case err == nil:
+			bs.logger.Info("dir_backup_manual_ok", nil)
+		case errors.Is(err, errBackupStopped):
+		default:
+			bs.logger.Error("dir_backup_manual_failed", err, nil)
+		}
+	}()
+	return nil
 }
 
-// RunEmailBackup 立即执行一次邮件备份（由 API 端点调用）。forceFull=true 强制全量并重置增量链。
+// RunEmailBackup 异步启动一次邮件备份（手动触发）。语义同 RunDirBackup。
 func (bs *BackupService) RunEmailBackup(forceFull bool) error {
 	if bs.license != nil && !bs.license.CanUsePaidFeatures() {
 		return errBackupLicenseRequired
 	}
 	cfg := bs.cfgMgr.Get()
-	return bs.doEmailBackup(cfg, emailBackupModeManual, forceFull)
+	if msg := validateEmailBackupEnabled(cfg.Backup.EmailBackup); msg != "" {
+		return fmt.Errorf("邮件备份配置不完整: %s", msg)
+	}
+	if !bs.execMu.TryLock() {
+		return errBackupBusy
+	}
+	go func() {
+		defer bs.execMu.Unlock()
+		err := bs.doEmailBackup(cfg, backupTriggerManual, forceFull)
+		switch {
+		case err == nil:
+			bs.logger.Info("email_backup_manual_ok", nil)
+		case errors.Is(err, errBackupStopped):
+		default:
+			bs.logger.Error("email_backup_manual_failed", err, nil)
+		}
+	}()
+	return nil
 }
 
 // SendTestEmail 发送一封测试邮件（不包含备份数据）。
@@ -334,8 +434,12 @@ func (bs *BackupService) dirBackupTick(generation uint64) {
 	if !dirBackupScheduleReady(cfg.Backup.DirBackup) {
 		return
 	}
-	if err := bs.doDirBackup(cfg, false); err != nil {
-		bs.logger.Error("dir_backup_failed", err, nil)
+	if err := bs.runDirBackupLocked(cfg, backupTriggerScheduled, false); err != nil {
+		if errors.Is(err, errBackupBusy) {
+			bs.logger.Info("dir_backup_skipped_busy", nil)
+		} else {
+			bs.logger.Error("dir_backup_failed", err, nil)
+		}
 	}
 	bs.rearmDirTimer(cfg, generation)
 }
@@ -348,8 +452,12 @@ func (bs *BackupService) emailBackupTick(generation uint64) {
 	if !emailBackupScheduleReady(cfg.Backup.EmailBackup) {
 		return
 	}
-	if err := bs.doEmailBackup(cfg, emailBackupModeAutomatic, false); err != nil {
-		bs.logger.Error("email_backup_failed", err, nil)
+	if err := bs.runEmailBackupLocked(cfg, backupTriggerScheduled, false); err != nil {
+		if errors.Is(err, errBackupBusy) {
+			bs.logger.Info("email_backup_skipped_busy", nil)
+		} else {
+			bs.logger.Error("email_backup_failed", err, nil)
+		}
 	}
 	bs.rearmEmailTimer(cfg, generation)
 }

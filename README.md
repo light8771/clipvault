@@ -64,7 +64,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 过滤 | 自定义正则敏感规则，支持增删；匹配内容会标为敏感并继续写入加密数据库，查看和文件操作受二次认证保护 |
 | 分组 | 创建/编辑/删除分组，支持嵌套，可将记录加入分组 |
 | 导出 | 按全部或日期范围导出（JSON / Excel / 加密 .cvexport）、导入数据（JSON / Excel / .cvexport，自动识别 zip 加密打包载荷）；Excel 保留来源应用信息 |
-| 备份 | 目录和邮件定时备份（可选启动后自动执行）、SMTP 与安全邮件模板、立即备份/发送、测试邮件、最近备份状态；邮件发送历史以只读弹窗展示最近 100 条成功记录（自动/手动、收发账号、时间、文件类型） |
+| 备份 | 目录和邮件定时备份（可选启动后自动执行）、SMTP 与安全邮件模板、立即备份/发送（异步执行，状态自动刷新）、测试邮件、最近备份状态；目录/邮件备份历史以只读弹窗展示最近 100 条记录（成功/失败/跳过、触发方式、时间、格式、条数） |
 
 > 过滤规则和文字限制**即时生效**；监听地址或反向代理配置变更需**重启应用**后生效。
 
@@ -298,11 +298,15 @@ New-Item -ItemType File "portable.flag"
 | `POST /api/v1/recovery/password` | POST | 二次 + CSRF | 修改恢复密码 |
 | `POST /api/v1/recovery/reset` | POST | 刚刚完成的二次认证 + CSRF | 忘记旧恢复密码时原子重置 |
 | `GET /api/v1/backup` | GET | 锁屏 | 查看备份配置与最近状态 |
-| `GET /api/v1/backup/email-history` | GET | 二次 | 只读查看最近 100 条成功发送的邮件备份历史 |
-| `POST /api/v1/backup/directory` | POST | 二次 + CSRF | 立即执行目录备份 |
-| `POST /api/v1/backup/email` | POST | 二次 + CSRF | 立即发送备份邮件 |
+| `GET /api/v1/backup/history?kind=dir\|email` | GET | 二次 | 只读查看指定通道最近 100 条备份历史（成功/失败/跳过） |
+| `POST /api/v1/backup/directory` | POST | 二次 + CSRF | 异步启动一次目录备份（`?forceFull=1` 强制全量） |
+| `POST /api/v1/backup/email` | POST | 二次 + CSRF | 异步启动一次邮件备份（`?forceFull=1` 强制全量） |
 | `POST /api/v1/backup/email-test` | POST | 二次 + CSRF | 发送测试邮件 |
 | `/api/v1/groups` | GET/POST/PUT/DELETE | 锁屏；变更请求需 CSRF | 列出、创建、更新和删除分组 |
+| `GET /api/v1/logs/config-changes` | GET | 锁屏 | 分页查看系统设置修改记录（含新旧值，最多保留 1000 次） |
+| `DELETE /api/v1/logs/config-changes` | DELETE | 二次 + CSRF | 清空设置修改记录 |
+| `GET /api/v1/logs/searches` | GET | 锁屏 | 分页查看剪贴板搜索历史（最多保留 1000 条） |
+| `DELETE /api/v1/logs/searches` | DELETE | 二次 + CSRF | 清空搜索历史 |
 
 导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules` 五个工作表；`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存记录、事件状态（重复/无内容及原因）、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
@@ -326,7 +330,7 @@ New-Item -ItemType File "portable.flag"
 
 ## 配置说明
 
-配置存储在 DuckDB schema v3 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+配置存储在 DuckDB schema v5 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {
@@ -418,6 +422,8 @@ New-Item -ItemType File "portable.flag"
 | `backup.dirBackup.dir` | 备份文件保存目录 |
 | `backup.dirBackup.format` | 备份格式：`json`（明文）/ `xlsx`（明文 Excel）/ `cvexport`（加密） |
 | `backup.dirBackup.password` | cvexport 格式的加密密码 |
+| `backup.dirBackup.scope` | 备份范围：`full` / `incremental`（含 `sinceId`）/ `range`（含 `from`/`to`） |
+| `backup.dirBackup.fullFallbackDays` | 增量备份时，距上次全量超过该天数自动做一次全量兜底（0–365，0=不自动兜底），防止已删除记录永远无法找回 |
 | `backup.emailBackup.enabled` | 是否启用定时邮件备份 |
 | `backup.emailBackup.runOnStartup` | 应用服务启动后是否自动执行一次邮件备份 |
 | `backup.emailBackup.interval` | 邮件备份间隔（小时） |
@@ -434,8 +440,10 @@ New-Item -ItemType File "portable.flag"
 | `backup.emailBackup.style` | 邮件样式：`plain` / `card` / `accent` |
 | `backup.emailBackup.accentColor` | 邮件主色，格式为 `#RRGGBB` |
 | `backup.emailBackup.maxPartSize` | 每封邮件的预计 MIME 体积上限（1–50 MiB）；备份会按完整记录自适应分成多封，单条记录仍超限时明确报错 |
+| `backup.emailBackup.scope` | 备份范围：`full` / `incremental`（含 `sinceId`）/ `range`（含 `from`/`to`） |
+| `backup.emailBackup.fullFallbackDays` | 增量备份时，距上次全量超过该天数自动做一次全量兜底（0–365，0=不自动兜底） |
 
-邮件备份使用加密连接：端口 `465` 使用 TLS，其他端口必须支持 STARTTLS，应用拒绝明文 SMTP。邮件标题和正文只接受纯文本模板，支持 `{time}`、`{filename}`、`{format}`，服务端会转义 HTML 并生成受控样式。仅成功提交的备份邮件会写入发送历史；测试邮件不会写入，历史没有删除接口。Web 管理服务是配置和恢复的唯一交互入口，无法启动时应用会明确退出，不会进入无法再启用的后台状态。
+邮件备份使用加密连接：端口 `465` 使用 TLS，其他端口必须支持 STARTTLS，应用拒绝明文 SMTP。邮件标题和正文只接受纯文本模板，支持 `{time}`、`{filename}`、`{format}`，服务端会转义 HTML 并生成受控样式。备份历史（`backup_history` 表）记录目录/邮件两通道的每次执行——成功、失败、跳过都留痕，含触发方式（定时/启动/手动）、范围模式、条数与错误；测试邮件不写入，历史没有删除接口。邮件分片发送时每成功一片即推进备份进度，中途失败的剩余数据会在下次备份时自动续发。Web 管理服务是配置和恢复的唯一交互入口，无法启动时应用会明确退出，不会进入无法再启用的后台状态。
 
 ## 项目结构
 
@@ -454,7 +462,7 @@ clipboard_ext/
 ├── internal/clipvault/         # 核心逻辑（适配层）
 │   ├── domain/                 # 业务模型唯一定义（记录/分组/搜索/清理、事件状态常量）
 │   ├── application/            # 运行时状态等应用层
-│   ├── storage/duckdb/         # schema v3（BIGINT Unix 毫秒 + 事件状态列）
+│   ├── storage/duckdb/         # schema v5（BIGINT Unix 毫秒 + 事件状态列）
 │   ├── transfer/               # 导入导出范围契约（export v5）
 │   ├── backup/                 # 增量备份策略（纯逻辑）
 │   ├── security/               # 密码散列与 DPAPI

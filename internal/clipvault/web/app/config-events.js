@@ -109,7 +109,7 @@ export function registerConfigEvents() {
     if (dirFmt) {
       dirFmt.addEventListener('change', () => {
         const row = document.getElementById('cfg-dirBackupPwdRow');
-        if (row) row.style.display = '';
+        if (row) row.style.display = 'flex';
       });
     }
     // 邮件备份仅支持加密导出：cvexport 直接加密；json/xlsx 打进 zip 后加密。
@@ -118,7 +118,7 @@ export function registerConfigEvents() {
     if (emailFmt) {
       emailFmt.addEventListener('change', () => {
         const row = document.getElementById('cfg-emailBackupPwdRow');
-        if (row) row.style.display = '';
+        if (row) row.style.display = 'flex';
       });
     }
     document.getElementById('storageOpenDirBtn')?.addEventListener('click', app.openDataDirectory);

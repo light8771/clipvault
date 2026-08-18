@@ -107,14 +107,14 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	dir, err := requiredJSONObject(backup["dirBackup"], "config.backup.dirBackup",
-		"enabled", "runOnStartup", "interval", "dir", "format", "password", "scope", "incrementalFullInterval")
+		"enabled", "runOnStartup", "interval", "dir", "format", "password", "scope", "fullFallbackDays")
 	if err != nil {
 		return err
 	}
 	email, err := requiredJSONObject(backup["emailBackup"], "config.backup.emailBackup",
 		"enabled", "runOnStartup", "interval", "smtpHost", "smtpPort", "smtpUser", "smtpPass",
 		"from", "to", "format", "password", "subject", "body", "style", "accentColor",
-		"scope", "maxPartSize", "incrementalFullInterval")
+		"scope", "maxPartSize", "fullFallbackDays")
 	if err != nil {
 		return err
 	}
@@ -278,34 +278,34 @@ type BackupConfig struct {
 
 // DirBackupConfig 定时备份到指定目录。
 type DirBackupConfig struct {
-	Enabled                 bool        `json:"enabled"`
-	RunOnStartup            bool        `json:"runOnStartup"`
-	Interval                int         `json:"interval"`                // 备份间隔(小时)
-	Dir                     string      `json:"dir"`                     // 目标目录路径
-	Format                  string      `json:"format"`                  // "json" / "xlsx" / "cvexport"（内容格式，文件始终是 .cvexport 加密容器）
-	Password                string      `json:"password"`                // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
-	Scope                   ExportScope `json:"scope"`                   // 备份范围 full/range/incremental
-	IncrementalFullInterval int         `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
+	Enabled          bool        `json:"enabled"`
+	RunOnStartup     bool        `json:"runOnStartup"`
+	Interval         int         `json:"interval"`         // 备份间隔(小时)
+	Dir              string      `json:"dir"`              // 目标目录路径
+	Format           string      `json:"format"`           // "json" / "xlsx" / "cvexport"（内容格式，文件始终是 .cvexport 加密容器）
+	Password         string      `json:"password"`         // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
+	Scope            ExportScope `json:"scope"`            // 备份范围 full/range/incremental
+	FullFallbackDays int         `json:"fullFallbackDays"` // 距上次全量超过该天数后自动全量兜底，0=不自动兜底，默认7
 }
 
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。
 type EmailBackupConfig struct {
-	Enabled                 bool        `json:"enabled"`
-	RunOnStartup            bool        `json:"runOnStartup"`
-	Interval                int         `json:"interval"` // 备份间隔(小时)
-	SMTPHost                string      `json:"smtpHost"` // SMTP 服务器地址
-	SMTPPort                int         `json:"smtpPort"` // SMTP 端口
-	SMTPUser                string      `json:"smtpUser"` // SMTP 用户名
-	SMTPPass                string      `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
-	From                    string      `json:"from"`     // 发件人邮箱
-	To                      string      `json:"to"`       // 收件人邮箱
-	Format                  string      `json:"format"`   // "json" / "xlsx" / "cvexport"（内容格式，附件始终是 .cvexport 加密容器）
-	Password                string      `json:"password"` // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
-	Subject                 string      `json:"subject"`
-	Body                    string      `json:"body"`
-	Style                   string      `json:"style"`
-	AccentColor             string      `json:"accentColor"`
-	Scope                   ExportScope `json:"scope"`                   // 备份范围 full/range/incremental
-	MaxPartSize             int         `json:"maxPartSize"`             // 单封附件阈值(字节)，默认20MB
-	IncrementalFullInterval int         `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
+	Enabled          bool        `json:"enabled"`
+	RunOnStartup     bool        `json:"runOnStartup"`
+	Interval         int         `json:"interval"` // 备份间隔(小时)
+	SMTPHost         string      `json:"smtpHost"` // SMTP 服务器地址
+	SMTPPort         int         `json:"smtpPort"` // SMTP 端口
+	SMTPUser         string      `json:"smtpUser"` // SMTP 用户名
+	SMTPPass         string      `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
+	From             string      `json:"from"`     // 发件人邮箱
+	To               string      `json:"to"`       // 收件人邮箱
+	Format           string      `json:"format"`   // "json" / "xlsx" / "cvexport"（内容格式，附件始终是 .cvexport 加密容器）
+	Password         string      `json:"password"` // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
+	Subject          string      `json:"subject"`
+	Body             string      `json:"body"`
+	Style            string      `json:"style"`
+	AccentColor      string      `json:"accentColor"`
+	Scope            ExportScope `json:"scope"`            // 备份范围 full/range/incremental
+	MaxPartSize      int         `json:"maxPartSize"`      // 单封附件阈值(字节)，默认20MB
+	FullFallbackDays int         `json:"fullFallbackDays"` // 距上次全量超过该天数后自动全量兜底，0=不自动兜底，默认7
 }

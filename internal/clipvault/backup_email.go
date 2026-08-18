@@ -24,9 +24,7 @@ func (bs *BackupService) exportEmailBackupTo(dst io.Writer, format, password str
 	return bs.exportBackupTo(dst, format, password, scope)
 }
 
-func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) error {
-	bs.execMu.Lock()
-	defer bs.execMu.Unlock()
+func (bs *BackupService) doEmailBackup(cfg Config, trigger string, forceFull bool) error {
 	if bs.isStopped() {
 		return errBackupStopped
 	}
@@ -38,76 +36,96 @@ func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) 
 	if msg := validateEmailBackupEnabled(eb); msg != "" {
 		return fmt.Errorf("邮件备份配置不完整: %s", msg)
 	}
+	bs.markEmailRunning(trigger)
+	fail := func(now time.Time, scope ExportScope, autoFallback bool, partsSent, totalParts, items int, runErr error) error {
+		wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
+		bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, runErr.Error(), "", trigger))
+		bs.recordBackupHistory("email", trigger, scope.Mode, false, runErr, eb.To, eb.Format, partsSent, items)
+		return runErr
+	}
 	normalizedScope, err := normalizeExportRange(eb.Scope, cfg.Search.TimeZone)
 	if err != nil {
-		return err
+		return fail(time.Now(), eb.Scope, false, 0, 0, 0, err)
 	}
 	eb.Scope = normalizedScope
-	scope, autoFallback, err := resolveBackupScope(bs.store, "email", eb.Scope, eb.IncrementalFullInterval, forceFull)
+	scope, autoFallback, err := resolveBackupScope(bs.store, "email", eb.Scope, eb.FullFallbackDays, forceFull)
 	if err != nil {
+		return fail(time.Now(), eb.Scope, false, 0, 0, 0, err)
+	}
+	now := time.Now()
+	// 无数据可备份时跳过：增量没有新记录、或全量时库为空，
+	// 不发送空备份邮件，水位线保持不动。
+	total, err := bs.store.CountInScope(context.Background(), scope)
+	if err != nil {
+		return fail(now, scope, autoFallback, 0, 0, 0, fmt.Errorf("统计备份数据失败: %w", err))
+	}
+	if total == 0 {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
-		bs.setEmailStatus(makeBackupStatus(time.Now(), false, eb.Scope, false, wm, eb.IncrementalFullInterval, err.Error(), ""))
-		return err
+		status := makeBackupStatus(now, true, scope, autoFallback, wm, "", "", trigger)
+		status.Skipped = true
+		bs.setEmailStatus(status)
+		bs.recordBackupHistory("email", trigger, "skipped", true, nil, eb.To, eb.Format, 0, 0)
+		bs.logger.Info("email_backup_skipped_empty", map[string]any{"mode": scope.Mode, "trigger": trigger})
+		return nil
 	}
 	parts, ext, exportedMaxID, err := bs.exportEmailPartFilesSized(eb, scope)
 	if err != nil {
-		wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
-		bs.setEmailStatus(makeBackupStatus(time.Now(), false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
-		return err
+		return fail(now, scope, autoFallback, 0, 0, total, err)
 	}
 	defer cleanupEmailPartFiles(parts)
-
-	now := time.Now()
-	total := len(parts)
+	totalParts := len(parts)
 
 	for i, part := range parts {
-		size, err := emailBackupFileMessageSize(eb, ext, now, i, total, part.path)
+		size, err := emailBackupFileMessageSize(eb, ext, now, i, totalParts, part.path)
 		if err != nil {
-			wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
-			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
-			return err
+			return fail(now, scope, autoFallback, 0, totalParts, total, err)
 		}
 		if size > int64(eb.MaxPartSize) {
-			err := fmt.Errorf("第 %d/%d 封邮件为 %d 字节，超过阈值 %d，请缩小备份范围或减少单条记录大小", i+1, total, size, eb.MaxPartSize)
-			wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
-			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
-			return err
+			return fail(now, scope, autoFallback, 0, totalParts, total,
+				fmt.Errorf("第 %d/%d 封邮件为 %d 字节，超过阈值 %d，请缩小备份范围或减少单条记录大小", i+1, totalParts, size, eb.MaxPartSize))
 		}
 	}
 
+	// 只有跟踪水位线的范围模式才逐片推进；range 是一次性导出，不动水位线。
+	advancePerPart := scope.Mode == "incremental" || scope.Mode == "full"
 	lastFilename := ""
 	for i, part := range parts {
-		filename := emailBackupFilename(ext, now, i, total)
+		filename := emailBackupFilename(ext, now, i, totalParts)
 		if err := sendSMTPMessageStream(eb, func(w io.Writer) error {
-			return writeEmailBackupMessage(w, eb, ext, now, i, total, part.path)
+			return writeEmailBackupMessage(w, eb, ext, now, i, totalParts, part.path)
 		}); err != nil {
-
-			bs.sendBackupFailureNotice(eb, now, i, total, ext, err)
-			err = fmt.Errorf("发送邮件失败(第%d封/%d): %w", i+1, total, err)
-			wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
-			bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, err.Error(), ""))
-			return err
+			bs.sendBackupFailureNotice(eb, now, i, totalParts, ext, err)
+			return fail(now, scope, autoFallback, i, totalParts, total,
+				fmt.Errorf("发送邮件失败(第%d封/%d): %w", i+1, totalParts, err))
 		}
 		lastFilename = filename
+		if advancePerPart && part.endID > 0 {
+			if _, wmErr := updateBackupWatermark(bs.store, "email", ExportScope{Mode: "incremental"}, part.endID); wmErr != nil {
+				return fail(now, scope, autoFallback, i+1, totalParts, total,
+					fmt.Errorf("第 %d 封已发送，但记录备份进度失败: %w", i+1, wmErr))
+			}
+		}
 	}
 
-	if err := bs.store.AddEmailBackupHistory(context.Background(), EmailBackupHistory{
-		SentAt: now, Mode: mode, From: eb.From, To: eb.To, Format: ext,
-	}); err != nil {
-		bs.logger.Error("email_backup_history_record_failed", err, nil)
+	// 全量备份：所有片段发送完成，刷新全量时间（增量备份的 LastFullAt
+	// 由逐片推进保留不变）。
+	wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
+	if scope.Mode == "full" {
+		var wmErr error
+		wm, wmErr = updateBackupWatermark(bs.store, "email", scope, exportedMaxID)
+		if wmErr != nil {
+			bs.logger.Error("email_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
+			return fail(now, scope, autoFallback, totalParts, totalParts, total,
+				fmt.Errorf("邮件已全部发送，但更新备份进度失败: %w", wmErr))
+		}
 	}
-	wm, wmErr := updateBackupWatermark(bs.store, "email", scope, exportedMaxID)
 	statusFile := lastFilename
-	if total > 1 {
-		statusFile = fmt.Sprintf("%d part(s)", total)
+	if totalParts > 1 {
+		statusFile = fmt.Sprintf("%d part(s)", totalParts)
 	}
-	if wmErr != nil {
-		bs.logger.Error("email_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
-		bs.setEmailStatus(makeBackupStatus(now, false, scope, autoFallback, wm, eb.IncrementalFullInterval, wmErr.Error(), statusFile))
-		return wmErr
-	}
-	bs.setEmailStatus(makeBackupStatus(now, true, scope, autoFallback, wm, eb.IncrementalFullInterval, "", statusFile))
-	bs.logger.Info("email_backup_ok", map[string]any{"to": eb.To, "parts": total, "mode": scope.Mode, "autoFallback": autoFallback})
+	bs.setEmailStatus(makeBackupStatus(now, true, scope, autoFallback, wm, "", statusFile, trigger))
+	bs.recordBackupHistory("email", trigger, scope.Mode, true, nil, eb.To, ext, totalParts, total)
+	bs.logger.Info("email_backup_ok", map[string]any{"to": eb.To, "parts": totalParts, "mode": scope.Mode, "autoFallback": autoFallback, "trigger": trigger})
 	return nil
 }
 

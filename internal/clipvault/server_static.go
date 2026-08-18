@@ -23,13 +23,15 @@ var applicationModuleAssets = []string{
 	"/app/history-actions.js", "/app/history-lifecycle.js", "/app/history-list.js", "/app/history-navigation.js", "/app/license.js",
 	"/app/modal-controller.js", "/app/notifications.js", "/app/recovery.js", "/app/runtime-state.js", "/app/settings-lifecycle.js", "/app/settings-sources.js", "/app/settings-storage.js",
 	"/app/source-data.js", "/app/text-utils.js", "/app/transfer.js",
-	"/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
+	"/app/logs.js", "/app/groups-page.js", "/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
 }
 
 type applicationPage struct {
-	Path             string
-	Name             string
-	Title            string
+	Path  string
+	Name  string
+	Title string
+	// Menu 是左侧菜单的分组键，模板用它高亮当前顶级菜单项。
+	Menu             string
 	Bootstrap        string
 	RequireSecondary bool
 	Parts            []string
@@ -60,6 +62,7 @@ var applicationPageDefinitions = []applicationPage{
 		Path:      "/settings",
 		Name:      "settings",
 		Title:     "设置",
+		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-home.html"),
 	},
@@ -67,6 +70,7 @@ var applicationPageDefinitions = []applicationPage{
 		Path:      "/settings/appearance",
 		Name:      "settings",
 		Title:     "外观与通知",
+		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-appearance.html"),
 	},
@@ -74,6 +78,7 @@ var applicationPageDefinitions = []applicationPage{
 		Path:      "/settings/general",
 		Name:      "settings",
 		Title:     "录制与快捷键",
+		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-general.html"),
 	},
@@ -81,6 +86,7 @@ var applicationPageDefinitions = []applicationPage{
 		Path:             "/settings/security",
 		Name:             "settings",
 		Title:            "安全与隐私",
+		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
 		Parts:            settingsPageParts("web/pages/settings-security.html"),
@@ -89,6 +95,7 @@ var applicationPageDefinitions = []applicationPage{
 		Path:             "/settings/storage",
 		Name:             "settings",
 		Title:            "存储与数据",
+		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
 		Parts:            settingsPageParts("web/pages/settings-storage.html"),
@@ -97,6 +104,7 @@ var applicationPageDefinitions = []applicationPage{
 		Path:             "/settings/backup",
 		Name:             "settings",
 		Title:            "定时备份",
+		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
 		Parts:            settingsPageParts("web/pages/settings-backup.html"),
@@ -105,39 +113,60 @@ var applicationPageDefinitions = []applicationPage{
 		Path:      "/settings/transfer",
 		Name:      "settings",
 		Title:     "导入导出",
+		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-transfer.html"),
-	},
-	{
-		Path:             "/settings/maintenance",
-		Name:             "settings",
-		Title:            "运维",
-		Bootstrap:        "/app/settings-bootstrap.js",
-		RequireSecondary: true,
-		Parts:            settingsPageParts("web/pages/settings-maintenance.html"),
 	},
 	{
 		Path:             "/settings/service",
 		Name:             "settings",
 		Title:            "网络与服务",
+		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
 		Parts:            settingsPageParts("web/pages/settings-service.html"),
 	},
 	{
-		Path:      "/settings/groups",
+		Path:      "/groups",
 		Name:      "settings",
 		Title:     "分组管理",
+		Menu:      "groups",
 		Bootstrap: "/app/settings-bootstrap.js",
-		Parts:     settingsPageParts("web/pages/settings-groups.html"),
+		Parts:     settingsPageParts("web/pages/page-groups.html"),
 	},
 	{
-		Path:             "/settings/license",
+		Path:             "/license",
 		Name:             "settings",
 		Title:            "软件授权",
+		Menu:             "license",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
-		Parts:            settingsPageParts("web/pages/settings-license.html"),
+		Parts:            settingsPageParts("web/pages/page-license.html"),
+	},
+	{
+		Path:             "/maintenance",
+		Name:             "settings",
+		Title:            "运行维护",
+		Menu:             "maintenance",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/page-maintenance.html"),
+	},
+	{
+		Path:      "/logs/operations",
+		Name:      "settings",
+		Title:     "操作记录",
+		Menu:      "logs-operations",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/page-logs-operations.html"),
+	},
+	{
+		Path:      "/logs/searches",
+		Name:      "settings",
+		Title:     "搜索记录",
+		Menu:      "logs-searches",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/page-logs-searches.html"),
 	},
 }
 

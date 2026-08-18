@@ -406,10 +406,10 @@ func TestBackupServiceStopIsIdempotentAndRejectsNewWork(t *testing.T) {
 	service := &BackupService{}
 	service.Stop()
 	service.Stop()
-	if err := service.doDirBackup(DefaultConfig(), false); !errors.Is(err, errBackupStopped) {
+	if err := service.doDirBackup(DefaultConfig(), backupTriggerManual, false); !errors.Is(err, errBackupStopped) {
 		t.Fatalf("directory backup after Stop error=%v", err)
 	}
-	if err := service.doEmailBackup(DefaultConfig(), emailBackupModeManual, false); !errors.Is(err, errBackupStopped) {
+	if err := service.doEmailBackup(DefaultConfig(), backupTriggerManual, false); !errors.Is(err, errBackupStopped) {
 		t.Fatalf("email backup after Stop error=%v", err)
 	}
 }
@@ -1443,7 +1443,7 @@ func TestRangeBackupDoesNotAdvanceIncrementalWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	original := BackupWatermark{LastItemID: 7, LastSentAt: "2026-08-01T00:00:00Z", IncrementalCount: 2}
+	original := BackupWatermark{LastItemID: 7, LastSentAt: "2026-08-01T00:00:00Z", LastFullAt: "2026-07-01T00:00:00Z"}
 	if err := store.SetBackupWatermark(context.Background(), "dir", original); err != nil {
 		t.Fatal(err)
 	}

@@ -192,17 +192,22 @@ func (r *WindowsRuntime) unregisterSearchHotkey() {
 
 // openQuickSearch 响应搜索快捷键，弹出桌面搜索窗口。
 func (r *WindowsRuntime) openQuickSearch() {
-	if r.store == nil || strings.TrimSpace(r.SearchURL) == "" {
+	if r.store == nil || strings.TrimSpace(r.SearchURL()) == "" {
 		r.logger.Warn("quick_search_skipped", map[string]any{"reason": "store_or_url_missing"})
 		return
 	}
-	ShowSearchWindow(r.store, r.SearchURL, r.logger, r.license, r.cfgMgr, r.env)
+	ShowSearchWindow(r.store, r.SearchURL(), r.logger, r.license, r.cfgMgr, r.env)
 }
 
 // ReregisterHotkey 从任意线程调用，通过 PostMessage 将重注册请求
 // 转发到消息循环线程执行，确保 RegisterHotKey 在正确的线程上调用。
+// 调用方已处于消息循环线程时（如托盘菜单触发的配置更新）直接内联
+// 执行，避免向自己的消息队列发消息后阻塞等待造成消息泵冻结。
 // 返回 nil 表示成功，返回 *HotkeyError 表示注册失败。
 func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
+	if r.hwnd != 0 && r.onMessageThread() {
+		return r.applyHotkeyUpdate(&cfg.Hotkey, &cfg.SearchHotkey)
+	}
 	r.hotkeyMu.Lock()
 	r.pendingHotkey = &cfg.Hotkey
 	r.pendingSearchHotkey = &cfg.SearchHotkey
@@ -215,4 +220,28 @@ func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
 	case <-time.After(3 * time.Second):
 		return &HotkeyError{Msg: "快捷键注册超时"}
 	}
+}
+
+// onMessageThread 报告当前线程是否为创建消息窗口的线程（即消息循环线程）。
+func (r *WindowsRuntime) onMessageThread() bool {
+	ownerTid, _, _ := procGetWindowThreadProcessId.Call(r.hwnd, 0)
+	if ownerTid == 0 {
+		return false
+	}
+	currentTid, _, _ := procGetCurrentThreadId.Call()
+	return ownerTid == currentTid
+}
+
+// applyHotkeyUpdate 在消息循环线程上执行快捷键重注册。
+func (r *WindowsRuntime) applyHotkeyUpdate(hk, shk *HotkeyConfig) error {
+	r.unregisterHotkey()
+	r.unregisterSearchHotkey()
+	var err error
+	if hk != nil {
+		err = r.doRegisterHotkey(idHotkeyToggle, *hk)
+	}
+	if shk != nil && err == nil {
+		err = r.doRegisterHotkey(idHotkeySearch, *shk)
+	}
+	return err
 }

@@ -309,6 +309,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	changes := diffConfigChanges(curCfg, cfg)
 	response := map[string]any{"ok": true}
 	if err := s.cfgMgr.Update(cfg); err != nil {
 		var runtimeErr *ConfigRuntimeApplyError
@@ -339,6 +340,11 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.logger.Info("config_updated", nil)
+	if s.store != nil {
+		if err := s.store.LogConfigChanges(r.Context(), changes); err != nil {
+			s.logger.Warn("config_change_log_failed", map[string]any{"error": err.Error()})
+		}
+	}
 	response["config"] = stripSecrets(s.cfgMgr.Get())
 	s.writeJSON(w, response)
 }

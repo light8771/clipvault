@@ -6,10 +6,7 @@ const SETTINGS_GROUPS = [
   { id: 'storage', title: '存储与数据', desc: '数据目录、隔离数据库与历史清理' },
   { id: 'backup', title: '定时备份', desc: '定时备份到目录或发送到邮箱' },
   { id: 'transfer', title: '导入导出', desc: '导出剪贴板数据，或从导出文件恢复' },
-  { id: 'maintenance', title: '运维', desc: '诊断日志与运行维护' },
-  { id: 'service', title: '网络与服务', desc: 'Web 监听地址、反向代理与时区' },
-  { id: 'groups', title: '分组管理', desc: '创建自定义分组对记录分类，支持嵌套' },
-  { id: 'license', title: '软件授权', desc: '查看授权状态，使用激活码激活' }
+  { id: 'service', title: '网络与服务', desc: 'Web 监听地址、反向代理与时区' }
 ];
 
 export function registerSettingsNavigation() {

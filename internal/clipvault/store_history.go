@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
+
+// 单条备份历史的错误信息长度上限，防止超长底层错误撑爆历史表。
+const maxBackupHistoryErrorRunes = 500
 
 // Save 写入一条剪贴板事件记录。created_at 使用事件发生时间
 // （item.CapturedAtMS，Unix 毫秒）；<=0 时回退为当前时间。
@@ -55,34 +59,45 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 	return err
 }
 
-// AddEmailBackupHistory records a successful backup email. History is append-only.
-func (s *Store) AddEmailBackupHistory(ctx context.Context, record EmailBackupHistory) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO email_backup_history
-		(sent_at, mode, from_address, to_address, format) VALUES (?, ?, ?, ?, ?)`,
-		record.SentAt.UTC().UnixMilli(), record.Mode, record.From, record.To, record.Format)
+// AddBackupHistory 追加一条备份历史（成功、失败、跳过都记录）。append-only。
+func (s *Store) AddBackupHistory(ctx context.Context, record BackupHistory) error {
+	createdAt := record.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	errText := record.Error
+	if utf8.RuneCountInString(errText) > maxBackupHistoryErrorRunes {
+		errText = string([]rune(errText)[:maxBackupHistoryErrorRunes])
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO backup_history
+		(created_at, kind, trigger, mode, ok, error, target, format, parts, items)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		createdAt.UTC().UnixMilli(), record.Kind, record.Trigger, record.Mode, record.OK,
+		errText, record.Target, record.Format, record.Parts, record.Items)
 	return err
 }
 
-// ListEmailBackupHistory returns the most recent successful backup emails.
-func (s *Store) ListEmailBackupHistory(ctx context.Context, limit int) ([]EmailBackupHistory, error) {
+// ListBackupHistory 返回指定通道最近的备份历史（新的在前）。
+func (s *Store) ListBackupHistory(ctx context.Context, kind string, limit int) ([]BackupHistory, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sent_at, mode, from_address, to_address, format
-		FROM email_backup_history ORDER BY sent_at DESC, id DESC LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT created_at, kind, trigger, mode, ok, error, target, format, parts, items
+		FROM backup_history WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT ?`, kind, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	history := make([]EmailBackupHistory, 0)
+	history := make([]BackupHistory, 0)
 	for rows.Next() {
-		var record EmailBackupHistory
-		var sentAtMS int64
-		if err := rows.Scan(&sentAtMS, &record.Mode, &record.From, &record.To, &record.Format); err != nil {
+		var record BackupHistory
+		var createdAtMS int64
+		if err := rows.Scan(&createdAtMS, &record.Kind, &record.Trigger, &record.Mode, &record.OK,
+			&record.Error, &record.Target, &record.Format, &record.Parts, &record.Items); err != nil {
 			return nil, err
 		}
-		record.SentAt = time.UnixMilli(sentAtMS).UTC()
+		record.CreatedAt = time.UnixMilli(createdAtMS).UTC()
 		history = append(history, record)
 	}
 	return history, rows.Err()

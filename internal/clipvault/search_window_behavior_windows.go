@@ -297,7 +297,29 @@ func (sw *searchWindow) handleSearchResult(sequence uint64) {
 		sw.showSearchStatus("搜索失败，请重试")
 		return
 	}
+	sw.recordSearchHistory(result.query, int64(len(result.items)))
 	sw.refreshList(result.items, result.query)
+}
+
+// recordSearchHistory 把弹窗中的非空搜索写入搜索历史，与 Web 端 handleSearch
+// 的 LogSearchQuery 行为保持一致。弹窗搜索使用 SkipTotal，结果数取实际返回条数。
+// 在后台 goroutine 中落库，避免阻塞弹窗的 GUI 线程。
+func (sw *searchWindow) recordSearchHistory(query string, resultCount int64) {
+	if strings.TrimSpace(query) == "" || sw.store == nil {
+		return
+	}
+	filters := map[string]string{}
+	if sw.hideDuplicates {
+		filters["滤重"] = "开"
+	}
+	if sw.hideUnavailable {
+		filters["滤无效"] = "开"
+	}
+	go func() {
+		if err := sw.store.LogSearchQuery(context.Background(), query, filters, resultCount); err != nil && sw.logger != nil {
+			sw.logger.Warn("search_window_search_history_log_failed", map[string]any{"error": err.Error()})
+		}
+	}()
 }
 
 func (sw *searchWindow) refreshList(items []StoredItem, query string) {

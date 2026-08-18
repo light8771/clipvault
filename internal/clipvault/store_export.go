@@ -429,11 +429,12 @@ func (s *Store) NthIDInScopeAfter(ctx context.Context, scope ExportScope, after 
 
 // BackupWatermark records the last successful incremental backup position,
 // stored in the settings table so incremental backups can resume from it.
+// BackupWatermark 记录单个备份通道的进度。全量兜底按时间判定
+// （距 LastFullAt 超过配置天数），不再需要连续增量计数。
 type BackupWatermark struct {
-	LastItemID       int64  `json:"lastItemId"`
-	LastSentAt       string `json:"lastSentAt"`
-	IncrementalCount int    `json:"incrementalCount"` // consecutive incremental runs; force full after threshold
-	LastFullAt       string `json:"lastFullAt"`       // timestamp of the last full backup
+	LastItemID int64  `json:"lastItemId"` // 已备份到的最大记录 id
+	LastSentAt string `json:"lastSentAt"` // 最近一次成功备份时间（RFC3339）
+	LastFullAt string `json:"lastFullAt"` // 最近一次全量备份时间（RFC3339）
 }
 
 // GetBackupWatermark reads the watermark for the given backup kind ("dir" or "email").
@@ -487,8 +488,8 @@ func validateBackupKind(kind string) error {
 }
 
 func validateBackupWatermark(wm BackupWatermark) error {
-	if wm.LastItemID < 0 || wm.IncrementalCount < 0 {
-		return errors.New("backup watermark counters must not be negative")
+	if wm.LastItemID < 0 {
+		return errors.New("backup watermark item id must not be negative")
 	}
 	for _, field := range []struct {
 		name  string

@@ -179,6 +179,10 @@ func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 			ids = append(ids, child)
 			queue = append(queue, child)
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
 		rows.Close()
 	}
 
