@@ -76,8 +76,8 @@ func TestBackupDataCanBeImported(t *testing.T) {
 		format   string
 		password string
 	}{
-		{name: "JSON", format: "json"},
-		{name: "XLSX", format: "xlsx"},
+		{name: "JSON", format: "json", password: "backup-password"},
+		{name: "XLSX", format: "xlsx", password: "backup-password"},
 		{name: "Encrypted", format: "cvexport", password: "backup-password"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -85,18 +85,25 @@ func TestBackupDataCanBeImported(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if extension != test.format {
-				t.Fatalf("backup extension = %q, want %q", extension, test.format)
+			// 所有格式的备份文件都是 .cvexport 加密容器
+			if extension != "cvexport" {
+				t.Fatalf("backup extension = %q, want %q", extension, "cvexport")
 			}
 			_ = exportedMaxID
-			if test.format == "cvexport" {
-				if !IsCVExport(data) {
-					t.Fatal("encrypted backup is not a cvexport file")
+			if !IsCVExport(data) {
+				t.Fatal("backup is not a cvexport file")
+			}
+			data, err = DecryptExport(data, test.password)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// json/xlsx 格式的明文载荷会先打进 zip 再加密，导入前需解包
+			if test.format != "cvexport" {
+				entry := "clipvault-export.json"
+				if test.format == "xlsx" {
+					entry = "clipvault-export.xlsx"
 				}
-				data, err = DecryptExport(data, test.password)
-				if err != nil {
-					t.Fatal(err)
-				}
+				data = unzipSingleEntry(t, data, entry)
 			}
 
 			target, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
@@ -370,6 +377,7 @@ func completeScheduledBackupConfig() Config {
 		Interval: 1,
 		Dir:      `D:\backups`,
 		Format:   "json",
+		Password: "scheduled-backup-password",
 	}
 	cfg.Backup.EmailBackup = EmailBackupConfig{
 		Enabled:     true,

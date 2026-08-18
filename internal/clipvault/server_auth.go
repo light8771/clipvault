@@ -28,8 +28,8 @@ func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // requireSecondary 确保请求已通过锁屏认证且拥有有效的二次认证。
 // 支持两种二次认证方式：
-//  1. 会话级缓存（timeout > 0 时，GrantSecondaryAuth 设置的有效期内免重复）
-//  2. 一次性 token（timeout = 0 时，每次操作需通过请求头携带）
+//  1. 会话级缓存（timeout = 0 时跟随浏览器会话，timeout > 0 时 N 分钟内免重复）
+//  2. 一次性 token（通过请求头携带，用于 fresh 验证等单次操作场景）
 //
 // 如果未设置二次密码，则只要求锁屏认证。
 func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc {
@@ -198,12 +198,12 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	resp := map[string]any{
 		"ok":              true,
 		"secondaryToken":  oneTimeToken,
-		"secondaryCached": cfg.Security.SecondaryAuthTimeout > 0,
+		"secondaryCached": true,
 	}
 	if cfg.Security.SecondaryAuthTimeout > 0 {
 		resp["message"] = fmt.Sprintf("二次验证成功，%d 分钟内无需重复验证", cfg.Security.SecondaryAuthTimeout)
 	} else {
-		resp["message"] = "二次验证成功"
+		resp["message"] = "二次验证成功，当前会话内无需重复验证"
 	}
 	s.logger.Info("auth_secondary", nil)
 	s.writeJSON(w, resp)

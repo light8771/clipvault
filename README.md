@@ -411,7 +411,7 @@ New-Item -ItemType File "portable.flag"
 | `popup.keyOpen` / `keyRestore` / `keyPaste` | 弹窗三个动作的快捷键：`[Ctrl+][Shift+][Alt+]Enter`，三者不能相同；双击列表恒为恢复 |
 | `autostart.enabled` | 是否开机自启动 |
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |
-| `security.secondaryAuthTimeout` | 二次认证缓存时长（分钟），0 = 每次都校验 |
+| `security.secondaryAuthTimeout` | 二次认证缓存时长（分钟），0 = 关闭浏览器后失效 |
 | `backup.dirBackup.enabled` | 是否启用定时目录备份 |
 | `backup.dirBackup.runOnStartup` | 应用服务启动后是否自动执行一次目录备份 |
 | `backup.dirBackup.interval` | 目录备份间隔（小时） |

@@ -280,10 +280,19 @@ pre.modal-pre::after {
 .cleanup-foot {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--card-border);
   flex-shrink: 0;
+}
+.cleanup-foot .btn-cancel {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  font: 500 13px sans-serif;
+  display: inline-flex;
+  align-items: center;
 }
 .btn-danger {
   height: 32px;

@@ -7,11 +7,12 @@
   #q { padding-right: 14px; }
   .controls { flex-direction: column; align-items: flex-start; }
   .nav-center { position: static; transform: none; }
-  /* Settings sidebar collapse on mobile */
-  .settings-layout { grid-template-columns: 1fr; }
-  .settings-sidebar { display: none; }
-  .settings-content { border-left: none; padding-left: 0; }
-  .settings-save-bar { margin-left: 0; }
+  /* Settings menu collapses to a horizontal bar (see mobile.css) */
+  .settings-app { grid-template-columns: 1fr; }
+  /* Settings home + group pages */
+  .sgroup-grid { grid-template-columns: 1fr; }
+  .sh-search { max-width: none; }
+  .sysinfo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ── Motion safe ───────────────────────────────────────────── */

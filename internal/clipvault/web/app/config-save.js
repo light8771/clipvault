@@ -20,126 +20,98 @@ export function registerConfigSave() {
   };
   app.collectConfig = function collectConfig() {
     if (!app.currentCfg) return null;
-    // 当过滤规则被遮蔽（auth gate 可见）时，保留原配置中的 patterns，避免用空数组覆盖
-    const gate = document.getElementById('filterAuthGate');
-    const patternsMasked = gate && !gate.classList.contains('hidden');
-    const patterns = patternsMasked ? app.currentCfg.sensitive && app.currentCfg.sensitive.customPatterns || [] : app.getPatterns();
-    const lockTimeout = parseInt(document.getElementById('cfg-lockSessionTimeout')?.value) || 0;
-    const secTimeout = parseInt(document.getElementById('cfg-secondaryAuthTimeout')?.value) || 0;
-    const hkEnabled = document.getElementById('cfg-hotkeyEnabled')?.checked || false;
-    let hkMods = 0;
-    document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
-      if (cb.checked) hkMods |= parseInt(cb.value);
-    });
-    const hkKeyChar = app.parseVkInput(document.getElementById('cfg-hotkeyKey')?.value);
-    if (hkKeyChar === null) {
-      app.toast('全局快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
-      return null;
+    const cur = app.currentCfg;
+    const has = id => !!document.getElementById(id);
+    // 敏感过滤规则只在安全页收集；其他设置页保留服务端当前值，避免清空规则。
+    let sensitive = cur.sensitive;
+    if (has('filterAuthGate') || has('patternList')) {
+      // 当过滤规则被遮蔽（auth gate 可见）时，保留原配置中的 patterns，避免用空数组覆盖
+      const gate = document.getElementById('filterAuthGate');
+      const patternsMasked = gate && !gate.classList.contains('hidden');
+      sensitive = { customPatterns: patternsMasked ? cur.sensitive && cur.sensitive.customPatterns || [] : app.getPatterns() };
     }
-    if (hkEnabled && (hkMods === 0 || hkKeyChar === 0)) {
-      app.toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
-      return null;
+    // 通知配置只在外观与通知页收集；其他页面保留当前值，避免清空文案。
+    let notifications = cur.notifications;
+    if (has('cfg-pauseResumeNotifications')) {
+      notifications = {
+        ...cur.notifications,
+        pauseResume: !!document.getElementById('cfg-pauseResumeNotifications').checked,
+        pauseTitle: document.getElementById('cfg-pauseNotificationTitle')?.value.trim() || '',
+        pauseBody: document.getElementById('cfg-pauseNotificationBody')?.value.trim() || '',
+        resumeTitle: document.getElementById('cfg-resumeNotificationTitle')?.value.trim() || '',
+        resumeBody: document.getElementById('cfg-resumeNotificationBody')?.value.trim() || ''
+      };
     }
-    const shkEnabled = document.getElementById('cfg-searchHotkeyEnabled')?.checked || false;
-    let shkMods = 0;
-    document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
-      if (cb.checked) shkMods |= parseInt(cb.value);
-    });
-    const shkKeyChar = app.parseVkInput(document.getElementById('cfg-searchHotkeyKey')?.value);
-    if (shkKeyChar === null) {
-      app.toast('搜索框快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
-      return null;
-    }
-    if (shkEnabled && (shkMods === 0 || shkKeyChar === 0)) {
-      app.toast('启用搜索框快捷键时需选择至少一个修饰键并输入一个按键', 'err');
-      return null;
-    }
-    // 防止两个快捷键完全相同
-    if (hkEnabled && shkEnabled && hkMods === shkMods && hkKeyChar === shkKeyChar) {
-      app.toast('搜索框快捷键不能与全局快捷键相同', 'err');
-      return null;
-    }
-    // 弹窗三动作快捷键：仅 [Ctrl+][Shift+][Alt+]Enter，三者互不相同
-    const popupKeyPattern = /^(?:(ctrl|shift|alt)\+){0,3}enter$/i;
-    const popupKeys = ['cfg-popupKeyOpen', 'cfg-popupKeyRestore', 'cfg-popupKeyPaste'].map(id => (document.getElementById(id)?.value || '').trim());
-    const popupKeyNormalized = popupKeys.map(k => k.toLowerCase());
-    if (popupKeyNormalized.some(k => !popupKeyPattern.test(k))) {
-      app.toast('弹窗动作快捷键仅支持 [Ctrl+][Shift+][Alt+]Enter 组合', 'err');
-      return null;
-    }
-    if (new Set(popupKeyNormalized).size !== popupKeyNormalized.length) {
-      app.toast('弹窗三个动作的快捷键不能相同', 'err');
-      return null;
-    }
-    const imageMaxMB = parseInt(document.getElementById('cfg-imageMaxMB')?.value) || 32;
-    return {
-      ...app.currentCfg,
-      brand: {
-        ...app.currentCfg.brand,
-        title: document.getElementById('cfg-brandTitle')?.value.trim() || 'ClipVault'
-      },
-      background: app.backgroundFromForm(),
-      theme: app.themeFromForm(),
-      maxTextChars: parseInt(document.getElementById('cfg-maxTextChars').value) || 0,
-      maxFileDropPaths: parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0,
-      recordSourceInfo: !!document.getElementById('cfg-recordSourceInfo')?.checked,
-      source: {
-        // 展开 currentCfg.source：未来新增字段在前端未渲染时也能保留，不会被覆盖成 undefined
-        ...app.currentCfg.source,
-        showExe: document.getElementById('cfg-sourceShowExe')?.checked !== false ? true : false,
-        exeAliases: app.sourceAliases,
-        exeWhitelist: app.sourceWhitelist
-      },
-      sensitive: {
-        customPatterns: patterns
-      },
-      search: {
-        ...app.currentCfg.search,
-        listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
-        timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system',
-        reverseProxy: {
-          enabled: document.getElementById('cfg-reverseProxyEnabled')?.checked || false,
-          publicUrl: document.getElementById('cfg-reverseProxyPublicUrl')?.value.trim() || ''
-        }
-      },
-      security: {
-        ...app.currentCfg.security,
-        lockSessionTimeout: lockTimeout,
-        secondaryAuthTimeout: secTimeout
-      },
-      hotkey: {
-        enabled: hkEnabled,
-        modifiers: hkMods,
-        key: hkKeyChar
-      },
-      searchHotkey: {
-        enabled: shkEnabled,
-        modifiers: shkMods,
-        key: shkKeyChar
-      },
-      image: {
+    // 快捷键、图片捕获与弹窗配置只在录制与快捷键页收集与校验；其他页面保留当前值。
+    let hotkey = cur.hotkey, searchHotkey = cur.searchHotkey, image = cur.image, popup = cur.popup;
+    if (has('cfg-hotkeyEnabled')) {
+      const hkEnabled = document.getElementById('cfg-hotkeyEnabled').checked;
+      let hkMods = 0;
+      document.querySelectorAll('#hotkeyMods .mod-btn input').forEach(cb => {
+        if (cb.checked) hkMods |= parseInt(cb.value);
+      });
+      const hkKeyChar = app.parseVkInput(document.getElementById('cfg-hotkeyKey')?.value);
+      if (hkKeyChar === null) {
+        app.toast('全局快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
+        return null;
+      }
+      if (hkEnabled && (hkMods === 0 || hkKeyChar === 0)) {
+        app.toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
+        return null;
+      }
+      const shkEnabled = document.getElementById('cfg-searchHotkeyEnabled')?.checked || false;
+      let shkMods = 0;
+      document.querySelectorAll('#searchHotkeyMods .mod-btn input').forEach(cb => {
+        if (cb.checked) shkMods |= parseInt(cb.value);
+      });
+      const shkKeyChar = app.parseVkInput(document.getElementById('cfg-searchHotkeyKey')?.value);
+      if (shkKeyChar === null) {
+        app.toast('搜索框快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
+        return null;
+      }
+      if (shkEnabled && (shkMods === 0 || shkKeyChar === 0)) {
+        app.toast('启用搜索框快捷键时需选择至少一个修饰键并输入一个按键', 'err');
+        return null;
+      }
+      // 防止两个快捷键完全相同
+      if (hkEnabled && shkEnabled && hkMods === shkMods && hkKeyChar === shkKeyChar) {
+        app.toast('搜索框快捷键不能与全局快捷键相同', 'err');
+        return null;
+      }
+      // 弹窗三动作快捷键：仅 [Ctrl+][Shift+][Alt+]Enter，三者互不相同
+      const popupKeyPattern = /^(?:(ctrl|shift|alt)\+){0,3}enter$/i;
+      const popupKeys = ['cfg-popupKeyOpen', 'cfg-popupKeyRestore', 'cfg-popupKeyPaste'].map(id => (document.getElementById(id)?.value || '').trim());
+      const popupKeyNormalized = popupKeys.map(k => k.toLowerCase());
+      if (popupKeyNormalized.some(k => !popupKeyPattern.test(k))) {
+        app.toast('弹窗动作快捷键仅支持 [Ctrl+][Shift+][Alt+]Enter 组合', 'err');
+        return null;
+      }
+      if (new Set(popupKeyNormalized).size !== popupKeyNormalized.length) {
+        app.toast('弹窗三个动作的快捷键不能相同', 'err');
+        return null;
+      }
+      const imageMaxMB = parseInt(document.getElementById('cfg-imageMaxMB')?.value) || 32;
+      hotkey = { enabled: hkEnabled, modifiers: hkMods, key: hkKeyChar };
+      searchHotkey = { enabled: shkEnabled, modifiers: shkMods, key: shkKeyChar };
+      image = {
         enabled: !!document.getElementById('cfg-imageEnabled')?.checked,
         maxBytes: imageMaxMB * 1024 * 1024
-      },
-      popup: {
+      };
+      popup = {
         hideDuplicates: !!document.getElementById('cfg-popupHideDuplicates')?.checked,
         hideUnavailable: !!document.getElementById('cfg-popupHideUnavailable')?.checked,
         keyOpen: popupKeys[0] || 'Enter',
         keyRestore: popupKeys[1] || 'Shift+Enter',
         keyPaste: popupKeys[2] || 'Ctrl+Enter'
-      },
-      notifications: {
-        ...app.currentCfg.notifications,
-        pauseResume: document.getElementById('cfg-pauseResumeNotifications')?.checked || false,
-        pauseTitle: document.getElementById('cfg-pauseNotificationTitle')?.value.trim() || '',
-        pauseBody: document.getElementById('cfg-pauseNotificationBody')?.value.trim() || '',
-        resumeTitle: document.getElementById('cfg-resumeNotificationTitle')?.value.trim() || '',
-        resumeBody: document.getElementById('cfg-resumeNotificationBody')?.value.trim() || ''
-      },
-      backup: {
-        ...app.currentCfg.backup,
+      };
+    }
+    // 定时备份配置只在备份设置页收集；其他页面保留当前值。
+    let backup = cur.backup;
+    if (has('cfg-dirBackupEnabled') || has('cfg-emailBackupEnabled')) {
+      backup = {
+        ...cur.backup,
         dirBackup: {
-          ...app.currentCfg.backup?.dirBackup,
+          ...cur.backup?.dirBackup,
           enabled: document.getElementById('cfg-dirBackupEnabled')?.checked || false,
           runOnStartup: document.getElementById('cfg-dirBackupRunOnStartup')?.checked || false,
           interval: parseInt(document.getElementById('cfg-dirBackupInterval')?.value) || 24,
@@ -154,7 +126,7 @@ export function registerConfigSave() {
           incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-dirBackupIncrementalFullInterval')?.value))
         },
         emailBackup: {
-          ...app.currentCfg.backup?.emailBackup,
+          ...cur.backup?.emailBackup,
           enabled: document.getElementById('cfg-emailBackupEnabled')?.checked || false,
           runOnStartup: document.getElementById('cfg-emailBackupRunOnStartup')?.checked || false,
           interval: parseInt(document.getElementById('cfg-emailBackupInterval')?.value) || 24,
@@ -178,7 +150,47 @@ export function registerConfigSave() {
           maxPartSize: Number(document.getElementById('cfg-emailBackupMaxPartSize')?.value) * 1024 * 1024,
           incrementalFullInterval: (v => isNaN(v) ? 7 : v)(parseInt(document.getElementById('cfg-emailBackupIncrementalFullInterval')?.value))
         }
-      }
+      };
+    }
+    return {
+      ...cur,
+      brand: {
+        ...cur.brand,
+        title: document.getElementById('cfg-brandTitle')?.value.trim() || cur.brand?.title || 'ClipVault'
+      },
+      background: app.backgroundFromForm(),
+      theme: app.themeFromForm(),
+      maxTextChars: has('cfg-maxTextChars') ? parseInt(document.getElementById('cfg-maxTextChars').value) || 0 : cur.maxTextChars,
+      maxFileDropPaths: has('cfg-maxFileDropPaths') ? parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0 : cur.maxFileDropPaths,
+      recordSourceInfo: has('cfg-recordSourceInfo') ? !!document.getElementById('cfg-recordSourceInfo').checked : cur.recordSourceInfo,
+      source: has('cfg-sourceShowExe') ? {
+        // 展开 currentCfg.source：未来新增字段在前端未渲染时也能保留，不会被覆盖成 undefined
+        ...cur.source,
+        showExe: !!document.getElementById('cfg-sourceShowExe').checked,
+        exeAliases: app.sourceAliases,
+        exeWhitelist: app.sourceWhitelist
+      } : cur.source,
+      sensitive,
+      search: has('cfg-listenAddr') ? {
+        ...cur.search,
+        listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
+        timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system',
+        reverseProxy: {
+          enabled: document.getElementById('cfg-reverseProxyEnabled')?.checked || false,
+          publicUrl: document.getElementById('cfg-reverseProxyPublicUrl')?.value.trim() || ''
+        }
+      } : cur.search,
+      security: has('cfg-lockSessionTimeout') ? {
+        ...cur.security,
+        lockSessionTimeout: parseInt(document.getElementById('cfg-lockSessionTimeout').value) || 0,
+        secondaryAuthTimeout: parseInt(document.getElementById('cfg-secondaryAuthTimeout')?.value) || 0
+      } : cur.security,
+      hotkey,
+      searchHotkey,
+      image,
+      popup,
+      notifications,
+      backup
     };
   };
   app.scheduleConfigSave = function scheduleConfigSave(delay) {
@@ -227,24 +239,29 @@ export function registerConfigSave() {
   app.saveConfigNow = async function saveConfigNow() {
     const newCfg = app.collectConfig();
     if (!newCfg) return false;
-    const emailMaxPartSizeMB = newCfg.backup.emailBackup.maxPartSize / (1024 * 1024);
-    if (!Number.isInteger(emailMaxPartSizeMB) || emailMaxPartSizeMB < 1 || emailMaxPartSizeMB > 50) {
-      app.toast('单封邮件上限必须是 1–50MB 的整数', 'err');
-      return false;
+    // 备份相关校验只在备份设置页执行：校验函数读取备份页专有 DOM，
+    // 其他页面保存时服务端已存的备份配置由后端自行校验。
+    const onBackupPage = !!document.getElementById('cfg-dirBackupEnabled');
+    if (onBackupPage) {
+      const emailMaxPartSizeMB = newCfg.backup.emailBackup.maxPartSize / (1024 * 1024);
+      if (!Number.isInteger(emailMaxPartSizeMB) || emailMaxPartSizeMB < 1 || emailMaxPartSizeMB > 50) {
+        app.toast('单封邮件上限必须是 1–50MB 的整数', 'err');
+        return false;
+      }
     }
 
     // 敏感规则以服务端 Go RE2 为唯一语法标准。不要在浏览器中用
     // JavaScript RegExp 预校验；两种引擎的语法不同（例如 Go 支持 (?i)）。
 
     // 启用定时备份时，先在前端校验配置完整性，避免发送必然失败请求造成"切格式不生效"的错觉。
-    if (newCfg.backup?.dirBackup?.enabled) {
+    if (onBackupPage && newCfg.backup?.dirBackup?.enabled) {
       const missing = app.validateDirBackupConfig();
       if (missing.length) {
         app.toast('目录备份配置不完整：' + missing.join('、'), 'err');
         return false;
       }
     }
-    if (newCfg.backup?.emailBackup?.enabled) {
+    if (onBackupPage && newCfg.backup?.emailBackup?.enabled) {
       const missing = app.validateEmailBackupConfig();
       if (missing.length) {
         app.toast('邮件备份配置不完整：' + missing.join('、'), 'err');

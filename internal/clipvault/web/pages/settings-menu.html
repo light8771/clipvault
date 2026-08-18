@@ -1,0 +1,9 @@
+  <!-- ── 设置视图：左侧菜单 + 右侧内容 ── -->
+  <main id="viewSettings" class="settings-app"{{if .RequireSecondary}} data-require-secondary="1"{{end}}>
+    <aside class="app-menu">
+      <nav class="amenu" aria-label="设置菜单">
+        <a class="amenu-item{{if eq .Path "/settings"}} active{{end}}" href="/settings"{{if eq .Path "/settings"}} aria-current="page"{{end}}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+          <span>系统设置</span>
+        </a>
+      </nav>

@@ -2,6 +2,10 @@ import { app } from "./app-context.js";
 export function registerAppearanceForm() {
   app.themeFromForm = function themeFromForm() {
     const selected = document.querySelector('.theme-preset.active');
+    // 非外观页没有主题控件：保留当前配置，避免保存时重置主题
+    if (!selected && !document.getElementById('cfg-themeMode')) {
+      return { ...(app.currentCfg?.theme || { preset: 'mint', mode: 'system' }) };
+    }
     return {
       preset: selected ? selected.dataset.themePreset : app.currentCfg?.theme?.preset || 'mint',
       mode: document.getElementById('cfg-themeMode')?.value || 'system',

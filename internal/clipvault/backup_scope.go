@@ -10,7 +10,8 @@ import (
 )
 
 // exportBackupData 导出单份数据（用于目录备份），按 scope 过滤。
-// 返回 (data, ext, exportedMaxID)：exportedMaxID 是该次导出快照包含的
+// 返回 (data, ext, exportedMaxID)：无论选择哪种内容格式，文件都是 .cvexport
+// 加密容器，ext 恒为 "cvexport"；exportedMaxID 是该次导出快照包含的
 // 最后一条记录的 id（无数据时为 0），供写水印使用，避免二次查询竞态。
 func (bs *BackupService) exportBackupData(format, password string, scope ExportScope) ([]byte, string, int64, error) {
 	if format != "json" && format != "xlsx" && format != "cvexport" {
@@ -21,7 +22,7 @@ func (bs *BackupService) exportBackupData(format, password string, scope ExportS
 	if err != nil {
 		return nil, "", 0, err
 	}
-	return buf.Bytes(), format, maxID, nil
+	return buf.Bytes(), "cvexport", maxID, nil
 }
 
 // resolveBackupScope resolves the actual scope to run: for incremental mode it

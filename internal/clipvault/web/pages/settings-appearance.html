@@ -1,0 +1,214 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">外观与通知</div>
+        <a class="amenu-anchor" href="#s-theme-brand">品牌与标题</a>
+        <a class="amenu-anchor" href="#s-theme-skin">皮肤与显示</a>
+        <a class="amenu-anchor" href="#s-theme-background">背景媒体</a>
+        <a class="amenu-anchor" href="#s-theme-notify">通知</a>
+      </div>
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">外观与通知</span>
+        </nav>
+        <h1 class="sd-title">外观与通知</h1>
+        <p class="sd-desc">皮肤、显示模式、字体、背景媒体与系统通知。修改立即生效。</p>
+      </header>
+
+      <section class="ssec" id="s-theme">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-1.5a1.5 1.5 0 0 0 0 3H18a2 2 0 0 1 2 2c0 1.1-.9 2-2 2h-6z"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">外观与皮肤</h2>
+            <p class="ssec-desc">选择预设皮肤，或使用自定义配色；切换后立即生效</p>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-theme-brand">
+          <h3 class="fsec-title">品牌与标题</h3>
+          <p class="fsec-desc">自定义界面中展示的名称与图标</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-brandTitle">站点标题</label>
+              <p class="field-hint">显示在导航栏、浏览器标签和页面标题中</p>
+            </div>
+            <input type="text" id="cfg-brandTitle" class="field-input u-inline-2" maxlength="60" placeholder="ClipVault">
+          </div>
+          <div class="field-row brand-assets-row">
+            <div class="field-info">
+              <span class="field-label">站点图标</span>
+              <p class="field-hint">Logo 支持 PNG、JPEG；favicon 支持 PNG、ICO；单个文件不超过 10 MB</p>
+            </div>
+            <div class="brand-asset-controls">
+              <div class="brand-asset-control">
+                <img id="brandLogoPreview" class="brand-asset-preview" alt="Logo 预览">
+                <input type="file" id="cfg-brandLogoFile" accept="image/png,image/jpeg" hidden>
+                <button type="button" class="brand-upload-btn" id="brandLogoUploadBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V3M7 8l5-5 5 5M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2"/></svg>
+                  <span>上传 Logo</span>
+                </button>
+                <button type="button" class="brand-reset-btn" id="brandLogoResetBtn" title="还原默认 Logo" aria-label="还原默认 Logo">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>
+                </button>
+              </div>
+              <div class="brand-asset-control">
+                <img id="brandFaviconPreview" class="brand-asset-preview" alt="favicon 预览">
+                <input type="file" id="cfg-brandFaviconFile" accept="image/png,image/x-icon,image/vnd.microsoft.icon" hidden>
+                <button type="button" class="brand-upload-btn" id="brandFaviconUploadBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V3M7 8l5-5 5 5M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2"/></svg>
+                  <span>上传 favicon</span>
+                </button>
+                <button type="button" class="brand-reset-btn" id="brandFaviconResetBtn" title="还原默认 favicon" aria-label="还原默认 favicon">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-theme-skin">
+          <h3 class="fsec-title">皮肤与显示</h3>
+          <p class="fsec-desc">界面配色、深浅模式与文字大小</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row theme-preset-row">
+            <div class="field-info">
+              <span class="field-label">皮肤</span>
+              <p class="field-hint">预设会同时调整界面主色、背景和对比度</p>
+            </div>
+            <div class="theme-presets" id="themePresets" role="radiogroup" aria-label="皮肤选择">
+              <button type="button" class="theme-preset" data-theme-preset="mint" role="radio" aria-label="薄荷">
+                <span class="theme-swatch swatch-mint"></span><span>薄荷</span>
+              </button>
+              <button type="button" class="theme-preset" data-theme-preset="ocean" role="radio" aria-label="海洋">
+                <span class="theme-swatch swatch-ocean"></span><span>海洋</span>
+              </button>
+              <button type="button" class="theme-preset" data-theme-preset="sunrise" role="radio" aria-label="暖阳">
+                <span class="theme-swatch swatch-sunrise"></span><span>暖阳</span>
+              </button>
+              <button type="button" class="theme-preset" data-theme-preset="graphite" role="radio" aria-label="石墨">
+                <span class="theme-swatch swatch-graphite"></span><span>石墨</span>
+              </button>
+              <button type="button" class="theme-preset" data-theme-preset="custom" role="radio" aria-label="自定义配色">
+                <span class="theme-swatch swatch-custom"></span><span>自定义</span>
+              </button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-themeMode">显示模式</label>
+              <p class="field-hint">可跟随系统，也可固定为浅色或深色</p>
+            </div>
+            <select id="cfg-themeMode" class="field-input theme-mode-select">
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </div>
+          <div class="field-row hidden" id="customThemeColors">
+            <div class="field-info">
+              <span class="field-label">自定义配色</span>
+              <p class="field-hint">主色用于选中与操作；辅助色用于收藏、图片类型和强调提示。背景与文字由显示模式保持对比度，过亮或过暗的颜色会自动校正显示。</p>
+            </div>
+            <div class="theme-color-inputs">
+              <label><input type="color" id="cfg-themePrimary" value="#14B8A6"><span>主色</span></label>
+              <label><input type="color" id="cfg-themeAccent" value="#F97316"><span>辅助色</span></label>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-themeFontScale">字体大小</label>
+              <p class="field-hint">拖动滑块即可放大界面字体，范围为 100% 到 150%</p>
+            </div>
+            <label class="background-range theme-font-scale" for="cfg-themeFontScale"><span><output id="cfg-themeFontScaleOutput">100%</output></span><input type="range" id="cfg-themeFontScale" min="100" max="150" step="5" value="100"></label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-themeSurfaceOpacity">界面不透明度</label>
+              <p class="field-hint">控制卡片、设置区块和导航栏的不透明度；配合背景图片使用可以呈现磨砂玻璃效果</p>
+            </div>
+            <label class="background-range theme-font-scale" for="cfg-themeSurfaceOpacity"><span><output id="cfg-themeSurfaceOpacityOutput">100%</output></span><input type="range" id="cfg-themeSurfaceOpacity" min="0" max="100" step="1" value="100"></label>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-theme-background">
+          <h3 class="fsec-title">背景媒体</h3>
+          <p class="fsec-desc">为界面设置图片或视频背景，并调整呈现效果</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row background-media-row">
+            <div class="field-info">
+              <span class="field-label">背景媒体</span>
+              <p class="field-hint">支持 PNG、JPEG、MP4、WebM；单个文件不超过 10 MB</p>
+            </div>
+            <div class="background-media-actions">
+              <input type="file" id="cfg-backgroundMediaFile" accept="image/png,image/jpeg,video/mp4,video/webm" hidden>
+              <button type="button" class="brand-upload-btn" id="backgroundMediaUploadBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V3M7 8l5-5 5 5M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2"/></svg>
+                <span>上传背景</span>
+              </button>
+              <button type="button" class="brand-reset-btn" id="backgroundMediaResetBtn" title="移除背景" aria-label="移除背景">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="background-adjustments" id="backgroundAdjustments">
+            <label class="background-select" for="cfg-backgroundFit"><span>适配方式</span><select id="cfg-backgroundFit" class="field-input"><option value="cover">裁切填满</option><option value="contain">完整显示</option><option value="fill">拉伸填满</option></select></label>
+            <label class="background-range" for="cfg-backgroundOpacity"><span>媒体透明度 <output data-background-output="cfg-backgroundOpacity"></output></span><input type="range" id="cfg-backgroundOpacity" min="0" max="100" step="1"></label>
+            <label class="background-range" for="cfg-backgroundOverlay"><span>内容遮罩 <output data-background-output="cfg-backgroundOverlay"></output></span><input type="range" id="cfg-backgroundOverlay" min="0" max="90" step="1"></label>
+            <label class="background-range" for="cfg-backgroundBlur"><span>模糊 <output data-background-output="cfg-backgroundBlur"></output></span><input type="range" id="cfg-backgroundBlur" min="0" max="32" step="1"></label>
+            <label class="background-range" for="cfg-backgroundBrightness"><span>亮度 <output data-background-output="cfg-backgroundBrightness"></output></span><input type="range" id="cfg-backgroundBrightness" min="40" max="160" step="1"></label>
+            <label class="background-range" for="cfg-backgroundContrast"><span>对比度 <output data-background-output="cfg-backgroundContrast"></output></span><input type="range" id="cfg-backgroundContrast" min="40" max="160" step="1"></label>
+            <label class="background-range" for="cfg-backgroundSaturation"><span>饱和度 <output data-background-output="cfg-backgroundSaturation"></output></span><input type="range" id="cfg-backgroundSaturation" min="0" max="200" step="1"></label>
+            <label class="background-range" for="cfg-backgroundScale"><span>缩放 <output data-background-output="cfg-backgroundScale"></output></span><input type="range" id="cfg-backgroundScale" min="25" max="200" step="1"></label>
+            <label class="background-range" for="cfg-backgroundPositionX"><span>水平焦点 <output data-background-output="cfg-backgroundPositionX"></output></span><input type="range" id="cfg-backgroundPositionX" min="0" max="100" step="1"></label>
+            <label class="background-range" for="cfg-backgroundPositionY"><span>垂直焦点 <output data-background-output="cfg-backgroundPositionY"></output></span><input type="range" id="cfg-backgroundPositionY" min="0" max="100" step="1"></label>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-theme-notify">
+          <h3 class="fsec-title">通知</h3>
+          <p class="fsec-desc">录制状态变化时的 Windows 通知</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-pauseResumeNotifications">录制状态通知</label>
+              <p class="field-hint">暂停或恢复剪贴板录制时显示 Windows 通知</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-pauseResumeNotifications">
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="field-row notification-copy-row">
+            <div class="field-info">
+              <span class="field-label">暂停通知文案</span>
+              <p class="field-hint">标题最多 60 字，内容最多 240 字；留空时使用默认文案</p>
+            </div>
+            <div class="notification-copy-fields">
+              <input type="text" id="cfg-pauseNotificationTitle" class="field-input" maxlength="60" placeholder="ClipVault">
+              <input type="text" id="cfg-pauseNotificationBody" class="field-input" maxlength="240" placeholder="剪贴板录制已暂停">
+            </div>
+          </div>
+          <div class="field-row notification-copy-row">
+            <div class="field-info">
+              <span class="field-label">恢复通知文案</span>
+              <p class="field-hint">标题最多 60 字，内容最多 240 字；留空时使用默认文案</p>
+            </div>
+            <div class="notification-copy-fields">
+              <input type="text" id="cfg-resumeNotificationTitle" class="field-input" maxlength="60" placeholder="ClipVault">
+              <input type="text" id="cfg-resumeNotificationBody" class="field-input" maxlength="240" placeholder="剪贴板录制已恢复">
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

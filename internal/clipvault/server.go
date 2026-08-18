@@ -38,6 +38,7 @@ type SearchServer struct {
 	assetMu      sync.Mutex
 	recoveryMu   sync.Mutex
 	reverseProxy ReverseProxyConfig
+	startedAt    time.Time
 }
 
 type freshSecondaryContextKey struct{}
@@ -52,7 +53,7 @@ func (s *SearchServer) configuredTimeZone() string {
 func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logger *DailyLogger, env Environment, backup *BackupService, license *licensing.Manager) *SearchServer {
 	am := NewAuthManager()
 	am.startSessionCleaner()
-	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, env: env, restartCh: make(chan struct{}, 1), backup: backup, license: license}
+	return &SearchServer{cfgMgr: cfgMgr, store: store, state: state, logger: logger, auth: am, env: env, restartCh: make(chan struct{}, 1), backup: backup, license: license, startedAt: time.Now()}
 }
 
 func (s *SearchServer) Start() (string, error) {
@@ -74,13 +75,20 @@ func (s *SearchServer) Start() (string, error) {
 	}
 
 	mux.HandleFunc("GET /{$}", s.handleIndex)
-	mux.HandleFunc("GET /settings", s.handleIndex)
+	for path := range applicationPages {
+		if path == "/" {
+			continue
+		}
+		mux.HandleFunc("GET "+path, s.handleIndex)
+	}
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
 	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
+	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
+	mux.HandleFunc("GET /theme-mode.js", s.handleStatic)
 	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /hotkey-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /api.js", s.handleStatic)
@@ -109,6 +117,7 @@ func (s *SearchServer) Start() (string, error) {
 	api("POST /api/v1/license/activation", s.requireAuth(s.handleLicenseActivate))
 	api("GET /api/v1/items/sources", s.requireAuth(s.handleSourceExes))
 	api("GET /api/v1/runtime", s.requireAuth(s.handleState))
+	api("GET /api/v1/system/info", s.requireAuth(s.handleSystemInfo))
 	api("POST /api/v1/runtime/pause", s.requireAuth(s.handlePause))
 	api("DELETE /api/v1/items", s.requireAuth(s.handleItems))
 	api("PATCH /api/v1/items", s.requireAuth(s.handleStarItem))

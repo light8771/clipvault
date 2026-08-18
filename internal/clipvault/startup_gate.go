@@ -32,6 +32,86 @@ type startupGatePageData struct {
 	MaxRecoveryBytes  int
 	MinSecondaryRunes int
 	MaxSecondaryBytes int
+	ThemeMode         string
+	PrimaryLight      string
+	PrimaryLightHover string
+	PrimaryDark       string
+	PrimaryDarkHover  string
+}
+
+// startupGatePalette mirrors the primary/primary-hover pairs defined for each
+// preset in web/app/appearance-theme.js, so the standalone gate page follows
+// the skin the user picked for the main application.
+type startupGatePalette struct {
+	light      string
+	lightHover string
+	dark       string
+	darkHover  string
+}
+
+var startupGatePalettes = map[string]startupGatePalette{
+	"mint":     {"#14B8A6", "#0D9488", "#2DD4BF", "#14B8A6"},
+	"ocean":    {"#0284C7", "#0369A1", "#38BDF8", "#0EA5E9"},
+	"sunrise":  {"#EA580C", "#C2410C", "#FB923C", "#F97316"},
+	"graphite": {"#475569", "#334155", "#94A3B8", "#64748B"},
+}
+
+func startupGateThemeColors(store *Store) (mode string, palette startupGatePalette) {
+	mode = "system"
+	palette = startupGatePalettes["mint"]
+	if store == nil {
+		return mode, palette
+	}
+	cfg, err := store.GetConfig()
+	if err != nil {
+		return mode, palette
+	}
+	switch cfg.Theme.Mode {
+	case "light", "dark":
+		mode = cfg.Theme.Mode
+	}
+	if cfg.Theme.Preset == "custom" {
+		if primary, ok := normalizeStartupGateHex(cfg.Theme.Primary); ok {
+			return mode, startupGatePalette{
+				light:      primary,
+				lightHover: blendStartupGateHex(primary, false, 0.12),
+				dark:       primary,
+				darkHover:  blendStartupGateHex(primary, true, 0.12),
+			}
+		}
+		return mode, palette
+	}
+	if preset, ok := startupGatePalettes[cfg.Theme.Preset]; ok {
+		palette = preset
+	}
+	return mode, palette
+}
+
+func normalizeStartupGateHex(hex string) (string, bool) {
+	if len(hex) != 7 || hex[0] != '#' {
+		return "", false
+	}
+	for _, c := range hex[1:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return "", false
+		}
+	}
+	return hex, true
+}
+
+// blendStartupGateHex moves a #RRGGBB color toward white (lighten=true) or
+// black by ratio, producing the hover variant for custom theme colors.
+func blendStartupGateHex(hex string, lighten bool, ratio float64) string {
+	var r, g, b int
+	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b); err != nil {
+		return hex
+	}
+	target := 0
+	if lighten {
+		target = 255
+	}
+	mix := func(c int) int { return c + int(float64(target-c)*ratio) }
+	return fmt.Sprintf("#%02X%02X%02X", mix(r), mix(g), mix(b))
 }
 
 // StartupGate blocks normal application startup until the mandatory recovery
@@ -208,6 +288,7 @@ func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		description = "安全配置无法解析。输入恢复密码，验证通过后恢复最近一次有效配置。"
 		button = "验证并修复配置"
 	}
+	themeMode, palette := startupGateThemeColors(g.store)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = startupGateTemplate.Execute(w, startupGatePageData{
 		Title:             title,
@@ -218,6 +299,11 @@ func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		MaxRecoveryBytes:  maxRecoveryPasswordBytes,
 		MinSecondaryRunes: minAuthPasswordRunes,
 		MaxSecondaryBytes: maxAuthPasswordBytes,
+		ThemeMode:         themeMode,
+		PrimaryLight:      palette.light,
+		PrimaryLightHover: palette.lightHover,
+		PrimaryDark:       palette.dark,
+		PrimaryDarkHover:  palette.darkHover,
 	})
 }
 
@@ -346,15 +432,31 @@ func writeStandaloneError(w http.ResponseWriter, status int, code, message strin
 }
 
 var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="zh-CN" data-theme-mode="{{.ThemeMode}}" data-p-light="{{.PrimaryLight}}" data-p-light-hover="{{.PrimaryLightHover}}" data-p-dark="{{.PrimaryDark}}" data-p-dark-hover="{{.PrimaryDarkHover}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}}</title><link rel="stylesheet" href="/startup.css"></head><body><main class="main" data-mode="{{.Mode}}" data-min-recovery-runes="{{.MinRecoveryRunes}}" data-max-recovery-bytes="{{.MaxRecoveryBytes}}" data-min-secondary-runes="{{.MinSecondaryRunes}}" data-max-secondary-bytes="{{.MaxSecondaryBytes}}">
+<div class="shell">
+<aside class="intro">
+<p class="brand"><span class="brand-mark" aria-hidden="true">CV</span>ClipVault</p>
 <h1>{{.Title}}</h1>
 <p class="desc">{{.Description}}</p>
+{{if eq .Mode "set_credentials"}}
+<ol class="steps">
+<li class="is-current" id="step-recovery"><span class="step-name">设置恢复密码</span><span class="step-sub">数据库丢失时的最后保障</span></li>
+<li id="step-secondary"><span class="step-name">设置二次密码</span><span class="step-sub">敏感操作的二次确认</span></li>
+<li id="step-finish"><span class="step-name">开始使用</span><span class="step-sub">完成后自动打开记录页</span></li>
+</ol>
+{{end}}
+<div class="safe-note">
+<p class="safe-title">本地安全</p>
+<p class="safe-copy">密码仅保存在本机，不会上传或同步。此页面通过一次性本地链接打开，完成后立即失效。</p>
+</div>
+</aside>
+<section class="panel">
 {{if eq .Mode "set_credentials"}}
 <form id="recovery-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
 <div class="section">
-<p class="section-title">恢复密码</p>
+<h2 class="section-title">恢复密码</h2>
 <p class="section-hint">用于重装系统、迁移电脑或 Windows 密钥失效时恢复数据库，请离线妥善保存。</p>
 <div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="new-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
 <div class="field"><label for="confirm">确认恢复密码</label><div class="wrap"><input id="confirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="confirm">显示</button></div><div class="msg" id="msg-confirm"></div></div>
@@ -363,19 +465,28 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <form id="secondary-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 二次密码" autocomplete="username" hidden>
 <div class="section">
-<p class="section-title">二次密码</p>
-<p class="section-hint">用于查看或操作敏感数据时的二次确认。</p>
+<h2 class="section-title">二次密码</h2>
+<p class="section-hint">用于查看或操作敏感数据时的二次确认，可与恢复密码不同。</p>
 <div class="field"><label for="secondaryPassword">二次密码</label><div class="wrap"><input id="secondaryPassword" name="password" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">显示</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
 <div class="field"><label for="secondaryConfirm">确认二次密码</label><div class="wrap"><input id="secondaryConfirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">显示</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
 </div>
 </form>
-<div class="warn">请妥善离线保存：如果 Windows 密钥和恢复密码同时丢失，数据库将无法恢复。</div>
+<div class="warn"><p class="warn-title">请务必离线保存恢复密码</p><p class="warn-copy">如果 Windows 密钥和恢复密码同时丢失，数据库将无法恢复。</p></div>
 {{else}}
 <form id="recovery-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
+<div class="section">
+<h2 class="section-title">验证恢复密码</h2>
+<p class="section-hint">输入首次启动时设置的恢复密码，验证通过后自动恢复最近一次有效配置。</p>
 <div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
+</div>
 </form>
 {{end}}
+<div class="actions">
 <button type="button" class="submit" id="submit" disabled>{{.Button}}</button>
-<div class="error" id="error"></div>
+<div class="error" id="error" role="alert"></div>
+<p class="local-note">所有数据仅存储在本地设备，此页面通过 127.0.0.1 本地回环地址提供。</p>
+</div>
+</section>
+</div>
 </main><script src="/startup.js" defer></script></body></html>`))

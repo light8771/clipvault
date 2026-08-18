@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	elementIDPattern       = regexp.MustCompile(`\sid="([^"]+)"`)
-	dataActionPattern      = regexp.MustCompile(`\sdata-action="([^"]+)"`)
-	moduleImportPattern    = regexp.MustCompile(`\bfrom\s+['"](\./[^'"]+)['"]`)
-	settingsSectionPattern = regexp.MustCompile(`\sdata-section="([^"]+)"`)
+	elementIDPattern         = regexp.MustCompile(`\sid="([^"]+)"`)
+	dataActionPattern        = regexp.MustCompile(`\sdata-action="([^"]+)"`)
+	moduleImportPattern      = regexp.MustCompile(`\bfrom\s+['"](\./[^'"]+)['"]`)
+	settingsAnchorPattern    = regexp.MustCompile(`class="amenu-anchor" href="#([^"]+)"`)
+	settingsGroupCardPattern = regexp.MustCompile(`class="sgroup-card" href="([^"]+)"`)
 )
 
 func renderApplicationPage(t *testing.T, route string) string {
@@ -43,7 +44,20 @@ func TestApplicationPagesHaveUniqueElementIDs(t *testing.T) {
 }
 
 func TestApplicationPageRoutesAreExact(t *testing.T) {
-	want := map[string]string{"/": "history", "/settings": "settings"}
+	want := map[string]string{
+		"/":                     "history",
+		"/settings":             "settings",
+		"/settings/appearance":  "settings",
+		"/settings/general":     "settings",
+		"/settings/security":    "settings",
+		"/settings/storage":     "settings",
+		"/settings/backup":      "settings",
+		"/settings/transfer":    "settings",
+		"/settings/maintenance": "settings",
+		"/settings/service":     "settings",
+		"/settings/groups":      "settings",
+		"/settings/license":     "settings",
+	}
 	if len(applicationPages) != len(want) {
 		t.Fatalf("application page count=%d, want %d", len(applicationPages), len(want))
 	}
@@ -86,15 +100,25 @@ func TestApplicationPageActionsAreRegisteredByItsEntryPoint(t *testing.T) {
 }
 
 func TestSettingsNavigationTargetsExistingSections(t *testing.T) {
-	body := renderApplicationPage(t, "/settings")
-	for _, match := range settingsSectionPattern.FindAllStringSubmatch(body, -1) {
-		sectionID := match[1]
-		if !strings.Contains(body, `id="`+sectionID+`"`) {
-			t.Errorf("settings navigation target %q does not exist", sectionID)
+	// 分组页的组内锚点必须指向同页面真实存在的小节。
+	for route := range applicationPages {
+		if route == "/" {
+			continue
 		}
-		navigationID := "snav-" + strings.TrimPrefix(sectionID, "s-")
-		if !strings.Contains(body, `id="`+navigationID+`"`) {
-			t.Errorf("settings navigation control %q does not exist", navigationID)
+		t.Run(route, func(t *testing.T) {
+			body := renderApplicationPage(t, route)
+			for _, match := range settingsAnchorPattern.FindAllStringSubmatch(body, -1) {
+				if !strings.Contains(body, `id="`+match[1]+`"`) {
+					t.Errorf("anchor target %q does not exist on %s", match[1], route)
+				}
+			}
+		})
+	}
+	// 首页分组卡片必须指向已注册的分组路由。
+	home := renderApplicationPage(t, "/settings")
+	for _, match := range settingsGroupCardPattern.FindAllStringSubmatch(home, -1) {
+		if _, ok := applicationPages[match[1]]; !ok {
+			t.Errorf("settings home group card %q is not a registered route", match[1])
 		}
 	}
 }

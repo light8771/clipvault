@@ -128,7 +128,7 @@ export function registerSettingsSources() {
       return;
     }
     app.updateSourceAppsSummary();
-    app.renderSrcExeDropdown();
+    app.renderSrcExeDropdown?.();
     app.closeSourceAppsDialog();
   };
   document.getElementById('sourceAppsFilter')?.addEventListener('input', () => {
@@ -170,6 +170,7 @@ export function registerSettingsSources() {
   // ── Pattern list ──────────────────────────────────────────
   app.renderPatterns = function renderPatterns(patterns) {
     const list = document.getElementById('patternList');
+    if (!list) return;
     if (!patterns.length) {
       list.innerHTML = '<p class="no-patterns">暂无过滤规则，所有内容均会被记录</p>';
       return;
@@ -192,7 +193,7 @@ export function registerSettingsSources() {
   app.getPatterns = function getPatterns() {
     return Array.from(document.querySelectorAll('.pattern-input')).map(i => i.value.trim()).filter(Boolean);
   };
-  document.getElementById('addPatternBtn').addEventListener('click', () => {
+  document.getElementById('addPatternBtn')?.addEventListener('click', () => {
     const patterns = app.getPatterns();
     patterns.push('');
     app.renderPatterns(patterns);

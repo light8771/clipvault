@@ -1,471 +1,194 @@
-            </div>
-            <div>
-              <h2 class="ssec-title">基本设置</h2>
-              <p class="ssec-desc">配置剪贴板记录行为与数据限制</p>
-            </div>
-          </div>
-          <div class="ssec-fields">
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-maxTextChars">最大文字长度</label>
-                <p class="field-hint">超过此长度的文本不会被记录；填 0 表示不限制</p>
-              </div>
-              <input type="number" id="cfg-maxTextChars" class="field-input field-input-sm" min="0" max="100000" step="100" placeholder="0">
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-maxFileDropPaths">最大文件路径数</label>
-                <p class="field-hint">文件拖放时最多记录的路径条数；填 0 表示不限制</p>
-              </div>
-              <input type="number" id="cfg-maxFileDropPaths" class="field-input field-input-sm" min="0" max="1000">
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-recordSourceInfo">记录来源应用</label>
-                <p class="field-hint">记录每条内容来自哪个应用（前台窗口法识别进程名与窗口标题）；隐私敏感环境可关闭</p>
-              </div>
-              <label class="ar-toggle">
-                <input type="checkbox" id="cfg-recordSourceInfo">
-                <span>启用</span>
-              </label>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-sourceShowExe">显示来源应用</label>
-                <p class="field-hint">在列表卡片上展示每条内容来自哪个应用</p>
-              </div>
-              <label class="ar-toggle">
-                <input type="checkbox" id="cfg-sourceShowExe">
-                <span>启用</span>
-              </label>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">来源应用管理</label>
-                <p class="field-hint" id="sourceAppsSummary">设置应用别名，以及哪些应用出现在搜索下拉中</p>
-              </div>
-              <button class="btn-export" type="button" data-action="open-source-apps">
-                管理来源应用
-              </button>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">全局快捷键</label>
-				<p class="field-hint" id="hotkeyKeyHint">按下快捷键暂停/恢复剪贴板录制；主键支持 A–Z、0–9、F1–F24 或 Space</p>
-              </div>
-              <div class="u-inline-3">
-                <label class="ar-toggle">
-                  <input type="checkbox" id="cfg-hotkeyEnabled">
-                  <span>启用</span>
-                </label>
-                <div class="mod-group" id="hotkeyMods">
-                  <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
-                  <label class="mod-btn"><input type="checkbox" value="1">Alt</label>
-                  <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
-                  <label class="mod-btn"><input type="checkbox" value="8">Win</label>
-                </div>
-				<input type="text" id="cfg-hotkeyKey" class="field-input u-inline-4" placeholder="P" maxlength="5" aria-describedby="hotkeyKeyHint">
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">搜索框快捷键</label>
-				<p class="field-hint" id="searchHotkeyKeyHint">按下快捷键呼出桌面快速搜索框；主键支持 A–Z、0–9、F1–F24 或 Space</p>
-              </div>
-              <div class="u-inline-3">
-                <label class="ar-toggle">
-                  <input type="checkbox" id="cfg-searchHotkeyEnabled">
-                  <span>启用</span>
-                </label>
-                <div class="mod-group" id="searchHotkeyMods">
-                  <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
-                  <label class="mod-btn"><input type="checkbox" value="1">Alt</label>
-                  <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
-                  <label class="mod-btn"><input type="checkbox" value="8">Win</label>
-                </div>
-				<input type="text" id="cfg-searchHotkeyKey" class="field-input u-inline-5" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-imageEnabled">剪贴板图片捕获</label>
-                <p class="field-hint">记录截图、浏览器复制的图片等，统一转码为 PNG 保存；关闭后图片事件只保留事件记录</p>
-              </div>
-              <label class="ar-toggle">
-                <input type="checkbox" id="cfg-imageEnabled">
-                <span>启用</span>
-              </label>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-imageMaxMB">图片大小上限（MB）</label>
-                <p class="field-hint">超过上限的图片只保留事件记录，不保存图片内容（1–256）</p>
-              </div>
-              <input type="number" id="cfg-imageMaxMB" class="field-input field-input-sm" min="1" max="256" step="1" placeholder="32">
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">弹窗显示过滤</label>
-                <p class="field-hint">快速搜索弹窗默认过滤重复事件 / 无内容记录；免费版始终在最新 100 条原始记录内过滤</p>
-              </div>
-              <div class="u-inline-3">
-                <label class="ar-toggle">
-                  <input type="checkbox" id="cfg-popupHideDuplicates">
-                  <span>过滤重复</span>
-                </label>
-                <label class="ar-toggle">
-                  <input type="checkbox" id="cfg-popupHideUnavailable">
-                  <span>过滤无内容</span>
-                </label>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">弹窗动作快捷键</label>
-                <p class="field-hint">依次为：打开浏览器 / 仅恢复到剪贴板 / 恢复并粘贴到之前窗口。仅支持 [Ctrl+][Shift+][Alt+]Enter 组合且三者不能相同；双击列表恒为恢复</p>
-              </div>
-              <div class="u-inline-3">
-                <input type="text" id="cfg-popupKeyOpen" class="field-input popup-key-input" placeholder="Enter" aria-label="打开浏览器快捷键">
-                <input type="text" id="cfg-popupKeyRestore" class="field-input popup-key-input" placeholder="Shift+Enter" aria-label="恢复剪贴板快捷键">
-                <input type="text" id="cfg-popupKeyPaste" class="field-input popup-key-input" placeholder="Ctrl+Enter" aria-label="粘贴到之前窗口快捷键">
-              </div>
-            </div>
-              <div class="field-row">
-                <div class="field-info">
-                  <label class="field-label" for="cfg-pauseResumeNotifications">录制状态通知</label>
-                <p class="field-hint">暂停或恢复剪贴板录制时显示 Windows 通知</p>
-              </div>
-              <label class="ar-toggle">
-                <input type="checkbox" id="cfg-pauseResumeNotifications">
-                <span>启用</span>
-                </label>
-              </div>
-              <div class="field-row notification-copy-row">
-                <div class="field-info">
-                  <span class="field-label">暂停通知文案</span>
-                  <p class="field-hint">标题最多 60 字，内容最多 240 字；留空时使用默认文案</p>
-                </div>
-                <div class="notification-copy-fields">
-                  <input type="text" id="cfg-pauseNotificationTitle" class="field-input" maxlength="60" placeholder="ClipVault">
-                  <input type="text" id="cfg-pauseNotificationBody" class="field-input" maxlength="240" placeholder="剪贴板录制已暂停">
-                </div>
-              </div>
-              <div class="field-row notification-copy-row">
-                <div class="field-info">
-                  <span class="field-label">恢复通知文案</span>
-                  <p class="field-hint">标题最多 60 字，内容最多 240 字；留空时使用默认文案</p>
-                </div>
-                <div class="notification-copy-fields">
-                  <input type="text" id="cfg-resumeNotificationTitle" class="field-input" maxlength="60" placeholder="ClipVault">
-                  <input type="text" id="cfg-resumeNotificationBody" class="field-input" maxlength="240" placeholder="剪贴板录制已恢复">
-                </div>
-              </div>
-          </div>
-        </section>
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">录制与快捷键</div>
+        <a class="amenu-anchor" href="#s-general-limits">记录与限制</a>
+        <a class="amenu-anchor" href="#s-general-sources">来源应用</a>
+        <a class="amenu-anchor" href="#s-general-hotkeys">快捷键</a>
+        <a class="amenu-anchor" href="#s-general-image">图片捕获</a>
+        <a class="amenu-anchor" href="#s-general-popup">搜索弹窗</a>
+      </div>
+    </aside>
 
-        <div class="ssec-sep"></div>
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">录制与快捷键</span>
+        </nav>
+        <h1 class="sd-title">录制与快捷键</h1>
+        <p class="sd-desc">记录行为、来源应用、快捷键、图片捕获与搜索弹窗。修改自动保存并立即生效。</p>
+      </header>
 
-        <!-- 授权 -->
-        <section class="ssec" id="s-license">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
-            </div>
-            <div>
-              <h2 class="ssec-title">软件授权</h2>
-              <p class="ssec-desc">一次购买，当前设备永久使用；激活过程无需联网</p>
-            </div>
+      <section class="ssec" id="s-general">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
           </div>
-          <div class="ssec-fields">
-            <div class="field-row">
-              <div class="field-info">
-                <span class="field-label">当前状态</span>
-                <p class="field-hint" id="licenseStatusHint">正在读取授权状态…</p>
-              </div>
-              <span class="license-status" id="licenseStatusBadge">检查中</span>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="licenseMachineCode">机器码</label>
-                <p class="field-hint">发送购买信息给卖家以获取只适用于此设备的激活码</p>
-              </div>
-              <div class="license-copy-row">
-                <input id="licenseMachineCode" class="field-input license-machine" type="text" readonly value="读取中…">
-                <button class="btn-export" type="button" data-action="copy-purchase-info">复制购买信息</button>
-              </div>
-            </div>
-            <div class="license-activate-block" id="licenseActivateBlock">
-              <label class="field-label" for="licenseTokenInput">激活码</label>
-              <p class="field-hint">完整粘贴卖家提供的激活码。激活码不会上传到网络。</p>
-              <textarea id="licenseTokenInput" class="field-input license-token-input" rows="4" autocomplete="off" spellcheck="false" placeholder="CV1.…"></textarea>
-              <div class="license-actions">
-                <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" data-action="activate-license">立即激活</button>
-                <span class="license-message" id="licenseMessage" role="alert" aria-live="polite"></span>
-              </div>
-            </div>
-            <div class="field-row hidden" id="licenseDetailsRow">
-              <div class="field-info">
-                <span class="field-label">授权编号</span>
-                <p class="field-hint">当前设备永久买断授权</p>
-              </div>
-              <code id="licenseIdText"></code>
-            </div>
+          <div>
+            <h2 class="ssec-title">基本设置</h2>
+            <p class="ssec-desc">配置剪贴板记录行为与数据限制</p>
           </div>
-        </section>
+        </div>
 
-        <div class="ssec-sep"></div>
-
-        <!-- 敏感内容过滤 -->
-        <section class="ssec" id="s-filter">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <div class="fsec" id="s-general-limits">
+          <h3 class="fsec-title">记录与限制</h3>
+          <p class="fsec-desc">控制超长文本与批量文件路径的记录方式</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-maxTextChars">最大文字长度</label>
+              <p class="field-hint">超过此长度的文本不会被记录；填 0 表示不限制</p>
             </div>
-            <div>
-              <h2 class="ssec-title">敏感内容过滤</h2>
-              <p class="ssec-desc">匹配以下关键字/正则的内容将被标记为敏感，分组到敏感数据。查看和修改规则需要二次验证</p>
-            </div>
+            <input type="number" id="cfg-maxTextChars" class="field-input field-input-sm" min="0" max="100000" step="100" placeholder="0">
           </div>
-          <div class="ssec-body">
-            <div class="filter-auth-gate" id="filterAuthGate">
-              <div class="filter-auth-gate-inner">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                <span>查看和修改敏感过滤规则需要二次验证</span>
-                <button class="btn-unlock-filter" id="unlockFilterBtn">二次验证</button>
-              </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-maxFileDropPaths">最大文件路径数</label>
+              <p class="field-hint">文件拖放时最多记录的路径条数；填 0 表示不限制</p>
             </div>
-            <div id="filterContent" class="filter-content hidden">
-              <div class="pattern-hint">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="u-inline-6"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span>每行填一条关键字或 Go RE2 正则表达式，内容匹配则标记为敏感。示例：<code>password|token</code> 标记含敏感词的内容；<code>^\d{6}$</code> 标记6位纯数字；<code>(?i)secret</code> 大小写不敏感匹配。</span>
-              </div>
-              <div id="patternList" class="pattern-list"></div>
-              <button class="btn-add-pattern" id="addPatternBtn">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                添加过滤规则
-              </button>
-            </div>
+            <input type="number" id="cfg-maxFileDropPaths" class="field-input field-input-sm" min="0" max="1000">
           </div>
-        </section>
+        </div>
 
-        <div class="ssec-sep"></div>
-
-        <!-- 服务设置 -->
-        <section class="ssec" id="s-service">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <div class="fsec" id="s-general-sources">
+          <h3 class="fsec-title">来源应用</h3>
+          <p class="fsec-desc">识别并展示每条内容来自哪个应用</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-recordSourceInfo">记录来源应用</label>
+              <p class="field-hint">记录每条内容来自哪个应用（前台窗口法识别进程名与窗口标题）；隐私敏感环境可关闭</p>
             </div>
-            <div>
-              <h2 class="ssec-title">服务设置</h2>
-              <p class="ssec-desc">配置 Web 服务监听地址，修改后需重启应用生效</p>
-            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-recordSourceInfo">
+              <span>启用</span>
+            </label>
           </div>
-          <div class="ssec-fields">
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-listenAddr">Web 监听地址</label>
-                <p class="field-hint">修改后需重启应用生效</p>
-              </div>
-              <input type="text" id="cfg-listenAddr" class="field-input u-inline-7" placeholder="127.0.0.1:18765">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-sourceShowExe">显示来源应用</label>
+              <p class="field-hint">在列表卡片上展示每条内容来自哪个应用</p>
             </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-reverseProxyEnabled">HTTPS 反向代理</label>
-                <p class="field-hint">由同一台电脑上的 Caddy、Nginx 等提供 HTTPS；启用时后端必须监听回环地址</p>
-              </div>
-              <label class="ar-toggle">
-                <input type="checkbox" id="cfg-reverseProxyEnabled">
-                <span>启用</span>
-              </label>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-reverseProxyPublicUrl">外部 HTTPS 地址</label>
-                <p class="field-hint">例如 https://clipvault.example.com；代理需传递 X-Forwarded-Proto 和 X-Forwarded-Host</p>
-              </div>
-              <input type="url" id="cfg-reverseProxyPublicUrl" class="field-input u-inline-8" placeholder="https://clipvault.example.com">
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-timeZone">日期筛选时区</label>
-                <p class="field-hint">使用 system 跟随 Windows，或填写 IANA 时区（例如 Asia/Shanghai）；夏令时会自动处理</p>
-              </div>
-              <input type="text" id="cfg-timeZone" class="field-input u-inline-7" list="timeZoneSuggestions" placeholder="system">
-              <datalist id="timeZoneSuggestions"><option value="system"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"><option value="UTC"></datalist>
-            </div>
-            <div class="listen-security-warning hidden" id="listenAddrWarning" role="alert">
-              <strong id="listenSecurityWarningTitle">局域网访问风险</strong>
-              <span id="listenSecurityWarningText">非回环地址会通过明文 HTTP 暴露剪贴板服务。保存前必须设置锁屏密码；建议仅在可信网络中使用，并检查 Windows 防火墙规则。</span>
-            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-sourceShowExe">
+              <span>启用</span>
+            </label>
           </div>
-        </section>
-
-        <div class="ssec-sep"></div>
-
-        <!-- 存储与诊断 -->
-        <section class="ssec" id="s-storage">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">来源应用管理</label>
+              <p class="field-hint" id="sourceAppsSummary">设置应用别名，以及哪些应用出现在搜索下拉中</p>
             </div>
-            <div>
-              <h2 class="ssec-title">存储与诊断</h2>
-              <p class="ssec-desc">管理本机数据位置，并导出问题排查所需的日志</p>
-            </div>
-          </div>
-          <div class="ssec-fields">
-            <div class="field-row storage-current-row">
-              <div class="field-info">
-                <span class="field-label">当前数据目录</span>
-                <p class="field-hint" id="storageCurrentHint" aria-live="polite">正在读取存储状态...</p>
-              </div>
-              <div class="storage-current-controls">
-                <code class="storage-path" id="storageCurrentDir">-</code>
-                <button type="button" class="btn-export" id="storageOpenDirBtn" title="在文件资源管理器中打开">打开目录</button>
-              </div>
-            </div>
-            <div class="field-row" id="storageRelocateRow">
-              <div class="field-info">
-                <span class="field-label">迁移数据目录</span>
-                <p class="field-hint">将数据库、密钥和应用数据迁移到新目录；运行日志保留在原位置。点击「准备迁移」配置目标目录并查看迁移说明。</p>
-              </div>
-              <button type="button" class="btn-export" id="storageRelocateBtn" disabled>准备迁移</button>
-            </div>
-            <div class="isolated-databases" id="isolatedDatabasesBlock">
-              <div class="isolated-databases-head">
-                <div class="field-info">
-                  <span class="field-label">隔离的旧数据库</span>
-                  <p class="field-hint">创建新数据库或切换数据库时保留的旧数据。验证对应的恢复密码后，可在下次启动时切换查看；当前数据库也会被隔离保存，之后可以切回。</p>
-                </div>
-                <span class="isolated-count" id="isolatedDatabaseCount">0 份</span>
-              </div>
-              <div class="isolated-pending hidden" id="isolatedDatabasePending" role="status"></div>
-              <div class="isolated-list" id="isolatedDatabaseList">
-                <p class="isolated-empty">正在读取隔离数据...</p>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field-info">
-                <span class="field-label">运行日志</span>
-                <p class="field-hint">导出最近 7 天、最多 8 MiB 的脱敏日志和运行环境信息，不包含剪贴板内容、数据库、配置或密钥。请将 ZIP 文件发送给技术支持。</p>
-              </div>
-              <button type="button" class="btn-export" id="diagnosticsExportBtn">导出运行日志</button>
-            </div>
-          </div>
-        </section>
-
-        <div class="ssec-sep"></div>
-
-        <!-- 历史清理 -->
-        <section class="ssec" id="s-cleanup">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-            </div>
-            <div>
-              <h2 class="ssec-title">历史清理</h2>
-              <p class="ssec-desc">删除全部或指定时间范围内的剪贴板记录</p>
-            </div>
-          </div>
-          <div class="ssec-fields">
-            <div class="field-row">
-              <div class="field-info">
-                <span class="field-label">清理历史记录</span>
-                <p class="field-hint">可选择保留收藏的记录；删除后不可恢复，操作前会进行二次验证</p>
-              </div>
-              <button type="button" class="btn-cleanup-open" data-action="open-cleanup">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                清理历史…
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div class="ssec-sep"></div>
-
-        <!-- 安全设置 -->
-        <section class="ssec" id="s-security">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            </div>
-            <div>
-              <h2 class="ssec-title">安全设置</h2>
-              <p class="ssec-desc">设置锁屏密码和二次密码，保护敏感操作</p>
-            </div>
-          </div>
-          <div class="ssec-fields">
-            <!-- 锁屏密码 -->
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">锁屏密码</label>
-                <p class="field-hint">访问 Web 界面时需要输入此密码</p>
-              </div>
-              <div class="pwd-actions" id="lockPwdActions">
-                <span class="pwd-status" id="lockPwdStatus">未设置</span>
-                <button class="btn-pwd-set" id="lockPwdSetBtn" data-action="show-password" data-password-type="lock" data-password-mode="set">设置</button>
-                <button class="btn-pwd-change hidden" id="lockPwdChangeBtn" data-action="show-password" data-password-type="lock" data-password-mode="change">修改</button>
-                <button class="btn-pwd-remove hidden" id="lockPwdRemoveBtn" data-action="show-password" data-password-type="lock" data-password-mode="remove">删除</button>
-              </div>
-            </div>
-            <!-- 二次密码 -->
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">二次密码</label>
-                <p class="field-hint">访问敏感数据、导出、备份和重置恢复密码时需要此密码。此密码为必需项，无法删除。</p>
-              </div>
-              <div class="pwd-actions" id="secondaryPwdActions">
-                <span class="pwd-status" id="secondaryPwdStatus">未设置</span>
-                <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" data-action="show-password" data-password-type="secondary" data-password-mode="change">修改</button>
-              </div>
-            </div>
-            <!-- 数据恢复密码 -->
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label">数据恢复密码</label>
-                <p class="field-hint">用于在换电脑、重装系统或 Windows DPAPI 失效时恢复数据库密钥；不是锁屏密码、二次密码、授权码或导出密码。此密码为必需项，无法删除。</p>
-              </div>
-              <div class="pwd-actions" id="recoveryPwdActions">
-                <span class="pwd-status" id="recoveryPwdStatus">未设置</span>
-                <button class="btn-pwd-change hidden" id="recoveryPwdChangeBtn" data-action="show-recovery" data-mode="change">修改</button>
-                <button class="btn-pwd-change hidden" id="recoveryPwdResetBtn" data-action="show-recovery" data-mode="reset">忘记旧密码时重置</button>
-              </div>
-            </div>
-            <!-- 锁屏会话超时 -->
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-lockSessionTimeout">锁屏会话超时</label>
-                <p class="field-hint">解锁后保持登录的时长（分钟）。0 = 关闭浏览器后失效，填数字表示 N 分钟内免重复解锁</p>
-              </div>
-              <input type="number" id="cfg-lockSessionTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
-            </div>
-            <!-- 二次认证缓存时长 -->
-            <div class="field-row">
-              <div class="field-info">
-                <label class="field-label" for="cfg-secondaryAuthTimeout">二次认证缓存时长</label>
-                <p class="field-hint">二次验证后免重复验证的时长（分钟）。0 = 每次操作都需要验证，填数字表示 N 分钟内免重复</p>
-              </div>
-              <input type="number" id="cfg-secondaryAuthTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
-            </div>
-          </div>
-        </section>
-
-        <div class="ssec-sep"></div>
-
-        <!-- 分组管理 -->
-        <section class="ssec" id="s-groups">
-          <div class="ssec-head">
-            <div class="ssec-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
-            </div>
-            <div>
-              <h2 class="ssec-title">分组管理</h2>
-              <p class="ssec-desc">创建自定义分组对剪切板记录进行分类，支持嵌套分组</p>
-            </div>
-          </div>
-          <div class="ssec-body">
-            <button class="btn-open-group-modal" data-action="open-groups" data-mode="manage">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
-              打开分组管理
+            <button class="btn-export" type="button" data-action="open-source-apps">
+              管理来源应用
             </button>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-general-hotkeys">
+          <h3 class="fsec-title">快捷键</h3>
+          <p class="fsec-desc">全局快捷键与快速搜索弹窗</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">全局快捷键</label>
+              <p class="field-hint" id="hotkeyKeyHint">按下快捷键暂停/恢复剪贴板录制；主键支持 A–Z、0–9、F1–F24 或 Space</p>
+            </div>
+            <div class="u-inline-3">
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-hotkeyEnabled">
+                <span>启用</span>
+              </label>
+              <div class="mod-group" id="hotkeyMods">
+                <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
+                <label class="mod-btn"><input type="checkbox" value="1">Alt</label>
+                <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
+                <label class="mod-btn"><input type="checkbox" value="8">Win</label>
+              </div>
+              <input type="text" id="cfg-hotkeyKey" class="field-input u-inline-4" placeholder="P" maxlength="5" aria-describedby="hotkeyKeyHint">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">搜索框快捷键</label>
+              <p class="field-hint" id="searchHotkeyKeyHint">按下快捷键呼出桌面快速搜索框；主键支持 A–Z、0–9、F1–F24 或 Space</p>
+            </div>
+            <div class="u-inline-3">
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-searchHotkeyEnabled">
+                <span>启用</span>
+              </label>
+              <div class="mod-group" id="searchHotkeyMods">
+                <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
+                <label class="mod-btn"><input type="checkbox" value="1">Alt</label>
+                <label class="mod-btn"><input type="checkbox" value="4">Shift</label>
+                <label class="mod-btn"><input type="checkbox" value="8">Win</label>
+              </div>
+              <input type="text" id="cfg-searchHotkeyKey" class="field-input u-inline-5" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
+            </div>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-general-image">
+          <h3 class="fsec-title">图片捕获</h3>
+          <p class="fsec-desc">剪贴板图片的记录方式与大小上限</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-imageEnabled">剪贴板图片捕获</label>
+              <p class="field-hint">记录截图、浏览器复制的图片等，统一转码为 PNG，保存在数据目录下的 images 子目录（数据目录位置见「存储与数据」）；关闭后图片事件只保留事件记录</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-imageEnabled">
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-imageMaxMB">图片大小上限（MB）</label>
+              <p class="field-hint">超过上限的图片只保留事件记录，不保存图片内容（1–256）</p>
+            </div>
+            <input type="number" id="cfg-imageMaxMB" class="field-input field-input-sm" min="1" max="256" step="1" placeholder="32">
+          </div>
+        </div>
+
+        <div class="fsec" id="s-general-popup">
+          <h3 class="fsec-title">搜索弹窗</h3>
+          <p class="fsec-desc">快速搜索弹窗的显示过滤与动作快捷键</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">弹窗显示过滤</label>
+              <p class="field-hint">快速搜索弹窗默认过滤重复事件 / 无内容记录；免费版始终在最新 100 条原始记录内过滤</p>
+            </div>
+            <div class="u-inline-3">
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-popupHideDuplicates">
+                <span>过滤重复</span>
+              </label>
+              <label class="ar-toggle">
+                <input type="checkbox" id="cfg-popupHideUnavailable">
+                <span>过滤无内容</span>
+              </label>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">弹窗动作快捷键</label>
+              <p class="field-hint">依次为：打开浏览器 / 仅恢复到剪贴板 / 恢复并粘贴到之前窗口。仅支持 [Ctrl+][Shift+][Alt+]Enter 组合且三者不能相同；双击列表恒为恢复</p>
+            </div>
+            <div class="u-inline-3">
+              <input type="text" id="cfg-popupKeyOpen" class="field-input popup-key-input" placeholder="Enter" aria-label="打开浏览器快捷键">
+              <input type="text" id="cfg-popupKeyRestore" class="field-input popup-key-input" placeholder="Shift+Enter" aria-label="恢复剪贴板快捷键">
+              <input type="text" id="cfg-popupKeyPaste" class="field-input popup-key-input" placeholder="Ctrl+Enter" aria-label="粘贴到之前窗口快捷键">
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

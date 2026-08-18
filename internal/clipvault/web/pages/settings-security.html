@@ -1,0 +1,125 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">安全与隐私</div>
+        <a class="amenu-anchor" href="#s-security-pwd">密码</a>
+        <a class="amenu-anchor" href="#s-security-session">会话与验证</a>
+        <a class="amenu-anchor" href="#s-filter">敏感内容过滤</a>
+      </div>
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">安全与隐私</span>
+        </nav>
+        <h1 class="sd-title">安全与隐私</h1>
+        <p class="sd-desc">锁屏密码、二次验证与敏感内容过滤。查看和修改敏感规则需要二次验证。</p>
+      </header>
+
+      <section class="ssec" id="s-security">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">安全设置</h2>
+            <p class="ssec-desc">设置锁屏密码和二次密码，保护敏感操作</p>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-security-pwd">
+          <h3 class="fsec-title">密码</h3>
+          <p class="fsec-desc">三类密码分别保护界面访问、敏感操作与数据恢复</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">锁屏密码</label>
+              <p class="field-hint">访问 Web 界面时需要输入此密码</p>
+            </div>
+            <div class="pwd-actions" id="lockPwdActions">
+              <span class="pwd-status" id="lockPwdStatus">未设置</span>
+              <button class="btn-pwd-set" id="lockPwdSetBtn" data-action="show-password" data-password-type="lock" data-password-mode="set">设置</button>
+              <button class="btn-pwd-change hidden" id="lockPwdChangeBtn" data-action="show-password" data-password-type="lock" data-password-mode="change">修改</button>
+              <button class="btn-pwd-remove hidden" id="lockPwdRemoveBtn" data-action="show-password" data-password-type="lock" data-password-mode="remove">删除</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">二次密码</label>
+              <p class="field-hint">访问敏感数据、导出、备份和重置恢复密码时需要此密码。此密码为必需项，无法删除。</p>
+            </div>
+            <div class="pwd-actions" id="secondaryPwdActions">
+              <span class="pwd-status" id="secondaryPwdStatus">未设置</span>
+              <button class="btn-pwd-change hidden" id="secondaryPwdChangeBtn" data-action="show-password" data-password-type="secondary" data-password-mode="change">修改</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label">数据恢复密码</label>
+              <p class="field-hint">用于在换电脑、重装系统或 Windows DPAPI 失效时恢复数据库密钥；不是锁屏密码、二次密码、授权码或导出密码。此密码为必需项，无法删除。</p>
+            </div>
+            <div class="pwd-actions" id="recoveryPwdActions">
+              <span class="pwd-status" id="recoveryPwdStatus">未设置</span>
+              <button class="btn-pwd-change hidden" id="recoveryPwdChangeBtn" data-action="show-recovery" data-mode="change">修改</button>
+              <button class="btn-pwd-change hidden" id="recoveryPwdResetBtn" data-action="show-recovery" data-mode="reset">忘记旧密码时重置</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-security-session">
+          <h3 class="fsec-title">会话与验证</h3>
+          <p class="fsec-desc">解锁与二次验证的免重复时长</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-lockSessionTimeout">锁屏会话超时</label>
+              <p class="field-hint">解锁后保持登录的时长（分钟）。0 = 关闭浏览器后失效，填数字表示 N 分钟内免重复解锁</p>
+            </div>
+            <input type="number" id="cfg-lockSessionTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-secondaryAuthTimeout">二次认证缓存时长</label>
+              <p class="field-hint">二次验证后免重复验证的时长（分钟）。0 = 关闭浏览器后失效，填数字表示 N 分钟内免重复</p>
+            </div>
+            <input type="number" id="cfg-secondaryAuthTimeout" class="field-input field-input-sm" min="0" max="525600" step="1" placeholder="0">
+          </div>
+        </div>
+      </section>
+
+      <section class="ssec" id="s-filter">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">敏感内容过滤</h2>
+            <p class="ssec-desc">匹配以下关键字/正则的内容将被标记为敏感，分组到敏感数据。查看和修改规则需要二次验证</p>
+          </div>
+        </div>
+        <div class="ssec-body">
+          <div class="filter-auth-gate" id="filterAuthGate">
+            <div class="filter-auth-gate-inner">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>查看和修改敏感过滤规则需要二次验证</span>
+              <button class="btn-unlock-filter" id="unlockFilterBtn">二次验证</button>
+            </div>
+          </div>
+          <div id="filterContent" class="filter-content hidden">
+            <div class="pattern-hint">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="u-inline-6"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>每行填一条关键字或 Go RE2 正则表达式，内容匹配则标记为敏感。示例：<code>password|token</code> 标记含敏感词的内容；<code>^\d{6}$</code> 标记6位纯数字；<code>(?i)secret</code> 大小写不敏感匹配。</span>
+            </div>
+            <div id="patternList" class="pattern-list"></div>
+            <button class="btn-add-pattern" id="addPatternBtn">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              添加过滤规则
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

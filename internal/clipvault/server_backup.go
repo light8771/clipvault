@@ -73,7 +73,8 @@ func (s *SearchServer) handleEmailBackupHistory(w http.ResponseWriter, r *http.R
 
 // validateDirBackupEnabled 校验已启用的目录备份配置是否完整。
 // 返回非空字符串描述缺失项，空字符串表示通过。
-// 仅 cvexport 格式需要加密密码；json/xlsx 为明文导出，无需密码。
+// 目录备份仅支持加密导出（cvexport）或明文 zip 加密打包（json/xlsx），
+// 因此任何格式都必须设置加密密码，与邮件备份规则一致。
 func validateDirBackupEnabled(db DirBackupConfig) string {
 	var missing []string
 	if db.Interval < 1 || db.Interval > maxBackupIntervalHours {
@@ -84,8 +85,8 @@ func validateDirBackupEnabled(db DirBackupConfig) string {
 	}
 	if !isBackupFormat(db.Format) {
 		missing = append(missing, "备份格式")
-	} else if db.Format == "cvexport" && db.Password == "" {
-		missing = append(missing, "加密密码")
+	} else if db.Password == "" {
+		missing = append(missing, "加密密码（目录备份仅支持加密导出）")
 	}
 	if len(missing) == 0 {
 		return ""

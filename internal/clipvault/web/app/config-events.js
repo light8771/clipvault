@@ -69,12 +69,15 @@ export function registerConfigEvents() {
       if (output) output.value = `${surfaceOpacityControl.value}%`;
       app.applyTheme(app.themeFromForm());
     });
+    // 首页设置搜索框不是配置项，输入不得触发自动保存。
+    const isExcluded = t => t === listenAddrEl || t === reverseProxyPublicUrlEl || t === timeZoneEl
+      || t?.id === 'settingsSearch' || t?.type === 'file';
     settingsEl.addEventListener('input', e => {
-      if (e.target === listenAddrEl || e.target === reverseProxyPublicUrlEl || e.target === timeZoneEl || e.target?.type === 'file') return;
+      if (isExcluded(e.target)) return;
       app.scheduleConfigSave(800);
     });
     settingsEl.addEventListener('change', e => {
-      if (e.target === listenAddrEl || e.target === reverseProxyPublicUrlEl || e.target === timeZoneEl || e.target?.type === 'file') return;
+      if (isExcluded(e.target)) return;
       app.scheduleConfigSave(300);
     });
     // 监听地址失焦时立即保存（触发重启确认）
@@ -100,12 +103,13 @@ export function registerConfigEvents() {
         app.scheduleConfigSave(300);
       });
     }
-    // 备份格式切换时显示/隐藏加密密码行
+    // 目录备份仅支持加密导出：cvexport 直接加密；json/xlsx 打进 zip 后加密。
+    // 密码行恒显示，任何格式都需要加密密码。
     const dirFmt = document.getElementById('cfg-dirBackupFormat');
     if (dirFmt) {
       dirFmt.addEventListener('change', () => {
         const row = document.getElementById('cfg-dirBackupPwdRow');
-        if (row) row.style.display = dirFmt.value === 'cvexport' ? '' : 'none';
+        if (row) row.style.display = '';
       });
     }
     // 邮件备份仅支持加密导出：cvexport 直接加密；json/xlsx 打进 zip 后加密。
@@ -173,17 +177,15 @@ export function registerConfigEvents() {
     const missing = [];
     const interval = parseInt(document.getElementById('cfg-dirBackupInterval')?.value) || 0;
     const dir = (document.getElementById('cfg-dirBackupDir')?.value || '').trim();
-    const format = document.getElementById('cfg-dirBackupFormat')?.value || 'cvexport';
     const pwd = document.getElementById('cfg-dirBackupPwd')?.value || '';
     const clearChecked = document.getElementById('cfg-dirBackupPwdClear')?.checked || false;
     const hasExistingPwd = app.currentCfg?.backup?.dirBackup?.password === '__set__';
     if (interval < 1 || interval > 720) missing.push('备份间隔');
     if (!dir) missing.push('目标目录');
-    if (format === 'cvexport') {
-      // 有新输入用新密码；无新输入且勾选清除则为空；无新输入未勾选则依赖已存密码
-      const effectivePwd = pwd || (clearChecked ? '' : hasExistingPwd ? '__set__' : '');
-      if (!effectivePwd) missing.push('加密密码');
-    }
+    // 目录备份仅支持加密导出（json/xlsx 为 zip 加密打包），任何格式都需要加密密码。
+    // 有新输入用新密码；无新输入且勾选清除则为空；无新输入未勾选则依赖已存密码
+    const effectivePwd = pwd || (clearChecked ? '' : hasExistingPwd ? '__set__' : '');
+    if (!effectivePwd) missing.push('加密密码（目录备份仅支持加密导出）');
     return missing;
   };
   app.validateEmailBackupConfig = function validateEmailBackupConfig() {

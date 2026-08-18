@@ -1,0 +1,61 @@
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">软件授权</span>
+        </nav>
+        <h1 class="sd-title">软件授权</h1>
+        <p class="sd-desc">查看授权状态，使用激活码激活。激活过程无需联网，激活码不会上传。</p>
+      </header>
+
+      <section class="ssec" id="s-license">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">软件授权</h2>
+            <p class="ssec-desc">一次购买，当前设备永久使用；激活过程无需联网</p>
+          </div>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <span class="field-label">当前状态</span>
+              <p class="field-hint" id="licenseStatusHint">正在读取授权状态…</p>
+            </div>
+            <span class="license-status" id="licenseStatusBadge">检查中</span>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="licenseMachineCode">机器码</label>
+              <p class="field-hint">发送购买信息给卖家以获取只适用于此设备的激活码</p>
+            </div>
+            <div class="license-copy-row">
+              <input id="licenseMachineCode" class="field-input license-machine" type="text" readonly value="读取中…">
+              <button class="btn-export" type="button" data-action="copy-purchase-info">复制购买信息</button>
+            </div>
+          </div>
+          <div class="license-activate-block" id="licenseActivateBlock">
+            <label class="field-label" for="licenseTokenInput">激活码</label>
+            <p class="field-hint">完整粘贴卖家提供的激活码。激活码不会上传到网络。</p>
+            <textarea id="licenseTokenInput" class="field-input license-token-input" rows="4" autocomplete="off" spellcheck="false" placeholder="CV1.…"></textarea>
+            <div class="license-actions">
+              <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" data-action="activate-license">立即激活</button>
+              <span class="license-message" id="licenseMessage" role="alert" aria-live="polite"></span>
+            </div>
+          </div>
+          <div class="field-row hidden" id="licenseDetailsRow">
+            <div class="field-info">
+              <span class="field-label">授权编号</span>
+              <p class="field-hint">当前设备永久买断授权</p>
+            </div>
+            <code id="licenseIdText"></code>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

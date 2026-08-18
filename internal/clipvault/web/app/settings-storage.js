@@ -3,8 +3,8 @@ import { createRemovableModal } from './modal-controller.js';
 export function registerSettingsStorage() {
   const smtpUser = document.getElementById('cfg-emailBackupSMTPUser');
   const smtpCredentialUser = document.getElementById('cfg-emailBackupSMTPCredentialUser');
-  smtpUser.addEventListener('input', () => {
-    smtpCredentialUser.value = smtpUser.value;
+  smtpUser?.addEventListener('input', () => {
+    if (smtpCredentialUser) smtpCredentialUser.value = smtpUser.value;
   });
   app.loadSettings = async function loadSettings() {
     const request = ++app.configRequestSequence;
@@ -242,8 +242,12 @@ export function registerSettingsStorage() {
     app.applyBrandFormState(cfg.brand);
     app.applyBackgroundFormState(cfg.background);
     app.applyThemeFormState(cfg.theme);
-    document.getElementById('cfg-maxTextChars').value = cfg.maxTextChars ?? 0;
-    document.getElementById('cfg-maxFileDropPaths').value = cfg.maxFileDropPaths ?? 0;
+    const setValue = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    };
+    setValue('cfg-maxTextChars', cfg.maxTextChars ?? 0);
+    setValue('cfg-maxFileDropPaths', cfg.maxFileDropPaths ?? 0);
     const rsi = document.getElementById('cfg-recordSourceInfo');
     // 缺省视为开启：与后端 DefaultConfig().RecordSourceInfo = true 对齐
     if (rsi) rsi.checked = cfg.recordSourceInfo !== false;
@@ -254,7 +258,7 @@ export function registerSettingsStorage() {
     const showExeEl = document.getElementById('cfg-sourceShowExe');
     if (showExeEl) showExeEl.checked = cfg.source?.showExe !== false;
     app.updateSourceAppsSummary();
-    document.getElementById('cfg-listenAddr').value = cfg.search && cfg.search.listenAddr || '127.0.0.1:18765';
+    setValue('cfg-listenAddr', cfg.search && cfg.search.listenAddr || '127.0.0.1:18765');
     const reverseProxy = cfg.search?.reverseProxy || {};
     const reverseProxyEnabled = document.getElementById('cfg-reverseProxyEnabled');
     const reverseProxyPublicUrl = document.getElementById('cfg-reverseProxyPublicUrl');
@@ -371,7 +375,9 @@ export function registerSettingsStorage() {
     if (dirPwdClear) dirPwdClear.checked = false;
     const dirHasPwd = db.password === '__set__';
     if (dirPwdClearRow) dirPwdClearRow.style.display = dirHasPwd ? '' : 'none';
-    if (dirPwdRow) dirPwdRow.style.display = db.format === 'cvexport' ? '' : 'none';
+    // 目录备份仅支持加密导出：cvexport 直接加密；json/xlsx 打进 zip 后加密。
+    // 密码行恒显示，任何格式都需要加密密码。
+    if (dirPwdRow) dirPwdRow.style.display = '';
     const emailEnabled = document.getElementById('cfg-emailBackupEnabled');
     const emailRunOnStartup = document.getElementById('cfg-emailBackupRunOnStartup');
     const emailInterval = document.getElementById('cfg-emailBackupInterval');

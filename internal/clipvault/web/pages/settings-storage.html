@@ -1,0 +1,99 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">存储与数据</div>
+        <a class="amenu-anchor" href="#s-storage-dir">数据目录</a>
+        <a class="amenu-anchor" href="#s-storage-isolated">隔离数据库</a>
+        <a class="amenu-anchor" href="#s-cleanup">历史清理</a>
+      </div>
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">存储与数据</span>
+        </nav>
+        <h1 class="sd-title">存储与数据</h1>
+        <p class="sd-desc">数据目录、隔离数据库与历史清理。清理操作不可恢复，执行前会进行二次验证。</p>
+      </header>
+
+      <section class="ssec" id="s-storage">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">数据存储</h2>
+            <p class="ssec-desc">管理本机数据位置与隔离的旧数据库</p>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-storage-dir">
+          <h3 class="fsec-title">数据目录</h3>
+          <p class="fsec-desc">数据库、密钥与应用数据的存放位置</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row storage-current-row">
+            <div class="field-info">
+              <span class="field-label">当前数据目录</span>
+              <p class="field-hint" id="storageCurrentHint" aria-live="polite">正在读取存储状态...</p>
+            </div>
+            <div class="storage-current-controls">
+              <code class="storage-path" id="storageCurrentDir">-</code>
+              <button type="button" class="btn-export" id="storageOpenDirBtn" title="在文件资源管理器中打开">打开目录</button>
+            </div>
+          </div>
+          <div class="field-row" id="storageRelocateRow">
+            <div class="field-info">
+              <span class="field-label">迁移数据目录</span>
+              <p class="field-hint">将数据库、密钥和应用数据迁移到新目录；运行日志保留在原位置。点击「准备迁移」配置目标目录并查看迁移说明。</p>
+            </div>
+            <button type="button" class="btn-export" id="storageRelocateBtn" disabled>准备迁移</button>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-storage-isolated">
+          <h3 class="fsec-title">隔离数据库</h3>
+          <p class="fsec-desc">切换数据库时保留的历史数据，可在验证后切回</p>
+        </div>
+        <div class="isolated-databases" id="isolatedDatabasesBlock">
+          <div class="isolated-databases-head">
+            <div class="field-info">
+              <span class="field-label">隔离的旧数据库</span>
+              <p class="field-hint">创建新数据库或切换数据库时保留的旧数据。验证对应的恢复密码后，可在下次启动时切换查看；当前数据库也会被隔离保存，之后可以切回。</p>
+            </div>
+            <span class="isolated-count" id="isolatedDatabaseCount">0 份</span>
+          </div>
+          <div class="isolated-pending hidden" id="isolatedDatabasePending" role="status"></div>
+          <div class="isolated-list" id="isolatedDatabaseList">
+            <p class="isolated-empty">正在读取隔离数据...</p>
+          </div>
+        </div>
+
+      </section>
+
+      <section class="ssec" id="s-cleanup">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">历史清理</h2>
+            <p class="ssec-desc">删除全部或指定时间范围内的剪贴板记录</p>
+          </div>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <span class="field-label">清理历史记录</span>
+              <p class="field-hint">可选择保留收藏的记录；删除后不可恢复，操作前会进行二次验证</p>
+            </div>
+            <button type="button" class="btn-cleanup-open" data-action="open-cleanup">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              清理历史…
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

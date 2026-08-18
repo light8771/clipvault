@@ -1,5 +1,13 @@
 const startupToken=location.hash.slice(1);
 history.replaceState(null,'',location.pathname);
+// 主题注入：把 Go 模板写入 <html> data 属性的当前皮肤主色映射为 CSS 变量；
+// 应用设置为固定明/暗时通过 data-theme 强制，system 时交给 prefers-color-scheme。
+const docEl=document.documentElement;
+if(docEl.dataset.pLight)docEl.style.setProperty('--theme-primary-light',docEl.dataset.pLight);
+if(docEl.dataset.pLightHover)docEl.style.setProperty('--theme-primary-light-hover',docEl.dataset.pLightHover);
+if(docEl.dataset.pDark)docEl.style.setProperty('--theme-primary-dark',docEl.dataset.pDark);
+if(docEl.dataset.pDarkHover)docEl.style.setProperty('--theme-primary-dark-hover',docEl.dataset.pDarkHover);
+if(docEl.dataset.themeMode==='light'||docEl.dataset.themeMode==='dark')docEl.dataset.theme=docEl.dataset.themeMode;
 const root=document.querySelector('.main');
 const mode=root.dataset.mode,isSetup=mode==='set_credentials';
 const $=id=>document.getElementById(id);
@@ -39,6 +47,13 @@ function checkPassword(key,min,maxBytes){
 }
 function checkPair(a,b){const va=els[a].value,vb=els[b].value;if(!vb){setMsg(b,false,'');mark(b,false);return false;}if(va!==vb){setMsg(b,false,'两次输入不一致');mark(b,true);return false;}setMsg(b,true,'✓ 一致');mark(b,false);return true;}
 
+function setStep(id,state){const el=$(id);if(!el)return;el.classList.toggle('is-done',state==='done');el.classList.toggle('is-current',state==='current');}
+function updateSteps(recoveryDone,secondaryDone,allDone){
+  setStep('step-recovery',recoveryDone?'done':'current');
+  setStep('step-secondary',recoveryDone?(secondaryDone?'done':'current'):'');
+  setStep('step-finish',allDone?'current':'');
+}
+
 function validate(){
   let ok=true;
   if(isSetup){
@@ -47,6 +62,7 @@ function validate(){
     const secondaryOK=checkPassword('secondaryPassword',MIN_SEC,MAX_SEC_BYTES);
     const secondaryPairOK=checkPair('secondaryPassword','secondaryConfirm');
     ok=recoveryOK&&recoveryPairOK&&secondaryOK&&secondaryPairOK;
+    updateSteps(recoveryOK&&recoveryPairOK,secondaryOK&&secondaryPairOK,ok);
   }else{
     ok=els.password.value.length>0;
   }
@@ -65,8 +81,8 @@ async function submitCredentials(e){
     let data={};try{data=await res.json();}catch(_){data={};}
     if(!res.ok){errBox.textContent=res.status===403?'安全会话已失效，请刷新页面后重试':(data.error?.message||'本地服务请求失败');submit.disabled=false;return;}
     const card=document.querySelector('.main');
-    card.innerHTML='<h1>设置完成</h1><p class="desc">正在打开记录页面...</p><p class="warn">如未自动跳转，请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p>';
-    let polled=0;const poll=async()=>{try{const r=await fetch('/api/v1/startup/status');const d=await r.json();if(d.data?.ready&&d.data.recordURL){location.href=d.data.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<h1>设置完成</h1><p class="desc">记录页面未自动打开。</p><p class="warn">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p>';return;}setTimeout(poll,500);};poll();
+    card.innerHTML='<div class="shell"><div class="done-panel"><h1>设置完成</h1><p class="desc">正在打开记录页面...</p><div class="warn"><p class="warn-title">如未自动跳转</p><p class="warn-copy">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p></div></div></div>';
+    let polled=0;const poll=async()=>{try{const r=await fetch('/api/v1/startup/status');const d=await r.json();if(d.data?.ready&&d.data.recordURL){location.href=d.data.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<div class="shell"><div class="done-panel"><h1>设置完成</h1><p class="desc">记录页面未自动打开。</p><div class="warn"><p class="warn-title">手动继续</p><p class="warn-copy">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p></div></div></div>';return;}setTimeout(poll,500);};poll();
   }catch(_){errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';submit.disabled=false;}
 }
 document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',submitCredentials));

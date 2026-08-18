@@ -1,0 +1,91 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">导入导出</div>
+        <a class="amenu-anchor" href="#s-export">导出</a>
+        <a class="amenu-anchor" href="#s-import">导入</a>
+      </div>
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">导入导出</span>
+        </nav>
+        <h1 class="sd-title">导入导出</h1>
+        <p class="sd-desc">导出剪贴板数据，或从导出文件恢复。导出与导入操作需要二次验证。</p>
+      </header>
+
+      <section class="ssec" id="s-export">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">导出</h2>
+            <p class="ssec-desc">将剪贴板记录保存到本地文件</p>
+          </div>
+        </div>
+        <div class="ssec-body">
+          <div class="export-group">
+            <div class="export-item">
+              <div>
+                <div class="export-title">完整导出（JSON）</div>
+                <div class="export-desc">包含记录、分组层级、敏感标记和敏感过滤规则</div>
+              </div>
+              <button class="btn-export" data-action="export" data-format="data-json">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                JSON
+              </button>
+            </div>
+            <div class="export-item">
+              <div>
+                <div class="export-title">完整导出（Excel）</div>
+                <div class="export-desc">包含 Manifest、Records、Groups、ItemGroups 和 SensitiveRules 五个工作表</div>
+              </div>
+              <button class="btn-export" data-action="export" data-format="data-xlsx">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Excel
+              </button>
+            </div>
+            <div class="export-item">
+              <div>
+                <div class="export-title">完整加密导出（.cvexport）</div>
+                <div class="export-desc">包含完整导出内容并使用密码加密，适合迁移或备份</div>
+              </div>
+              <button class="btn-export" data-action="export-encrypted">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                加密导出
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ssec" id="s-import">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">导入</h2>
+            <p class="ssec-desc">从导出文件或定时备份恢复剪贴板数据</p>
+          </div>
+        </div>
+        <div class="ssec-body">
+          <div class="export-group">
+            <div class="export-item">
+              <div>
+                <div class="export-title">导入数据</div>
+                <div class="export-desc">支持 JSON、Excel 和加密 .cvexport；目录备份与邮件备份文件可直接导入</div>
+              </div>
+              <button class="btn-export" data-action="show-import">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                选择文件
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

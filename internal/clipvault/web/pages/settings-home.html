@@ -1,0 +1,172 @@
+    </aside>
+
+    <!-- 系统设置首页：分组总览 -->
+    <div class="settings-main">
+      <header class="sh-head">
+        <h1 class="sh-title">系统设置</h1>
+        <p class="sh-desc">管理 ClipVault 的外观、记录行为、安全与数据。所有修改自动保存，立即生效。</p>
+        <div class="sh-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" id="settingsSearch" class="sh-search-input" placeholder="搜索设置项或分组…" autocomplete="off" aria-label="搜索设置">
+        </div>
+      </header>
+
+      <div class="sh-results hidden" id="settingsSearchResults" role="listbox" aria-label="搜索结果"></div>
+
+      <div class="sgroup-grid" id="sgroupGrid">
+        <a class="sgroup-card" href="/settings/appearance">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-1.5a1.5 1.5 0 0 0 0 3H18a2 2 0 0 1 2 2c0 1.1-.9 2-2 2h-6z"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">外观与通知</span>
+            <span class="sgroup-desc">皮肤、显示模式、字体、背景媒体与系统通知</span>
+            <span class="sgroup-keys">皮肤 · 深色模式 · 字体大小 · 站点品牌 · 背景 · 通知</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/general">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">录制与快捷键</span>
+            <span class="sgroup-desc">记录行为、来源应用、快捷键、图片捕获与搜索弹窗</span>
+            <span class="sgroup-keys">记录限制 · 来源应用 · 快捷键 · 图片捕获 · 搜索弹窗</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/security">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">安全与隐私</span>
+            <span class="sgroup-desc">锁屏密码、二次验证与敏感内容过滤</span>
+            <span class="sgroup-keys">锁屏密码 · 二次密码 · 恢复密码 · 敏感过滤</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/storage">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">存储与数据</span>
+            <span class="sgroup-desc">数据目录、隔离数据库与历史清理</span>
+            <span class="sgroup-keys">数据目录 · 迁移 · 隔离数据库 · 历史清理</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/backup">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">定时备份</span>
+            <span class="sgroup-desc">定时备份到目录或发送到邮箱</span>
+            <span class="sgroup-keys">目录备份 · 邮件备份 · 加密 · 增量</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/transfer">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">导入导出</span>
+            <span class="sgroup-desc">导出剪贴板数据，或从导出文件恢复</span>
+            <span class="sgroup-keys">JSON · Excel · 加密导出 · 数据恢复</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/maintenance">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4L14 13l-3-3 3.7-3.7z"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">运维</span>
+            <span class="sgroup-desc">诊断日志与运行维护</span>
+            <span class="sgroup-keys">诊断日志 · 运行日志导出</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/service">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">网络与服务</span>
+            <span class="sgroup-desc">Web 监听地址、反向代理与时区</span>
+            <span class="sgroup-keys">监听地址 · HTTPS 反向代理 · 时区</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/groups">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">分组管理</span>
+            <span class="sgroup-desc">创建自定义分组对记录分类，支持嵌套</span>
+            <span class="sgroup-keys">自定义分组 · 嵌套分类</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+
+        <a class="sgroup-card" href="/settings/license">
+          <span class="sgroup-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
+          </span>
+          <span class="sgroup-main">
+            <span class="sgroup-name">软件授权</span>
+            <span class="sgroup-desc">查看授权状态，使用激活码激活</span>
+            <span class="sgroup-keys">激活 · 机器码 · 授权状态</span>
+          </span>
+          <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+      </div>
+
+      <!-- 运行信息 -->
+      <section class="sysinfo" aria-label="运行信息">
+        <div class="sysinfo-head">
+          <h2 class="sysinfo-title">运行信息</h2>
+          <span class="sysinfo-note">本机实时数据</span>
+        </div>
+        <dl class="sysinfo-grid">
+          <div class="sysinfo-item">
+            <dt>录制状态</dt>
+            <dd id="sysStatus">-</dd>
+          </div>
+          <div class="sysinfo-item">
+            <dt>历史记录</dt>
+            <dd id="sysRecords">-</dd>
+          </div>
+          <div class="sysinfo-item">
+            <dt>数据库大小</dt>
+            <dd id="sysDBSize">-</dd>
+          </div>
+          <div class="sysinfo-item">
+            <dt>运行时间</dt>
+            <dd id="sysUptime">-</dd>
+          </div>
+          <div class="sysinfo-item">
+            <dt>版本</dt>
+            <dd id="sysVersion">-</dd>
+          </div>
+          <div class="sysinfo-item sysinfo-item-wide">
+            <dt>数据目录</dt>
+            <dd class="sysinfo-path" id="sysDataDir">-</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  </main>

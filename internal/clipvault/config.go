@@ -267,7 +267,7 @@ type SecurityConfig struct {
 	LockPasswordHash      string `json:"lockPasswordHash"`
 	SecondaryPasswordHash string `json:"secondaryPasswordHash"`
 	LockSessionTimeout    int    `json:"lockSessionTimeout"`   // 锁屏会话超时(分钟)，0=浏览器会话cookie，N=N分钟
-	SecondaryAuthTimeout  int    `json:"secondaryAuthTimeout"` // 二次认证缓存时长(分钟)，0=每次都校验，N=N分钟内免重复
+	SecondaryAuthTimeout  int    `json:"secondaryAuthTimeout"` // 二次认证缓存时长(分钟)，0=关闭浏览器后失效，N=N分钟内免重复
 }
 
 // BackupConfig 存储定时备份配置。修改备份设置需要二次认证。
@@ -282,8 +282,8 @@ type DirBackupConfig struct {
 	RunOnStartup            bool        `json:"runOnStartup"`
 	Interval                int         `json:"interval"`                // 备份间隔(小时)
 	Dir                     string      `json:"dir"`                     // 目标目录路径
-	Format                  string      `json:"format"`                  // "json" / "xlsx" / "cvexport"
-	Password                string      `json:"password"`                // cvexport 加密密码（仅 cvexport 格式使用）
+	Format                  string      `json:"format"`                  // "json" / "xlsx" / "cvexport"（内容格式，文件始终是 .cvexport 加密容器）
+	Password                string      `json:"password"`                // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
 	Scope                   ExportScope `json:"scope"`                   // 备份范围 full/range/incremental
 	IncrementalFullInterval int         `json:"incrementalFullInterval"` // 增量几次后自动全量兜底，0=不自动兜底，默认7
 }
@@ -299,8 +299,8 @@ type EmailBackupConfig struct {
 	SMTPPass                string      `json:"smtpPass"` // SMTP 密码（敏感，不向前端返回明文）
 	From                    string      `json:"from"`     // 发件人邮箱
 	To                      string      `json:"to"`       // 收件人邮箱
-	Format                  string      `json:"format"`   // "json" / "xlsx" / "cvexport"
-	Password                string      `json:"password"` // cvexport 加密密码（仅 cvexport 格式使用）
+	Format                  string      `json:"format"`   // "json" / "xlsx" / "cvexport"（内容格式，附件始终是 .cvexport 加密容器）
+	Password                string      `json:"password"` // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
 	Subject                 string      `json:"subject"`
 	Body                    string      `json:"body"`
 	Style                   string      `json:"style"`

@@ -91,7 +91,7 @@ func TestApplicationPageIsComposedInOrder(t *testing.T) {
 	}{
 		{
 			path:        "/",
-			present:     []string{`id="viewHistory"`, `/history.css`, `/app/history-bootstrap.js`, `id="viewModal"`, `id="clearBtn"`},
+			present:     []string{`id="viewHistory"`, `/history.css`, `/app/history-bootstrap.js`, `id="viewModal"`},
 			absent:      []string{`id="viewSettings"`, `/settings.css`, `/app/settings-bootstrap.js`, `id="sourceAppsModal"`, `id="restartOverlay"`},
 			currentPage: `id="tabHistory" href="/" aria-current="page"`,
 		},

@@ -1,10 +1,8 @@
 package clipvault
 
 import (
-	"archive/zip"
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,51 +18,10 @@ import (
 //   - format=json/xlsx：明文导出先打进 zip（clipvault-export.json/.xlsx），
 //     zip 字节再作为加密载荷——邮件附件绝不出现明文数据。
 //
+// 与目录备份共用 exportBackupTo 实现，加密密码规则一致。
 // 返回最后一条记录的 id（无数据时为 0），供写水印使用。
 func (bs *BackupService) exportEmailBackupTo(dst io.Writer, format, password string, scope ExportScope) (int64, error) {
-	if password == "" {
-		return 0, errors.New("邮件备份必须设置加密密码（仅支持加密导出）")
-	}
-	var maxID int64
-	err := WriteCVExport(dst, password, func(plain io.Writer) error {
-		switch format {
-		case "cvexport":
-			var streamErr error
-			maxID, streamErr = bs.store.StreamExport(context.Background(), scope, plain)
-			return streamErr
-		case "json", "xlsx":
-			zw := zip.NewWriter(plain)
-			name := "clipvault-export.json"
-			if format == "xlsx" {
-				name = "clipvault-export.xlsx"
-			}
-			entry, err := zw.Create(name)
-			if err != nil {
-				_ = zw.Close()
-				return fmt.Errorf("创建 zip 条目失败: %w", err)
-			}
-			var streamErr error
-			if format == "xlsx" {
-				maxID, streamErr = bs.store.WriteXLSXScope(context.Background(), scope, entry)
-			} else {
-				maxID, streamErr = bs.store.StreamExport(context.Background(), scope, entry)
-			}
-			if streamErr != nil {
-				_ = zw.Close()
-				return streamErr
-			}
-			if err := zw.Close(); err != nil {
-				return fmt.Errorf("写入 zip 失败: %w", err)
-			}
-			return nil
-		default:
-			return fmt.Errorf("不支持的备份格式: %s", format)
-		}
-	})
-	if err != nil {
-		return 0, fmt.Errorf("加密失败: %w", err)
-	}
-	return maxID, nil
+	return bs.exportBackupTo(dst, format, password, scope)
 }
 
 func (bs *BackupService) doEmailBackup(cfg Config, mode string, forceFull bool) error {

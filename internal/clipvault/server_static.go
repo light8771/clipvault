@@ -23,16 +23,26 @@ var applicationModuleAssets = []string{
 	"/app/history-actions.js", "/app/history-lifecycle.js", "/app/history-list.js", "/app/history-navigation.js", "/app/license.js",
 	"/app/modal-controller.js", "/app/notifications.js", "/app/recovery.js", "/app/runtime-state.js", "/app/settings-lifecycle.js", "/app/settings-sources.js", "/app/settings-storage.js",
 	"/app/source-data.js", "/app/text-utils.js", "/app/transfer.js",
-	"/app/settings-navigation.js", "/app/settings-bootstrap.js",
+	"/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
 }
 
 type applicationPage struct {
-	Path      string
-	Name      string
-	Title     string
-	Bootstrap string
-	Parts     []string
-	template  *template.Template
+	Path             string
+	Name             string
+	Title            string
+	Bootstrap        string
+	RequireSecondary bool
+	Parts            []string
+	template         *template.Template
+}
+
+// settingsPageParts 组装一个设置分区页面：共享左侧菜单 + 分组内容 + 全部弹层。
+func settingsPageParts(content string) []string {
+	return []string{
+		"web/pages/page-start.html", "web/pages/settings-menu.html", content,
+		"web/pages/settings-source-overlay.html", "web/pages/auth-overlays.html",
+		"web/pages/settings-overlays.html", "web/pages/page-end.html",
+	}
 }
 
 var applicationPageDefinitions = []applicationPage{
@@ -51,11 +61,83 @@ var applicationPageDefinitions = []applicationPage{
 		Name:      "settings",
 		Title:     "设置",
 		Bootstrap: "/app/settings-bootstrap.js",
-		Parts: []string{
-			"web/pages/page-start.html", "web/pages/settings-shell.html", "web/pages/settings-general.html",
-			"web/pages/settings-backup.html", "web/pages/settings-source-overlay.html", "web/pages/auth-overlays.html",
-			"web/pages/settings-overlays.html", "web/pages/page-end.html",
-		},
+		Parts:     settingsPageParts("web/pages/settings-home.html"),
+	},
+	{
+		Path:      "/settings/appearance",
+		Name:      "settings",
+		Title:     "外观与通知",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-appearance.html"),
+	},
+	{
+		Path:      "/settings/general",
+		Name:      "settings",
+		Title:     "录制与快捷键",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-general.html"),
+	},
+	{
+		Path:             "/settings/security",
+		Name:             "settings",
+		Title:            "安全与隐私",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-security.html"),
+	},
+	{
+		Path:             "/settings/storage",
+		Name:             "settings",
+		Title:            "存储与数据",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-storage.html"),
+	},
+	{
+		Path:             "/settings/backup",
+		Name:             "settings",
+		Title:            "定时备份",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-backup.html"),
+	},
+	{
+		Path:      "/settings/transfer",
+		Name:      "settings",
+		Title:     "导入导出",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-transfer.html"),
+	},
+	{
+		Path:             "/settings/maintenance",
+		Name:             "settings",
+		Title:            "运维",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-maintenance.html"),
+	},
+	{
+		Path:             "/settings/service",
+		Name:             "settings",
+		Title:            "网络与服务",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-service.html"),
+	},
+	{
+		Path:      "/settings/groups",
+		Name:      "settings",
+		Title:     "分组管理",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-groups.html"),
+	},
+	{
+		Path:             "/settings/license",
+		Name:             "settings",
+		Title:            "软件授权",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-license.html"),
 	},
 }
 
@@ -99,15 +181,39 @@ func collectApplicationPageParts(pages []applicationPage) []string {
 	return parts
 }
 
+type applicationPageView struct {
+	applicationPage
+	// ThemeMode 非空时表示固定显示模式（"light"/"dark"），渲染为 <html> 的
+	// data-theme-mode 属性；system 模式留空，由 theme-mode.js 按系统偏好设置。
+	ThemeMode string
+}
+
 func (s *SearchServer) serveApplicationPage(w http.ResponseWriter, page applicationPage) {
+	theme := DefaultConfig().Theme
+	if s.cfgMgr != nil {
+		theme = s.cfgMgr.Get().Theme
+	}
+	view := applicationPageView{applicationPage: page, ThemeMode: themeFixedMode(theme)}
 	var rendered bytes.Buffer
-	if err := page.template.Execute(&rendered, page); err != nil {
+	if err := page.template.Execute(&rendered, view); err != nil {
 		s.writeAPIError(w, http.StatusInternalServerError, "asset_invalid", "页面资源渲染失败", err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(rendered.Bytes())
+}
+
+// handleThemeBootCSS 按当前配置动态生成主题变量样式表。作为外部 CSS 引用时
+// 是渲染阻塞的，首帧即按用户配置的皮肤绘制，且满足 style-src 'self' 的 CSP。
+func (s *SearchServer) handleThemeBootCSS(w http.ResponseWriter, _ *http.Request) {
+	theme := DefaultConfig().Theme
+	if s.cfgMgr != nil {
+		theme = s.cfgMgr.Get().Theme
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write([]byte(themeBootCSS(theme)))
 }
 
 func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string) {

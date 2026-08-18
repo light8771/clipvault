@@ -504,14 +504,16 @@ func TestValidateDirBackupEnabled(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "complete cvexport", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "cvexport", Password: "pw"}},
-		{name: "complete json no password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "json"}},
-		{name: "complete xlsx no password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "xlsx"}},
-		{name: "missing format", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: ""}, wantErr: true},
-		{name: "unknown format", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "csv"}, wantErr: true},
-		{name: "missing dir", cfg: DirBackupConfig{Interval: 24, Format: "json"}, wantErr: true},
-		{name: "missing interval", cfg: DirBackupConfig{Dir: `D:\bak`, Format: "json"}, wantErr: true},
-		{name: "interval above maximum", cfg: DirBackupConfig{Interval: 721, Dir: `D:\bak`, Format: "json"}, wantErr: true},
+		{name: "complete json", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "json", Password: "pw"}},
+		{name: "complete xlsx", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "xlsx", Password: "pw"}},
+		{name: "missing format", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "", Password: "pw"}, wantErr: true},
+		{name: "unknown format", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "csv", Password: "pw"}, wantErr: true},
+		{name: "missing dir", cfg: DirBackupConfig{Interval: 24, Format: "json", Password: "pw"}, wantErr: true},
+		{name: "missing interval", cfg: DirBackupConfig{Dir: `D:\bak`, Format: "json", Password: "pw"}, wantErr: true},
+		{name: "interval above maximum", cfg: DirBackupConfig{Interval: 721, Dir: `D:\bak`, Format: "json", Password: "pw"}, wantErr: true},
 		{name: "cvexport missing password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "cvexport"}, wantErr: true},
+		{name: "json missing password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "json"}, wantErr: true},
+		{name: "xlsx missing password", cfg: DirBackupConfig{Interval: 24, Dir: `D:\bak`, Format: "xlsx"}, wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -802,9 +804,9 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 		t.Fatalf("after empty password = %q, want %q", got, "secret-pw")
 	}
 
-	// 4) 发送 "__clear__" 应清除密码；切到 json 格式以避免校验报错
+	// 4) 发送 "__clear__" 应清除密码；先停用备份以避免校验报错（启用状态下任何格式都必须有密码）
 	clear := manager.Get()
-	clear.Backup.DirBackup.Format = "json"
+	clear.Backup.DirBackup.Enabled = false
 	clear.Backup.DirBackup.Password = "__clear__"
 	body, _ = json.Marshal(clear)
 	result = httptest.NewRecorder()
@@ -816,16 +818,16 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 		t.Fatalf("after __clear__ password = %q, want empty", got)
 	}
 
-	// 5) cvexport 启用时发送 "__clear__" 应被校验拦截（加密格式不能没有密码）
+	// 5) 启用状态下发送 "__clear__" 应被校验拦截（任何格式都不能没有密码）
 	reject := manager.Get()
-	reject.Backup.DirBackup.Format = "cvexport"
+	reject.Backup.DirBackup.Format = "json"
 	reject.Backup.DirBackup.Enabled = true
 	reject.Backup.DirBackup.Password = "__clear__"
 	body, _ = json.Marshal(reject)
 	result = httptest.NewRecorder()
 	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
-		t.Fatalf("cvexport clear should be rejected, status = %d, body=%s", result.Code, result.Body.String())
+		t.Fatalf("clear with empty password should be rejected, status = %d, body=%s", result.Code, result.Body.String())
 	}
 
 	// 6) 新密码值应直接替换旧密码

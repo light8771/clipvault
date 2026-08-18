@@ -21,11 +21,11 @@ import { registerTransfer } from './transfer.js';
 import { registerGroups } from './groups.js';
 import { registerCleanupModal } from './cleanup-modal.js';
 import { registerSettingsLifecycle } from './settings-lifecycle.js';
+import { registerSettingsSystem } from './settings-system.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
   'activate-license': () => app.activateLicense(),
-  'settings-nav': element => app.navigateToSettingsSection(element.dataset.section, true),
   'open-cleanup': () => app.openCleanupModal(),
   'close-cleanup-modal': () => app.closeCleanupModal(),
   'confirm-cleanup': () => app.doCleanup(),
@@ -74,4 +74,5 @@ registerConfigEvents();
 registerTransfer();
 registerGroups();
 registerCleanupModal();
+registerSettingsSystem();
 registerSettingsLifecycle();

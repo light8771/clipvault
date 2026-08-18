@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="zh-CN" data-page-title="{{.Title}}">
+<html lang="zh-CN" data-page-title="{{.Title}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{.Title}} · ClipVault</title>
   <link id="brandFavicon" rel="icon" href="/favicon.ico">
+  <script src="/theme-mode.js"></script>
   <link rel="stylesheet" href="/tokens.css">
   {{if eq .Name "history"}}
   <link rel="stylesheet" href="/history.css">
@@ -20,6 +21,7 @@
   <link rel="stylesheet" href="/groups.css">
   <link rel="stylesheet" href="/mobile.css">
   <link rel="stylesheet" href="/utilities.css">
+  <link rel="stylesheet" href="/theme-boot.css">
 </head>
 <body>
   <div class="background-media-layer hidden" id="backgroundMediaLayer" aria-hidden="true">

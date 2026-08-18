@@ -471,7 +471,7 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	})
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	indexRes, err := client.Get(url + "settings")
+	indexRes, err := client.Get(url + "settings/appearance")
 	if err != nil {
 		t.Fatalf("get index: %v", err)
 	}

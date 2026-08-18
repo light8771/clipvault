@@ -164,12 +164,39 @@ func TestRefreshSecondaryExpiryUpdatesCache(t *testing.T) {
 		t.Fatalf("secondary expiry not ~now+1min: %v (want near %v)", sess.SecondaryExpiry, want)
 	}
 
-	// 改成 0：应立即撤销二次认证缓存
+	// 改成 0：缓存应跟随浏览器会话，到期时间对齐会话过期时间
 	if !auth.RefreshSecondaryExpiry(token, 0) {
-		t.Fatal("RefreshSecondaryExpiry returned false on revoke")
+		t.Fatal("RefreshSecondaryExpiry returned false on session-lifetime refresh")
 	}
-	if auth.HasSecondaryAuth(token) {
-		t.Fatal("secondary auth not revoked after timeout set to 0")
+	if !auth.HasSecondaryAuth(token) {
+		t.Fatal("secondary auth lost after timeout set to 0 (should follow session lifetime)")
+	}
+	sessZero := auth.GetSession(token)
+	if sessZero == nil {
+		t.Fatal("session disappeared")
+	}
+	if !sessZero.SecondaryExpiry.Equal(sessZero.ExpiresAt) {
+		t.Fatalf("secondary expiry not aligned with session expiry: %v vs %v", sessZero.SecondaryExpiry, sessZero.ExpiresAt)
+	}
+}
+
+func TestGrantSecondaryAuthZeroTimeoutFollowsSession(t *testing.T) {
+	auth := NewAuthManager()
+	token, err := auth.CreateSession(0) // 浏览器会话 -> maxSessionLifetime
+	if err != nil {
+		t.Fatal(err)
+	}
+	// timeout = 0：授予的缓存应跟随会话过期时间（关闭浏览器后失效）
+	auth.GrantSecondaryAuth(token, 0)
+	if !auth.HasSecondaryAuth(token) {
+		t.Fatal("secondary auth not granted for zero timeout")
+	}
+	sess := auth.GetSession(token)
+	if sess == nil {
+		t.Fatal("session disappeared")
+	}
+	if !sess.SecondaryExpiry.Equal(sess.ExpiresAt) {
+		t.Fatalf("secondary expiry not aligned with session expiry: %v vs %v", sess.SecondaryExpiry, sess.ExpiresAt)
 	}
 }
 

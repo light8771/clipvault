@@ -1,0 +1,81 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">网络与服务</div>
+        <a class="amenu-anchor" href="#s-service-listen">监听与代理</a>
+        <a class="amenu-anchor" href="#s-service-time">日期时区</a>
+      </div>
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="当前位置">
+          <a class="sd-crumb-link" href="/settings">系统设置</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">网络与服务</span>
+        </nav>
+        <h1 class="sd-title">网络与服务</h1>
+        <p class="sd-desc">Web 监听地址、反向代理与时区。监听地址修改后需重启应用生效。</p>
+      </header>
+
+      <section class="ssec" id="s-service">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">服务设置</h2>
+            <p class="ssec-desc">配置 Web 服务监听地址，修改后需重启应用生效</p>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-service-listen">
+          <h3 class="fsec-title">监听与代理</h3>
+          <p class="fsec-desc">本机监听地址与 HTTPS 反向代理接入</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-listenAddr">Web 监听地址</label>
+              <p class="field-hint">修改后需重启应用生效</p>
+            </div>
+            <input type="text" id="cfg-listenAddr" class="field-input u-inline-7" placeholder="127.0.0.1:18765">
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-reverseProxyEnabled">HTTPS 反向代理</label>
+              <p class="field-hint">由同一台电脑上的 Caddy、Nginx 等提供 HTTPS；启用时后端必须监听回环地址</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="cfg-reverseProxyEnabled">
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-reverseProxyPublicUrl">外部 HTTPS 地址</label>
+              <p class="field-hint">例如 https://clipvault.example.com；代理需传递 X-Forwarded-Proto 和 X-Forwarded-Host</p>
+            </div>
+            <input type="url" id="cfg-reverseProxyPublicUrl" class="field-input u-inline-8" placeholder="https://clipvault.example.com">
+          </div>
+          <div class="listen-security-warning hidden" id="listenAddrWarning" role="alert">
+            <strong id="listenSecurityWarningTitle">局域网访问风险</strong>
+            <span id="listenSecurityWarningText">非回环地址会通过明文 HTTP 暴露剪贴板服务。保存前必须设置锁屏密码；建议仅在可信网络中使用，并检查 Windows 防火墙规则。</span>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-service-time">
+          <h3 class="fsec-title">日期时区</h3>
+          <p class="fsec-desc">历史记录按日期筛选时使用的时区</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-timeZone">日期筛选时区</label>
+              <p class="field-hint">使用 system 跟随 Windows，或填写 IANA 时区（例如 Asia/Shanghai）；夏令时会自动处理</p>
+            </div>
+            <input type="text" id="cfg-timeZone" class="field-input u-inline-7" list="timeZoneSuggestions" placeholder="system">
+            <datalist id="timeZoneSuggestions"><option value="system"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"><option value="UTC"></datalist>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
