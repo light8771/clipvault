@@ -152,8 +152,9 @@ export function registerAppearanceMedia() {
   };
   app.saveBackgroundMedia = async function saveBackgroundMedia(file) {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      app.toast('背景文件不能超过 10 MB', 'err');
+    const isVideo = String(file.type || '').startsWith('video/') || /\.(mp4|webm)$/i.test(file.name || '');
+    if (!isVideo && file.size > 10 * 1024 * 1024) {
+      app.toast('背景图片不能超过 10 MB', 'err');
       return;
     }
     const complete = await app.reserveAssetOperation('background');

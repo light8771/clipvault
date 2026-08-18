@@ -26,6 +26,10 @@ func (s *SearchServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 const maxBrandAssetBytes = 10 << 20
 
+// maxBackgroundImageBytes caps background images; background videos are
+// streamed to disk and served with range requests, so they have no size cap.
+const maxBackgroundImageBytes = 10 << 20
+
 func (s *SearchServer) handleBrandLogo(w http.ResponseWriter, r *http.Request) {
 	s.serveBrandAsset(w, r, "logo")
 }
@@ -85,15 +89,39 @@ func (s *SearchServer) handleBrandFaviconUpload(w http.ResponseWriter, r *http.R
 }
 
 func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
-	data, err := io.ReadAll(r.Body)
-	if err != nil || len(data) == 0 {
+	if err := os.MkdirAll(s.env.DataDir, 0o700); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	temp, err := os.CreateTemp(s.env.DataDir, ".background-upload-*")
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		s.writeError(w, err)
+		return
+	}
+	size, copyErr := io.Copy(temp, r.Body)
+	closeErr := temp.Close()
+	if copyErr != nil || closeErr != nil || size == 0 {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_media", "无效的背景媒体", nil)
 		return
 	}
-	contentType := detectBackgroundContentType(data)
+	contentType, err := detectBackgroundFileType(tempPath)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
 	if contentType == "" {
 		s.writeAPIError(w, http.StatusBadRequest, "unsupported_media", "不支持的背景媒体格式", nil)
+		return
+	}
+	if !strings.HasPrefix(contentType, "video/") && size > maxBackgroundImageBytes {
+		s.writeAPIError(w, http.StatusRequestEntityTooLarge, "media_too_large", "背景图片不能超过 10 MB", nil)
 		return
 	}
 	s.assetMu.Lock()
@@ -102,7 +130,7 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	previousVersion := cfg.Background.Version
 	version := nextAssetVersion(previousVersion)
 	fileName := assetFileName(backgroundMediaAsset, version)
-	if err := writeBrandAsset(filepath.Join(s.env.DataDir, fileName), data); err != nil {
+	if err := os.Rename(tempPath, filepath.Join(s.env.DataDir, fileName)); err != nil {
 		s.writeError(w, err)
 		return
 	}
@@ -275,7 +303,22 @@ func isValidBackgroundMedia(data []byte, contentType string) bool {
 // optional MIME hint. Some Windows file pickers report PNG files as generic
 // application/octet-stream even when the file itself is valid.
 func detectBackgroundContentType(data []byte) string {
-	if config, format, err := image.DecodeConfig(bytes.NewReader(data)); err == nil && config.Width > 0 && config.Height > 0 && config.Width <= 4096 && config.Height <= 4096 {
+	return detectBackgroundMediaType(bytes.NewReader(data))
+}
+
+// detectBackgroundFileType sniffs an uploaded media file without buffering it
+// in memory, so arbitrarily large videos stay cheap to validate.
+func detectBackgroundFileType(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	return detectBackgroundMediaType(file), nil
+}
+
+func detectBackgroundMediaType(r io.ReadSeeker) string {
+	if config, format, err := image.DecodeConfig(r); err == nil && config.Width > 0 && config.Height > 0 && config.Width <= 4096 && config.Height <= 4096 {
 		switch format {
 		case "png":
 			return "image/png"
@@ -283,10 +326,16 @@ func detectBackgroundContentType(data []byte) string {
 			return "image/jpeg"
 		}
 	}
-	if len(data) >= 12 && bytes.Equal(data[4:8], []byte("ftyp")) {
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return ""
+	}
+	head := make([]byte, 12)
+	n, _ := io.ReadFull(r, head)
+	head = head[:n]
+	if len(head) >= 12 && bytes.Equal(head[4:8], []byte("ftyp")) {
 		return "video/mp4"
 	}
-	if len(data) >= 4 && bytes.Equal(data[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) {
+	if len(head) >= 4 && bytes.Equal(head[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) {
 		return "video/webm"
 	}
 	return ""

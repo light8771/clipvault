@@ -343,6 +343,79 @@ func TestBackgroundPNGUploadAcceptsGenericMIMEType(t *testing.T) {
 	}
 }
 
+func TestBackgroundVideoUploadExceedsImageLimit(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
+
+	body := append([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}, bytes.Repeat([]byte{0}, maxBackgroundImageBytes)...)
+	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/background", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "video/mp4")
+	res := httptest.NewRecorder()
+	server.handleBackgroundMediaUpload(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("large video upload status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	background := manager.Get().Background
+	if background.ContentType != "video/mp4" || background.Version <= 0 {
+		t.Fatalf("uploaded background config = %#v", background)
+	}
+	info, err := os.Stat(filepath.Join(dir, assetFileName(backgroundMediaAsset, background.Version)))
+	if err != nil || info.Size() != int64(len(body)) {
+		t.Fatalf("stored video size = %v, error = %v", info, err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, ".background-upload-*"))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("upload left temp files behind: %v", leftovers)
+	}
+}
+
+func TestBackgroundImageUploadRejectsOverTenMegabytes(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
+
+	var pngData bytes.Buffer
+	if err := png.Encode(&pngData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode PNG: %v", err)
+	}
+	body := append(pngData.Bytes(), bytes.Repeat([]byte{0}, maxBackgroundImageBytes)...)
+	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/background", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "image/png")
+	res := httptest.NewRecorder()
+	server.handleBackgroundMediaUpload(res, req)
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized image status = %d, want %d", res.Code, http.StatusRequestEntityTooLarge)
+	}
+	if got := manager.Get().Background; got.ContentType != "" || got.Version != 0 {
+		t.Fatalf("oversized image updated config = %#v", got)
+	}
+	files, err := filepath.Glob(filepath.Join(dir, backgroundMediaAsset+"-*"))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("oversized image left files behind: %v", files)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, ".background-upload-*"))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("rejected upload left temp files behind: %v", leftovers)
+	}
+}
+
 func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
