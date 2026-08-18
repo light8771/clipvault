@@ -232,7 +232,7 @@ export function registerSettingsStorage() {
     warning.classList.toggle('hidden', !directLAN && !proxyEnabled);
     if (proxyEnabled) {
       if (title) title.textContent = 'HTTPS 反向代理模式';
-      if (text) text.textContent = 'ClipVault 只信任来自本机回环连接且与外部 HTTPS 地址完全匹配的转发头。后端监听地址必须保持为 127.0.0.1 或其他回环地址。';
+      if (text) text.textContent = '仅信任本机代理转发、且 HTTPS 地址与此处填写的完全一致的请求；监听地址请保持 127.0.0.1。';
     } else {
       if (title) title.textContent = '局域网访问风险';
       if (text) text.textContent = '非回环地址会通过明文 HTTP 暴露剪贴板服务。保存前必须设置锁屏密码；建议仅在可信网络中使用，并检查 Windows 防火墙规则。';

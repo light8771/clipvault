@@ -296,7 +296,7 @@ export function registerConfigSave() {
         app.toast('开放远程访问前，请先设置锁屏密码', 'err');
         return false;
       }
-      const message = enablingProxy ? '安全确认：反向代理必须运行在本机，并将请求转发到当前回环监听地址。ClipVault 只接受与配置地址完全匹配的 HTTPS 转发头。是否继续？' : '安全警告：非回环地址会通过明文 HTTP 向同一网络开放 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？';
+      const message = enablingProxy ? '安全确认：代理须运行在本机，并把请求转发到当前回环监听地址；只有 HTTPS 地址与配置完全一致的请求才会被接受。是否继续？' : '安全警告：非回环地址会通过明文 HTTP 向同一网络开放 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？';
       if (!window.confirm(message)) {
         document.getElementById('cfg-listenAddr').value = previousSearch.listenAddr;
         document.getElementById('cfg-reverseProxyEnabled').checked = !!previousProxy.enabled;
