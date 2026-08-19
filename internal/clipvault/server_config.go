@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -260,17 +261,25 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.assetMu.Unlock()
 	curCfg := s.cfgMgr.Get()
 	preserveAssetMetadata(&cfg, curCfg)
-	listenHost, _, err := validateListenAddr(cfg.Search.ListenAddr)
+	listenHost, listenPort, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", "监听地址无效: "+err.Error(), err)
 		return
+	}
+	// 监听地址变更需重启生效，保存时提前探测端口可用性，避免重启后静默顺延或启动失败。
+	// 地址未变更时跳过：当前端口正被本服务占用属于正常情况。
+	if strings.TrimSpace(cfg.Search.ListenAddr) != strings.TrimSpace(curCfg.Search.ListenAddr) {
+		if err := listenAddrAvailable(listenHost, listenPort); err != nil {
+			s.writeAPIError(w, http.StatusBadRequest, "listen_addr_unavailable", "监听地址 "+cfg.Search.ListenAddr+" 当前不可用（端口可能被其他程序占用），请更换端口", err)
+			return
+		}
 	}
 	if _, err := configuredLocation(cfg.Search.TimeZone); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_time_zone", "日期筛选时区无效，请填写 system 或有效 IANA 时区", err)
 		return
 	}
-	if (!isLoopbackHost(listenHost) || cfg.Search.ReverseProxy.Enabled) && !s.auth.HasLockPassword(curCfg) {
-		s.writeAPIError(w, http.StatusBadRequest, "lock_password_required", "开放局域网或反向代理访问前，必须先设置锁屏密码", nil)
+	if !isLoopbackHost(listenHost) && !s.auth.HasLockPassword(curCfg) {
+		s.writeAPIError(w, http.StatusBadRequest, "lock_password_required", "开放局域网访问前，必须先设置锁屏密码", nil)
 		return
 	}
 
@@ -328,7 +337,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	token := GetSessionToken(r)
 	if curCfg.Security.LockSessionTimeout != cfg.Security.LockSessionTimeout {
 		if s.auth.RefreshSessionExpiry(token, cfg.Security.LockSessionTimeout) {
-			SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, s.requestUsesHTTPS(r))
+			SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, requestUsesHTTPS(r))
 		}
 	}
 	if curCfg.Security.SecondaryAuthTimeout != cfg.Security.SecondaryAuthTimeout {

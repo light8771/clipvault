@@ -37,12 +37,8 @@ func DefaultConfig() Config {
 			ExeWhitelist: nil,
 		},
 		Search: SearchConfig{
-			ListenAddr: "127.0.0.1:18765",
+			ListenAddr: "127.0.0.1:15678",
 			TimeZone:   "system",
-			ReverseProxy: ReverseProxyConfig{
-				Enabled:   false,
-				PublicURL: "",
-			},
 		},
 		Sensitive: SensitiveConfig{
 			CustomPatterns: nil,

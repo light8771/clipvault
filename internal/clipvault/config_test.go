@@ -3,6 +3,7 @@ package clipvault
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,66 +16,9 @@ func TestNotificationsDefault(t *testing.T) {
 	}
 }
 
-func TestValidateReverseProxyConfig(t *testing.T) {
-	lockHash, err := newPasswordHash("Lock-Pass-2026")
-	if err != nil {
-		t.Fatal(err)
-	}
-	valid := DefaultConfig()
-	valid.Security.LockPasswordHash = lockHash
-	valid.Search.ReverseProxy = ReverseProxyConfig{
-		Enabled:   true,
-		PublicURL: "https://clipvault.example.com",
-	}
-	if err := validateConfig(valid); err != nil {
-		t.Fatalf("valid reverse proxy config rejected: %v", err)
-	}
-
-	tests := []struct {
-		name   string
-		mutate func(*Config)
-		match  string
-	}{
-		{name: "missing lock password", mutate: func(cfg *Config) {
-			cfg.Security.LockPasswordHash = ""
-		}, match: "lock password"},
-		{name: "non loopback backend", mutate: func(cfg *Config) {
-			cfg.Search.ListenAddr = "0.0.0.0:18765"
-		}, match: "loopback"},
-		{name: "missing public URL", mutate: func(cfg *Config) {
-			cfg.Search.ReverseProxy.PublicURL = ""
-		}, match: "publicUrl is required"},
-		{name: "plain HTTP public URL", mutate: func(cfg *Config) {
-			cfg.Search.ReverseProxy.PublicURL = "http://clipvault.example.com"
-		}, match: "absolute https URL"},
-		{name: "public URL path", mutate: func(cfg *Config) {
-			cfg.Search.ReverseProxy.PublicURL = "https://clipvault.example.com/app"
-		}, match: "without path"},
-		{name: "public URL credentials", mutate: func(cfg *Config) {
-			cfg.Search.ReverseProxy.PublicURL = "https://user:pass@clipvault.example.com"
-		}, match: "user info"},
-		{name: "public URL query", mutate: func(cfg *Config) {
-			cfg.Search.ReverseProxy.PublicURL = "https://clipvault.example.com?mode=proxy"
-		}, match: "query"},
-		{name: "unspecified public address", mutate: func(cfg *Config) {
-			cfg.Search.ReverseProxy.PublicURL = "https://0.0.0.0"
-		}, match: "clients can connect"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := valid
-			tt.mutate(&cfg)
-			err := validateConfig(cfg)
-			if err == nil || !strings.Contains(err.Error(), tt.match) {
-				t.Fatalf("validation error=%v, want substring %q", err, tt.match)
-			}
-		})
-	}
-}
-
 func TestValidateConfigRequiresLockPasswordForDirectLAN(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Search.ListenAddr = "0.0.0.0:18765"
+	cfg.Search.ListenAddr = "0.0.0.0:15678"
 	if err := validateConfig(cfg); err == nil || !strings.Contains(err.Error(), "lock password") {
 		t.Fatalf("validation error=%v, want lock password requirement", err)
 	}
@@ -85,27 +29,6 @@ func TestValidateConfigRequiresLockPasswordForDirectLAN(t *testing.T) {
 	cfg.Security.LockPasswordHash = lockHash
 	if err := validateConfig(cfg); err != nil {
 		t.Fatalf("LAN config with lock password rejected: %v", err)
-	}
-}
-
-func TestConfigJSONRequiresReverseProxyFields(t *testing.T) {
-	encoded, err := json.Marshal(DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var object map[string]any
-	if err := json.Unmarshal(encoded, &object); err != nil {
-		t.Fatal(err)
-	}
-	search := object["search"].(map[string]any)
-	delete(search, "reverseProxy")
-	encoded, err = json.Marshal(object)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded Config
-	if err := json.Unmarshal(encoded, &decoded); err == nil || !strings.Contains(err.Error(), "config.search.reverseProxy is required") {
-		t.Fatalf("decode error=%v, want required reverseProxy", err)
 	}
 }
 
@@ -145,7 +68,7 @@ func TestPutConfigLANAccessUsesPersistedLockPassword(t *testing.T) {
 		if cfg.Security.SecondaryPasswordHash != "" {
 			t.Fatal("test precondition: secondary password must be unset")
 		}
-		cfg.Search.ListenAddr = "0.0.0.0:18765"
+		cfg.Search.ListenAddr = "0.0.0.0:15678"
 		body, err := json.Marshal(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -168,7 +91,7 @@ func TestPutConfigLANAccessUsesPersistedLockPassword(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg.Search.ListenAddr = "0.0.0.0:18765"
+		cfg.Search.ListenAddr = "0.0.0.0:15678"
 		body, err := json.Marshal(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -180,6 +103,83 @@ func TestPutConfigLANAccessUsesPersistedLockPassword(t *testing.T) {
 		}
 		if manager.Get().Search.ListenAddr != DefaultConfig().Search.ListenAddr {
 			t.Fatal("unauthorized LAN listen address was persisted")
+		}
+	})
+}
+
+func TestPutConfigListenPortAvailability(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, err := NewDailyLogger(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = logger.Close() })
+	server := &SearchServer{cfgMgr: manager, logger: logger, auth: NewAuthManager()}
+
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = occupied.Close() })
+	occupiedAddr := occupied.Addr().String()
+
+	put := func(addr string) *httptest.ResponseRecorder {
+		t.Helper()
+		cfg := manager.Get()
+		cfg.Search.ListenAddr = addr
+		body, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := httptest.NewRecorder()
+		server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+		return result
+	}
+
+	t.Run("occupied port rejected", func(t *testing.T) {
+		result := put(occupiedAddr)
+		if result.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+		}
+		if !strings.Contains(result.Body.String(), "listen_addr_unavailable") {
+			t.Fatalf("unexpected error body: %s", result.Body.String())
+		}
+		if manager.Get().Search.ListenAddr == occupiedAddr {
+			t.Fatal("occupied listen address was persisted")
+		}
+	})
+
+	t.Run("unchanged address skips probe", func(t *testing.T) {
+		// 当前地址被本服务自身占用是正常情况：即使外部探测会失败，未变更的地址也必须允许保存。
+		cfg := manager.Get()
+		cfg.Search.ListenAddr = occupiedAddr
+		if err := manager.Update(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if result := put(occupiedAddr); result.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+		}
+	})
+
+	t.Run("free port accepted", func(t *testing.T) {
+		probe, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		freeAddr := probe.Addr().String()
+		if err := probe.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if result := put(freeAddr); result.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 		}
 	})
 }

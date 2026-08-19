@@ -173,12 +173,8 @@ export function registerConfigSave() {
       sensitive,
       search: has('cfg-listenAddr') ? {
         ...cur.search,
-        listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:18765',
-        timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system',
-        reverseProxy: {
-          enabled: document.getElementById('cfg-reverseProxyEnabled')?.checked || false,
-          publicUrl: document.getElementById('cfg-reverseProxyPublicUrl')?.value.trim() || ''
-        }
+        listenAddr: document.getElementById('cfg-listenAddr').value.trim() || '127.0.0.1:15678',
+        timeZone: document.getElementById('cfg-timeZone')?.value.trim() || 'system'
       } : cur.search,
       security: has('cfg-lockSessionTimeout') ? {
         ...cur.security,
@@ -269,38 +265,15 @@ export function registerConfigSave() {
       }
     }
     const previousSearch = app.currentCfg.search || {};
-    const previousProxy = previousSearch.reverseProxy || {};
-    const nextProxy = newCfg.search.reverseProxy;
     const addrChanged = previousSearch.listenAddr !== newCfg.search.listenAddr;
-    const proxyChanged = !!previousProxy.enabled !== nextProxy.enabled || (previousProxy.publicUrl || '') !== nextProxy.publicUrl;
     const openingLAN = addrChanged && app.isLoopbackListenAddress(previousSearch.listenAddr) && !app.isLoopbackListenAddress(newCfg.search.listenAddr);
-    const enablingProxy = !previousProxy.enabled && nextProxy.enabled;
-    if (nextProxy.enabled && !app.isLoopbackListenAddress(newCfg.search.listenAddr)) {
-      app.toast('启用 HTTPS 反向代理时，Web 监听地址必须是回环地址', 'err');
-      return false;
-    }
-    if (nextProxy.enabled || nextProxy.publicUrl) {
-      try {
-        const publicURL = new URL(nextProxy.publicUrl);
-        const rootPath = publicURL.pathname === '' || publicURL.pathname === '/';
-        if (publicURL.protocol !== 'https:' || publicURL.username || publicURL.password || !publicURL.hostname || !rootPath || publicURL.search || publicURL.hash) {
-          throw new Error('invalid public URL');
-        }
-      } catch (_) {
-        app.toast('外部 HTTPS 地址必须是完整的 https:// 主机地址，不能包含路径、账号、查询参数或片段', 'err');
-        return false;
-      }
-    }
-    if (openingLAN || enablingProxy) {
+    if (openingLAN) {
       if (!app.authState.hasLockPassword) {
         app.toast('开放远程访问前，请先设置锁屏密码', 'err');
         return false;
       }
-      const message = enablingProxy ? '安全确认：代理须运行在本机，并把请求转发到当前回环监听地址；只有 HTTPS 地址与配置完全一致的请求才会被接受。是否继续？' : '安全警告：非回环地址会通过明文 HTTP 向同一网络开放 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？';
-      if (!window.confirm(message)) {
+      if (!window.confirm('安全警告：非回环地址会通过明文 HTTP 向同一网络开放 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？')) {
         document.getElementById('cfg-listenAddr').value = previousSearch.listenAddr;
-        document.getElementById('cfg-reverseProxyEnabled').checked = !!previousProxy.enabled;
-        document.getElementById('cfg-reverseProxyPublicUrl').value = previousProxy.publicUrl || '';
         app.updateListenAddressWarning();
         app.toast('已取消开放远程访问');
         return false;
@@ -323,7 +296,7 @@ export function registerConfigSave() {
       } else {
         app.toast('设置已保存');
       }
-      if (addrChanged || proxyChanged) {
+      if (addrChanged) {
         app.showRestartConfirm();
       }
       return true;

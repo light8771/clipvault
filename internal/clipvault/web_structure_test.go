@@ -29,10 +29,10 @@ func TestWebUIHasNoInlineBehaviorOrPresentation(t *testing.T) {
 }
 
 func TestMainCSPRequiresExternalScriptsAndStyles(t *testing.T) {
-	server := &SearchServer{reverseProxy: ReverseProxyConfig{}}
-	handler := server.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}), "127.0.0.1", 18765)
+	server := &SearchServer{}
+	handler := server.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}), "127.0.0.1", 15678)
 	result := httptest.NewRecorder()
-	handler.ServeHTTP(result, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18765/", nil))
+	handler.ServeHTTP(result, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15678/", nil))
 	csp := result.Header().Get("Content-Security-Policy")
 	if strings.Contains(csp, "unsafe-inline") {
 		t.Fatalf("CSP still allows inline code: %s", csp)
@@ -52,10 +52,10 @@ func TestSecurityPagesRequireExternalScriptsAndStyles(t *testing.T) {
 	}
 
 	startup := NewStartupGate(nil, t.TempDir(), startupGateSetCredentials)
-	startup.port = 18765
+	startup.port = 15678
 	startupResult := httptest.NewRecorder()
 	startup.secureHTTP(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(
-		startupResult, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18765/", nil),
+		startupResult, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15678/", nil),
 	)
 	recovery := NewRecoveryServer(t.TempDir())
 	recovery.port = 18766
@@ -102,8 +102,8 @@ func TestStandaloneSecurityErrorsUseCurrentEnvelope(t *testing.T) {
 	}{
 		{
 			name:    "startup",
-			handler: (&StartupGate{token: "token", port: 18765}).secureHTTP(http.NotFoundHandler()),
-			url:     "http://attacker.invalid:18765/api/v1/startup/status",
+			handler: (&StartupGate{token: "token", port: 15678}).secureHTTP(http.NotFoundHandler()),
+			url:     "http://attacker.invalid:15678/api/v1/startup/status",
 		},
 		{
 			name:    "recovery",

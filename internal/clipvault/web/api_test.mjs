@@ -8,7 +8,7 @@ globalThis.window = {
     if (!response) throw new Error('unexpected network request');
     return response;
   },
-  location: { origin: 'http://127.0.0.1:18765' },
+  location: { origin: 'http://127.0.0.1:15678' },
 };
 
 const { apiFetch, readAPIError, requestWithSecondaryAuth, unwrapAPIEnvelope } = await import('./api.js');

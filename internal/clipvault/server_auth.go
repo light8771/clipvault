@@ -132,7 +132,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, s.requestUsesHTTPS(r))
+	SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, requestUsesHTTPS(r))
 	s.logger.Info("auth_login", nil)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
@@ -141,7 +141,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	token := GetSessionToken(r)
 	s.auth.DestroySession(token)
-	ClearSessionCookie(w, s.requestUsesHTTPS(r))
+	ClearSessionCookie(w, requestUsesHTTPS(r))
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -185,7 +185,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 			s.writeError(w, err)
 			return
 		}
-		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, s.requestUsesHTTPS(r))
+		SetSessionCookie(w, token, cfg.Security.LockSessionTimeout, requestUsesHTTPS(r))
 	}
 	s.auth.GrantSecondaryAuth(token, cfg.Security.SecondaryAuthTimeout)
 

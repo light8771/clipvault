@@ -224,19 +224,8 @@ export function registerSettingsStorage() {
   app.updateListenAddressWarning = function updateListenAddressWarning() {
     const input = document.getElementById('cfg-listenAddr');
     const warning = document.getElementById('listenAddrWarning');
-    const proxyEnabled = document.getElementById('cfg-reverseProxyEnabled')?.checked || false;
-    const title = document.getElementById('listenSecurityWarningTitle');
-    const text = document.getElementById('listenSecurityWarningText');
     if (!input || !warning) return;
-    const directLAN = !app.isLoopbackListenAddress(input.value);
-    warning.classList.toggle('hidden', !directLAN && !proxyEnabled);
-    if (proxyEnabled) {
-      if (title) title.textContent = 'HTTPS 反向代理模式';
-      if (text) text.textContent = '仅信任本机代理转发、且 HTTPS 地址与此处填写的完全一致的请求；监听地址请保持 127.0.0.1。';
-    } else {
-      if (title) title.textContent = '局域网访问风险';
-      if (text) text.textContent = '非回环地址会通过明文 HTTP 暴露剪贴板服务。保存前必须设置锁屏密码；建议仅在可信网络中使用，并检查 Windows 防火墙规则。';
-    }
+    warning.classList.toggle('hidden', app.isLoopbackListenAddress(input.value));
   };
   app.applyConfigToForm = function applyConfigToForm(cfg) {
     app.applyBrandFormState(cfg.brand);
@@ -258,12 +247,7 @@ export function registerSettingsStorage() {
     const showExeEl = document.getElementById('cfg-sourceShowExe');
     if (showExeEl) showExeEl.checked = cfg.source?.showExe !== false;
     app.updateSourceAppsSummary();
-    setValue('cfg-listenAddr', cfg.search && cfg.search.listenAddr || '127.0.0.1:18765');
-    const reverseProxy = cfg.search?.reverseProxy || {};
-    const reverseProxyEnabled = document.getElementById('cfg-reverseProxyEnabled');
-    const reverseProxyPublicUrl = document.getElementById('cfg-reverseProxyPublicUrl');
-    if (reverseProxyEnabled) reverseProxyEnabled.checked = !!reverseProxy.enabled;
-    if (reverseProxyPublicUrl) reverseProxyPublicUrl.value = reverseProxy.publicUrl || '';
+    setValue('cfg-listenAddr', cfg.search && cfg.search.listenAddr || '127.0.0.1:15678');
     const timeZoneEl = document.getElementById('cfg-timeZone');
     if (timeZoneEl) timeZoneEl.value = cfg.search && cfg.search.timeZone || 'system';
     app.updateListenAddressWarning();

@@ -21,9 +21,6 @@ func validateConfig(cfg Config) error {
 	if _, err := configuredLocation(cfg.Search.TimeZone); err != nil {
 		return err
 	}
-	if err := validateReverseProxyConfig(cfg.Search); err != nil {
-		return err
-	}
 	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
 		return fmt.Errorf("invalid sensitive rule: %w", err)
 	}
@@ -38,8 +35,8 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("invalid secondary password hash: %w", err)
 	}
 	listenHost, _, _ := validateListenAddr(cfg.Search.ListenAddr)
-	if (!isLoopbackHost(listenHost) || cfg.Search.ReverseProxy.Enabled) && cfg.Security.LockPasswordHash == "" {
-		return fmt.Errorf("lock password is required for LAN or reverse-proxy access")
+	if !isLoopbackHost(listenHost) && cfg.Security.LockPasswordHash == "" {
+		return fmt.Errorf("lock password is required for LAN access")
 	}
 	if err := validateHotkeyConfig("hotkey", cfg.Hotkey); err != nil {
 		return err

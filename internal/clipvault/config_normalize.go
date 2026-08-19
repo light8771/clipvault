@@ -21,10 +21,6 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Search.TimeZone == "" {
 		cfg.Search.TimeZone = def.Search.TimeZone
 	}
-	cfg.Search.ReverseProxy.PublicURL = strings.TrimSpace(cfg.Search.ReverseProxy.PublicURL)
-	if strings.HasSuffix(cfg.Search.ReverseProxy.PublicURL, "/") {
-		cfg.Search.ReverseProxy.PublicURL = strings.TrimSuffix(cfg.Search.ReverseProxy.PublicURL, "/")
-	}
 	if cfg.Autostart.AppName == "" {
 		cfg.Autostart.AppName = def.Autostart.AppName
 	}

@@ -73,7 +73,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
 		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
 		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity"}},
-		{"search", []string{"listenAddr", "timeZone", "reverseProxy"}},
+		{"search", []string{"listenAddr", "timeZone"}},
 		{"autostart", []string{"enabled", "appName"}},
 		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
 		{"security", []string{"lockPasswordHash", "secondaryPasswordHash", "lockSessionTimeout", "secondaryAuthTimeout"}},
@@ -86,13 +86,6 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {
 			return err
 		}
-	}
-	var searchObject map[string]json.RawMessage
-	if err := json.Unmarshal(top["search"], &searchObject); err != nil {
-		return fmt.Errorf("config.search: %w", err)
-	}
-	if _, err := requiredJSONObject(searchObject["reverseProxy"], "config.search.reverseProxy", "enabled", "publicUrl"); err != nil {
-		return err
 	}
 	if _, err := requiredJSONObjectAllowingNull(top["source"], "config.source", map[string]struct{}{"exeWhitelist": {}},
 		"showExe", "exeAliases", "exeWhitelist"); err != nil {
@@ -209,17 +202,8 @@ type ThemeConfig struct {
 }
 
 type SearchConfig struct {
-	ListenAddr   string             `json:"listenAddr"`
-	TimeZone     string             `json:"timeZone"` // "system" 或 IANA 时区（如 Asia/Shanghai）
-	ReverseProxy ReverseProxyConfig `json:"reverseProxy"`
-}
-
-// ReverseProxyConfig enables an HTTPS front end operated by the user. The
-// ClipVault backend remains HTTP on a loopback listener and trusts forwarded
-// scheme/host metadata only from loopback connections.
-type ReverseProxyConfig struct {
-	Enabled   bool   `json:"enabled"`
-	PublicURL string `json:"publicUrl"`
+	ListenAddr string `json:"listenAddr"`
+	TimeZone   string `json:"timeZone"` // "system" 或 IANA 时区（如 Asia/Shanghai）
 }
 
 // SensitiveConfig 敏感规则：匹配内容仍会加密保存，读取时受二次认证保护。

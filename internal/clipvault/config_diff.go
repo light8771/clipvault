@@ -186,8 +186,6 @@ var configFieldLabels = map[string]string{
 	"theme.surfaceOpacity":                "界面不透明度",
 	"search.listenAddr":                   "Web 监听地址",
 	"search.timeZone":                     "日期筛选时区",
-	"search.reverseProxy.enabled":         "HTTPS 反向代理",
-	"search.reverseProxy.publicUrl":       "反向代理公网地址",
 	"sensitive.customPatterns":            "敏感内容过滤规则",
 	"autostart.enabled":                   "开机自启",
 	"autostart.appName":                   "自启应用名",

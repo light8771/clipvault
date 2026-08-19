@@ -5,8 +5,6 @@ export function registerConfigEvents() {
     if (app.autoSaveBound) return;
     app.autoSaveBound = true;
     const listenAddrEl = document.getElementById('cfg-listenAddr');
-    const reverseProxyEnabledEl = document.getElementById('cfg-reverseProxyEnabled');
-    const reverseProxyPublicUrlEl = document.getElementById('cfg-reverseProxyPublicUrl');
     const timeZoneEl = document.getElementById('cfg-timeZone');
     const brandTitleEl = document.getElementById('cfg-brandTitle');
     brandTitleEl?.addEventListener('input', () => app.applyBrand({
@@ -70,7 +68,7 @@ export function registerConfigEvents() {
       app.applyTheme(app.themeFromForm());
     });
     // 首页设置搜索框不是配置项，输入不得触发自动保存。
-    const isExcluded = t => t === listenAddrEl || t === reverseProxyPublicUrlEl || t === timeZoneEl
+    const isExcluded = t => t === listenAddrEl || t === timeZoneEl
       || t?.id === 'settingsSearch' || t?.type === 'file';
     settingsEl.addEventListener('input', e => {
       if (isExcluded(e.target)) return;
@@ -86,12 +84,6 @@ export function registerConfigEvents() {
       listenAddrEl.addEventListener('blur', () => {
         app.scheduleConfigSave(0);
       });
-    }
-    if (reverseProxyEnabledEl) {
-      reverseProxyEnabledEl.addEventListener('change', app.updateListenAddressWarning);
-    }
-    if (reverseProxyPublicUrlEl) {
-      reverseProxyPublicUrlEl.addEventListener('blur', () => app.scheduleConfigSave(0));
     }
     if (timeZoneEl) {
       timeZoneEl.addEventListener('blur', () => app.scheduleConfigSave(0));

@@ -779,9 +779,9 @@ func TestStartupGatePublishesRecordURLOnce(t *testing.T) {
 		t.Fatalf("record URL was published before the main server was ready: %+v", status)
 	}
 
-	const firstURL = "http://127.0.0.1:18765/#first"
+	const firstURL = "http://127.0.0.1:15678/#first"
 	gate.SetRecordURL(firstURL)
-	gate.SetRecordURL("http://127.0.0.1:18765/#second")
+	gate.SetRecordURL("http://127.0.0.1:15678/#second")
 	if status := readStatus(); !status.Data.Ready || status.Data.RecordURL != firstURL {
 		t.Fatalf("startup status = %+v, want first published URL %q", status, firstURL)
 	}

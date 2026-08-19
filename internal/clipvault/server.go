@@ -23,22 +23,21 @@ const (
 )
 
 type SearchServer struct {
-	cfgMgr       *ConfigManager
-	store        *Store
-	state        *RuntimeState
-	logger       *DailyLogger
-	auth         *AuthManager
-	env          Environment
-	server       *http.Server
-	url          string
-	restartCh    chan struct{}
-	backup       *BackupService
-	csrfToken    string
-	license      *licensing.Manager
-	assetMu      sync.Mutex
-	recoveryMu   sync.Mutex
-	reverseProxy ReverseProxyConfig
-	startedAt    time.Time
+	cfgMgr     *ConfigManager
+	store      *Store
+	state      *RuntimeState
+	logger     *DailyLogger
+	auth       *AuthManager
+	env        Environment
+	server     *http.Server
+	url        string
+	restartCh  chan struct{}
+	backup     *BackupService
+	csrfToken  string
+	license    *licensing.Manager
+	assetMu    sync.Mutex
+	recoveryMu sync.Mutex
+	startedAt  time.Time
 }
 
 type freshSecondaryContextKey struct{}
@@ -58,7 +57,6 @@ func NewSearchServer(cfgMgr *ConfigManager, store *Store, state *RuntimeState, l
 
 func (s *SearchServer) Start() (string, error) {
 	cfg := s.cfgMgr.Get()
-	s.reverseProxy = cfg.Search.ReverseProxy
 	host, port, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
 		return "", err
@@ -170,12 +168,16 @@ func (s *SearchServer) Start() (string, error) {
 	api("POST /api/v1/backup/email-test", s.requireSecondary(s.handleBackupEmailTest))
 
 	const maxAttempts = 5
+	lastPort := port + maxAttempts - 1
+	if lastPort > 65535 {
+		lastPort = 65535
+	}
 	var ln net.Listener
-	for i := 0; i < maxAttempts; i++ {
-		addr := net.JoinHostPort(host, strconv.Itoa(port+i))
+	for p := port; p <= lastPort; p++ {
+		addr := net.JoinHostPort(host, strconv.Itoa(p))
 		ln, err = net.Listen("tcp", addr)
 		if err == nil {
-			if i > 0 {
+			if p != port {
 				s.logger.Warn("search_server_port_fallback", map[string]any{
 					"original": cfg.Search.ListenAddr, "actual": addr,
 				})
@@ -184,7 +186,7 @@ func (s *SearchServer) Start() (string, error) {
 		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("could not bind any port (tried %d..%d): %w", port, port+maxAttempts-1, err)
+		return "", fmt.Errorf("could not bind any port (tried %d..%d): %w", port, lastPort, err)
 	}
 
 	addr := ln.Addr().String()

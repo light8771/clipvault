@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.0
+#Requires -Version 5.0
 <#
 .SYNOPSIS
     用 ClipVault 离线私钥为指定机器码签发永久激活码。
@@ -35,7 +35,7 @@
 
 .PARAMETER MachineID
     完整机器码，64 个小写十六进制字符。从客户端「复制购买信息」获取，
-    或调用 GET http://127.0.0.1:18765/api/v1/license/machine 取 data.machineId 字段。
+    或调用 GET http://127.0.0.1:15678/api/v1/license/machine 取 data.machineId 字段。
 
 .EXAMPLE
     .\signing\issue-license.ps1 `
@@ -164,7 +164,7 @@ if ([string]::IsNullOrWhiteSpace($MachineID)) {
     Write-Host ""
     Write-Host "完整机器码，64 个小写十六进制字符。" -ForegroundColor Cyan
     Write-Host "从客户端「设置 → 授权 → 复制购买信息」获取，"
-    Write-Host "或调用 GET http://127.0.0.1:18765/api/v1/license/machine 取 data.machineId 字段。"
+    Write-Host "或调用 GET http://127.0.0.1:15678/api/v1/license/machine 取 data.machineId 字段。"
     $MachineID = Read-Host "请输入完整机器码"
     if ([string]::IsNullOrWhiteSpace($MachineID)) { throw "机器码不能为空" }
 }
