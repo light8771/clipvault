@@ -254,4 +254,80 @@
   .source-apps-actions { justify-content: flex-end; }
 }
 
+/* 弹窗化结构：.src-exe-mask（遮罩）与 .src-exe-sheet（面板）仅在窄屏生效；
+   桌面端 mask 隐藏、sheet 用 display:contents 透明化，pop 内部结构与
+   原 dropdown 完全一致（search/list/foot 仍是 pop 的直接 flex 子项）。 */
+.src-exe-mask { display: none; }
+.src-exe-sheet { display: contents; }
+
+/* ── H5（≤768px）：来源应用升级为底部 sheet 弹窗 ─────────────
+   同一份 DOM：桌面端是锚定按钮的下拉浮层；窄屏下 pop 变 fixed
+   全屏壳（遮罩铺满、面板贴底），规避窄视口溢出与软键盘顶歪
+   绝对定位浮层的问题。断点 768 与 history.css sidebar 布局的
+   min-width:769 衔接；层级与 .modal-overlay(200) 同一体系。 */
+@media (max-width: 768px) {
+  /* sheet 打开时锁定背景滚动（纯 CSS，无需 JS 操作 body.style） */
+  body:has(.src-exe-pop:not([hidden])) { overflow: hidden; }
+
+  .src-exe-pop {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    overflow: visible;
+    z-index: 210;
+    animation: none;
+  }
+  .src-exe-mask {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: srcMaskIn .18s ease;
+  }
+  .src-exe-sheet {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    max-height: min(72dvh, 520px);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 -8px 48px rgba(0, 0, 0, .3);
+    overflow: hidden;
+    animation: srcSheetIn .24s cubic-bezier(.32, 1.1, .56, 1);
+  }
+
+  /* 列表区在限高 sheet 内滚动 */
+  .src-exe-list {
+    flex: 1;
+    min-height: 80px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* 触屏目标放大（mobile.css 全局 16px 字号下 24px 输入框会溢出） */
+  .src-exe-search input { height: 32px; }
+  .src-exe-opt { padding: 12px 10px; font-size: 15px; }
+  .src-exe-foot { padding: 10px 14px; }
+}
+@keyframes srcMaskIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes srcSheetIn {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 

@@ -283,24 +283,31 @@ export function registerHistoryList() {
     const filterInput = document.getElementById('srcExeFilter');
     const resetBtn = document.getElementById('srcExeReset');
     if (btn && pop) {
+      // 与 source-apps.css 的 sheet 断点一致
+      const isSheet = () => window.matchMedia('(max-width: 768px)').matches;
+      const closePop = () => {
+        pop.hidden = true;
+        btn.classList.remove('open');
+      };
       btn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
-        pop.hidden = !pop.hidden;
-        btn.classList.toggle('open', !pop.hidden);
-        if (!pop.hidden && filterInput) {
+        if (!pop.hidden) return closePop();
+        pop.hidden = false;
+        btn.classList.add('open');
+        if (filterInput) {
           filterInput.value = '';
           app.renderSrcExeDropdown();
-          filterInput.focus();
+          // 仅桌面 dropdown 自动聚焦；sheet 打开时不聚焦，避免软键盘立刻弹起遮住面板
+          if (!isSheet()) filterInput.focus();
         }
       });
       document.addEventListener('click', e => {
         if (pop.hidden) return;
-        if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
-          pop.hidden = true;
-          btn.classList.remove('open');
-        }
+        if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) closePop();
       });
+      // sheet 模式点遮罩关闭（遮罩在 pop 内部，上面的外部点击判断不会命中）
+      pop.querySelector('.src-exe-mask')?.addEventListener('click', closePop);
     }
     if (filterInput) {
       filterInput.addEventListener('input', () => app.renderSrcExeDropdown());

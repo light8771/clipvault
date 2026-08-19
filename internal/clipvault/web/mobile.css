@@ -119,9 +119,16 @@
 
   .ctrl-right {
     width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
+  }
+
+  /* 来源应用按钮整行居中；弹层在窄屏升级为底部 sheet，见 source-apps.css */
+  .ctrl-right .src-exe-btn {
+    width: 100%;
+    height: 38px;
+    justify-content: center;
   }
 
   .date-filter-bar {
