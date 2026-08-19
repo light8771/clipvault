@@ -6,13 +6,25 @@ export function registerAppearanceForm() {
     if (!selected && !document.getElementById('cfg-themeMode')) {
       return { ...(app.currentCfg?.theme || { preset: 'mint', mode: 'system' }) };
     }
+    const current = app.currentCfg?.theme || {};
+    const navFollow = document.getElementById('cfg-navOpacityFollow');
+    const previewLinesRaw = Number(document.getElementById('cfg-previewLines')?.value);
+    const navBlurRaw = Number(document.getElementById('cfg-navBlur')?.value);
+    const navOpacityRaw = Number(document.getElementById('cfg-navOpacity')?.value);
     return {
       preset: selected ? selected.dataset.themePreset : app.currentCfg?.theme?.preset || 'mint',
       mode: document.getElementById('cfg-themeMode')?.value || 'system',
       primary: document.getElementById('cfg-themePrimary')?.value || '#14B8A6',
       accent: document.getElementById('cfg-themeAccent')?.value || '#F97316',
       fontScale: Number(document.getElementById('cfg-themeFontScale')?.value) || 100,
-      surfaceOpacity: Number(document.getElementById('cfg-themeSurfaceOpacity')?.value)
+      surfaceOpacity: Number(document.getElementById('cfg-themeSurfaceOpacity')?.value),
+      layout: document.getElementById('cfg-historyLayout')?.value || current.layout || 'vertical',
+      previewLines: Number.isFinite(previewLinesRaw) ? Math.max(0, Math.min(20, previewLinesRaw)) : (current.previewLines ?? 2),
+      navOpacity: navFollow && !navFollow.checked
+        ? (Number.isFinite(navOpacityRaw) ? Math.max(0, Math.min(100, navOpacityRaw)) : 100)
+        : -1,
+      navBlur: Number.isFinite(navBlurRaw) ? Math.max(0, Math.min(32, navBlurRaw)) : (current.navBlur ?? 16),
+      navBorder: document.getElementById('cfg-navBorder')?.checked !== false
     };
   };
   app.applyThemeFormState = function applyThemeFormState(theme) {
@@ -41,8 +53,34 @@ export function registerAppearanceForm() {
     const surfaceOpacityValue = Number.isFinite(surfaceOpacityRaw) ? Math.max(0, Math.min(100, surfaceOpacityRaw)) : 100;
     if (surfaceOpacityEl) surfaceOpacityEl.value = surfaceOpacityValue;
     if (surfaceOpacityOutput) surfaceOpacityOutput.value = `${surfaceOpacityValue}%`;
+    // 布局与导航栏
+    const layoutEl = document.getElementById('cfg-historyLayout');
+    if (layoutEl) layoutEl.value = value.layout === 'sidebar' ? 'sidebar' : 'vertical';
+    const previewLinesEl = document.getElementById('cfg-previewLines');
+    const previewLinesRaw = Number(value.previewLines);
+    if (previewLinesEl) previewLinesEl.value = Number.isFinite(previewLinesRaw) ? Math.max(0, Math.min(20, previewLinesRaw)) : 2;
+    const navOpacityEl = document.getElementById('cfg-navOpacity');
+    const navOpacityOutput = document.getElementById('cfg-navOpacityOutput');
+    const navFollowEl = document.getElementById('cfg-navOpacityFollow');
+    const navOpacityRaw = Number(value.navOpacity);
+    const navFollowing = !Number.isFinite(navOpacityRaw) || navOpacityRaw < 0;
+    if (navFollowEl) navFollowEl.checked = navFollowing;
+    if (navOpacityEl) {
+      navOpacityEl.value = navFollowing ? surfaceOpacityValue : Math.min(100, Math.max(0, navOpacityRaw));
+      navOpacityEl.disabled = navFollowing;
+    }
+    if (navOpacityOutput) navOpacityOutput.value = navFollowing ? '跟随' : `${navOpacityEl?.value ?? 100}%`;
+    const navBlurEl = document.getElementById('cfg-navBlur');
+    const navBlurOutput = document.getElementById('cfg-navBlurOutput');
+    const navBlurRaw = Number(value.navBlur);
+    const navBlurValue = Number.isFinite(navBlurRaw) ? Math.max(0, Math.min(32, navBlurRaw)) : 16;
+    if (navBlurEl) navBlurEl.value = navBlurValue;
+    if (navBlurOutput) navBlurOutput.value = `${navBlurValue}px`;
+    const navBorderEl = document.getElementById('cfg-navBorder');
+    if (navBorderEl) navBorderEl.checked = value.navBorder !== false;
     document.getElementById('customThemeColors')?.classList.toggle('hidden', value.preset !== 'custom');
     app.applyTheme(value.preset === 'custom' ? app.themeFromForm() : {
+      ...value,
       preset: value.preset || 'mint',
       mode: value.mode || 'system',
       fontScale: Number(value.fontScale) || 100,

@@ -164,6 +164,7 @@ export function registerAppearanceTheme() {
     root.style.setProperty('--on-p', app.textColorFor(colors.p));
     root.style.setProperty('--on-p2', app.textColorFor(colors.p2));
     root.style.setProperty('--accent', colors.accent);
+    root.style.setProperty('--on-accent', app.textColorFor(colors.accent));
     root.style.setProperty('--bg', colors.bg);
     root.style.setProperty('--bg2', colors.bg2);
     root.style.setProperty('--card', colors.card);
@@ -171,7 +172,24 @@ export function registerAppearanceTheme() {
     const surfaceOpacity = Number(normalized.surfaceOpacity);
     const surfaceAlpha = (Number.isFinite(surfaceOpacity) ? Math.max(0, Math.min(100, surfaceOpacity)) : 100) / 100;
     root.style.setProperty('--card-rgba', app.hexToRgba(colors.card, surfaceAlpha));
-    root.style.setProperty('--nav-bg', app.hexToRgba(colors.bg, surfaceAlpha));
+    // 导航栏：不透明度（-1 跟随界面不透明度）、毛玻璃模糊、底部分隔线
+    const navOpacity = Number(normalized.navOpacity);
+    const navAlpha = Number.isFinite(navOpacity) && navOpacity >= 0 ? Math.min(100, navOpacity) / 100 : surfaceAlpha;
+    root.style.setProperty('--nav-bg', app.hexToRgba(colors.bg, navAlpha));
+    const navBlur = Number(normalized.navBlur);
+    const navBlurPx = Number.isFinite(navBlur) ? Math.max(0, Math.min(32, navBlur)) : 16;
+    root.style.setProperty('--nav-backdrop', navBlurPx > 0 ? `blur(${navBlurPx}px) saturate(180%)` : 'none');
+    root.style.setProperty('--nav-border-bottom', normalized.navBorder === false ? 'none' : `1px solid ${colors.border}`);
+    // 历史卡片文本预览行数（0 表示不限制），供 history.css 的 pre 裁剪与渲染逻辑使用
+    const previewLines = Number(normalized.previewLines);
+    app.previewLines = Number.isFinite(previewLines) ? Math.max(0, Math.min(20, previewLines)) : 2;
+    root.style.setProperty('--preview-max-h', app.previewLines > 0 ? `${app.previewLines * 1.7}em` : 'none');
+    // 历史页布局：vertical（默认）/ sidebar（笔记式左右布局）
+    if (normalized.layout === 'sidebar') {
+      root.dataset.historyLayout = 'sidebar';
+    } else {
+      delete root.dataset.historyLayout;
+    }
     root.style.setProperty('--tx', colors.tx);
     root.style.setProperty('--sub', colors.sub);
     root.style.setProperty('--muted', colors.muted);

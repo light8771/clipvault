@@ -99,9 +99,9 @@ body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay)
   top: 0;
   z-index: 100;
   background: var(--nav-bg);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border-bottom: 1px solid var(--card-border);
+  backdrop-filter: var(--nav-backdrop, blur(16px) saturate(180%));
+  -webkit-backdrop-filter: var(--nav-backdrop, blur(16px) saturate(180%));
+  border-bottom: var(--nav-border-bottom, 1px solid var(--card-border));
 }
 .nav-inner {
   max-width: 880px;

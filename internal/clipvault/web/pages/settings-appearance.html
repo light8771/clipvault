@@ -132,9 +132,57 @@
           <div class="field-row">
             <div class="field-info">
               <label class="field-label" for="cfg-themeSurfaceOpacity">界面不透明度</label>
-              <p class="field-hint">控制卡片、设置区块和导航栏的不透明度；配合背景图片使用可以呈现磨砂玻璃效果</p>
+              <p class="field-hint">控制卡片、设置区块的不透明度；配合背景图片使用可以呈现磨砂玻璃效果</p>
             </div>
             <label class="background-range theme-font-scale" for="cfg-themeSurfaceOpacity"><span><output id="cfg-themeSurfaceOpacityOutput">100%</output></span><input type="range" id="cfg-themeSurfaceOpacity" min="0" max="100" step="1" value="100"></label>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-theme-layout">
+          <h3 class="fsec-title">布局与导航栏</h3>
+          <p class="fsec-desc">历史页排布方式、内容预览高度与导航栏外观</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyLayout">历史页布局</label>
+              <p class="field-hint">上下为经典流式布局；左右为笔记式侧边栏布局（窄屏设备自动回退为上下）</p>
+            </div>
+            <select id="cfg-historyLayout" class="field-input theme-mode-select">
+              <option value="vertical">上下布局</option>
+              <option value="sidebar">左右布局</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-previewLines">内容预览行数</label>
+              <p class="field-hint">历史卡片中文本默认显示的行数（0–20），0 表示不限制；完整内容可通过「查看」打开</p>
+            </div>
+            <input type="number" id="cfg-previewLines" class="field-input theme-mode-select" min="0" max="20" step="1" value="2">
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-navOpacity">导航栏不透明度</label>
+              <p class="field-hint">默认跟随「界面不透明度」；取消勾选后可单独调节导航栏背景</p>
+            </div>
+            <div class="nav-opacity-controls">
+              <label class="ar-toggle"><input type="checkbox" id="cfg-navOpacityFollow" checked><span>跟随</span></label>
+              <label class="background-range theme-font-scale" for="cfg-navOpacity"><span><output id="cfg-navOpacityOutput">跟随</output></span><input type="range" id="cfg-navOpacity" min="0" max="100" step="1" value="100" disabled></label>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-navBlur">导航栏背景模糊</label>
+              <p class="field-hint">导航栏毛玻璃模糊强度（0–32px），0 为关闭模糊</p>
+            </div>
+            <label class="background-range theme-font-scale" for="cfg-navBlur"><span><output id="cfg-navBlurOutput">16px</output></span><input type="range" id="cfg-navBlur" min="0" max="32" step="1" value="16"></label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-navBorder">导航栏分隔线</label>
+              <p class="field-hint">在导航栏底部显示一条细分隔线</p>
+            </div>
+            <label class="ar-toggle"><input type="checkbox" id="cfg-navBorder" checked><span>显示</span></label>
           </div>
         </div>
 

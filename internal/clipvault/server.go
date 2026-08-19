@@ -83,7 +83,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
+	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/settings-data-api.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
 	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
@@ -164,6 +164,7 @@ func (s *SearchServer) Start() (string, error) {
 	api("POST /api/v1/data-api/tokens/regenerate", s.requireSecondary(s.handleDataAPITokenRegenerate))
 	api("POST /api/v1/data-api/tokens/revoke", s.requireSecondary(s.handleDataAPITokenRevoke))
 	api("GET /api/v1/data-api/audit", s.requireAuth(s.handleDataAPIAudit))
+	api("GET /api/v1/data-api/audit/export", s.requireAuth(s.handleDataAPIAuditExport))
 	api("DELETE /api/v1/data-api/audit", s.requireSecondary(s.handleDataAPIAuditClear))
 
 	api("GET /api/v1/logs/config-changes", s.requireAuth(s.handleConfigChangeLog))

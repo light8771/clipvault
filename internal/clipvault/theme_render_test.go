@@ -73,7 +73,7 @@ func TestThemeBootCSSFixedModes(t *testing.T) {
 }
 
 func TestThemeBootCSSSurfaceOpacityAndFontScale(t *testing.T) {
-	css := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 125, SurfaceOpacity: 72})
+	css := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 125, SurfaceOpacity: 72, NavOpacity: -1})
 	for _, want := range []string{"--card-rgba:rgba(255,255,255,0.72)", "--nav-bg:rgba(240,253,251,0.72)", "--font-scale:1.25"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("theme boot missing %q:\n%s", want, css)
@@ -100,12 +100,44 @@ func TestThemeBootCSSCustomPreset(t *testing.T) {
 	}
 }
 
+func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
+	// 默认：导航栏跟随界面不透明度，16px 毛玻璃，带分隔线，文本预览 2 行
+	follow := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60,
+		NavOpacity: -1, NavBlur: 16, NavBorder: true, PreviewLines: 2})
+	for _, want := range []string{
+		"--nav-bg:rgba(240,253,251,0.6)",
+		"--nav-backdrop:blur(16px) saturate(180%)",
+		"--nav-border-bottom:1px solid ",
+		"--preview-max-h:3.4em",
+		"--on-accent:",
+	} {
+		if !strings.Contains(follow, want) {
+			t.Errorf("default nav/preview boot missing %q:\n%s", want, follow)
+		}
+	}
+
+	// 显式配置：独立不透明度、关闭模糊与分隔线、预览不限制
+	explicit := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60,
+		NavOpacity: 35, NavBlur: 0, NavBorder: false, PreviewLines: 0})
+	for _, want := range []string{
+		"--nav-bg:rgba(240,253,251,0.35)",
+		"--nav-backdrop:none",
+		"--nav-border-bottom:none",
+		"--preview-max-h:none",
+	} {
+		if !strings.Contains(explicit, want) {
+			t.Errorf("explicit nav/preview boot missing %q:\n%s", want, explicit)
+		}
+	}
+}
+
 func TestThemeRootVarsMatchFrontendApplyTheme(t *testing.T) {
 	// 与 appearance-theme.js applyTheme 写入的变量集合保持一致。
 	vars := themeRootVars(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100}, false)
 	for _, name := range []string{
-		"--p", "--p2", "--on-p", "--on-p2", "--accent", "--bg", "--bg2", "--card",
-		"--card-border", "--card-rgba", "--nav-bg", "--tx", "--sub", "--muted",
+		"--p", "--p2", "--on-p", "--on-p2", "--accent", "--on-accent", "--bg", "--bg2", "--card",
+		"--card-border", "--card-rgba", "--nav-bg", "--nav-backdrop", "--nav-border-bottom",
+		"--preview-max-h", "--tx", "--sub", "--muted",
 		"--p-dim", "--p-glow", "--p-border", "--accent-dim", "--accent-glow", "--accent-border",
 		"--shadow-md", "--shadow-lg",
 	} {

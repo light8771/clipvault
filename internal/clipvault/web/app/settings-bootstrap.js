@@ -25,6 +25,7 @@ import { registerSettingsLifecycle } from './settings-lifecycle.js';
 import { registerSettingsSystem } from './settings-system.js';
 import { registerLogs } from './logs.js';
 import { registerDataAPI } from './data-api.js';
+import { registerDataAPIAudit } from './data-api-audit.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
@@ -77,6 +78,13 @@ registerActions({
   'data-api-token-regenerate': element => app.dataApiTokenRegenerate(element),
   'data-api-audit-prev': () => app.turnDataAPIAuditPage(-1),
   'data-api-audit-next': () => app.turnDataAPIAuditPage(1),
+  'data-api-audit-first': () => app.gotoDataAPIAuditPage(0),
+  'data-api-audit-last': () => app.gotoDataAPIAuditPage(Number.MAX_SAFE_INTEGER),
+  'data-api-audit-page': element => app.gotoDataAPIAuditPage(parseInt(element.dataset.page, 10) || 0),
+  'data-api-audit-toggle': element => app.toggleDataAPIAuditRow(element),
+  'data-api-audit-apply': () => app.applyDataAPIAuditFilters(),
+  'data-api-audit-reset': () => app.resetDataAPIAuditFilters(),
+  'data-api-audit-export': element => app.exportDataAPIAudit(element),
   'data-api-audit-refresh': () => app.refreshDataAPIAudit(),
   'data-api-audit-clear': element => app.clearDataAPIAudit(element)
 });
@@ -104,4 +112,5 @@ registerCleanupModal();
 registerSettingsSystem();
 registerSettingsLifecycle();
 registerLogs();
+registerDataAPIAudit(); // 先注册审计（提供令牌筛选渲染器），再注册数据接口主体
 registerDataAPI();

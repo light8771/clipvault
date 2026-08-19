@@ -33,6 +33,7 @@ const (
 	dataAPIAuditBuffer     = 1000 // 审计通道缓冲
 	dataAPIAuditFlushEvery = 500 * time.Millisecond
 	dataAPIAuditBatchSize  = 50
+	dataAPIAuditBodyMax    = 8192 // 审计记录保存的原始请求体上限（runes）
 )
 
 // dataAPIError 是外部数据 API 的统一错误结构（{"error","message"}）。

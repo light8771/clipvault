@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -435,6 +436,33 @@ func TestDataAPIServiceEndToEnd(t *testing.T) {
 	if _, err := http.Get(fx.base + "/api/v1/health"); err == nil {
 		t.Fatal("listener must be closed after disable")
 	}
+
+	// 审计留档：摘要 + 完整请求体（Close 优雅关闭审计 writer，缓冲全部落盘）。
+	fx.svc.Close()
+	auditEvents, auditTotal, err := fx.store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auditTotal != 5 {
+		t.Fatalf("audit total=%d events=%+v, want 5", auditTotal, auditEvents)
+	}
+	var queryEvent *APIAuditEvent
+	for i := range auditEvents {
+		if auditEvents[i].Operation == "query_items" {
+			queryEvent = &auditEvents[i]
+			break
+		}
+	}
+	if queryEvent == nil {
+		t.Fatalf("no query_items audit event in %+v", auditEvents)
+	}
+	wantBody := `{"resource": "clipboardItems", "filter": {"text": {"contains": "agent"}}, "limit": 10}`
+	if queryEvent.RequestBody != wantBody {
+		t.Fatalf("audit body = %q, want %q", queryEvent.RequestBody, wantBody)
+	}
+	if !strings.Contains(queryEvent.RequestSummary, `text.contains="agent"`) || !strings.Contains(queryEvent.RequestSummary, "limit=10") {
+		t.Fatalf("audit summary = %q, want agent query summary", queryEvent.RequestSummary)
+	}
 }
 
 // TestDataAPIActivationGate 未激活时所有认证端点返回 403 activation_required。
@@ -592,14 +620,16 @@ func TestDataAPIAuditStore(t *testing.T) {
 	ctx := context.Background()
 	events := []APIAuditEvent{
 		{Timestamp: time.Now().UTC(), TokenID: 7, TokenName: "MacBook AI", RemoteIP: "192.168.1.23",
-			Method: "POST", Endpoint: "/api/v1/query", Operation: "query_items", ItemCount: 18, DurationMs: 24, StatusCode: 200},
+			Method: "POST", Endpoint: "/api/v1/query", Operation: "query_items", ItemCount: 18, DurationMs: 24, StatusCode: 200,
+			RequestSummary: "text.contains=\"docker\" · limit=5",
+			RequestBody:    `{"resource":"clipboardItems","filter":{"text":{"contains":"docker"}},"limit":5}`},
 		{Timestamp: time.Now().UTC(), RemoteIP: "192.168.1.36", Method: "GET", Endpoint: "/api/v1/metadata",
 			Operation: "auth", StatusCode: 401, ErrorCode: "invalid_token"},
 	}
 	if err := store.InsertAPIAuditEvents(ctx, events); err != nil {
 		t.Fatal(err)
 	}
-	listed, total, err := store.ListAPIAuditEvents(ctx, 10, 0)
+	listed, total, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10, Offset: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,10 +639,189 @@ func TestDataAPIAuditStore(t *testing.T) {
 	if listed[0].Operation != "auth" || listed[1].TokenName != "MacBook AI" {
 		t.Fatalf("unexpected audit order %+v", listed)
 	}
+	if listed[1].RequestSummary != events[0].RequestSummary {
+		t.Fatalf("request summary roundtrip = %q, want %q", listed[1].RequestSummary, events[0].RequestSummary)
+	}
+	if listed[1].RequestBody != events[0].RequestBody {
+		t.Fatalf("request body roundtrip = %q, want %q", listed[1].RequestBody, events[0].RequestBody)
+	}
+	// 操作过滤。
+	queryOnly, qTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10, Operations: []string{"query_items"}})
+	if err != nil || qTotal != 1 || len(queryOnly) != 1 || queryOnly[0].Operation != "query_items" {
+		t.Fatalf("operation filter: total=%d events=%+v err=%v", qTotal, queryOnly, err)
+	}
+	// 结果过滤：只看失败。
+	errors, errTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10, Result: "error"})
+	if err != nil || errTotal != 1 || errors[0].StatusCode != 401 {
+		t.Fatalf("result filter: total=%d events=%+v err=%v", errTotal, errors, err)
+	}
+	// 关键词过滤：匹配请求摘要。
+	matched, mTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10, Query: "docker"})
+	if err != nil || mTotal != 1 || matched[0].Operation != "query_items" {
+		t.Fatalf("query filter: total=%d events=%+v err=%v", mTotal, matched, err)
+	}
+	// 令牌过滤。
+	byToken, tTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10, TokenID: 7})
+	if err != nil || tTotal != 1 || byToken[0].TokenName != "MacBook AI" {
+		t.Fatalf("token filter: total=%d events=%+v err=%v", tTotal, byToken, err)
+	}
+	// 全量统计。
+	stats, err := store.APIAuditStats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Total != 2 || stats.Success != 1 || stats.Error != 1 || stats.Last24h != 2 {
+		t.Fatalf("unexpected stats %+v", stats)
+	}
 	if err := store.ClearAPIAuditEvents(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, total, err := store.ListAPIAuditEvents(ctx, 10, 0); err != nil || total != 0 {
+	if _, total, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10}); err != nil || total != 0 {
 		t.Fatalf("after clear total=%d err=%v", total, err)
+	}
+}
+
+func TestDataAPIAuditEndpointsThroughHTTP(t *testing.T) {
+	controlRoot := t.TempDir()
+	t.Setenv("LOCALAPPDATA", controlRoot)
+	dataDir := t.TempDir()
+	logDir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatalf("new config manager: %v", err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve listen port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release listen port: %v", err)
+	}
+	cfg := manager.Get()
+	cfg.Search.ListenAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if err := manager.Update(cfg); err != nil {
+		t.Fatalf("configure search server: %v", err)
+	}
+	logger, err := NewDailyLogger(logDir)
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer logger.Close()
+	server := NewSearchServer(manager, store, NewRuntimeState(false), logger, Environment{DataDir: dataDir, LogDir: logDir, Source: "default"}, nil, nil)
+	baseURL, err := server.Start()
+	if err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := server.Close(ctx); err != nil {
+			t.Errorf("close server: %v", err)
+		}
+	})
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	seed := []APIAuditEvent{
+		{Timestamp: time.Now().UTC(), TokenID: 7, TokenName: "Ollama", RemoteIP: "127.0.0.1",
+			Method: "POST", Endpoint: "/api/v1/query", Operation: "query_items", ItemCount: 5, DurationMs: 12,
+			StatusCode: 200, RequestSummary: `text.contains="docker" · limit=5`,
+			RequestBody: `{"resource":"clipboardItems","filter":{"text":{"contains":"docker"}},"limit":5}`},
+		{Timestamp: time.Now().UTC(), RemoteIP: "192.168.1.36", Method: "GET", Endpoint: "/api/v1/metadata",
+			Operation: "auth", StatusCode: 401, ErrorCode: "invalid_token"},
+	}
+	if err := store.InsertAPIAuditEvents(context.Background(), seed); err != nil {
+		t.Fatalf("seed audit events: %v", err)
+	}
+
+	// 过滤查询：操作 + 关键词（关键词命中请求摘要）。
+	res, err := client.Get(baseURL + "api/v1/data-api/audit?operation=query_items&q=docker")
+	if err != nil {
+		t.Fatalf("audit request: %v", err)
+	}
+	var payload struct {
+		Data struct {
+			Entries []APIAuditEvent `json:"entries"`
+			Total   int             `json:"total"`
+			Stats   APIAuditStats   `json:"stats"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode audit response: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || payload.Data.Total != 1 || len(payload.Data.Entries) != 1 {
+		t.Fatalf("filtered audit = status %d total %d entries %d", res.StatusCode, payload.Data.Total, len(payload.Data.Entries))
+	}
+	if !strings.Contains(payload.Data.Entries[0].RequestSummary, "docker") {
+		t.Fatalf("entry summary = %q, want docker query summary", payload.Data.Entries[0].RequestSummary)
+	}
+	if !strings.Contains(payload.Data.Entries[0].RequestBody, `"contains":"docker"`) {
+		t.Fatalf("entry body = %q, want raw query JSON", payload.Data.Entries[0].RequestBody)
+	}
+	// 统计概览不受列表过滤影响。
+	if payload.Data.Stats.Total != 2 || payload.Data.Stats.Success != 1 || payload.Data.Stats.Error != 1 {
+		t.Fatalf("audit stats = %+v, want 2/1/1", payload.Data.Stats)
+	}
+
+	// CSV 导出：带 BOM、含摘要与过滤条件。
+	exportRes, err := client.Get(baseURL + "api/v1/data-api/audit/export?result=error")
+	if err != nil {
+		t.Fatalf("audit export: %v", err)
+	}
+	exportBody, readErr := io.ReadAll(exportRes.Body)
+	exportRes.Body.Close()
+	if err != nil || readErr != nil {
+		t.Fatalf("read export: %v / %v", err, readErr)
+	}
+	if exportRes.StatusCode != http.StatusOK || !strings.HasPrefix(exportRes.Header.Get("Content-Type"), "text/csv") {
+		t.Fatalf("export status=%d content-type=%q", exportRes.StatusCode, exportRes.Header.Get("Content-Type"))
+	}
+	if !bytes.HasPrefix(exportBody, []byte("\xEF\xBB\xBF")) || !strings.Contains(string(exportBody), "invalid_token") {
+		t.Fatalf("export body missing BOM or error row: %q", string(exportBody[:min(len(exportBody), 200)]))
+	}
+	if strings.Contains(string(exportBody), "docker") {
+		t.Fatal("export with result=error must not contain the success row")
+	}
+}
+
+func TestSummarizeDataAPIQuery(t *testing.T) {
+	req := dataAPIQueryRequest{
+		Resource: "clipboardItems",
+		Filter: map[string]map[string]json.RawMessage{
+			"text":      {"contains": json.RawMessage(`"docker compose"`)},
+			"kind":      {"in": json.RawMessage(`["text","image"]`)},
+			"createdAt": {"gte": json.RawMessage(`"2026-08-18T00:00:00+08:00"`)},
+		},
+		OrderBy: []dataAPIOrder{{Field: "createdAt", Direction: "desc"}},
+		Limit:   5,
+		Cursor:  "aG91c2U=",
+	}
+	summary := summarizeDataAPIQuery(&req)
+	for _, want := range []string{"text.contains=\"docker compose\"", "kind.in=[\"text\",\"image\"]", "createdAt.gte=", "sort=createdAt desc", "limit=5", "cursor=…"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary %q missing %q", summary, want)
+		}
+	}
+	if len([]rune(summary)) > 400 {
+		t.Fatalf("summary too long: %d runes", len([]rune(summary)))
+	}
+	// 空请求给空摘要。
+	if got := summarizeDataAPIQuery(&dataAPIQueryRequest{Resource: "clipboardItems"}); got != "" {
+		t.Fatalf("empty request summary = %q, want empty", got)
+	}
+	// batch ID 摘要截断。
+	ids := make([]string, 20)
+	for i := range ids {
+		ids[i] = strconv.Itoa(i + 1)
+	}
+	batch := summarizeDataAPIBatchIDs(ids)
+	if !strings.Contains(batch, "+8]") || !strings.Contains(batch, "ids=[1,2,3") {
+		t.Fatalf("batch summary = %q", batch)
 	}
 }

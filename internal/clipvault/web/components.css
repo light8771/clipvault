@@ -6,6 +6,7 @@
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
+.dfb-head { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .dfb-label { font: 13px sans-serif; color: var(--sub); flex-shrink: 0; }
 .date-input {
   height: 30px;
@@ -322,6 +323,16 @@
 }
 .nav-tab:hover  { color: var(--p); background: var(--p-dim); }
 .nav-tab.active { background: var(--p-dim); border-color: var(--p-border); color: var(--p); font-weight: 600; }
+
+/* ── Range control disabled state & 导航栏不透明度组合控件 ────── */
+.background-range input[type=range]:disabled { opacity: .45; cursor: not-allowed; }
+.nav-opacity-controls { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.nav-opacity-controls .background-range { width: 160px; }
+.nav-opacity-controls .ar-toggle { padding-bottom: 2px; }
+@media (max-width: 720px) {
+  .nav-opacity-controls { flex-wrap: wrap; }
+  .nav-opacity-controls .background-range { width: 100%; min-width: 150px; flex: 1; }
+}
 
 /* ── Hidden utility ─────────────────────────────────────────── */
 .hidden { display: none !important; }

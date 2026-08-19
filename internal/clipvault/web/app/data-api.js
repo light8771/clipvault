@@ -1,11 +1,13 @@
 import { app } from './app-context.js';
+import { armConfirm } from './confirm-arm.js';
 
-const DAPI_AUDIT_PAGE_SIZE = 20;
+// 数据接口「服务配置 / 接口文档 / 访问令牌」子特性；
+// 「访问记录」在 data-api-audit.js（按模块行数上限拆分）。
 
 export function registerDataAPI() {
-  app.dapiAuditState = { page: 0, total: 0 };
   app.dapiStatus = null;
   app.dapiNewToken = '';
+  app.dapiTokens = [];
 
   const el = id => document.getElementById(id);
   const onPage = () => !!el('dapiPage');
@@ -172,7 +174,10 @@ export function registerDataAPI() {
     const list = el('dapiTokenList');
     try {
       const d = await app.fetch('/api/v1/data-api/tokens').then(r => r.json());
-      renderTokens(d.tokens || []);
+      app.dapiTokens = d.tokens || [];
+      renderTokens(app.dapiTokens);
+      // 审计筛选栏的令牌下拉随之刷新（data-api-audit.js 提供）。
+      if (app.renderDataAPITokenFilter) app.renderDataAPITokenFilter();
     } catch (_) {
       list.innerHTML = '<p class="dapi-empty">无法读取令牌列表，请查看本地日志</p>';
     }
@@ -278,100 +283,6 @@ export function registerDataAPI() {
     });
   };
 
-  function armConfirm(button, confirmLabel, run) {
-    if (button.dataset.armed === '1') {
-      button.dataset.armed = '';
-      button.classList.remove('armed');
-      button.textContent = button.dataset.label;
-      void run().catch(err => app.toast(err && err.message ? err.message : '操作失败', 'err'));
-      return;
-    }
-    button.dataset.armed = '1';
-    button.dataset.label = button.textContent;
-    button.classList.add('armed');
-    button.textContent = confirmLabel;
-    setTimeout(() => {
-      if (button.dataset.armed === '1') {
-        button.dataset.armed = '';
-        button.classList.remove('armed');
-        button.textContent = button.dataset.label;
-      }
-    }, 3000);
-  }
-
-  /* ── 访问记录 ───────────────────────────────────── */
-
-  app.loadDataAPIAudit = async function loadDataAPIAudit() {
-    if (!onPage()) return;
-    const state = app.dapiAuditState;
-    const list = el('dapiAuditList');
-    try {
-      const d = await app.fetch('/api/v1/data-api/audit?limit=' + DAPI_AUDIT_PAGE_SIZE + '&offset=' + state.page * DAPI_AUDIT_PAGE_SIZE).then(r => r.json());
-      state.total = d.total || 0;
-      renderAudit(d.entries || []);
-    } catch (_) {
-      el('dapiAuditTotal').textContent = '读取失败';
-      list.innerHTML = '<p class="dapi-empty">无法读取访问记录，请查看本地日志</p>';
-    }
-  };
-
-  function renderAudit(entries) {
-    const state = app.dapiAuditState;
-    const list = el('dapiAuditList');
-    el('dapiAuditTotal').textContent = '共 ' + state.total + ' 条访问记录';
-    if (!entries.length) {
-      list.innerHTML = '<p class="dapi-empty">' + (state.page > 0 ? '本页没有记录' : '暂无访问记录') + '</p>';
-    } else {
-      list.innerHTML = entries.map(entry => {
-        const detail = entry.operation === 'query_items' || entry.operation === 'batch_get'
-          ? entry.itemCount + ' 条结果'
-          : (entry.itemId ? '记录 #' + entry.itemId : '');
-        const ok = entry.statusCode < 400;
-        const statusCls = ok ? 'active' : (entry.statusCode < 500 ? 'expired' : 'revoked');
-        return '<div class="dapi-card">' +
-          '<div class="dapi-card-head">' +
-          '<span class="dapi-card-name">' + app.esc(entry.tokenName || '未知令牌') + '</span>' +
-          '<span class="dapi-badge ' + statusCls + '">' + entry.statusCode + (entry.errorCode ? ' · ' + app.esc(entry.errorCode) : '') + '</span>' +
-          '</div>' +
-          '<div class="dapi-meta">' +
-          '<span class="dapi-tag">' + app.esc(app.formatLogTime(entry.timestamp)) + '</span>' +
-          '<span class="dapi-tag">' + app.esc(entry.remoteIP) + '</span>' +
-          '<span class="dapi-tag">' + app.esc(entry.operation) + (detail ? '：' + app.esc(detail) : '') + '</span>' +
-          '<span class="dapi-tag">' + entry.durationMs + 'ms</span>' +
-          '</div>' +
-          '</div>';
-      }).join('');
-    }
-    const pager = el('dapiAuditPager');
-    const pages = Math.max(1, Math.ceil(state.total / DAPI_AUDIT_PAGE_SIZE));
-    pager.classList.toggle('hidden', state.total <= DAPI_AUDIT_PAGE_SIZE);
-    el('dapiAuditPageInfo').textContent = '第 ' + (state.page + 1) + ' / ' + pages + ' 页';
-    el('dapiAuditPrev').disabled = state.page <= 0;
-    el('dapiAuditNext').disabled = (state.page + 1) * DAPI_AUDIT_PAGE_SIZE >= state.total;
-  }
-
-  app.turnDataAPIAuditPage = function turnDataAPIAuditPage(delta) {
-    const state = app.dapiAuditState;
-    const next = state.page + delta;
-    if (next < 0 || next * DAPI_AUDIT_PAGE_SIZE >= state.total) return;
-    state.page = next;
-    void app.loadDataAPIAudit();
-  };
-
-  app.refreshDataAPIAudit = function refreshDataAPIAudit() {
-    app.dapiAuditState.page = 0;
-    void app.loadDataAPIAudit();
-  };
-
-  app.clearDataAPIAudit = function clearDataAPIAudit(button) {
-    armConfirm(button, '再次点击确认清空', async () => {
-      await app.requireOK(await app.protectedFetch('/api/v1/data-api/audit', { method: 'DELETE' }), '清空失败');
-      app.toast('访问记录已清空');
-      app.dapiAuditState.page = 0;
-      await app.loadDataAPIAudit();
-    });
-  };
-
   /* ── 页面初始化 ─────────────────────────────────── */
 
   if (onPage()) {
@@ -383,6 +294,5 @@ export function registerDataAPI() {
     });
     void app.loadDataAPIStatus();
     void app.loadDataAPITokens();
-    void app.loadDataAPIAudit();
   }
 }

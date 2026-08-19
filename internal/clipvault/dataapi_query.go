@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -410,4 +411,65 @@ func (p *dataAPIQueryPlan) cursorArgs() []any {
 		return []any{p.cursorID}
 	}
 	return []any{p.cursorMS, p.cursorMS, p.cursorID}
+}
+
+// ── 请求摘要（审计展示用）──────────────────────────────────
+
+// summarizeDataAPIQuery 把查询请求编译为紧凑可读的条件摘要，写入审计记录，
+// 让本机用户能看清"每次调用到底问了什么"。只含调用方主动提交的查询条件
+// （字段.操作符=值，逐段截断），不含剪贴板正文或 Token 原文。
+func summarizeDataAPIQuery(req *dataAPIQueryRequest) string {
+	var parts []string
+	fields := make([]string, 0, len(req.Filter))
+	for field := range req.Filter {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields) // map 遍历无序，排序保证摘要稳定可比较
+	for _, field := range fields {
+		ops := req.Filter[field]
+		opNames := make([]string, 0, len(ops))
+		for op := range ops {
+			opNames = append(opNames, op)
+		}
+		sort.Strings(opNames)
+		for _, op := range opNames {
+			parts = append(parts, field+"."+op+"="+truncateRunes(string(ops[op]), 48))
+		}
+	}
+	if len(req.GroupBy) > 0 {
+		parts = append(parts, "groupBy="+strings.Join(req.GroupBy, ","))
+	}
+	if len(req.OrderBy) > 0 {
+		order := req.OrderBy[0]
+		if order.Direction == "" {
+			order.Direction = "desc"
+		}
+		parts = append(parts, "sort="+order.Field+" "+order.Direction)
+	}
+	if req.Limit > 0 {
+		parts = append(parts, "limit="+strconv.Itoa(req.Limit))
+	}
+	if req.Cursor != "" {
+		parts = append(parts, "cursor=…")
+	}
+	return truncateRunes(strings.Join(parts, " · "), 400)
+}
+
+// summarizeDataAPIBatchIDs 摘要 batch-get 的 ID 列表（最多展示 12 个，其余计数）。
+func summarizeDataAPIBatchIDs(ids []string) string {
+	const show = 12
+	if len(ids) <= show {
+		return "ids=[" + strings.Join(ids, ",") + "]"
+	}
+	return "ids=[" + strings.Join(ids[:show], ",") + " +" + strconv.Itoa(len(ids)-show) + "]"
+}
+
+// capAuditBody 按上限截断审计保存的原始请求体；截断时追加标记，
+// 前端 JSON 高亮失败时回退展示原文并能看到"已截断"提示。
+func capAuditBody(body string) string {
+	runes := []rune(body)
+	if len(runes) <= dataAPIAuditBodyMax {
+		return body
+	}
+	return string(runes[:dataAPIAuditBodyMax]) + "…（已截断）"
 }

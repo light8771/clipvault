@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-page-title="{{.Title}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}}>
+<html lang="zh-CN" data-page-title="{{.Title}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}}{{if eq .HistoryLayout "sidebar"}} data-history-layout="sidebar"{{end}}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/source-apps.css">
   {{else}}
   <link rel="stylesheet" href="/settings.css">
+  <link rel="stylesheet" href="/settings-data-api.css">
   <link rel="stylesheet" href="/logs.css">
   <link rel="stylesheet" href="/source-apps.css">
   {{end}}

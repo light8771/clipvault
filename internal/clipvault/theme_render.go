@@ -239,6 +239,40 @@ func themeSurfaceAlpha(theme ThemeConfig) float64 {
 	return float64(opacity) / 100
 }
 
+// themeNavAlpha 解析导航栏背景不透明度：NavOpacity 为负表示跟随界面不透明度。
+func themeNavAlpha(theme ThemeConfig) float64 {
+	if theme.NavOpacity < 0 {
+		return themeSurfaceAlpha(theme)
+	}
+	return float64(max(0, min(100, theme.NavOpacity))) / 100
+}
+
+// themeNavBackdrop 生成导航栏 backdrop-filter 值，0 表示关闭模糊。
+func themeNavBackdrop(theme ThemeConfig) string {
+	blur := max(0, min(32, theme.NavBlur))
+	if blur == 0 {
+		return "none"
+	}
+	return "blur(" + strconv.Itoa(blur) + "px) saturate(180%)"
+}
+
+// themeNavBorderBottom 生成导航栏底部分隔线，关闭时为 none。
+func themeNavBorderBottom(theme ThemeConfig, border string) string {
+	if !theme.NavBorder {
+		return "none"
+	}
+	return "1px solid " + border
+}
+
+// themePreviewMaxH 生成历史卡片文本预览的最大高度（N 行 × 1.7em 行高），0 为不限制。
+func themePreviewMaxH(theme ThemeConfig) string {
+	lines := max(0, min(20, theme.PreviewLines))
+	if lines == 0 {
+		return "none"
+	}
+	return strconv.FormatFloat(float64(lines)*1.7, 'f', -1, 64) + "em"
+}
+
 // themeRootVars 生成与前端 applyTheme 写入 documentElement 完全一致的 CSS 变量声明。
 func themeRootVars(theme ThemeConfig, dark bool) string {
 	colors := resolveThemeColors(theme, dark)
@@ -255,12 +289,16 @@ func themeRootVars(theme ThemeConfig, dark bool) string {
 	write("--on-p", themeTextColorFor(colors.P))
 	write("--on-p2", themeTextColorFor(colors.P2))
 	write("--accent", colors.Accent)
+	write("--on-accent", themeTextColorFor(colors.Accent))
 	write("--bg", colors.Bg)
 	write("--bg2", colors.Bg2)
 	write("--card", colors.Card)
 	write("--card-border", colors.Border)
 	write("--card-rgba", themeHexToRgba(colors.Card, alpha))
-	write("--nav-bg", themeHexToRgba(colors.Bg, alpha))
+	write("--nav-bg", themeHexToRgba(colors.Bg, themeNavAlpha(theme)))
+	write("--nav-backdrop", themeNavBackdrop(theme))
+	write("--nav-border-bottom", themeNavBorderBottom(theme, colors.Border))
+	write("--preview-max-h", themePreviewMaxH(theme))
 	write("--tx", colors.Tx)
 	write("--sub", colors.Sub)
 	write("--muted", colors.Muted)

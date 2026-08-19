@@ -24,7 +24,7 @@ var applicationModuleAssets = []string{
 	"/app/modal-controller.js", "/app/notifications.js", "/app/recovery.js", "/app/runtime-state.js", "/app/settings-lifecycle.js", "/app/settings-sources.js", "/app/settings-storage.js",
 	"/app/source-data.js", "/app/text-utils.js", "/app/transfer.js",
 	"/app/logs.js", "/app/groups-page.js", "/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
-	"/app/data-api.js",
+	"/app/data-api.js", "/app/data-api-audit.js", "/app/confirm-arm.js",
 }
 
 type applicationPage struct {
@@ -225,6 +225,9 @@ type applicationPageView struct {
 	// ThemeMode 非空时表示固定显示模式（"light"/"dark"），渲染为 <html> 的
 	// data-theme-mode 属性；system 模式留空，由 theme-mode.js 按系统偏好设置。
 	ThemeMode string
+	// HistoryLayout 为 "sidebar" 时渲染为 <html> 的 data-history-layout 属性，
+	// 使历史页左右布局随首帧生效，避免 JS 拉取配置后再重排造成的闪动。
+	HistoryLayout string
 }
 
 func (s *SearchServer) serveApplicationPage(w http.ResponseWriter, page applicationPage) {
@@ -233,6 +236,9 @@ func (s *SearchServer) serveApplicationPage(w http.ResponseWriter, page applicat
 		theme = s.cfgMgr.Get().Theme
 	}
 	view := applicationPageView{applicationPage: page, ThemeMode: themeFixedMode(theme)}
+	if theme.Layout == "sidebar" {
+		view.HistoryLayout = "sidebar"
+	}
 	var rendered bytes.Buffer
 	if err := page.template.Execute(&rendered, view); err != nil {
 		s.writeAPIError(w, http.StatusInternalServerError, "asset_invalid", "页面资源渲染失败", err)

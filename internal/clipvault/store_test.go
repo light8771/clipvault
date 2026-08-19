@@ -186,6 +186,54 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 	}
 }
 
+// 托管图片（CLIPVAULT_IMAGE_FILE）的 text/format/meta_json 均为内部存储细节，
+// 关键词搜索不得因此命中图片记录；图片仍可按类型（kind）与哈希检索。
+func TestStoreSearchDoesNotMatchManagedImageInternals(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// 注：Save 会以文本内容哈希覆盖 SHA256 字段（与生产行为一致）。
+	imageText := "images/2026-08-19_abc123.png"
+	if err := store.Save(context.Background(), ClipboardItem{
+		Kind:     "image",
+		Format:   "CLIPVAULT_IMAGE_FILE",
+		Text:     imageText,
+		MetaJSON: `{"imagePath":"C:\\Users\\me\\AppData\\Roaming\\ClipVault\\images\\2026-08-19_abc123.png","width":800,"height":600}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 关键词命中伪格式名 / 内部路径 / 文件名时不得返回图片
+	for _, query := range []string{"clipvault", "imagePath", "abc123.png"} {
+		items, total, err := store.Search(context.Background(), SearchOptions{Query: query, Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 0 || total != 0 {
+			t.Fatalf("query %q matched managed image internals: items=%+v total=%d", query, items, total)
+		}
+	}
+
+	// 按类型与哈希仍可检索到图片
+	byKind, _, err := store.Search(context.Background(), SearchOptions{Query: "image", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byKind) != 1 {
+		t.Fatalf("kind search should still find the image: %+v", byKind)
+	}
+	byHash, _, err := store.Search(context.Background(), SearchOptions{Query: hashString(imageText)[:12], Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byHash) != 1 {
+		t.Fatalf("hash search should still find the image: %+v", byHash)
+	}
+}
+
 func TestItemGroupReferentialIntegrity(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})

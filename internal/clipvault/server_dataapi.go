@@ -1,9 +1,12 @@
 package clipvault
 
 import (
+	"bytes"
+	"encoding/csv"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -282,22 +285,95 @@ func (s *SearchServer) handleDataAPITokenRevoke(w http.ResponseWriter, r *http.R
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
-// handleDataAPIAudit 分页返回外部 API 访问记录。
+// dataAPIAuditFilterFromRequest 把查询参数编译为审计过滤条件。
+// operation 支持逗号分隔多值；limit 上限 200。
+func dataAPIAuditFilterFromRequest(r *http.Request) APIAuditFilter {
+	query := r.URL.Query()
+	filter := APIAuditFilter{
+		Result:  query.Get("result"),
+		Query:   query.Get("q"),
+		TokenID: parseInt64OrZero(query.Get("tokenId")),
+	}
+	for _, op := range strings.Split(query.Get("operation"), ",") {
+		if op = strings.TrimSpace(op); op != "" {
+			filter.Operations = append(filter.Operations, op)
+		}
+	}
+	filter.Limit, _ = strconv.Atoi(query.Get("limit"))
+	filter.Offset, _ = strconv.Atoi(query.Get("offset"))
+	if filter.Limit <= 0 || filter.Limit > 200 {
+		filter.Limit = 20
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return filter
+}
+
+func parseInt64OrZero(text string) int64 {
+	value, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
+}
+
+// handleDataAPIAudit 分页返回外部 API 访问记录（支持操作/结果/令牌/关键词过滤），
+// 并附带全量统计概览。
 func (s *SearchServer) handleDataAPIAudit(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	events, total, err := s.store.ListAPIAuditEvents(r.Context(), limit, offset)
+	filter := dataAPIAuditFilterFromRequest(r)
+	events, total, err := s.store.ListAPIAuditEvents(r.Context(), filter)
 	if err != nil {
 		s.writeError(w, err)
 		return
 	}
-	s.writeJSON(w, map[string]any{"entries": events, "total": total})
+	resp := map[string]any{"entries": events, "total": total}
+	if stats, err := s.store.APIAuditStats(r.Context()); err == nil {
+		resp["stats"] = stats
+	}
+	s.writeJSON(w, resp)
+}
+
+// handleDataAPIAuditExport 按当前过滤条件导出全部审计记录为 CSV（UTF-8 BOM，
+// Excel 可直接打开）。
+func (s *SearchServer) handleDataAPIAuditExport(w http.ResponseWriter, r *http.Request) {
+	filter := dataAPIAuditFilterFromRequest(r)
+	filter.Limit = maxAPIAuditLogRows
+	filter.Offset = 0
+	events, _, err := s.store.ListAPIAuditEvents(r.Context(), filter)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	var buf bytes.Buffer
+	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
+	writer := csv.NewWriter(&buf)
+	_ = writer.Write([]string{"时间(UTC)", "令牌", "来源IP", "方法", "端点", "操作", "记录ID", "返回条数", "耗时(ms)", "状态码", "错误码", "请求摘要", "请求体"})
+	for _, event := range events {
+		itemID := ""
+		if event.ItemID > 0 {
+			itemID = strconv.FormatInt(event.ItemID, 10)
+		}
+		_ = writer.Write([]string{
+			event.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			event.TokenName,
+			event.RemoteIP,
+			event.Method,
+			event.Endpoint,
+			event.Operation,
+			itemID,
+			strconv.Itoa(event.ItemCount),
+			strconv.FormatInt(event.DurationMs, 10),
+			strconv.Itoa(event.StatusCode),
+			event.ErrorCode,
+			event.RequestSummary,
+			event.RequestBody,
+		})
+	}
+	writer.Flush()
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="clipvault-audit.csv"`)
+	_, _ = w.Write(buf.Bytes())
 }
 
 // handleDataAPIAuditClear 清空外部 API 访问记录。

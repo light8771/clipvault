@@ -59,7 +59,9 @@ var SchemaStatements = []string{
 	`CREATE TABLE api_tokens (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_tokens'), name VARCHAR NOT NULL, token_hash VARCHAR NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL DEFAULT 0, last_used_at BIGINT NOT NULL DEFAULT 0, revoked_at BIGINT NOT NULL DEFAULT 0)`,
 	`CREATE UNIQUE INDEX idx_api_tokens_hash ON api_tokens(token_hash)`,
 	`CREATE SEQUENCE seq_api_audit_log START 1`,
-	// token_id/item_id 为 0 表示无关联（如认证失败）；审计绝不记录正文、搜索词或 Token 原文。
-	`CREATE TABLE api_audit_log (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_audit_log'), ts BIGINT NOT NULL, token_id BIGINT NOT NULL DEFAULT 0, token_name VARCHAR NOT NULL DEFAULT '', remote_ip VARCHAR NOT NULL DEFAULT '', method VARCHAR NOT NULL DEFAULT '', endpoint VARCHAR NOT NULL DEFAULT '', operation VARCHAR NOT NULL DEFAULT '', item_id BIGINT NOT NULL DEFAULT 0, item_count BIGINT NOT NULL DEFAULT 0, duration_ms BIGINT NOT NULL DEFAULT 0, status_code BIGINT NOT NULL DEFAULT 0, error_code VARCHAR NOT NULL DEFAULT '')`,
+	// token_id/item_id 为 0 表示无关联（如认证失败）；审计不记录剪贴板正文与 Token 原文。
+	// request_summary 记录查询条件摘要；request_body 记录调用方提交的原始请求体
+	// （有上限截断），供本机用户审计"谁查了什么"。
+	`CREATE TABLE api_audit_log (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_audit_log'), ts BIGINT NOT NULL, token_id BIGINT NOT NULL DEFAULT 0, token_name VARCHAR NOT NULL DEFAULT '', remote_ip VARCHAR NOT NULL DEFAULT '', method VARCHAR NOT NULL DEFAULT '', endpoint VARCHAR NOT NULL DEFAULT '', operation VARCHAR NOT NULL DEFAULT '', item_id BIGINT NOT NULL DEFAULT 0, item_count BIGINT NOT NULL DEFAULT 0, duration_ms BIGINT NOT NULL DEFAULT 0, status_code BIGINT NOT NULL DEFAULT 0, error_code VARCHAR NOT NULL DEFAULT '', request_summary VARCHAR NOT NULL DEFAULT '', request_body VARCHAR NOT NULL DEFAULT '')`,
 	`CREATE INDEX idx_api_audit_log_ts ON api_audit_log(ts DESC)`,
 }

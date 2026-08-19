@@ -207,6 +207,14 @@ func normalizeTheme(theme *ThemeConfig, def ThemeConfig) {
 	}
 	theme.FontScale = clampInt(theme.FontScale, 100, 150)
 	theme.SurfaceOpacity = clampInt(theme.SurfaceOpacity, 0, 100)
+	switch theme.Layout {
+	case "vertical", "sidebar":
+	default:
+		theme.Layout = def.Layout
+	}
+	theme.PreviewLines = clampInt(theme.PreviewLines, 0, 20)
+	theme.NavOpacity = clampInt(theme.NavOpacity, -1, 100)
+	theme.NavBlur = clampInt(theme.NavBlur, 0, 32)
 	if theme.Preset != "custom" {
 		theme.Primary = ""
 		theme.Accent = ""

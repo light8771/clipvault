@@ -1,10 +1,12 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -134,8 +136,17 @@ func (svc *DataAPIService) handleQuery(w http.ResponseWriter, r *http.Request, t
 		svc.emitAudit(audit)
 	}()
 	r.Body = http.MaxBytesReader(w, r.Body, dataAPIMaxBodyBytes)
+	body, readErr := io.ReadAll(r.Body)
+	// 原始请求体无论解析成败都留档：解析失败时可在访问记录里看到到底发了什么。
+	audit.RequestBody = capAuditBody(string(body))
+	if readErr != nil {
+		apiErr := invalidQuery("Malformed query body.")
+		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
+		svc.writeError(w, apiErr)
+		return
+	}
 	var req dataAPIQueryRequest
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		apiErr := invalidQuery("Malformed query body.")
@@ -143,6 +154,7 @@ func (svc *DataAPIService) handleQuery(w http.ResponseWriter, r *http.Request, t
 		svc.writeError(w, apiErr)
 		return
 	}
+	audit.RequestSummary = summarizeDataAPIQuery(&req)
 	plan, apiErr := parseDataAPIQuery(&req)
 	if apiErr != nil {
 		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
@@ -300,10 +312,18 @@ func (svc *DataAPIService) handleBatchGet(w http.ResponseWriter, r *http.Request
 		svc.emitAudit(audit)
 	}()
 	r.Body = http.MaxBytesReader(w, r.Body, dataAPIMaxBodyBytes)
+	body, readErr := io.ReadAll(r.Body)
+	audit.RequestBody = capAuditBody(string(body))
+	if readErr != nil {
+		apiErr := invalidQuery("Malformed request body.")
+		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
+		svc.writeError(w, apiErr)
+		return
+	}
 	var req struct {
 		IDs []string `json:"ids"`
 	}
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		apiErr := invalidQuery("Malformed request body.")
@@ -311,6 +331,7 @@ func (svc *DataAPIService) handleBatchGet(w http.ResponseWriter, r *http.Request
 		svc.writeError(w, apiErr)
 		return
 	}
+	audit.RequestSummary = summarizeDataAPIBatchIDs(req.IDs)
 	if len(req.IDs) == 0 || len(req.IDs) > dataAPIMaxBatchIDs {
 		apiErr := invalidQuery("ids must contain 1-%d entries.", dataAPIMaxBatchIDs)
 		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code

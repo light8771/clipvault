@@ -81,8 +81,16 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 				}
 			}
 		}
-		cond := `(text ILIKE ? ESCAPE '\' OR kind ILIKE ? ESCAPE '\' OR format ILIKE ? ESCAPE '\' ` +
-			`OR sha256 ILIKE ? ESCAPE '\' OR meta_json ILIKE ? ESCAPE '\' ` +
+		// 托管图片记录（format = CLIPVAULT_IMAGE_FILE）的 text/format/meta_json 均为
+		// 内部存储细节（相对路径、伪格式名、含数据目录的 imagePath），不参与模糊匹配，
+		// 否则搜索 "clipvault"、"png" 等关键词会误命中所有图片记录；
+		// 图片仍可通过 kind（类型）、sha256（哈希）与分组名检索。
+		// 其余 CLIPVAULT_* 伪格式（如 CLIPVAULT_EVENT_ONLY）同样不参与 format 匹配。
+		// 注：最外层右括号由下方统一追加（别名 OR 条件也在该分组内）。
+		cond := `((text ILIKE ? ESCAPE '\' AND format <> 'CLIPVAULT_IMAGE_FILE') ` +
+			`OR kind ILIKE ? ESCAPE '\' OR sha256 ILIKE ? ESCAPE '\' ` +
+			`OR (format ILIKE ? ESCAPE '\' AND format NOT LIKE 'CLIPVAULT\_%' ESCAPE '\') ` +
+			`OR (meta_json ILIKE ? ESCAPE '\' AND format <> 'CLIPVAULT_IMAGE_FILE') ` +
 			`OR EXISTS (SELECT 1 FROM item_groups ig JOIN groups g ON g.id = ig.group_id ` +
 			`WHERE ig.item_id = clipboard_items.id AND g.name ILIKE ? ESCAPE '\')`
 		args = append(args, like, like, like, like, like, like)

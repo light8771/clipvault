@@ -170,22 +170,76 @@
           </div>
           <div>
             <h2 class="ssec-title">访问记录</h2>
-            <p class="ssec-desc">外部 API 调用审计：时间、令牌、来源 IP、操作与耗时。最多保留最近 1000 条</p>
+            <p class="ssec-desc">外部 API 调用审计：谁、什么时候、调了哪个端点、问了什么条件、返回多少、耗时多久。点击行可展开完整请求体。最多保留最近 1000 条</p>
           </div>
         </div>
         <div class="ssec-fields">
+          <div class="dapi-stats">
+            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStatTotal">–</span><span class="dapi-stat-label">总请求</span></div>
+            <div class="dapi-stat is-ok"><span class="dapi-stat-value" id="dapiStatSuccess">–</span><span class="dapi-stat-label">成功</span></div>
+            <div class="dapi-stat is-err"><span class="dapi-stat-value" id="dapiStatError">–</span><span class="dapi-stat-label">失败</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStatAvg">–</span><span class="dapi-stat-label">平均耗时</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStat24h">–</span><span class="dapi-stat-label">近 24 小时</span></div>
+          </div>
+          <div class="dapi-filter-bar">
+            <select id="dapiFilterOp" class="dapi-filter-select" aria-label="按操作筛选">
+              <option value="">全部操作</option>
+              <option value="query_items">查询</option>
+              <option value="get_item">取单条</option>
+              <option value="batch_get">批量获取</option>
+              <option value="get_content">取内容</option>
+              <option value="get_metadata">元数据</option>
+              <option value="auth">认证失败</option>
+            </select>
+            <select id="dapiFilterResult" class="dapi-filter-select" aria-label="按结果筛选">
+              <option value="">全部结果</option>
+              <option value="success">仅成功</option>
+              <option value="error">仅失败</option>
+            </select>
+            <select id="dapiFilterToken" class="dapi-filter-select" aria-label="按令牌筛选">
+              <option value="">全部令牌</option>
+            </select>
+            <input type="text" id="dapiFilterQuery" class="dapi-filter-input" placeholder="搜索令牌 / IP / 摘要 / 错误码" maxlength="80">
+            <button type="button" class="dapi-btn" data-action="data-api-audit-apply">筛选</button>
+            <button type="button" class="dapi-btn" data-action="data-api-audit-reset">重置</button>
+          </div>
           <div class="log-toolbar">
             <span class="log-total" id="dapiAuditTotal">正在读取…</span>
-            <span>
+            <span class="dapi-toolbar-btns">
               <button type="button" class="log-page-btn" data-action="data-api-audit-refresh">刷新</button>
+              <button type="button" class="log-page-btn" data-action="data-api-audit-export">导出 CSV</button>
               <button type="button" class="btn-export" data-action="data-api-audit-clear">清空记录</button>
             </span>
           </div>
-          <div class="dapi-list" id="dapiAuditList"></div>
+          <div class="dapi-audit-wrap">
+            <table class="dapi-audit-table">
+              <thead>
+                <tr>
+                  <th class="col-time">时间</th>
+                  <th class="col-token">令牌</th>
+                  <th class="col-op">操作 / 端点</th>
+                  <th class="col-summary">请求摘要</th>
+                  <th class="col-result">结果</th>
+                  <th class="col-ms">耗时</th>
+                  <th class="col-ip">来源 IP</th>
+                </tr>
+              </thead>
+              <tbody id="dapiAuditList"></tbody>
+            </table>
+          </div>
           <div class="log-pager hidden" id="dapiAuditPager">
+            <label class="dapi-page-size">每页
+              <select id="dapiAuditPageSize" aria-label="每页条数">
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select> 条
+            </label>
+            <button type="button" class="log-page-btn" id="dapiAuditFirst" data-action="data-api-audit-first" title="首页">«</button>
             <button type="button" class="log-page-btn" id="dapiAuditPrev" data-action="data-api-audit-prev">上一页</button>
-            <span class="log-page-info" id="dapiAuditPageInfo">第 1 页</span>
+            <span class="dapi-page-btns" id="dapiAuditPageBtns"></span>
             <button type="button" class="log-page-btn" id="dapiAuditNext" data-action="data-api-audit-next">下一页</button>
+            <button type="button" class="log-page-btn" id="dapiAuditLast" data-action="data-api-audit-last" title="末页">»</button>
           </div>
         </div>
       </section>
@@ -264,14 +318,15 @@ print(r.json())</pre>
 
         <section class="dapi-doc-sec" id="dapiDocSecEndpoints">
           <h3 class="dapi-doc-h">端点</h3>
+          <p class="dapi-doc-p">最后一列是「访问记录」里显示的审计操作名，可用于把调用记录对应回本表端点。</p>
           <table class="dapi-doc-table">
             <tbody>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/health</code></td><td>健康检查，无需 Token；返回服务与激活状态</td></tr>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/metadata</code></td><td>资源字段、可筛选/可排序字段与限制的机器可读描述</td></tr>
-              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/query</code></td><td>核心查询：筛选、排序、分页、分组统计</td></tr>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}</code></td><td>单条完整记录（文本不截断）</td></tr>
-              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/items/batch-get</code></td><td>按 ID 批量取完整记录，最多 100 个</td></tr>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}/content</code></td><td>二进制内容：托管图片为 PNG，文本为纯文本</td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/health</code></td><td>健康检查，无需 Token；返回服务与激活状态</td><td>不记录</td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/metadata</code></td><td>资源字段、可筛选/可排序字段与限制的机器可读描述</td><td>审计 <code>get_metadata</code></td></tr>
+              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/query</code></td><td>核心查询：筛选、排序、分页、分组统计</td><td>审计 <code>query_items</code></td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}</code></td><td>单条完整记录（文本不截断）</td><td>审计 <code>get_item</code></td></tr>
+              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/items/batch-get</code></td><td>按 ID 批量取完整记录，最多 100 个</td><td>审计 <code>batch_get</code></td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}/content</code></td><td>二进制内容：托管图片为 PNG，文本为纯文本</td><td>审计 <code>get_content</code></td></tr>
             </tbody>
           </table>
         </section>
@@ -368,7 +423,7 @@ print(r.json())</pre>
               <tr><td><code>500</code> / <code>504</code></td><td><code>internal_error</code> 内部错误 / <code>query_timeout</code> 查询超时（5 秒）</td></tr>
             </tbody>
           </table>
-          <p class="dapi-doc-p">限制速览：每页最多 500 条；批量取最多 100 条；单次查询 5 秒超时；每个 IP 每秒 10 次请求（突发 30）；并发查询最多 4 个。所有访问都记录在「访问记录」中，不包含剪贴板正文。</p>
+          <p class="dapi-doc-p">限制速览：每页最多 500 条；批量取最多 100 条；单次查询 5 秒超时；每个 IP 每秒 10 次请求（突发 30）；并发查询最多 4 个。所有访问都记录在「访问记录」中，包括请求摘要与完整请求体（便于审计谁查了什么），但不包含剪贴板正文与 Token 原文。</p>
         </section>
       </div>
     </div>

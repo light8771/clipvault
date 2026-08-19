@@ -67,6 +67,28 @@ export function registerConfigEvents() {
       if (output) output.value = `${surfaceOpacityControl.value}%`;
       app.applyTheme(app.themeFromForm());
     });
+    // 布局与导航栏：实时预览（自动保存由下方 settingsEl 委托事件统一触发）
+    const navOpacityControl = document.getElementById('cfg-navOpacity');
+    const navOpacityFollow = document.getElementById('cfg-navOpacityFollow');
+    const navOpacityOutput = document.getElementById('cfg-navOpacityOutput');
+    navOpacityControl?.addEventListener('input', () => {
+      if (navOpacityOutput) navOpacityOutput.value = `${navOpacityControl.value}%`;
+      app.applyTheme(app.themeFromForm());
+    });
+    navOpacityFollow?.addEventListener('change', () => {
+      if (navOpacityControl) navOpacityControl.disabled = navOpacityFollow.checked;
+      if (navOpacityOutput) navOpacityOutput.value = navOpacityFollow.checked ? '跟随' : `${navOpacityControl?.value || 100}%`;
+      app.applyTheme(app.themeFromForm());
+    });
+    const navBlurControl = document.getElementById('cfg-navBlur');
+    navBlurControl?.addEventListener('input', () => {
+      const output = document.getElementById('cfg-navBlurOutput');
+      if (output) output.value = `${navBlurControl.value}px`;
+      app.applyTheme(app.themeFromForm());
+    });
+    ['cfg-navBorder', 'cfg-historyLayout'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
+    });
     // 首页设置搜索框不是配置项，输入不得触发自动保存。
     const isExcluded = t => t === listenAddrEl || t === timeZoneEl
       || t?.id === 'settingsSearch' || t?.type === 'file';

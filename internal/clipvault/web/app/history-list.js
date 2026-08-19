@@ -88,10 +88,10 @@ export function registerHistoryList() {
         charText = paths.length + ' 个文件';
         showView = true;
       } else {
-        const long = it.text.length > 500;
-        bodyHTML = `<pre${long ? '' : ' class="open"'}>${app.highlight(it.text, q)}</pre>`;
+        const preview = app.textPreviewBody(it, q);
+        bodyHTML = preview.html;
+        showView = preview.showView;
         charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
-        showView = long;
       }
       const canCopy = it.contentAvailable !== false && !managedImage;
       return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}"${sensAttr}>
@@ -128,6 +128,8 @@ export function registerHistoryList() {
         if (img) app.loadManagedImage(img, it.id);
       }
     });
+    // 实测放开未溢出的文本预览卡片（去掉渐隐与多余「查看」按钮）
+    app.releaseFittingPreviews();
     if (app.pendingLocateId) {
       const el = app.LIST.querySelector(`article[data-id="${app.pendingLocateId}"]`);
       if (el) {

@@ -1,6 +1,9 @@
 package clipvault
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestNormalizeTheme(t *testing.T) {
 	cfg := DefaultConfig()
@@ -71,6 +74,50 @@ func TestNormalizeTheme(t *testing.T) {
 	if cfg.Theme.SurfaceOpacity != 0 {
 		t.Fatalf("explicit zero surface opacity was not retained: %#v", cfg.Theme)
 	}
+
+	cfg.Theme = ThemeConfig{Preset: "mint", Mode: "light", SurfaceOpacity: 100,
+		Layout: "diagonal", PreviewLines: 99, NavOpacity: 140, NavBlur: 99}
+	normalizeConfig(&cfg)
+	if cfg.Theme.Layout != "vertical" {
+		t.Fatalf("invalid layout did not fall back to default: %#v", cfg.Theme)
+	}
+	if cfg.Theme.PreviewLines != 20 || cfg.Theme.NavOpacity != 100 || cfg.Theme.NavBlur != 32 {
+		t.Fatalf("new theme fields were not clamped: %#v", cfg.Theme)
+	}
+}
+
+// theme 的全部字段（含 layout/previewLines/navOpacity/navBlur/navBorder）都是
+// 严格配置契约的一部分：缺失任意一个都视为配置损坏，绝不静默回退。
+func TestThemeConfigRequiresAllFields(t *testing.T) {
+	data, err := json.Marshal(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(data, &asMap); err != nil {
+		t.Fatal(err)
+	}
+	themeMap, ok := asMap["theme"].(map[string]any)
+	if !ok {
+		t.Fatalf("theme missing in marshaled config: %#v", asMap)
+	}
+	for _, key := range []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity",
+		"layout", "previewLines", "navOpacity", "navBlur", "navBorder"} {
+		value, present := themeMap[key]
+		if !present {
+			t.Fatalf("default config JSON missing theme.%s", key)
+		}
+		delete(themeMap, key)
+		trimmed, err := json.Marshal(asMap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		if err := cfg.UnmarshalJSON(trimmed); err == nil {
+			t.Fatalf("config without theme.%s must be rejected as corrupt", key)
+		}
+		themeMap[key] = value
+	}
 }
 
 func TestThemeConfigPersists(t *testing.T) {
@@ -88,6 +135,11 @@ func TestThemeConfigPersists(t *testing.T) {
 		Accent:         "#F59E0B",
 		FontScale:      135,
 		SurfaceOpacity: 72,
+		Layout:         "sidebar",
+		PreviewLines:   5,
+		NavOpacity:     40,
+		NavBlur:        8,
+		NavBorder:      false,
 	}
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -114,7 +166,8 @@ func TestThemeConfigManagerUpdate(t *testing.T) {
 		t.Fatalf("new config manager: %v", err)
 	}
 
-	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 135, SurfaceOpacity: 72}
+	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 135, SurfaceOpacity: 72,
+		Layout: "sidebar", PreviewLines: 3, NavOpacity: 55, NavBlur: 24, NavBorder: false}
 	var notified ThemeConfig
 	manager.OnChange(func(cfg Config) error {
 		notified = cfg.Theme

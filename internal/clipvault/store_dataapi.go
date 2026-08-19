@@ -14,21 +14,44 @@ import (
 const maxAPIAuditLogRows = 1000
 
 // APIAuditEvent 是一次外部数据 API 操作的审计记录。绝不包含剪贴板正文、
-// 原始搜索词、Token 原文或 Authorization 头（AUDIT-02）。
+// Token 原文或 Authorization 头（AUDIT-02）。RequestSummary 是查询条件的
+// 紧凑摘要（字段.操作符=值，逐段截断）；RequestBody 是调用方提交的原始
+// 请求体（带上限截断），供本机用户审计"谁问了什么"。
 type APIAuditEvent struct {
-	ID         int64     `json:"id"`
-	Timestamp  time.Time `json:"timestamp"`
-	TokenID    int64     `json:"tokenId"`   // 0 = 无关联（如认证失败）
-	TokenName  string    `json:"tokenName"` // 认证失败时为空
-	RemoteIP   string    `json:"remoteIP"`
-	Method     string    `json:"method"`
-	Endpoint   string    `json:"endpoint"`
-	Operation  string    `json:"operation"`
-	ItemID     int64     `json:"itemId"`    // 0 = 不适用
-	ItemCount  int       `json:"itemCount"` // 返回条数，不适用为 0
-	DurationMs int64     `json:"durationMs"`
-	StatusCode int       `json:"statusCode"`
-	ErrorCode  string    `json:"errorCode,omitempty"`
+	ID             int64     `json:"id"`
+	Timestamp      time.Time `json:"timestamp"`
+	TokenID        int64     `json:"tokenId"`   // 0 = 无关联（如认证失败）
+	TokenName      string    `json:"tokenName"` // 认证失败时为空
+	RemoteIP       string    `json:"remoteIP"`
+	Method         string    `json:"method"`
+	Endpoint       string    `json:"endpoint"`
+	Operation      string    `json:"operation"`
+	ItemID         int64     `json:"itemId"`    // 0 = 不适用
+	ItemCount      int       `json:"itemCount"` // 返回条数，不适用为 0
+	DurationMs     int64     `json:"durationMs"`
+	StatusCode     int       `json:"statusCode"`
+	ErrorCode      string    `json:"errorCode,omitempty"`
+	RequestSummary string    `json:"requestSummary,omitempty"`
+	RequestBody    string    `json:"requestBody,omitempty"`
+}
+
+// APIAuditFilter 是审计列表的过滤条件；零值字段表示不过滤。
+type APIAuditFilter struct {
+	Operations []string // 操作类型白名单
+	TokenID    int64    // 0 = 全部令牌
+	Result     string   // "" 全部 / "success" <400 / "error" >=400
+	Query      string   // 关键词，匹配令牌名/端点/操作/错误码/请求摘要
+	Limit      int
+	Offset     int
+}
+
+// APIAuditStats 是审计记录的全量统计概览。
+type APIAuditStats struct {
+	Total         int64 `json:"total"`
+	Success       int64 `json:"success"`
+	Error         int64 `json:"error"`
+	AvgDurationMs int64 `json:"avgDurationMs"`
+	Last24h       int64 `json:"last24h"`
 }
 
 func msToTimePtr(ms int64) *time.Time {
@@ -166,11 +189,11 @@ func (s *Store) InsertAPIAuditEvents(ctx context.Context, events []APIAuditEvent
 	defer tx.Rollback()
 	for _, event := range events {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO api_audit_log (ts, token_id, token_name, remote_ip, method, endpoint, operation, item_id, item_count, duration_ms, status_code, error_code)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO api_audit_log (ts, token_id, token_name, remote_ip, method, endpoint, operation, item_id, item_count, duration_ms, status_code, error_code, request_summary, request_body)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			event.Timestamp.UTC().UnixMilli(), event.TokenID, event.TokenName, event.RemoteIP,
 			event.Method, event.Endpoint, event.Operation, event.ItemID, event.ItemCount,
-			event.DurationMs, event.StatusCode, event.ErrorCode); err != nil {
+			event.DurationMs, event.StatusCode, event.ErrorCode, event.RequestSummary, event.RequestBody); err != nil {
 			return err
 		}
 	}
@@ -182,15 +205,50 @@ func (s *Store) InsertAPIAuditEvents(ctx context.Context, events []APIAuditEvent
 	return tx.Commit()
 }
 
-// ListAPIAuditEvents 按时间倒序返回审计记录与总数。
-func (s *Store) ListAPIAuditEvents(ctx context.Context, limit, offset int) ([]APIAuditEvent, int, error) {
+// auditFilterClauses 把过滤条件编译为 WHERE 片段与参数（全参数化，无原文拼接）。
+func auditFilterClauses(filter APIAuditFilter) (string, []any) {
+	var conds []string
+	var args []any
+	if len(filter.Operations) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(filter.Operations)), ",")
+		conds = append(conds, "operation IN ("+placeholders+")")
+		for _, op := range filter.Operations {
+			args = append(args, op)
+		}
+	}
+	if filter.TokenID > 0 {
+		conds = append(conds, "token_id = ?")
+		args = append(args, filter.TokenID)
+	}
+	switch filter.Result {
+	case "success":
+		conds = append(conds, "status_code < 400")
+	case "error":
+		conds = append(conds, "status_code >= 400")
+	}
+	if q := strings.TrimSpace(filter.Query); q != "" {
+		pattern := "%" + q + "%"
+		conds = append(conds, `(token_name ILIKE ? OR endpoint ILIKE ? OR operation ILIKE ? OR error_code ILIKE ? OR request_summary ILIKE ?)`)
+		args = append(args, pattern, pattern, pattern, pattern, pattern)
+	}
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+// ListAPIAuditEvents 按时间倒序返回（可过滤的）审计记录与过滤后总数。
+func (s *Store) ListAPIAuditEvents(ctx context.Context, filter APIAuditFilter) ([]APIAuditEvent, int, error) {
+	where, args := auditFilterClauses(filter)
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM api_audit_log`).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM api_audit_log`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+	listArgs := append(append([]any{}, args...), filter.Limit, filter.Offset)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, ts, token_id, token_name, remote_ip, method, endpoint, operation, item_id, item_count, duration_ms, status_code, error_code
-		 FROM api_audit_log ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
+		`SELECT id, ts, token_id, token_name, remote_ip, method, endpoint, operation, item_id, item_count, duration_ms, status_code, error_code, request_summary, request_body
+		 FROM api_audit_log`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -199,15 +257,39 @@ func (s *Store) ListAPIAuditEvents(ctx context.Context, limit, offset int) ([]AP
 	for rows.Next() {
 		var event APIAuditEvent
 		var tsMS int64
+		var summary, body sql.NullString
 		if err := rows.Scan(&event.ID, &tsMS, &event.TokenID, &event.TokenName, &event.RemoteIP,
 			&event.Method, &event.Endpoint, &event.Operation, &event.ItemID, &event.ItemCount,
-			&event.DurationMs, &event.StatusCode, &event.ErrorCode); err != nil {
+			&event.DurationMs, &event.StatusCode, &event.ErrorCode, &summary, &body); err != nil {
 			return nil, 0, err
 		}
 		event.Timestamp = time.UnixMilli(tsMS).UTC()
+		event.RequestSummary = summary.String
+		event.RequestBody = body.String
 		events = append(events, event)
 	}
 	return events, total, rows.Err()
+}
+
+// APIAuditStats 返回审计记录的全量统计概览（不受列表过滤影响）。
+func (s *Store) APIAuditStats(ctx context.Context) (APIAuditStats, error) {
+	var stats APIAuditStats
+	var avg sql.NullFloat64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*),
+			count(*) FILTER (WHERE status_code < 400),
+			count(*) FILTER (WHERE status_code >= 400),
+			avg(duration_ms),
+			count(*) FILTER (WHERE ts >= ?)
+		 FROM api_audit_log`, time.Now().UTC().UnixMilli()-24*60*60*1000).
+		Scan(&stats.Total, &stats.Success, &stats.Error, &avg, &stats.Last24h)
+	if err != nil {
+		return stats, err
+	}
+	if avg.Valid {
+		stats.AvgDurationMs = int64(avg.Float64)
+	}
+	return stats, nil
 }
 
 // ClearAPIAuditEvents 清空数据接口审计记录。
