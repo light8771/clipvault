@@ -186,6 +186,8 @@ var configFieldLabels = map[string]string{
 	"theme.surfaceOpacity":                "界面不透明度",
 	"search.listenAddr":                   "Web 监听地址",
 	"search.timeZone":                     "日期筛选时区",
+	"dataApi.enabled":                     "数据接口开关",
+	"dataApi.listenAddr":                  "数据接口监听地址",
 	"sensitive.customPatterns":            "敏感内容过滤规则",
 	"autostart.enabled":                   "开机自启",
 	"autostart.appName":                   "自启应用名",

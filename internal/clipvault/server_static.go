@@ -24,6 +24,7 @@ var applicationModuleAssets = []string{
 	"/app/modal-controller.js", "/app/notifications.js", "/app/recovery.js", "/app/runtime-state.js", "/app/settings-lifecycle.js", "/app/settings-sources.js", "/app/settings-storage.js",
 	"/app/source-data.js", "/app/text-utils.js", "/app/transfer.js",
 	"/app/logs.js", "/app/groups-page.js", "/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
+	"/app/data-api.js",
 }
 
 type applicationPage struct {
@@ -133,6 +134,15 @@ var applicationPageDefinitions = []applicationPage{
 		Menu:      "groups",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/page-groups.html"),
+	},
+	{
+		Path:             "/data-api",
+		Name:             "settings",
+		Title:            "数据接口",
+		Menu:             "data-api",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/page-data-api.html"),
 	},
 	{
 		Path:             "/license",

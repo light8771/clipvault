@@ -2,7 +2,9 @@ package clipvault
 
 import (
 	"fmt"
+	"net"
 	"path/filepath"
+	"strings"
 )
 
 func validateConfig(cfg Config) error {
@@ -74,7 +76,24 @@ func validateConfig(cfg Config) error {
 	if err := validateConfiguredBackupScope(cfg.Backup.EmailBackup.Scope, cfg.Search.TimeZone); err != nil {
 		return fmt.Errorf("invalid email backup scope: %w", err)
 	}
+	dataAPIHost, dataAPIPort, err := validateListenAddr(cfg.DataAPI.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("invalid data API listen address: %w", err)
+	}
+	if cfg.DataAPI.Enabled {
+		searchHost, searchPort, _ := validateListenAddr(cfg.Search.ListenAddr)
+		samePort := dataAPIPort == searchPort && searchPort != 0
+		if samePort && (listenHostUnspecified(dataAPIHost) || listenHostUnspecified(searchHost) || strings.EqualFold(dataAPIHost, searchHost)) {
+			return fmt.Errorf("data API listen address conflicts with the Web listen address")
+		}
+	}
 	return nil
+}
+
+// listenHostUnspecified 报告主机是否为通配地址（0.0.0.0 / ::），通配地址与同端口任何地址冲突。
+func listenHostUnspecified(host string) bool {
+	ip := net.ParseIP(strings.TrimSpace(strings.Trim(host, "[]")))
+	return ip != nil && ip.IsUnspecified()
 }
 
 func validateHotkeyConfig(name string, hotkey HotkeyConfig) error {

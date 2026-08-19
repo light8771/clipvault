@@ -101,6 +101,10 @@ func DefaultConfig() Config {
 				FullFallbackDays: 7,
 			},
 		},
+		DataAPI: DataAPIConfig{
+			Enabled:    false,
+			ListenAddr: "127.0.0.1:17839",
+		},
 	}
 }
 

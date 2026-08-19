@@ -170,7 +170,17 @@ func Run(env Environment) error {
 	recorder := NewRecorder(cfgMgr, store, state, logger, env.ImagesDirectory())
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
 	defer backup.Stop()
+	// 数据接口：独立监听的低优先级外部 API，随配置变更即时启停。
+	dataAPI := NewDataAPIService(cfgMgr, store, logger, licenseMgr, env)
+	defer dataAPI.Close()
+	cfgMgr.OnChange(func(newCfg Config) error {
+		return dataAPI.ApplyConfig(newCfg)
+	})
+	if err := dataAPI.ApplyConfig(cfgMgr.Get()); err != nil {
+		logger.Warn("data_api_start_failed", map[string]any{"error": err.Error()})
+	}
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
+	searchServer.SetDataAPIService(dataAPI)
 	searchURL, err := searchServer.Start()
 	if err != nil {
 		logger.Error("search_server_start_failed", err, nil)
@@ -230,6 +240,7 @@ func Run(env Environment) error {
 			cancel()
 			// 创建新的 search server
 			searchServer = NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
+			searchServer.SetDataAPIService(dataAPI)
 			searchURL, err = searchServer.Start()
 			if err != nil {
 				logger.Error("restart_search_failed", err, nil)

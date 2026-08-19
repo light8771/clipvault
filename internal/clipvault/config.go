@@ -27,6 +27,15 @@ type Config struct {
 	Image         ImageCaptureConfig `json:"image"`
 	Popup         SearchPopupConfig  `json:"popup"`
 	Backup        BackupConfig       `json:"backup"`
+	DataAPI       DataAPIConfig      `json:"dataApi"`
+}
+
+// DataAPIConfig 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
+// 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。仅对已激活用户开放，
+// 独立于主 Web 服务监听，可随时启停。
+type DataAPIConfig struct {
+	Enabled    bool   `json:"enabled"`
+	ListenAddr string `json:"listenAddr"`
 }
 
 // ImageCaptureConfig 图片捕获配置（Win+Shift+S 截图、浏览器 Copy Image、
@@ -62,7 +71,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	top, err := requiredJSONObject(data, "config",
 		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
 		"brand", "background", "theme", "search", "sensitive", "autostart",
-		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup")
+		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi")
 	if err != nil {
 		return err
 	}
@@ -81,6 +90,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"searchHotkey", []string{"enabled", "modifiers", "key"}},
 		{"image", []string{"enabled", "maxBytes"}},
 		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
+		{"dataApi", []string{"enabled", "listenAddr"}},
 	}
 	for _, object := range objects {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {

@@ -1,0 +1,388 @@
+import { app } from './app-context.js';
+
+const DAPI_AUDIT_PAGE_SIZE = 20;
+
+export function registerDataAPI() {
+  app.dapiAuditState = { page: 0, total: 0 };
+  app.dapiStatus = null;
+  app.dapiNewToken = '';
+
+  const el = id => document.getElementById(id);
+  const onPage = () => !!el('dapiPage');
+
+  /* ── 服务状态与配置 ─────────────────────────────── */
+
+  app.loadDataAPIStatus = async function loadDataAPIStatus() {
+    if (!onPage()) return;
+    try {
+      const d = await app.fetch('/api/v1/data-api').then(r => r.json());
+      app.dapiStatus = d;
+      renderStatus(d);
+    } catch (_) {
+      el('dapiStatusText').textContent = '读取失败';
+    }
+  };
+
+  function renderStatus(d) {
+    const enabled = !!d.enabled;
+    el('dapiEnabled').checked = enabled;
+    const statusText = el('dapiStatusText');
+    if (!enabled) {
+      statusText.textContent = '未启用';
+    } else if (d.running) {
+      statusText.textContent = '运行中';
+    } else {
+      statusText.textContent = d.bindError ? '启动失败：' + d.bindError : '已停止';
+    }
+    el('dapiStatusHint').textContent = d.activated
+      ? '授权已激活，数据接口可用'
+      : '未激活：数据接口仅对已激活用户开放';
+    el('dapiUrlRow').classList.toggle('hidden', !(enabled && d.running && d.url));
+    el('dapiUrlText').value = d.url || '';
+    applyListenAddrToForm(d.listenAddr || '127.0.0.1:17839');
+    updateLanWarning();
+  }
+
+  function applyListenAddrToForm(addr) {
+    const idx = addr.lastIndexOf(':');
+    const host = idx > 0 ? addr.slice(0, idx) : '127.0.0.1';
+    const port = idx > 0 ? addr.slice(idx + 1) : '17839';
+    el('dapiPort').value = port;
+    const scope = host === '127.0.0.1' || host === 'localhost' ? 'local'
+      : (host === '0.0.0.0' || host === '::') ? 'lan' : 'custom';
+    const radio = document.querySelector('input[name="dapiScope"][value="' + scope + '"]');
+    if (radio) radio.checked = true;
+    el('dapiCustomAddrRow').classList.toggle('hidden', scope !== 'custom');
+    if (scope === 'custom') el('dapiCustomAddr').value = host;
+  }
+
+  function collectListenAddr() {
+    const scope = document.querySelector('input[name="dapiScope"]:checked')?.value || 'local';
+    const port = (el('dapiPort').value || '').trim() || '17839';
+    let host = '127.0.0.1';
+    if (scope === 'lan') host = '0.0.0.0';
+    if (scope === 'custom') host = (el('dapiCustomAddr').value || '').trim();
+    if (!host) {
+      app.toast('请填写指定监听地址', 'err');
+      return null;
+    }
+    return host + ':' + port;
+  }
+
+  function updateLanWarning() {
+    const scope = document.querySelector('input[name="dapiScope"]:checked')?.value || 'local';
+    el('dapiLanWarning').classList.toggle('hidden', scope === 'local');
+    el('dapiCustomAddrRow').classList.toggle('hidden', scope !== 'custom');
+  }
+
+  app.dataApiSave = async function dataApiSave() {
+    const listenAddr = collectListenAddr();
+    if (!listenAddr) return;
+    const enabled = el('dapiEnabled').checked;
+    try {
+      const res = await app.protectedFetch('/api/v1/data-api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, listenAddr })
+      });
+      await app.requireOK(res, '保存失败');
+      const d = await res.json();
+      app.dapiStatus = { ...(app.dapiStatus || {}), ...d };
+      renderStatus(app.dapiStatus);
+      if (d.runtimeError) {
+        app.toast('设置已保存，但接口启动失败：' + d.runtimeError, 'err');
+      } else {
+        app.toast(enabled ? '数据接口已启用' : '数据接口已关闭');
+      }
+    } catch (e) {
+      app.toast('保存失败：' + (e.message || e), 'err');
+    }
+  };
+
+  app.dataApiCopyURL = async function dataApiCopyURL() {
+    const url = el('dapiUrlText').value;
+    if (!url) return;
+    await copyText(url, '访问地址已复制');
+  };
+
+  /* ── 接口文档弹窗 ─────────────────────────────────── */
+
+  // 文档里的 base URL 不写死：打开时按当前实际监听地址替换 {BASE_URL}。
+  // 模板缓存在元素 dataset.tpl 上，保证反复打开幂等。
+  function dataAPIBaseURL() {
+    const status = app.dapiStatus || {};
+    if (status.url) return status.url.replace(/\/+$/, '');
+    const addr = status.listenAddr || '';
+    const idx = addr.lastIndexOf(':');
+    if (idx > 0) {
+      const host = addr.slice(0, idx);
+      const shown = (host === '0.0.0.0' || host === '::') ? '127.0.0.1' : host;
+      return 'http://' + shown + addr.slice(idx);
+    }
+    return 'http://127.0.0.1:17839';
+  }
+
+  app.openDataAPIDoc = function openDataAPIDoc() {
+    const modal = el('dapiDocModal');
+    if (!modal) return;
+    const base = dataAPIBaseURL();
+    modal.querySelectorAll('pre, code').forEach(node => {
+      const tpl = node.dataset.tpl !== undefined ? node.dataset.tpl : node.textContent;
+      if (!tpl.includes('{BASE_URL}')) return;
+      node.dataset.tpl = tpl;
+      node.textContent = tpl.split('{BASE_URL}').join(base);
+    });
+    modal.classList.remove('hidden');
+  };
+
+  app.dataApiDocNav = function dataApiDocNav(button) {
+    const target = button.dataset.target ? document.getElementById(button.dataset.target) : null;
+    if (target) target.scrollIntoView({ behavior: app.scrollBehavior(), block: 'start' });
+  };
+
+  app.closeDataAPIDoc = function closeDataAPIDoc() {
+    const modal = el('dapiDocModal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    modal.classList.add('hidden');
+  };
+
+  // 复制文档里任意代码块：data-copy-target 指向元素 id。
+  app.dataApiCopyDoc = async function dataApiCopyDoc(button) {
+    const target = button.dataset.copyTarget ? document.getElementById(button.dataset.copyTarget) : null;
+    if (!target) return;
+    await copyText(target.textContent, '已复制');
+    const label = button.textContent;
+    button.textContent = '已复制';
+    setTimeout(() => { button.textContent = label; }, 1200);
+  };
+
+  async function copyText(text, message) {
+    try {
+      await navigator.clipboard.writeText(text);
+      app.toast(message);
+    } catch (_) {
+      app.toast('复制失败，请手动复制', 'err');
+    }
+  }
+
+  /* ── 访问令牌 ───────────────────────────────────── */
+
+  app.loadDataAPITokens = async function loadDataAPITokens() {
+    if (!onPage()) return;
+    const list = el('dapiTokenList');
+    try {
+      const d = await app.fetch('/api/v1/data-api/tokens').then(r => r.json());
+      renderTokens(d.tokens || []);
+    } catch (_) {
+      list.innerHTML = '<p class="dapi-empty">无法读取令牌列表，请查看本地日志</p>';
+    }
+  };
+
+  function renderTokens(tokens) {
+    const list = el('dapiTokenList');
+    if (!tokens.length) {
+      list.innerHTML = '<p class="dapi-empty">暂无令牌，点击「生成 Token」创建</p>';
+      return;
+    }
+    list.innerHTML = tokens.map(token => {
+      const stateLabel = { active: '有效', expired: '已过期', revoked: '已撤销' }[token.state] || token.state;
+      const expiry = token.expiresAt ? '有效至 ' + app.formatLogTime(token.expiresAt) : '永不过期';
+      const lastUsed = token.lastUsedAt ? '最后访问 ' + app.formatLogTime(token.lastUsedAt) : '从未使用';
+      const inactive = token.state !== 'active';
+      const actions = !inactive
+        ? '<div class="dapi-actions">' +
+          '<button type="button" class="dapi-btn" data-action="data-api-token-regenerate" data-id="' + token.id + '">重新生成</button>' +
+          '<button type="button" class="dapi-btn danger" data-action="data-api-token-revoke" data-id="' + token.id + '">撤销</button>' +
+          '</div>'
+        : '';
+      return '<div class="dapi-card' + (inactive ? ' is-inactive' : '') + '">' +
+        '<div class="dapi-card-head">' +
+        '<span class="dapi-card-name">' + app.esc(token.name) + '</span>' +
+        '<span class="dapi-badge ' + token.state + '">' + stateLabel + '</span>' +
+        '</div>' +
+        '<div class="dapi-meta">' +
+        '<span class="dapi-tag' + (token.state === 'expired' ? ' warn' : '') + '">' + app.esc(expiry) + '</span>' +
+        '<span class="dapi-tag">' + app.esc(lastUsed) + '</span>' +
+        '</div>' +
+        actions +
+        '</div>';
+    }).join('');
+  }
+
+  function showNewToken(token) {
+    app.dapiNewToken = token;
+    el('dapiNewTokenValue').textContent = token;
+    el('dapiNewTokenBox').classList.remove('hidden');
+  }
+
+  app.dataApiTokenCreate = async function dataApiTokenCreate() {
+    const name = (el('dapiTokenName').value || '').trim();
+    if (!name) {
+      app.toast('请填写令牌名称', 'err');
+      return;
+    }
+    try {
+      const res = await app.protectedFetch('/api/v1/data-api/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, expiresIn: el('dapiTokenExpiry').value })
+      });
+      await app.requireOK(res, '创建失败');
+      const d = await res.json();
+      el('dapiTokenName').value = '';
+      showNewToken(d.token);
+      app.toast('Token 已创建');
+      await app.loadDataAPITokens();
+    } catch (e) {
+      app.toast('创建失败：' + (e.message || e), 'err');
+    }
+  };
+
+  app.dataApiTokenCopy = async function dataApiTokenCopy() {
+    if (!app.dapiNewToken) return;
+    await copyText(app.dapiNewToken, 'Token 已复制');
+  };
+
+  app.dataApiTokenDismiss = function dataApiTokenDismiss() {
+    app.dapiNewToken = '';
+    el('dapiNewTokenValue').textContent = '';
+    el('dapiNewTokenBox').classList.add('hidden');
+  };
+
+  // 撤销是破坏性操作：第一次点击进入确认态，3 秒内再次点击才执行。
+  app.dataApiTokenRevoke = function dataApiTokenRevoke(button) {
+    armConfirm(button, '再次点击确认撤销', async () => {
+      const res = await app.protectedFetch('/api/v1/data-api/tokens/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: button.dataset.id })
+      });
+      await app.requireOK(res, '撤销失败');
+      app.toast('Token 已撤销');
+      await app.loadDataAPITokens();
+    });
+  };
+
+  app.dataApiTokenRegenerate = function dataApiTokenRegenerate(button) {
+    armConfirm(button, '再次点击确认重新生成', async () => {
+      const res = await app.protectedFetch('/api/v1/data-api/tokens/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: button.dataset.id })
+      });
+      await app.requireOK(res, '重新生成失败');
+      const d = await res.json();
+      showNewToken(d.token);
+      app.toast('已签发新 Token，旧 Token 已撤销');
+      await app.loadDataAPITokens();
+    });
+  };
+
+  function armConfirm(button, confirmLabel, run) {
+    if (button.dataset.armed === '1') {
+      button.dataset.armed = '';
+      button.classList.remove('armed');
+      button.textContent = button.dataset.label;
+      void run().catch(err => app.toast(err && err.message ? err.message : '操作失败', 'err'));
+      return;
+    }
+    button.dataset.armed = '1';
+    button.dataset.label = button.textContent;
+    button.classList.add('armed');
+    button.textContent = confirmLabel;
+    setTimeout(() => {
+      if (button.dataset.armed === '1') {
+        button.dataset.armed = '';
+        button.classList.remove('armed');
+        button.textContent = button.dataset.label;
+      }
+    }, 3000);
+  }
+
+  /* ── 访问记录 ───────────────────────────────────── */
+
+  app.loadDataAPIAudit = async function loadDataAPIAudit() {
+    if (!onPage()) return;
+    const state = app.dapiAuditState;
+    const list = el('dapiAuditList');
+    try {
+      const d = await app.fetch('/api/v1/data-api/audit?limit=' + DAPI_AUDIT_PAGE_SIZE + '&offset=' + state.page * DAPI_AUDIT_PAGE_SIZE).then(r => r.json());
+      state.total = d.total || 0;
+      renderAudit(d.entries || []);
+    } catch (_) {
+      el('dapiAuditTotal').textContent = '读取失败';
+      list.innerHTML = '<p class="dapi-empty">无法读取访问记录，请查看本地日志</p>';
+    }
+  };
+
+  function renderAudit(entries) {
+    const state = app.dapiAuditState;
+    const list = el('dapiAuditList');
+    el('dapiAuditTotal').textContent = '共 ' + state.total + ' 条访问记录';
+    if (!entries.length) {
+      list.innerHTML = '<p class="dapi-empty">' + (state.page > 0 ? '本页没有记录' : '暂无访问记录') + '</p>';
+    } else {
+      list.innerHTML = entries.map(entry => {
+        const detail = entry.operation === 'query_items' || entry.operation === 'batch_get'
+          ? entry.itemCount + ' 条结果'
+          : (entry.itemId ? '记录 #' + entry.itemId : '');
+        const ok = entry.statusCode < 400;
+        const statusCls = ok ? 'active' : (entry.statusCode < 500 ? 'expired' : 'revoked');
+        return '<div class="dapi-card">' +
+          '<div class="dapi-card-head">' +
+          '<span class="dapi-card-name">' + app.esc(entry.tokenName || '未知令牌') + '</span>' +
+          '<span class="dapi-badge ' + statusCls + '">' + entry.statusCode + (entry.errorCode ? ' · ' + app.esc(entry.errorCode) : '') + '</span>' +
+          '</div>' +
+          '<div class="dapi-meta">' +
+          '<span class="dapi-tag">' + app.esc(app.formatLogTime(entry.timestamp)) + '</span>' +
+          '<span class="dapi-tag">' + app.esc(entry.remoteIP) + '</span>' +
+          '<span class="dapi-tag">' + app.esc(entry.operation) + (detail ? '：' + app.esc(detail) : '') + '</span>' +
+          '<span class="dapi-tag">' + entry.durationMs + 'ms</span>' +
+          '</div>' +
+          '</div>';
+      }).join('');
+    }
+    const pager = el('dapiAuditPager');
+    const pages = Math.max(1, Math.ceil(state.total / DAPI_AUDIT_PAGE_SIZE));
+    pager.classList.toggle('hidden', state.total <= DAPI_AUDIT_PAGE_SIZE);
+    el('dapiAuditPageInfo').textContent = '第 ' + (state.page + 1) + ' / ' + pages + ' 页';
+    el('dapiAuditPrev').disabled = state.page <= 0;
+    el('dapiAuditNext').disabled = (state.page + 1) * DAPI_AUDIT_PAGE_SIZE >= state.total;
+  }
+
+  app.turnDataAPIAuditPage = function turnDataAPIAuditPage(delta) {
+    const state = app.dapiAuditState;
+    const next = state.page + delta;
+    if (next < 0 || next * DAPI_AUDIT_PAGE_SIZE >= state.total) return;
+    state.page = next;
+    void app.loadDataAPIAudit();
+  };
+
+  app.refreshDataAPIAudit = function refreshDataAPIAudit() {
+    app.dapiAuditState.page = 0;
+    void app.loadDataAPIAudit();
+  };
+
+  app.clearDataAPIAudit = function clearDataAPIAudit(button) {
+    armConfirm(button, '再次点击确认清空', async () => {
+      await app.requireOK(await app.protectedFetch('/api/v1/data-api/audit', { method: 'DELETE' }), '清空失败');
+      app.toast('访问记录已清空');
+      app.dapiAuditState.page = 0;
+      await app.loadDataAPIAudit();
+    });
+  };
+
+  /* ── 页面初始化 ─────────────────────────────────── */
+
+  if (onPage()) {
+    document.querySelectorAll('input[name="dapiScope"]').forEach(radio => {
+      radio.addEventListener('change', updateLanWarning);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') app.closeDataAPIDoc();
+    });
+    void app.loadDataAPIStatus();
+    void app.loadDataAPITokens();
+    void app.loadDataAPIAudit();
+  }
+}

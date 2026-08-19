@@ -24,6 +24,7 @@ import { registerCleanupModal } from './cleanup-modal.js';
 import { registerSettingsLifecycle } from './settings-lifecycle.js';
 import { registerSettingsSystem } from './settings-system.js';
 import { registerLogs } from './logs.js';
+import { registerDataAPI } from './data-api.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
@@ -61,7 +62,23 @@ registerActions({
   'oplog-prev': () => app.turnConfigChangeLogPage(-1),
   'oplog-next': () => app.turnConfigChangeLogPage(1),
   'shlog-prev': () => app.turnSearchHistoryPage(-1),
-  'shlog-next': () => app.turnSearchHistoryPage(1)
+  'shlog-next': () => app.turnSearchHistoryPage(1),
+  'data-api-save': () => app.dataApiSave(),
+  'data-api-copy-url': () => app.dataApiCopyURL(),
+  'data-api-copy-example': () => app.dataApiCopyExample(),
+  'data-api-open-doc': () => app.openDataAPIDoc(),
+  'data-api-close-doc': () => app.closeDataAPIDoc(),
+  'data-api-copy-doc': element => app.dataApiCopyDoc(element),
+  'data-api-doc-nav': element => app.dataApiDocNav(element),
+  'data-api-token-create': () => app.dataApiTokenCreate(),
+  'data-api-token-copy': () => app.dataApiTokenCopy(),
+  'data-api-token-dismiss': () => app.dataApiTokenDismiss(),
+  'data-api-token-revoke': element => app.dataApiTokenRevoke(element),
+  'data-api-token-regenerate': element => app.dataApiTokenRegenerate(element),
+  'data-api-audit-prev': () => app.turnDataAPIAuditPage(-1),
+  'data-api-audit-next': () => app.turnDataAPIAuditPage(1),
+  'data-api-audit-refresh': () => app.refreshDataAPIAudit(),
+  'data-api-audit-clear': element => app.clearDataAPIAudit(element)
 });
 registerNotifications();
 registerRuntimeState();
@@ -87,3 +104,4 @@ registerCleanupModal();
 registerSettingsSystem();
 registerSettingsLifecycle();
 registerLogs();
+registerDataAPI();

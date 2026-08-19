@@ -10,6 +10,10 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
           <span>分组管理</span>
         </a>
+        <a class="amenu-item{{if eq .Menu "data-api"}} active{{end}}" href="/data-api"{{if eq .Menu "data-api"}} aria-current="page"{{end}}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          <span>数据接口</span>
+        </a>
         <a class="amenu-item{{if eq .Menu "license"}} active{{end}}" href="/license"{{if eq .Menu "license"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
           <span>软件授权</span>

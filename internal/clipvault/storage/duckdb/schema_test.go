@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestSchemaV5UsesUnixMillisecondsAndUnifiedBackupHistory(t *testing.T) {
-	if SchemaVersion != "5" {
-		t.Fatalf("SchemaVersion = %q, want 5", SchemaVersion)
+func TestSchemaV6UsesUnixMillisecondsAndDataAPITables(t *testing.T) {
+	if SchemaVersion != "6" {
+		t.Fatalf("SchemaVersion = %q, want 6", SchemaVersion)
 	}
 	schema := strings.Join(SchemaStatements, "\n")
 	if SchemaIdentity == "" {
@@ -21,6 +21,8 @@ func TestSchemaV5UsesUnixMillisecondsAndUnifiedBackupHistory(t *testing.T) {
 		"search_history", "filters JSON", "result_count BIGINT",
 		"backup_history", "kind VARCHAR", "trigger VARCHAR", "mode VARCHAR",
 		"ok BOOLEAN", "error VARCHAR", "target VARCHAR", "parts BIGINT", "items BIGINT",
+		"api_tokens", "token_hash VARCHAR", "expires_at BIGINT", "revoked_at BIGINT",
+		"api_audit_log", "ts BIGINT", "operation VARCHAR", "status_code BIGINT", "duration_ms BIGINT",
 	} {
 		if !strings.Contains(schema, fragment) {
 			t.Fatalf("schema does not contain %q", fragment)

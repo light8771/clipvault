@@ -38,6 +38,7 @@ type SearchServer struct {
 	assetMu    sync.Mutex
 	recoveryMu sync.Mutex
 	startedAt  time.Time
+	dataAPI    *DataAPIService
 }
 
 type freshSecondaryContextKey struct{}
@@ -155,6 +156,15 @@ func (s *SearchServer) Start() (string, error) {
 	api("POST /api/v1/recovery/reset", s.requireSecondary(s.handleRecoveryReset))
 	api("POST /api/v1/recovery/isolated-switch", s.requireSecondary(s.handleIsolatedDatabaseSwitch))
 	api("DELETE /api/v1/recovery/isolated-switch", s.requireSecondary(s.handleIsolatedDatabaseSwitchCancel))
+
+	api("GET /api/v1/data-api", s.requireAuth(s.handleDataAPIStatus))
+	api("PUT /api/v1/data-api/config", s.requireSecondary(s.handleDataAPIConfig))
+	api("GET /api/v1/data-api/tokens", s.requireAuth(s.handleDataAPITokens))
+	api("POST /api/v1/data-api/tokens", s.requireSecondary(s.handleDataAPITokenCreate))
+	api("POST /api/v1/data-api/tokens/regenerate", s.requireSecondary(s.handleDataAPITokenRegenerate))
+	api("POST /api/v1/data-api/tokens/revoke", s.requireSecondary(s.handleDataAPITokenRevoke))
+	api("GET /api/v1/data-api/audit", s.requireAuth(s.handleDataAPIAudit))
+	api("DELETE /api/v1/data-api/audit", s.requireSecondary(s.handleDataAPIAuditClear))
 
 	api("GET /api/v1/logs/config-changes", s.requireAuth(s.handleConfigChangeLog))
 	api("DELETE /api/v1/logs/config-changes", s.requireSecondary(s.handleConfigChangeLogClear))

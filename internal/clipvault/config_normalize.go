@@ -42,6 +42,9 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Popup.KeyPaste == "" {
 		cfg.Popup.KeyPaste = def.Popup.KeyPaste
 	}
+	if strings.TrimSpace(cfg.DataAPI.ListenAddr) == "" {
+		cfg.DataAPI.ListenAddr = def.DataAPI.ListenAddr
+	}
 	cfg.Source.normalize()
 }
 
