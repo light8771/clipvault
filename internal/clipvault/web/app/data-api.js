@@ -41,6 +41,7 @@ export function registerDataAPI() {
       : '未激活：数据接口仅对已激活用户开放';
     el('dapiUrlRow').classList.toggle('hidden', !(enabled && d.running && d.url));
     el('dapiUrlText').value = d.url || '';
+    el('dapiSensitiveDefault').checked = !!d.sensitiveDefault;
     applyListenAddrToForm(d.listenAddr || '127.0.0.1:17839');
     updateLanWarning();
   }
@@ -85,7 +86,11 @@ export function registerDataAPI() {
       const res = await app.protectedFetch('/api/v1/data-api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled, listenAddr })
+        body: JSON.stringify({
+          enabled,
+          listenAddr,
+          sensitiveDefault: el('dapiSensitiveDefault').checked
+        })
       });
       await app.requireOK(res, '保存失败');
       const d = await res.json();
@@ -199,6 +204,7 @@ export function registerDataAPI() {
       const inactive = token.state !== 'active';
       const actions = !inactive
         ? '<div class="dapi-actions">' +
+          '<button type="button" class="dapi-btn' + (token.allowSensitive ? '' : ' primary') + '" data-action="data-api-token-sensitive" data-id="' + token.id + '" data-allow="' + (token.allowSensitive ? 'false' : 'true') + '">' + (token.allowSensitive ? '禁止敏感数据' : '允许敏感数据') + '</button>' +
           '<button type="button" class="dapi-btn" data-action="data-api-token-regenerate" data-id="' + token.id + '">重新生成</button>' +
           '<button type="button" class="dapi-btn danger" data-action="data-api-token-revoke" data-id="' + token.id + '">撤销</button>' +
           '</div>'
@@ -236,8 +242,7 @@ export function registerDataAPI() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
-          expiresIn: el('dapiTokenExpiry').value,
-          allowSensitive: el('dapiTokenAllowSensitive').checked
+          expiresIn: el('dapiTokenExpiry').value
         })
       });
       await app.requireOK(res, '创建失败');
@@ -260,6 +265,26 @@ export function registerDataAPI() {
     app.dapiNewToken = '';
     el('dapiNewTokenValue').textContent = '';
     el('dapiNewTokenBox').classList.add('hidden');
+  };
+
+  // 敏感数据授权：开启（扩大权限）需要二次确认，关闭直接执行。
+  app.dataApiTokenSensitive = function dataApiTokenSensitive(button) {
+    const target = button.dataset.allow === 'true';
+    const apply = async () => {
+      const res = await app.protectedFetch('/api/v1/data-api/tokens/sensitive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: button.dataset.id, allowSensitive: target })
+      });
+      await app.requireOK(res, '修改失败');
+      app.toast(target ? '该 Token 现可读取敏感数据' : '该 Token 已限制为仅普通数据');
+      await app.loadDataAPITokens();
+    };
+    if (target) {
+      armConfirm(button, '再次点击确认允许敏感数据', apply);
+    } else {
+      apply().catch(e => app.toast('修改失败：' + (e.message || e), 'err'));
+    }
   };
 
   // 撤销是破坏性操作：第一次点击进入确认态，3 秒内再次点击才执行。

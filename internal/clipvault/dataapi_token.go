@@ -39,12 +39,13 @@ var (
 // APIToken 是 HTTP 数据接口与 MCP 共享的外部访问令牌元数据。
 // 原始 Token 只在创建时返回一次，数据库只保存 SHA-256 哈希（AUTH-02）。
 // Channel 限定令牌可用于的服务（http|mcp）；AllowSensitive 控制敏感数据
-// 可见性，默认 false，必须由用户显式授权。
+// 可见性：初始值取通道的全局 sensitiveDefault，创建后可单独调整。
 type APIToken struct {
 	ID             int64      `json:"-"`
 	Name           string     `json:"name"`
-	Channel        string     `json:"channel"`        // "http" | "mcp"
-	AllowSensitive bool       `json:"allowSensitive"` // 默认 false
+	Channel        string     `json:"channel"` // "http" | "mcp"
+	// AllowSensitive 运行时权限只认此字段（ExternalReadService 强制执行）。
+	AllowSensitive bool       `json:"allowSensitive"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	ExpiresAt      *time.Time `json:"expiresAt"`  // null = 永不过期
 	LastUsedAt     *time.Time `json:"lastUsedAt"` // null = 从未使用
@@ -67,7 +68,8 @@ func hashAPIToken(raw string) []byte {
 	return sum[:]
 }
 
-// apiTokenExpiryPreset 是创建/重新生成 Token 时的有效期预设。
+// apiTokenExpiryMS 把创建/重新生成 Token 的有效期预设换算为过期毫秒时间戳；
+// 永不过期返回 0。预设必须显式给出，空值报错。
 func apiTokenExpiryMS(preset string, now time.Time) (int64, error) {
 	var d time.Duration
 	switch preset {
@@ -81,13 +83,48 @@ func apiTokenExpiryMS(preset string, now time.Time) (int64, error) {
 		d = 90 * 24 * time.Hour
 	case "1y":
 		d = 365 * 24 * time.Hour
-	case "", "never":
-		// 空值与 never 都表示永不过期。
+	case "never":
+		// 永不过期必须显式指定；空值（漏传字段）视为无效输入，
+		// 避免客户端疏忽时静默签出永不过期 Token（权限意外放大）。
 		return 0, nil
 	default:
 		return 0, fmt.Errorf("unsupported expiry preset %q", preset)
 	}
 	return now.Add(d).UnixMilli(), nil
+}
+
+// tokenExpiryPreset 按令牌的总有效期匹配最近的预设档（重新生成时用）。
+// created_at 与 expires_at 由两次取时分别产生，存在毫秒级偏差，精确相等
+// 比较会把 30d 令牌错配到兜底档，因此映射到最近的预设档；永不过期返回 "never"。
+func tokenExpiryPreset(createdAt time.Time, expiresAt *time.Time) string {
+	if expiresAt == nil {
+		return "never"
+	}
+	diff := expiresAt.Sub(createdAt)
+	presets := []struct {
+		name string
+		d    time.Duration
+	}{
+		{"1d", 24 * time.Hour},
+		{"7d", 7 * 24 * time.Hour},
+		{"30d", 30 * 24 * time.Hour},
+		{"90d", 90 * 24 * time.Hour},
+		{"1y", 365 * 24 * time.Hour},
+	}
+	best, bestDelta := presets[0].name, absDuration(diff-presets[0].d)
+	for _, preset := range presets[1:] {
+		if delta := absDuration(diff - preset.d); delta < bestDelta {
+			best, bestDelta = preset.name, delta
+		}
+	}
+	return best
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 // validateAPITokenName 收敛并校验 Token 名称。

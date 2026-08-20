@@ -3,10 +3,8 @@ package clipvault
 import (
 	"bytes"
 	"encoding/csv"
-	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -23,9 +21,10 @@ func (s *SearchServer) handleMCPStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.Get()
 	activated := s.license == nil || s.license.CanUsePaidFeatures()
 	resp := map[string]any{
-		"enabled":    cfg.MCP.Enabled,
-		"listenAddr": cfg.MCP.ListenAddr,
-		"activated":  activated,
+		"enabled":          cfg.MCP.Enabled,
+		"listenAddr":       cfg.MCP.ListenAddr,
+		"sensitiveDefault": cfg.MCP.SensitiveDefault,
+		"activated":        activated,
 		"capabilities": map[string]any{
 			"tools": mcpCoreToolNames(),
 			"resourceTemplates": []string{
@@ -49,76 +48,22 @@ func (s *SearchServer) handleMCPStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.store != nil {
 		if tokens, err := s.store.ListAPITokens(r.Context()); err == nil {
-			count := 0
-			for _, token := range tokens {
-				if token.Channel == TokenChannelMCP {
-					count++
-				}
-			}
-			resp["tokenCount"] = count
+			resp["tokenCount"] = countChannelTokens(tokens, TokenChannelMCP)
 		}
 	}
 	s.writeJSON(w, resp)
 }
 
-// handleMCPConfig 更新启用开关与监听地址（立即生效，无需重启）。
+// handleMCPConfig 更新 MCP 服务配置（立即生效，无需重启）。
 func (s *SearchServer) handleMCPConfig(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Enabled    bool   `json:"enabled"`
-		ListenAddr string `json:"listenAddr"`
-	}
-	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
-		return
-	}
-	host, port, err := validateListenAddr(req.ListenAddr)
-	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", "监听地址无效: "+err.Error(), err)
-		return
-	}
-	cfg := s.cfgMgr.Get()
-	addrChanged := req.ListenAddr != cfg.MCP.ListenAddr
-	enabling := req.Enabled && !cfg.MCP.Enabled
-	// 启用或变更地址前探测端口可用性，避免保存后绑定失败才被发现。
-	if req.Enabled && (enabling || addrChanged) {
-		if err := listenAddrAvailable(host, port); err != nil {
-			s.writeAPIError(w, http.StatusBadRequest, "listen_addr_unavailable", "监听地址 "+req.ListenAddr+" 当前不可用（端口可能被其他程序占用），请更换端口", err)
-			return
-		}
-	}
-	if req.Enabled && FreeTierRestriction(s.env) {
-		s.writeAPIError(w, http.StatusForbidden, "activation_required", "MCP 仅对已激活用户开放", nil)
-		return
-	}
-	curCfg := cfg
-	cfg.MCP.Enabled = req.Enabled
-	cfg.MCP.ListenAddr = req.ListenAddr
-	changes := diffConfigChanges(curCfg, cfg)
-	response := map[string]any{"ok": true}
-	if err := s.cfgMgr.Update(cfg); err != nil {
-		var runtimeErr *ConfigRuntimeApplyError
-		if !errors.As(err, &runtimeErr) {
-			s.writeError(w, err)
-			return
-		}
-		response["runtimeError"] = runtimeErr.Error()
-		s.logger.Warn("mcp_runtime_apply_failed", map[string]any{"error": runtimeErr.Error()})
-	}
-	if s.store != nil {
-		if err := s.store.LogConfigChanges(r.Context(), changes); err != nil {
-			s.logger.Warn("config_change_log_failed", map[string]any{"error": err.Error()})
-		}
-	}
-	newCfg := s.cfgMgr.Get()
-	response["enabled"] = newCfg.MCP.Enabled
-	response["listenAddr"] = newCfg.MCP.ListenAddr
-	if s.mcp != nil {
-		status := s.mcp.Status()
-		response["running"] = status.Running
-		response["url"] = status.URL
-		response["bindError"] = status.BindError
-	}
-	s.writeJSON(w, response)
+	s.updateExternalServiceConfig(w, r, "MCP ", "mcp_runtime_apply_failed",
+		func(c *Config) *ExternalServiceConfig { return &c.MCP },
+		func() (externalServiceStatus, bool) {
+			if s.mcp == nil {
+				return externalServiceStatus{}, false
+			}
+			return s.mcp.Status(), true
+		})
 }
 
 // handleMCPTokens 列出全部 MCP 通道 Token 元数据（不含原文）。
@@ -157,17 +102,17 @@ func (s *SearchServer) handleMCPTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMCPTokenCreate 创建新 MCP 通道 Token。
+// 敏感授权初始值取全局默认（sensitiveDefault），创建后可在列表中单独调整。
 func (s *SearchServer) handleMCPTokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string `json:"name"`
-		Expiry         string `json:"expiry"`
-		AllowSensitive bool   `json:"allowSensitive"`
+		Name   string `json:"name"`
+		Expiry string `json:"expiry"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
-	created := s.createAPIToken(w, r, req.Name, req.Expiry, TokenChannelMCP, req.AllowSensitive)
+	created := s.createAPIToken(w, r, req.Name, req.Expiry, TokenChannelMCP, s.cfgMgr.Get().MCP.SensitiveDefault)
 	if created == nil {
 		return
 	}
@@ -175,123 +120,25 @@ func (s *SearchServer) handleMCPTokenCreate(w http.ResponseWriter, r *http.Reque
 	s.writeJSON(w, created)
 }
 
+// handleMCPTokenSensitive 单独调整某个 MCP Token 的敏感数据授权（仅对有效 Token 生效）。
+func (s *SearchServer) handleMCPTokenSensitive(w http.ResponseWriter, r *http.Request) {
+	s.setTokenSensitive(w, r, TokenChannelMCP, "mcp_token_sensitive_updated")
+}
+
 // handleMCPTokenRegenerate 撤销旧 Token 并按原名称/有效期/敏感授权签发新 MCP Token。
 func (s *SearchServer) handleMCPTokenRegenerate(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
-		return
-	}
-	id, err := strconv.ParseInt(req.ID, 10, 64)
-	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 Token ID", nil)
-		return
-	}
-	var old *APIToken
-	tokens, err := s.store.ListAPITokens(r.Context())
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	for i := range tokens {
-		if tokens[i].ID == id {
-			old = &tokens[i]
-			break
-		}
-	}
-	if old == nil || old.Channel != TokenChannelMCP {
-		s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
-		return
-	}
-	// 有效期语义：保持原来的总时长（从签发时刻重新计算）；永不过期保持不变。
-	preset := "never"
-	if old.ExpiresAt != nil {
-		switch old.ExpiresAt.Sub(old.CreatedAt) {
-		case 24 * time.Hour:
-			preset = "1d"
-		case 7 * 24 * time.Hour:
-			preset = "7d"
-		case 30 * 24 * time.Hour:
-			preset = "30d"
-		case 90 * 24 * time.Hour:
-			preset = "90d"
-		default:
-			preset = "1y"
-		}
-	}
-	if err := s.store.RevokeAPIToken(r.Context(), id); err != nil {
-		if errors.Is(err, errAPITokenNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
-			return
-		}
-		s.writeError(w, err)
-		return
-	}
-	created := s.createAPIToken(w, r, old.Name, preset, TokenChannelMCP, old.AllowSensitive)
-	if created == nil {
-		return
-	}
-	s.logger.Info("mcp_token_regenerated", map[string]any{"oldTokenId": req.ID, "newTokenId": created.ID})
-	s.writeJSON(w, created)
+	s.regenerateToken(w, r, TokenChannelMCP, "mcp_token_regenerated")
 }
 
 // handleMCPTokenRevoke 撤销 MCP Token（立即生效，不删除记录）。
 func (s *SearchServer) handleMCPTokenRevoke(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
-		return
-	}
-	id, err := strconv.ParseInt(req.ID, 10, 64)
-	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 Token ID", nil)
-		return
-	}
-	if err := s.store.RevokeAPIToken(r.Context(), id); err != nil {
-		if errors.Is(err, errAPITokenNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
-			return
-		}
-		s.writeError(w, err)
-		return
-	}
-	s.logger.Info("mcp_token_revoked", map[string]any{"tokenId": req.ID})
-	s.writeJSON(w, map[string]any{"ok": true})
-}
-
-// mcpAuditFilterFromRequest 编译 MCP 审计过滤条件（只看 mcp 通道）。
-func mcpAuditFilterFromRequest(r *http.Request) APIAuditFilter {
-	query := r.URL.Query()
-	filter := APIAuditFilter{
-		Channel: TokenChannelMCP,
-		Result:  query.Get("result"),
-		Query:   query.Get("q"),
-		TokenID: parseInt64OrZero(query.Get("tokenId")),
-	}
-	for _, op := range strings.Split(query.Get("operation"), ",") {
-		if op = strings.TrimSpace(op); op != "" {
-			filter.Operations = append(filter.Operations, op)
-		}
-	}
-	filter.Limit, _ = strconv.Atoi(query.Get("limit"))
-	filter.Offset, _ = strconv.Atoi(query.Get("offset"))
-	if filter.Limit <= 0 || filter.Limit > 200 {
-		filter.Limit = 20
-	}
-	if filter.Offset < 0 {
-		filter.Offset = 0
-	}
-	return filter
+	s.revokeToken(w, r, TokenChannelMCP, "mcp_token_revoked")
 }
 
 // handleMCPAudit 分页返回 MCP 访问记录（支持操作/结果/令牌/关键词过滤），
 // 并附带 MCP 通道统计概览。
 func (s *SearchServer) handleMCPAudit(w http.ResponseWriter, r *http.Request) {
-	filter := mcpAuditFilterFromRequest(r)
+	filter := apiAuditFilterFromRequest(r, TokenChannelMCP)
 	events, total, err := s.store.ListAPIAuditEvents(r.Context(), filter)
 	if err != nil {
 		s.writeError(w, err)
@@ -306,7 +153,7 @@ func (s *SearchServer) handleMCPAudit(w http.ResponseWriter, r *http.Request) {
 
 // handleMCPAuditExport 按当前过滤条件导出全部 MCP 审计记录为 CSV。
 func (s *SearchServer) handleMCPAuditExport(w http.ResponseWriter, r *http.Request) {
-	filter := mcpAuditFilterFromRequest(r)
+	filter := apiAuditFilterFromRequest(r, TokenChannelMCP)
 	filter.Limit = maxAPIAuditLogRows
 	filter.Offset = 0
 	events, _, err := s.store.ListAPIAuditEvents(r.Context(), filter)

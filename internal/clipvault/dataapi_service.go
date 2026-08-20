@@ -49,8 +49,8 @@ func newDataAPIError(status int, code, message string) *dataAPIError {
 	return &dataAPIError{Status: status, Code: code, Message: message}
 }
 
-// dataAPIStatus 是管理界面可见的运行时状态快照。
-type dataAPIStatus struct {
+// externalServiceStatus 是外部只读服务（数据接口 / MCP）的运行时状态快照。
+type externalServiceStatus struct {
 	Running        bool   `json:"running"`
 	URL            string `json:"url"`
 	BindError      string `json:"bindError,omitempty"`
@@ -207,11 +207,11 @@ func (svc *DataAPIService) stopLocked() {
 }
 
 // Status 返回运行时状态快照（并发安全）。
-func (svc *DataAPIService) Status() dataAPIStatus {
+func (svc *DataAPIService) Status() externalServiceStatus {
 	svc.mu.Lock()
 	running, listen, bindError := svc.running, svc.listen, svc.bindError
 	svc.mu.Unlock()
-	status := dataAPIStatus{
+	status := externalServiceStatus{
 		Running:        running,
 		BindError:      bindError,
 		ActiveQueries:  svc.activeQueries.Load(),

@@ -26,27 +26,25 @@ type Config struct {
 	SearchHotkey  HotkeyConfig       `json:"searchHotkey"`
 	Image         ImageCaptureConfig `json:"image"`
 	Popup         SearchPopupConfig  `json:"popup"`
-	Backup        BackupConfig       `json:"backup"`
-	DataAPI       DataAPIConfig      `json:"dataApi"`
-	MCP           MCPConfig          `json:"mcp"`
+	Backup BackupConfig `json:"backup"`
+	// DataAPI 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
+	// 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。
+	DataAPI ExternalServiceConfig `json:"dataApi"`
+	// MCP MCP 服务（Model Context Protocol，Streamable HTTP）：供 AI/MCP
+	// 宿主通过 /mcp 端点 + Bearer Token 只读访问剪贴板数据。与数据接口
+	// 共享 ExternalReadService、令牌与审计模型；令牌按 channel 隔离
+	// （HTTP Token 不能调用 MCP，反之亦然）。
+	MCP ExternalServiceConfig `json:"mcp"`
 }
 
-// DataAPIConfig 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
-// 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。仅对已激活用户开放，
-// 独立于主 Web 服务监听，可随时启停。
-type DataAPIConfig struct {
+// ExternalServiceConfig 是外部只读服务（数据接口 / MCP）的运行配置：
+// 独立于主 Web 服务监听，可随时启停，仅对已激活用户开放，失败不影响主流程。
+type ExternalServiceConfig struct {
 	Enabled    bool   `json:"enabled"`
 	ListenAddr string `json:"listenAddr"`
-}
-
-// MCPConfig MCP 服务（Model Context Protocol，Streamable HTTP）：
-// 供 AI/MCP 宿主通过 /mcp 端点 + Bearer Token 只读访问剪贴板数据。
-// 与数据接口共享 ExternalReadService、令牌与审计模型；令牌按 channel
-// 隔离（HTTP Token 不能调用 MCP，反之亦然）。仅对已激活用户开放，
-// 独立监听、可随时启停，失败不影响主流程。
-type MCPConfig struct {
-	Enabled    bool   `json:"enabled"`
-	ListenAddr string `json:"listenAddr"`
+	// SensitiveDefault 新建令牌的敏感数据授权初始值。运行时权限只认令牌
+	// 自身的 allowSensitive，此值仅在创建令牌时作为初始授权。
+	SensitiveDefault bool `json:"sensitiveDefault"`
 }
 
 // ImageCaptureConfig 图片捕获配置（Win+Shift+S 截图、浏览器 Copy Image、
@@ -101,8 +99,8 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"searchHotkey", []string{"enabled", "modifiers", "key"}},
 		{"image", []string{"enabled", "maxBytes"}},
 		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
-		{"dataApi", []string{"enabled", "listenAddr"}},
-		{"mcp", []string{"enabled", "listenAddr"}},
+		{"dataApi", []string{"enabled", "listenAddr", "sensitiveDefault"}},
+		{"mcp", []string{"enabled", "listenAddr", "sensitiveDefault"}},
 	}
 	for _, object := range objects {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {

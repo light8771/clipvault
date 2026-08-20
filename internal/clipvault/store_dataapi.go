@@ -92,7 +92,8 @@ func scanAPIToken(row rowScanner, token *APIToken) error {
 const apiTokenColumns = `id, name, channel, allow_sensitive, created_at, expires_at, last_used_at, revoked_at`
 
 // CreateAPIToken 持久化一个 Token 的哈希与元数据，返回自增 ID。
-// channel 必须是 http|mcp；allowSensitive 默认 false（敏感数据按 Token 显式授权）。
+// channel 必须是 http|mcp；allowSensitive 由调用方决定（新令牌继承通道
+// 全局 sensitiveDefault，重新生成保持原值）。
 func (s *Store) CreateAPIToken(ctx context.Context, name string, tokenHash []byte, expiresAtMS int64, channel string, allowSensitive bool) (int64, error) {
 	if !validTokenChannel(channel) {
 		return 0, fmt.Errorf("invalid token channel %q", channel)
@@ -162,11 +163,13 @@ func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 	return tokens, rows.Err()
 }
 
-// RevokeAPIToken 撤销一个 Token（幂等：已撤销则刷新撤销时间不报错）。
-func (s *Store) RevokeAPIToken(ctx context.Context, id int64) error {
+// RevokeAPIToken 撤销一个 Token（幂等：同通道已撤销视为成功，不改动撤销时间）。
+// 通道必须匹配（SEC-07 通道隔离在管理面同样成立）：跨通道与不存在一样
+// 返回 errAPITokenNotFound。
+func (s *Store) RevokeAPIToken(ctx context.Context, id int64, channel string) error {
 	result, err := s.db.ExecContext(ctx,
-		`UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND revoked_at = 0`,
-		time.Now().UTC().UnixMilli(), id)
+		`UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND channel = ? AND revoked_at = 0`,
+		time.Now().UTC().UnixMilli(), id, channel)
 	if err != nil {
 		return err
 	}
@@ -175,13 +178,46 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id int64) error {
 		return err
 	}
 	if n == 0 {
+		// 同通道已撤销 → 幂等成功；不存在或通道不匹配 → not found。
 		var revokedAtMS int64
-		row := s.db.QueryRowContext(ctx, `SELECT revoked_at FROM api_tokens WHERE id = ?`, id)
+		row := s.db.QueryRowContext(ctx, `SELECT revoked_at FROM api_tokens WHERE id = ? AND channel = ?`, id, channel)
 		if scanErr := row.Scan(&revokedAtMS); errors.Is(scanErr, sql.ErrNoRows) {
 			return fmt.Errorf("%w: %d", errAPITokenNotFound, id)
 		} else if scanErr != nil {
 			return scanErr
 		}
+	}
+	return nil
+}
+
+// GetAPITokenByID 按主键返回 Token 元数据；不存在返回 errAPITokenNotFound。
+func (s *Store) GetAPITokenByID(ctx context.Context, id int64) (APIToken, error) {
+	var token APIToken
+	row := s.db.QueryRowContext(ctx, `SELECT `+apiTokenColumns+` FROM api_tokens WHERE id = ?`, id)
+	if err := scanAPIToken(row, &token); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return token, fmt.Errorf("%w: %d", errAPITokenNotFound, id)
+		}
+		return token, err
+	}
+	return token, nil
+}
+
+// SetAPITokenSensitive 修改 Token 的敏感数据授权（仅对未撤销且未过期的 Token 生效，
+// 通道必须匹配）。幂等：已是目标值时直接成功。Token 不存在或已失效返回 errAPITokenNotFound。
+func (s *Store) SetAPITokenSensitive(ctx context.Context, id int64, channel string, allow bool) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE api_tokens SET allow_sensitive = ? WHERE id = ? AND channel = ? AND revoked_at = 0 AND (expires_at = 0 OR expires_at > ?)`,
+		allow, id, channel, time.Now().UTC().UnixMilli())
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %d", errAPITokenNotFound, id)
 	}
 	return nil
 }

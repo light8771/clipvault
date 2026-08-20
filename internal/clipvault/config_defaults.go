@@ -106,13 +106,15 @@ func DefaultConfig() Config {
 				FullFallbackDays: 7,
 			},
 		},
-		DataAPI: DataAPIConfig{
-			Enabled:    false,
-			ListenAddr: "127.0.0.1:17839",
+		DataAPI: ExternalServiceConfig{
+			Enabled:          false,
+			ListenAddr:       "127.0.0.1:17839",
+			SensitiveDefault: false,
 		},
-		MCP: MCPConfig{
-			Enabled:    false,
-			ListenAddr: "127.0.0.1:17840",
+		MCP: ExternalServiceConfig{
+			Enabled:          false,
+			ListenAddr:       "127.0.0.1:17840",
+			SensitiveDefault: false,
 		},
 	}
 }

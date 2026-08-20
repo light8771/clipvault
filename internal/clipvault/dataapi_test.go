@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -79,7 +81,7 @@ func TestAPITokenLifecycle(t *testing.T) {
 		t.Fatalf("expired token err=%v, want expired", err)
 	}
 	// 撤销后立即被拒绝。
-	if err := store.RevokeAPIToken(ctx, id); err != nil {
+	if err := store.RevokeAPIToken(ctx, id, TokenChannelHTTP); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AuthenticateAPIToken(ctx, raw, TokenChannelHTTP); err != errAPITokenRevoked {
@@ -108,6 +110,240 @@ func TestAPITokenLifecycle(t *testing.T) {
 				t.Fatal("revokedAt must be set")
 			}
 		}
+	}
+}
+
+// TestSetAPITokenSensitive 验证 SetAPITokenSensitive 的 store 语义：
+// 仅对未撤销、未过期且通道匹配的 Token 生效；幂等；其余情况一律 errAPITokenNotFound。
+func TestSetAPITokenSensitive(t *testing.T) {
+	store := openDataAPITestStore(t)
+	ctx := context.Background()
+
+	// 永不过期的 HTTP 通道 Token，创建时敏感授权为 false（跟随全局默认）。
+	raw, hash, err := generateAPIToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.CreateAPIToken(ctx, "tuner", hash, 0, TokenChannelHTTP, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.AuthenticateAPIToken(ctx, raw, TokenChannelHTTP)
+	if err != nil {
+		t.Fatalf("authenticate fresh token: %v", err)
+	}
+	if token.AllowSensitive {
+		t.Fatal("fresh token must not allow sensitive")
+	}
+
+	// 开启敏感授权后认证立即反映新值。
+	if err := store.SetAPITokenSensitive(ctx, id, TokenChannelHTTP, true); err != nil {
+		t.Fatal(err)
+	}
+	token, err = store.AuthenticateAPIToken(ctx, raw, TokenChannelHTTP)
+	if err != nil {
+		t.Fatalf("authenticate after grant: %v", err)
+	}
+	if !token.AllowSensitive {
+		t.Fatal("token must allow sensitive after grant")
+	}
+
+	// 幂等：重复设为相同值仍然成功。
+	if err := store.SetAPITokenSensitive(ctx, id, TokenChannelHTTP, true); err != nil {
+		t.Fatalf("idempotent grant must succeed: %v", err)
+	}
+
+	// 关闭敏感授权。
+	if err := store.SetAPITokenSensitive(ctx, id, TokenChannelHTTP, false); err != nil {
+		t.Fatal(err)
+	}
+	token, err = store.AuthenticateAPIToken(ctx, raw, TokenChannelHTTP)
+	if err != nil {
+		t.Fatalf("authenticate after revoke grant: %v", err)
+	}
+	if token.AllowSensitive {
+		t.Fatal("token must not allow sensitive after revoke grant")
+	}
+
+	// 通道不匹配：MCP 通道的 Token 不能经 HTTP 通道调整。
+	mcpRaw, mcpHash, err := generateAPIToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpID, err := store.CreateAPIToken(ctx, "mcp-tuner", mcpHash, 0, TokenChannelMCP, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAPITokenSensitive(ctx, mcpID, TokenChannelHTTP, true); !errors.Is(err, errAPITokenNotFound) {
+		t.Fatalf("cross-channel set err=%v, want errAPITokenNotFound", err)
+	}
+	// MCP 通道自身可以正常调整，且不破坏未撤销 Token。
+	if err := store.SetAPITokenSensitive(ctx, mcpID, TokenChannelMCP, false); err != nil {
+		t.Fatal(err)
+	}
+	mcpToken, err := store.AuthenticateAPIToken(ctx, mcpRaw, TokenChannelMCP)
+	if err != nil {
+		t.Fatalf("authenticate mcp token: %v", err)
+	}
+	if mcpToken.AllowSensitive {
+		t.Fatal("mcp token must not allow sensitive after revoke grant")
+	}
+
+	// 已撤销的 Token 不能再调整。
+	if err := store.RevokeAPIToken(ctx, id, TokenChannelHTTP); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAPITokenSensitive(ctx, id, TokenChannelHTTP, true); !errors.Is(err, errAPITokenNotFound) {
+		t.Fatalf("revoked token set err=%v, want errAPITokenNotFound", err)
+	}
+
+	// 已过期的 Token 不能再调整。
+	expiredID, err := store.CreateAPIToken(ctx, "expired-tuner", hashAPIToken("cv_expired_tuner"), time.Now().Add(-time.Hour).UnixMilli(), TokenChannelHTTP, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAPITokenSensitive(ctx, expiredID, TokenChannelHTTP, true); !errors.Is(err, errAPITokenNotFound) {
+		t.Fatalf("expired token set err=%v, want errAPITokenNotFound", err)
+	}
+
+	// 不存在的 ID。
+	if err := store.SetAPITokenSensitive(ctx, 99999, TokenChannelHTTP, true); !errors.Is(err, errAPITokenNotFound) {
+		t.Fatalf("missing token set err=%v, want errAPITokenNotFound", err)
+	}
+}
+
+// TestRevokeAPITokenChannelIsolation 撤销必须匹配通道（SEC-07 通道隔离在
+// 管理面同样成立）：跨通道撤销与不存在一样报 errAPITokenNotFound；
+// 同通道撤销幂等（重复撤销成功且不再改动）。
+func TestRevokeAPITokenChannelIsolation(t *testing.T) {
+	store := openDataAPITestStore(t)
+	ctx := context.Background()
+
+	_, mcpHash, err := generateAPIToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpID, err := store.CreateAPIToken(ctx, "mcp-token", mcpHash, 0, TokenChannelMCP, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 跨通道撤销：MCP Token 不能经 HTTP 通道撤销。
+	if err := store.RevokeAPIToken(ctx, mcpID, TokenChannelHTTP); !errors.Is(err, errAPITokenNotFound) {
+		t.Fatalf("cross-channel revoke err=%v, want errAPITokenNotFound", err)
+	}
+	// 未受影响：Token 仍可认证。
+	mcpToken, err := store.GetAPITokenByID(ctx, mcpID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mcpToken.RevokedAt != nil {
+		t.Fatal("cross-channel revoke must not touch the token")
+	}
+	// 同通道撤销成功，重复撤销幂等。
+	if err := store.RevokeAPIToken(ctx, mcpID, TokenChannelMCP); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RevokeAPIToken(ctx, mcpID, TokenChannelMCP); err != nil {
+		t.Fatalf("repeat revoke must be idempotent: %v", err)
+	}
+	// 不存在的 ID。
+	if err := store.RevokeAPIToken(ctx, 99999, TokenChannelMCP); !errors.Is(err, errAPITokenNotFound) {
+		t.Fatalf("missing token revoke err=%v, want errAPITokenNotFound", err)
+	}
+}
+
+// TestAPITokenExpiryPresetInput 有效期预设的输入契约：永不过期必须显式
+// 指定 "never"；空值（漏传字段）与未知档位一律报错，避免静默签出永不过期 Token。
+func TestAPITokenExpiryPresetInput(t *testing.T) {
+	now := time.Now().UTC()
+	for _, preset := range []string{"1d", "7d", "30d", "90d", "1y"} {
+		if ms, err := apiTokenExpiryMS(preset, now); err != nil || ms <= now.UnixMilli() {
+			t.Fatalf("preset %q: ms=%d err=%v", preset, ms, err)
+		}
+	}
+	if ms, err := apiTokenExpiryMS("never", now); err != nil || ms != 0 {
+		t.Fatalf("never must map to 0: ms=%d err=%v", ms, err)
+	}
+	for _, invalid := range []string{"", "forever", "10x"} {
+		if _, err := apiTokenExpiryMS(invalid, now); err == nil {
+			t.Fatalf("preset %q must be rejected", invalid)
+		}
+	}
+}
+
+// TestTokenExpiryPreset 重新生成时的有效期映射：按总时长匹配最近的预设档。
+// created_at 与 expires_at 由两次取时分别产生，存在毫秒级偏差，必须容差匹配，
+// 否则 30d 令牌会被静默续期到兜底档 1y。
+func TestTokenExpiryPreset(t *testing.T) {
+	now := time.Now().UTC()
+	if got := tokenExpiryPreset(now, nil); got != "never" {
+		t.Fatalf("nil expiry = %q, want never", got)
+	}
+	for _, tc := range []struct {
+		preset string
+		d      time.Duration
+	}{
+		{"1d", 24 * time.Hour},
+		{"7d", 7 * 24 * time.Hour},
+		{"30d", 30 * 24 * time.Hour},
+		{"90d", 90 * 24 * time.Hour},
+		{"1y", 365 * 24 * time.Hour},
+	} {
+		// 精确时长与带毫秒级偏差的时长都必须映射回本档。
+		for _, skew := range []time.Duration{0, -time.Millisecond, -50 * time.Millisecond, time.Second} {
+			expires := now.Add(tc.d + skew)
+			if got := tokenExpiryPreset(now, &expires); got != tc.preset {
+				t.Fatalf("preset %s with skew %s = %q, want %q", tc.preset, skew, got, tc.preset)
+			}
+		}
+	}
+}
+
+// TestRegenerateActivationGateBeforeRevoke 未激活时重新生成直接 403，
+// 且旧 Token 不被撤销：激活门控必须先于撤销执行，否则旧 Token 凭空丢失
+// 而新 Token 又因未激活无法签发。
+func TestRegenerateActivationGateBeforeRevoke(t *testing.T) {
+	store := openDataAPITestStore(t)
+	logger, err := NewDailyLogger(filepath.Join(t.TempDir(), "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = logger.Close() })
+	// 未激活环境（DataDir 无 license 文件）→ FreeTierRestriction 为 true。
+	s := &SearchServer{store: store, logger: logger, env: Environment{DataDir: t.TempDir()}}
+	if !FreeTierRestriction(s.env) {
+		t.Fatal("test env must be unactivated")
+	}
+
+	for _, tc := range []struct {
+		name    string
+		channel string
+		handler func(http.ResponseWriter, *http.Request)
+	}{
+		{"data-api", TokenChannelHTTP, s.handleDataAPITokenRegenerate},
+		{"mcp", TokenChannelMCP, s.handleMCPTokenRegenerate},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			raw, hash, err := generateAPIToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := store.CreateAPIToken(ctx, "keep", hash, 0, tc.channel, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("POST", "/regenerate", strings.NewReader(`{"id": "`+strconv.FormatInt(id, 10)+`"}`))
+			tc.handler(rec, req)
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "activation_required") {
+				t.Fatalf("unactivated regenerate = %d %s, want 403 activation_required", rec.Code, rec.Body.String())
+			}
+			// 关键断言：被拒绝的重新生成不得撤销旧 Token。
+			if _, err := store.AuthenticateAPIToken(ctx, raw, tc.channel); err != nil {
+				t.Fatalf("old token must survive rejected regenerate: %v", err)
+			}
+		})
 	}
 }
 

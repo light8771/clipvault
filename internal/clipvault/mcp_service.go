@@ -44,17 +44,6 @@ func newMCPError(status int, code, message string) *mcpError {
 	return &mcpError{Status: status, Code: code, Message: message}
 }
 
-// mcpStatus 是管理界面可见的运行时状态快照。
-type mcpStatus struct {
-	Running        bool   `json:"running"`
-	URL            string `json:"url"`
-	BindError      string `json:"bindError,omitempty"`
-	ActiveQueries  int64  `json:"activeQueries"`
-	RequestsTotal  int64  `json:"requestsTotal"`
-	BusyRejections int64  `json:"busyRejections"`
-	AuditDropped   int64  `json:"auditDropped"`
-}
-
 // mcpRequestContext 是一次已认证 MCP 请求的会话信息（绑定进 per-request
 // Server 构造闭包，工具/资源 handler 由此获得访问权限与审计上下文）。
 type mcpRequestContext struct {
@@ -207,11 +196,11 @@ func (svc *MCPService) stopLocked() {
 }
 
 // Status 返回运行时状态快照（并发安全）。
-func (svc *MCPService) Status() mcpStatus {
+func (svc *MCPService) Status() externalServiceStatus {
 	svc.mu.Lock()
 	running, listen, bindError := svc.running, svc.listen, svc.bindError
 	svc.mu.Unlock()
-	status := mcpStatus{
+	status := externalServiceStatus{
 		Running:        running,
 		BindError:      bindError,
 		ActiveQueries:  svc.activeQueries.Load(),
