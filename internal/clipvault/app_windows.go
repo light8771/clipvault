@@ -170,8 +170,11 @@ func Run(env Environment) error {
 	recorder := NewRecorder(cfgMgr, store, state, logger, env.ImagesDirectory())
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
 	defer backup.Stop()
+	// 外部只读访问（HTTP 数据接口 + MCP）共享同一个读取服务：
+	// 敏感可见性、限流口径与查询语义在共享服务内统一强制。
+	readSvc := NewExternalReadService(store, env)
 	// 数据接口：独立监听的低优先级外部 API，随配置变更即时启停。
-	dataAPI := NewDataAPIService(cfgMgr, store, logger, licenseMgr, env)
+	dataAPI := NewDataAPIService(cfgMgr, readSvc, store, logger, licenseMgr, env)
 	defer dataAPI.Close()
 	cfgMgr.OnChange(func(newCfg Config) error {
 		return dataAPI.ApplyConfig(newCfg)
@@ -179,8 +182,19 @@ func Run(env Environment) error {
 	if err := dataAPI.ApplyConfig(cfgMgr.Get()); err != nil {
 		logger.Warn("data_api_start_failed", map[string]any{"error": err.Error()})
 	}
+	// MCP：独立监听的只读 MCP 服务（Streamable HTTP /mcp），随配置变更即时启停；
+	// 绑定失败不影响主流程，错误暴露在 MCP 状态页。
+	mcpSvc := NewMCPService(cfgMgr, readSvc, store, logger, licenseMgr, env)
+	defer mcpSvc.Close()
+	cfgMgr.OnChange(func(newCfg Config) error {
+		return mcpSvc.ApplyConfig(newCfg)
+	})
+	if err := mcpSvc.ApplyConfig(cfgMgr.Get()); err != nil {
+		logger.Warn("mcp_start_failed", map[string]any{"error": err.Error()})
+	}
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 	searchServer.SetDataAPIService(dataAPI)
+	searchServer.SetMCPService(mcpSvc)
 	searchURL, err := searchServer.Start()
 	if err != nil {
 		logger.Error("search_server_start_failed", err, nil)

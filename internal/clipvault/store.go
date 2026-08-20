@@ -185,26 +185,7 @@ func openStoreDirectory(databaseDir string, initializeSchema func(*Store) error)
 		_ = db.Close()
 		return nil, err
 	}
-	if err := store.ensureAuditColumns(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	return store, nil
-}
-
-// ensureAuditColumns 为 v6 早期数据库幂等补充 api_audit_log 的
-// request_summary / request_body 列。DuckDB 的 ADD COLUMN 不支持列约束，
-// 因此建可空列后回填空串；写入路径始终显式提供该值，故后续不会出现 NULL。
-func (s *Store) ensureAuditColumns() error {
-	for _, column := range []string{"request_summary", "request_body"} {
-		if _, err := s.db.Exec(`ALTER TABLE api_audit_log ADD COLUMN IF NOT EXISTS ` + column + ` VARCHAR`); err != nil {
-			return fmt.Errorf("migrate api_audit_log.%s: %w", column, err)
-		}
-		if _, err := s.db.Exec(`UPDATE api_audit_log SET ` + column + ` = '' WHERE ` + column + ` IS NULL`); err != nil {
-			return fmt.Errorf("backfill api_audit_log.%s: %w", column, err)
-		}
-	}
-	return nil
 }
 
 func removeNewStoreFiles(keyPath, dbPath string) error {
@@ -303,10 +284,8 @@ func (s *Store) initializeSchema() error {
 }
 
 func (s *Store) validateSchema() error {
-	var version, identity string
-	if err := s.db.QueryRow(`SELECT
-		(SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.version'),
-		(SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.identity')`).Scan(&version, &identity); err != nil {
+	version, identity, err := s.readSchemaMarkers()
+	if err != nil {
 		return fmt.Errorf("unsupported database schema; rebuild the development database: %w", err)
 	}
 	if version != storeSchemaVersion {
@@ -316,4 +295,13 @@ func (s *Store) validateSchema() error {
 		return fmt.Errorf("unsupported database schema identity %q; rebuild the development database", identity)
 	}
 	return nil
+}
+
+func (s *Store) readSchemaMarkers() (version, identity string, err error) {
+	if err := s.db.QueryRow(`SELECT
+		(SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.version'),
+		(SELECT json_extract_string(value, '$') FROM settings WHERE key = 'schema.identity')`).Scan(&version, &identity); err != nil {
+		return "", "", err
+	}
+	return version, identity, nil
 }

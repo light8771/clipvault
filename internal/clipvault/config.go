@@ -28,12 +28,23 @@ type Config struct {
 	Popup         SearchPopupConfig  `json:"popup"`
 	Backup        BackupConfig       `json:"backup"`
 	DataAPI       DataAPIConfig      `json:"dataApi"`
+	MCP           MCPConfig          `json:"mcp"`
 }
 
 // DataAPIConfig 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
 // 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。仅对已激活用户开放，
 // 独立于主 Web 服务监听，可随时启停。
 type DataAPIConfig struct {
+	Enabled    bool   `json:"enabled"`
+	ListenAddr string `json:"listenAddr"`
+}
+
+// MCPConfig MCP 服务（Model Context Protocol，Streamable HTTP）：
+// 供 AI/MCP 宿主通过 /mcp 端点 + Bearer Token 只读访问剪贴板数据。
+// 与数据接口共享 ExternalReadService、令牌与审计模型；令牌按 channel
+// 隔离（HTTP Token 不能调用 MCP，反之亦然）。仅对已激活用户开放，
+// 独立监听、可随时启停，失败不影响主流程。
+type MCPConfig struct {
 	Enabled    bool   `json:"enabled"`
 	ListenAddr string `json:"listenAddr"`
 }
@@ -71,7 +82,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	top, err := requiredJSONObject(data, "config",
 		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
 		"brand", "background", "theme", "search", "sensitive", "autostart",
-		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi")
+		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi", "mcp")
 	if err != nil {
 		return err
 	}
@@ -91,6 +102,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"image", []string{"enabled", "maxBytes"}},
 		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
 		{"dataApi", []string{"enabled", "listenAddr"}},
+		{"mcp", []string{"enabled", "listenAddr"}},
 	}
 	for _, object := range objects {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {

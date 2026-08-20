@@ -56,6 +56,7 @@ func TestApplicationPageRoutesAreExact(t *testing.T) {
 		"/settings/service":    "settings",
 		"/groups":              "settings",
 		"/data-api":            "settings",
+		"/mcp":                 "settings",
 		"/license":             "settings",
 		"/maintenance":         "settings",
 		"/logs/operations":     "settings",

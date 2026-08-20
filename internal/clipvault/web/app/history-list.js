@@ -403,23 +403,15 @@ export function registerHistoryList() {
     app.psDropdown.classList.remove('open');
     app.resetSearch();
   });
-  document.addEventListener('click', () => {
-    app.psDropdown.classList.remove('open');
-  });
+  document.addEventListener('click', () => app.psDropdown.classList.remove('open'));
 
   // ── Pagination buttons ─────────────────────────────────
   document.getElementById('prevBtn').addEventListener('click', () => {
-    if (app.currentPage > 0) {
-      app.currentPage--;
-      app.search();
-    }
+    if (app.currentPage > 0) { app.currentPage--; app.search(); }
   });
   document.getElementById('nextBtn').addEventListener('click', () => {
     const pageSize = parseInt(app.PAGESIZE.value) || 50;
-    if ((app.currentPage + 1) * pageSize < app.totalCount) {
-      app.currentPage++;
-      app.search();
-    }
+    if ((app.currentPage + 1) * pageSize < app.totalCount) { app.currentPage++; app.search(); }
   });
 
   // ── Page jump ────────────────────────────────────────────

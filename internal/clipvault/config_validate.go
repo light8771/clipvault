@@ -87,6 +87,24 @@ func validateConfig(cfg Config) error {
 			return fmt.Errorf("data API listen address conflicts with the Web listen address")
 		}
 	}
+	mcpHost, mcpPort, err := validateListenAddr(cfg.MCP.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("invalid MCP listen address: %w", err)
+	}
+	if cfg.MCP.Enabled {
+		searchHost, searchPort, _ := validateListenAddr(cfg.Search.ListenAddr)
+		samePort := mcpPort == searchPort && searchPort != 0
+		if samePort && (listenHostUnspecified(mcpHost) || listenHostUnspecified(searchHost) || strings.EqualFold(mcpHost, searchHost)) {
+			return fmt.Errorf("MCP listen address conflicts with the Web listen address")
+		}
+		if cfg.DataAPI.Enabled {
+			dataHost, dataPort, _ := validateListenAddr(cfg.DataAPI.ListenAddr)
+			sameData := mcpPort == dataPort && dataPort != 0
+			if sameData && (listenHostUnspecified(mcpHost) || listenHostUnspecified(dataHost) || strings.EqualFold(mcpHost, dataHost)) {
+				return fmt.Errorf("MCP listen address conflicts with the Data API listen address")
+			}
+		}
+	}
 	return nil
 }
 

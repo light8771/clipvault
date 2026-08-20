@@ -1,13 +1,14 @@
 package duckdb
 
-const SchemaVersion = "6"
+const SchemaVersion = "7"
 
 // SchemaIdentity pins the exact supported schema shape. A database must match
 // both the version and this identity; every other shape is rejected.
 //
-// v6（数据接口）：新增 api_tokens（Access Token 哈希、有效期、撤销）与
-// api_audit_log（外部数据 API 审计，不含正文与 Token 原文）两张表。
-const SchemaIdentity = "clipvault.duckdb.v6.data-api"
+// v7（外部只读 + MCP）：api_tokens 带 channel（http|mcp 通道隔离）与
+// allow_sensitive（敏感数据按 Token 显式授权，默认 false）；api_audit_log
+// 带 channel、resource_uri、sensitive_accessed 与请求摘要/请求体审计列。
+const SchemaIdentity = "clipvault.duckdb.v7.external-read-mcp"
 
 var SchemaStatements = []string{
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
@@ -56,12 +57,16 @@ var SchemaStatements = []string{
 	`CREATE INDEX idx_search_history_searched_at ON search_history(searched_at DESC)`,
 	`CREATE SEQUENCE seq_api_tokens START 1`,
 	// expires_at/last_used_at/revoked_at 为 Unix 毫秒，0 表示"无"（永不过期/未使用/未撤销）。
-	`CREATE TABLE api_tokens (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_tokens'), name VARCHAR NOT NULL, token_hash VARCHAR NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL DEFAULT 0, last_used_at BIGINT NOT NULL DEFAULT 0, revoked_at BIGINT NOT NULL DEFAULT 0)`,
+	// channel 限定 http|mcp：HTTP 数据接口与 MCP 服务各自只认本通道签发的 Token；
+	// allow_sensitive 默认 false：敏感数据访问必须按 Token 显式授权。
+	`CREATE TABLE api_tokens (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_tokens'), name VARCHAR NOT NULL, token_hash VARCHAR NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL DEFAULT 0, last_used_at BIGINT NOT NULL DEFAULT 0, revoked_at BIGINT NOT NULL DEFAULT 0, channel VARCHAR NOT NULL DEFAULT 'http', allow_sensitive BOOLEAN NOT NULL DEFAULT false)`,
 	`CREATE UNIQUE INDEX idx_api_tokens_hash ON api_tokens(token_hash)`,
 	`CREATE SEQUENCE seq_api_audit_log START 1`,
 	// token_id/item_id 为 0 表示无关联（如认证失败）；审计不记录剪贴板正文与 Token 原文。
 	// request_summary 记录查询条件摘要；request_body 记录调用方提交的原始请求体
 	// （有上限截断），供本机用户审计"谁查了什么"。
-	`CREATE TABLE api_audit_log (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_audit_log'), ts BIGINT NOT NULL, token_id BIGINT NOT NULL DEFAULT 0, token_name VARCHAR NOT NULL DEFAULT '', remote_ip VARCHAR NOT NULL DEFAULT '', method VARCHAR NOT NULL DEFAULT '', endpoint VARCHAR NOT NULL DEFAULT '', operation VARCHAR NOT NULL DEFAULT '', item_id BIGINT NOT NULL DEFAULT 0, item_count BIGINT NOT NULL DEFAULT 0, duration_ms BIGINT NOT NULL DEFAULT 0, status_code BIGINT NOT NULL DEFAULT 0, error_code VARCHAR NOT NULL DEFAULT '', request_summary VARCHAR NOT NULL DEFAULT '', request_body VARCHAR NOT NULL DEFAULT '')`,
+	// channel 区分 http/mcp；resource_uri 记录 MCP 资源 URI；
+	// sensitive_accessed 仅在实际返回敏感行/内容时为 true。
+	`CREATE TABLE api_audit_log (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_audit_log'), ts BIGINT NOT NULL, token_id BIGINT NOT NULL DEFAULT 0, token_name VARCHAR NOT NULL DEFAULT '', remote_ip VARCHAR NOT NULL DEFAULT '', method VARCHAR NOT NULL DEFAULT '', endpoint VARCHAR NOT NULL DEFAULT '', operation VARCHAR NOT NULL DEFAULT '', item_id BIGINT NOT NULL DEFAULT 0, item_count BIGINT NOT NULL DEFAULT 0, duration_ms BIGINT NOT NULL DEFAULT 0, status_code BIGINT NOT NULL DEFAULT 0, error_code VARCHAR NOT NULL DEFAULT '', request_summary VARCHAR NOT NULL DEFAULT '', request_body VARCHAR NOT NULL DEFAULT '', channel VARCHAR NOT NULL DEFAULT 'http', resource_uri VARCHAR NOT NULL DEFAULT '', sensitive_accessed BOOLEAN NOT NULL DEFAULT false)`,
 	`CREATE INDEX idx_api_audit_log_ts ON api_audit_log(ts DESC)`,
 }

@@ -26,6 +26,8 @@ import { registerSettingsSystem } from './settings-system.js';
 import { registerLogs } from './logs.js';
 import { registerDataAPI } from './data-api.js';
 import { registerDataAPIAudit } from './data-api-audit.js';
+import { registerMCP } from './mcp.js';
+import { registerMCPAudit } from './mcp-audit.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
@@ -86,7 +88,27 @@ registerActions({
   'data-api-audit-reset': () => app.resetDataAPIAuditFilters(),
   'data-api-audit-export': element => app.exportDataAPIAudit(element),
   'data-api-audit-refresh': () => app.refreshDataAPIAudit(),
-  'data-api-audit-clear': element => app.clearDataAPIAudit(element)
+  'data-api-audit-clear': element => app.clearDataAPIAudit(element),
+  'mcp-save': () => app.mcpSave(),
+  'mcp-copy-url': () => app.mcpCopyURL(),
+  'mcp-copy-example': () => app.mcpCopyExample(),
+  'mcp-copy-config': element => app.mcpCopyConfig(element),
+  'mcp-token-create': () => app.mcpTokenCreate(),
+  'mcp-token-copy': () => app.mcpTokenCopy(),
+  'mcp-token-dismiss': () => app.mcpTokenDismiss(),
+  'mcp-token-revoke': element => app.mcpTokenRevoke(element),
+  'mcp-token-regenerate': element => app.mcpTokenRegenerate(element),
+  'mcp-audit-prev': () => app.turnMCPAuditPage(-1),
+  'mcp-audit-next': () => app.turnMCPAuditPage(1),
+  'mcp-audit-first': () => app.gotoMCPAuditPage(0),
+  'mcp-audit-last': () => app.gotoMCPAuditPage(Number.MAX_SAFE_INTEGER),
+  'mcp-audit-page': element => app.gotoMCPAuditPage(parseInt(element.dataset.page, 10) || 0),
+  'mcp-audit-toggle': element => app.toggleMCPAuditRow(element),
+  'mcp-audit-apply': () => app.applyMCPAuditFilters(),
+  'mcp-audit-reset': () => app.resetMCPAuditFilters(),
+  'mcp-audit-export': element => app.exportMCPAudit(element),
+  'mcp-audit-refresh': () => app.refreshMCPAudit(),
+  'mcp-audit-clear': element => app.clearMCPAudit(element)
 });
 registerNotifications();
 registerRuntimeState();
@@ -114,3 +136,5 @@ registerSettingsLifecycle();
 registerLogs();
 registerDataAPIAudit(); // 先注册审计（提供令牌筛选渲染器），再注册数据接口主体
 registerDataAPI();
+registerMCPAudit(); // 同上：MCP 审计先于 MCP 主体注册
+registerMCP();

@@ -8,17 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
 // ── 对外业务模型（与内部 DuckDB schema 解耦，DATA-03）──────
 
-// dataAPIItem 是 clipboardItems 资源的公开表示。敏感记录不做特殊屏蔽（DATA-01/04），
-// 但托管图片的内部存储路径永不外泄，只给 contentUrl。
+// dataAPIItem 是 clipboardItems 资源的公开表示（保持既有 HTTP 契约不变）。
+// 敏感记录的可见性由 ExternalReadService 强制；托管图片的内部存储路径
+// 永不外泄，只给 contentUrl。
 type dataAPIItem struct {
 	ID               string    `json:"id"`
 	CreatedAt        time.Time `json:"createdAt"`
@@ -47,7 +45,7 @@ func strPtrOrNil(s string) *string {
 // 完整文本经 /items/{id} 获取（限制单次响应资源消耗）。
 func toDataAPIItem(item StoredItem, groupID int64, preview bool) dataAPIItem {
 	out := dataAPIItem{
-		ID:               strconv.FormatInt(item.ID, 10),
+		ID:               fmt.Sprintf("%d", item.ID),
 		CreatedAt:        item.CreatedAt,
 		Kind:             item.Kind,
 		ByteLen:          item.ByteLen,
@@ -58,7 +56,7 @@ func toDataAPIItem(item StoredItem, groupID int64, preview bool) dataAPIItem {
 		ContentAvailable: item.ContentAvailable,
 	}
 	if groupID > 0 {
-		id := strconv.FormatInt(groupID, 10)
+		id := fmt.Sprintf("%d", groupID)
 		out.GroupID = &id
 	}
 	if item.Format == "CLIPVAULT_IMAGE_FILE" {
@@ -98,8 +96,9 @@ func (svc *DataAPIService) handleHealth(w http.ResponseWriter, _ *http.Request) 
 	})
 }
 
-// handleMetadata 描述对外业务数据模型与资源限制（不是数据库 schema）。
-func (svc *DataAPIService) handleMetadata(w http.ResponseWriter, _ *http.Request, _ *APIToken) {
+// handleMetadata 描述对外业务数据模型与资源限制（不是数据库 schema），
+// 并报告当前 Token 的权限（只读 + 是否可见敏感数据）。
+func (svc *DataAPIService) handleMetadata(w http.ResponseWriter, _ *http.Request, token *APIToken) {
 	svc.writeJSON(w, map[string]any{
 		"apiVersion": "1",
 		"resources": map[string]any{
@@ -124,10 +123,15 @@ func (svc *DataAPIService) handleMetadata(w http.ResponseWriter, _ *http.Request
 			"maxBatchIds":     dataAPIMaxBatchIDs,
 			"textPreviewMax":  dataAPITextPreviewMax,
 		},
+		"permissions": map[string]any{
+			"readOnly":       true,
+			"allowSensitive": token.AllowSensitive,
+		},
 	})
 }
 
 // handleQuery 是 V1 核心接口：搜索/过滤/排序/分页/简单聚合。
+// DSL 解析在协议层完成；数据读取与敏感可见性由 ExternalReadService 强制。
 func (svc *DataAPIService) handleQuery(w http.ResponseWriter, r *http.Request, token *APIToken) {
 	started := time.Now()
 	audit := auditEventFor(r, token, "query_items", nil)
@@ -162,40 +166,18 @@ func (svc *DataAPIService) handleQuery(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	if plan.aggregate {
-		svc.runAggregateQuery(w, r, plan, &audit)
+		svc.runAggregateQuery(w, r, readAccessFor(token), plan, &audit)
 		return
 	}
-	svc.runItemsQuery(w, r, plan, &audit)
+	svc.runItemsQuery(w, r, readAccessFor(token), plan, &audit)
 }
 
 // runItemsQuery 执行 keyset 分页条目查询（limit+1 探测 hasMore）。
-func (svc *DataAPIService) runItemsQuery(w http.ResponseWriter, r *http.Request, plan *dataAPIQueryPlan, audit *APIAuditEvent) {
-	args := append(append([]any{}, plan.args...), plan.cursorArgs()...)
-	fetchArgs := append(append([]any{}, args...), plan.limit+1)
-	rows, err := svc.store.db.QueryContext(r.Context(),
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items"+plan.where+
-			" ORDER BY "+plan.orderSQL+" LIMIT ?", fetchArgs...)
+func (svc *DataAPIService) runItemsQuery(w http.ResponseWriter, r *http.Request, access ReadAccess, plan *dataAPIQueryPlan, audit *APIAuditEvent) {
+	items, hasMore, err := svc.readSvc.QueryItems(r.Context(), access, plan)
 	if err != nil {
 		svc.failQuery(w, r, audit, err)
 		return
-	}
-	defer rows.Close()
-	items := []StoredItem{}
-	for rows.Next() {
-		var item StoredItem
-		if err := scanStoredItem(rows, &item); err != nil {
-			svc.failQuery(w, r, audit, err)
-			return
-		}
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		svc.failQuery(w, r, audit, err)
-		return
-	}
-	hasMore := len(items) > plan.limit
-	if hasMore {
-		items = items[:plan.limit]
 	}
 	ids := make([]int64, len(items))
 	for i, item := range items {
@@ -209,6 +191,7 @@ func (svc *DataAPIService) runItemsQuery(w http.ResponseWriter, r *http.Request,
 	out := make([]dataAPIItem, len(items))
 	for i, item := range items {
 		out[i] = toDataAPIItem(item, groups[item.ID], true)
+		audit.SensitiveAccessed = audit.SensitiveAccessed || item.Sensitive
 	}
 	var nextCursor *string
 	if hasMore && len(items) > 0 {
@@ -222,55 +205,32 @@ func (svc *DataAPIService) runItemsQuery(w http.ResponseWriter, r *http.Request,
 }
 
 // runAggregateQuery 执行 count 聚合（无游标，limit 封顶）。
-func (svc *DataAPIService) runAggregateQuery(w http.ResponseWriter, r *http.Request, plan *dataAPIQueryPlan, audit *APIAuditEvent) {
-	args := append([]any{}, plan.args...)
-	fetchArgs := append(append([]any{}, args...), plan.limit)
-	rows, err := svc.store.db.QueryContext(r.Context(),
-		"SELECT "+plan.groupCol+", COUNT(*) AS c FROM clipboard_items"+plan.where+
-			" GROUP BY "+plan.groupCol+" ORDER BY "+plan.orderSQL+" LIMIT ?", fetchArgs...)
+func (svc *DataAPIService) runAggregateQuery(w http.ResponseWriter, r *http.Request, access ReadAccess, plan *dataAPIQueryPlan, audit *APIAuditEvent) {
+	resultRows, err := svc.readSvc.QueryAggregate(r.Context(), access, plan)
 	if err != nil {
 		svc.failQuery(w, r, audit, err)
 		return
 	}
-	defer rows.Close()
-	resultRows := []map[string]any{}
-	count := 0
-	for rows.Next() {
-		var value any
-		var c int64
-		var boolValue bool
-		var textValue string
-		if plan.groupCol == "starred" || plan.groupCol == "sensitive" {
-			err = rows.Scan(&boolValue, &c)
-			value = boolValue
-		} else {
-			err = rows.Scan(&textValue, &c)
-			value = textValue
-		}
-		if err != nil {
-			svc.failQuery(w, r, audit, err)
-			return
-		}
-		resultRows = append(resultRows, map[string]any{plan.groupField: value, "count": c})
-		count++
-	}
-	if err := rows.Err(); err != nil {
-		svc.failQuery(w, r, audit, err)
-		return
-	}
 	audit.StatusCode = http.StatusOK
-	audit.ItemCount = count
+	audit.ItemCount = len(resultRows)
 	svc.writeJSON(w, map[string]any{"rows": resultRows})
 }
 
 // failQuery 把存储层错误映射为稳定契约（超时→504 语义的 query_timeout，其余 500）。
 func (svc *DataAPIService) failQuery(w http.ResponseWriter, r *http.Request, audit *APIAuditEvent, err error) {
 	var apiErr *dataAPIError
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+	switch {
+	case errors.Is(err, ErrExternalNotFound):
+		apiErr = newDataAPIError(http.StatusNotFound, "not_found", "Item not found.")
+	case errors.Is(err, ErrExternalInvalid):
+		apiErr = invalidQuery("Invalid request.")
+	case errors.Is(err, ErrExternalTooLarge):
+		apiErr = newDataAPIError(http.StatusRequestEntityTooLarge, "response_too_large", "The content exceeds the size limit.")
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(r.Context().Err(), context.DeadlineExceeded):
 		apiErr = newDataAPIError(http.StatusGatewayTimeout, "query_timeout", "The query timed out.")
-	} else if errors.Is(r.Context().Err(), context.Canceled) {
+	case errors.Is(r.Context().Err(), context.Canceled):
 		return // 客户端已断开，无需响应
-	} else {
+	default:
 		svc.logger.Warn("data_api_query_failed", map[string]any{"error": err.Error()})
 		apiErr = newDataAPIError(http.StatusInternalServerError, "internal_error", "Internal server error.")
 	}
@@ -286,10 +246,15 @@ func (svc *DataAPIService) handleGetItem(w http.ResponseWriter, r *http.Request,
 		audit.DurationMs = time.Since(started).Milliseconds()
 		svc.emitAudit(audit)
 	}()
-	item, apiErr := svc.loadItem(r)
+	id, apiErr := parseItemID(r)
 	if apiErr != nil {
 		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
 		svc.writeError(w, apiErr)
+		return
+	}
+	item, err := svc.readSvc.GetStoredItem(r.Context(), readAccessFor(token), id)
+	if err != nil {
+		svc.failQuery(w, r, &audit, err)
 		return
 	}
 	audit.ItemID = item.ID
@@ -300,6 +265,7 @@ func (svc *DataAPIService) handleGetItem(w http.ResponseWriter, r *http.Request,
 	}
 	audit.StatusCode = http.StatusOK
 	audit.ItemCount = 1
+	audit.SensitiveAccessed = item.Sensitive
 	svc.writeJSON(w, toDataAPIItem(item, groups[item.ID], false))
 }
 
@@ -349,24 +315,25 @@ func (svc *DataAPIService) handleBatchGet(w http.ResponseWriter, r *http.Request
 		}
 		ids = append(ids, id)
 	}
-	items, err := svc.store.GetByIDs(r.Context(), ids)
+	items, err := svc.readSvc.GetStoredItems(r.Context(), readAccessFor(token), ids)
 	if err != nil {
 		svc.failQuery(w, r, &audit, err)
 		return
 	}
-	groups, err := svc.store.ItemGroupIDs(r.Context(), ids)
+	itemIDs := make([]int64, len(items))
+	for i, item := range items {
+		itemIDs[i] = item.ID
+	}
+	groups, err := svc.store.ItemGroupIDs(r.Context(), itemIDs)
 	if err != nil {
 		svc.failQuery(w, r, &audit, err)
 		return
 	}
-	// 保持请求 ID 顺序输出；不存在的 ID 静默跳过，结果集可小于请求集。
-	out := make([]dataAPIItem, 0, len(ids))
-	for _, id := range ids {
-		item, ok := items[id]
-		if !ok {
-			continue
-		}
+	// 保持请求 ID 顺序输出；不存在或未授权敏感的 ID 静默跳过，结果集可小于请求集。
+	out := make([]dataAPIItem, 0, len(items))
+	for _, item := range items {
 		out = append(out, toDataAPIItem(item, groups[item.ID], false))
+		audit.SensitiveAccessed = audit.SensitiveAccessed || item.Sensitive
 	}
 	audit.StatusCode = http.StatusOK
 	audit.ItemCount = len(out)
@@ -374,7 +341,8 @@ func (svc *DataAPIService) handleBatchGet(w http.ResponseWriter, r *http.Request
 }
 
 // handleItemContent 流式返回二进制内容：托管图片（PNG）或纯文本。
-// 大小受限、绑定请求 context、路径防穿越；文件路径记录不提供内容（文件系统边界）。
+// 大小受限、绑定请求 context、路径防穿越（在共享读取服务内完成）；
+// 文件路径记录不提供内容（文件系统边界）。
 func (svc *DataAPIService) handleItemContent(w http.ResponseWriter, r *http.Request, token *APIToken) {
 	started := time.Now()
 	audit := auditEventFor(r, token, "get_content", nil)
@@ -382,68 +350,33 @@ func (svc *DataAPIService) handleItemContent(w http.ResponseWriter, r *http.Requ
 		audit.DurationMs = time.Since(started).Milliseconds()
 		svc.emitAudit(audit)
 	}()
-	item, apiErr := svc.loadItem(r)
+	id, apiErr := parseItemID(r)
 	if apiErr != nil {
 		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
 		svc.writeError(w, apiErr)
 		return
 	}
-	audit.ItemID = item.ID
-	switch {
-	case item.Format == "CLIPVAULT_IMAGE_FILE" && item.ContentAvailable:
-		imagesRoot := filepath.Clean(svc.env.ImagesDirectory())
-		full := filepath.Clean(filepath.Join(imagesRoot, filepath.FromSlash(strings.TrimPrefix(item.Text, "images/"))))
-		if full != imagesRoot && !strings.HasPrefix(full, imagesRoot+string(os.PathSeparator)) {
-			apiErr := newDataAPIError(http.StatusBadRequest, "invalid_request", "Invalid image path.")
-			audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
-			svc.writeError(w, apiErr)
-			return
-		}
-		info, err := os.Stat(full)
-		if err != nil || info.IsDir() {
-			apiErr := newDataAPIError(http.StatusNotFound, "not_found", "The content no longer exists.")
-			audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
-			svc.writeError(w, apiErr)
-			return
-		}
-		if info.Size() > dataAPIMaxContentSize {
-			apiErr := newDataAPIError(http.StatusRequestEntityTooLarge, "response_too_large", "The content exceeds the size limit.")
-			audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
-			svc.writeError(w, apiErr)
-			return
-		}
-		audit.StatusCode = http.StatusOK
-		audit.ItemCount = 1
-		w.Header().Set("Content-Type", "image/png")
-		http.ServeFile(w, r, full)
-	case item.Kind == "text" && item.Format == "CF_UNICODETEXT":
-		audit.StatusCode = http.StatusOK
-		audit.ItemCount = 1
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(item.Text))
-	default:
-		apiErr := newDataAPIError(http.StatusNotFound, "not_found", "This item has no servable content.")
-		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
-		svc.writeError(w, apiErr)
+	content, err := svc.readSvc.GetContent(r.Context(), readAccessFor(token), id)
+	if err != nil {
+		svc.failQuery(w, r, &audit, err)
+		return
 	}
+	audit.ItemID = id
+	audit.StatusCode = http.StatusOK
+	audit.ItemCount = 1
+	if content.Kind == "image" {
+		http.ServeFile(w, r, content.ImagePath)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(content.Text))
 }
 
-// loadItem 解析路径参数并读取记录。
-func (svc *DataAPIService) loadItem(r *http.Request) (StoredItem, *dataAPIError) {
+// parseItemID 解析路径参数中的条目 ID。
+func parseItemID(r *http.Request) (int64, *dataAPIError) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		return StoredItem{}, invalidQuery("Invalid item id.")
+		return 0, invalidQuery("Invalid item id.")
 	}
-	item, err := svc.store.GetByID(r.Context(), id)
-	if errors.Is(err, ErrItemNotFound) {
-		return StoredItem{}, newDataAPIError(http.StatusNotFound, "not_found", "Item not found.")
-	}
-	if err != nil {
-		if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
-			return StoredItem{}, newDataAPIError(http.StatusGatewayTimeout, "query_timeout", "The query timed out.")
-		}
-		svc.logger.Warn("data_api_get_item_failed", map[string]any{"error": fmt.Sprintf("%v", err)})
-		return StoredItem{}, newDataAPIError(http.StatusInternalServerError, "internal_error", "Internal server error.")
-	}
-	return item, nil
+	return id, nil
 }

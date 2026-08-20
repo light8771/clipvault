@@ -110,6 +110,10 @@ func DefaultConfig() Config {
 			Enabled:    false,
 			ListenAddr: "127.0.0.1:17839",
 		},
+		MCP: MCPConfig{
+			Enabled:    false,
+			ListenAddr: "127.0.0.1:17840",
+		},
 	}
 }
 

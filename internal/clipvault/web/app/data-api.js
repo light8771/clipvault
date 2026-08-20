@@ -193,6 +193,9 @@ export function registerDataAPI() {
       const stateLabel = { active: '有效', expired: '已过期', revoked: '已撤销' }[token.state] || token.state;
       const expiry = token.expiresAt ? '有效至 ' + app.formatLogTime(token.expiresAt) : '永不过期';
       const lastUsed = token.lastUsedAt ? '最后访问 ' + app.formatLogTime(token.lastUsedAt) : '从未使用';
+      const sensitive = token.allowSensitive
+        ? '<span class="dapi-tag warn" title="此 Token 可读取敏感记录">可读敏感数据</span>'
+        : '<span class="dapi-tag" title="敏感记录对此 Token 不可见">仅普通数据</span>';
       const inactive = token.state !== 'active';
       const actions = !inactive
         ? '<div class="dapi-actions">' +
@@ -208,6 +211,7 @@ export function registerDataAPI() {
         '<div class="dapi-meta">' +
         '<span class="dapi-tag' + (token.state === 'expired' ? ' warn' : '') + '">' + app.esc(expiry) + '</span>' +
         '<span class="dapi-tag">' + app.esc(lastUsed) + '</span>' +
+        sensitive +
         '</div>' +
         actions +
         '</div>';
@@ -230,7 +234,11 @@ export function registerDataAPI() {
       const res = await app.protectedFetch('/api/v1/data-api/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, expiresIn: el('dapiTokenExpiry').value })
+        body: JSON.stringify({
+          name,
+          expiresIn: el('dapiTokenExpiry').value,
+          allowSensitive: el('dapiTokenAllowSensitive').checked
+        })
       });
       await app.requireOK(res, '创建失败');
       const d = await res.json();

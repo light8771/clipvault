@@ -107,6 +107,9 @@ export function registerDataAPIAudit() {
     const summary = entry.requestSummary || '';
     const summaryShort = summary.length > 64 ? summary.slice(0, 64) + '…' : summary;
     const hasBody = !!entry.requestBody;
+    const sensitiveTag = entry.sensitiveAccessed
+      ? ' <span class="dapi-tag warn" title="本次调用实际返回了敏感记录">敏感</span>'
+      : '';
     // 展开集合以字符串 id 为键（dataset.auditId 是字符串，entry.id 是数字）。
     const expanded = state.expanded.has(String(entry.id));
     let row = '<tr class="dapi-audit-row' + (expanded ? ' is-open' : '') + '" data-audit-id="' + entry.id + '" data-action="data-api-audit-toggle">' +
@@ -118,7 +121,7 @@ export function registerDataAPIAudit() {
       '</span></td>' +
       '<td class="col-summary">' + (hasBody
         ? '<span class="dapi-summary dapi-summary-link" title="点击行查看完整请求体">' + app.esc(summaryShort || '点击查看请求体') + '</span>'
-        : (summaryShort ? '<code class="dapi-summary">' + app.esc(summaryShort) + '</code>' : '<span class="dapi-muted">—</span>')) + '</td>' +
+        : (summaryShort ? '<code class="dapi-summary">' + app.esc(summaryShort) + '</code>' : '<span class="dapi-muted">—</span>')) + sensitiveTag + '</td>' +
       '<td class="col-result"><span class="dapi-result-cell">' + auditResultBadge(entry) + '<span class="dapi-result-count">' + app.esc(auditResultText(entry)) + '</span></span></td>' +
       '<td class="col-ms">' + entry.durationMs + 'ms</td>' +
       '<td class="col-ip">' + app.esc(entry.remoteIP || '—') + '</td>' +
@@ -128,6 +131,7 @@ export function registerDataAPIAudit() {
         '<div class="dapi-detail-grid">' +
         '<span class="dapi-detail-label">请求</span><code>' + app.esc(entry.method + ' ' + entry.endpoint) + '</code>' +
         '<span class="dapi-detail-label">响应</span><code>' + app.esc(auditResultText(entry)) + ' · ' + entry.durationMs + 'ms</code>' +
+        '<span class="dapi-detail-label">敏感访问</span><code>' + (entry.sensitiveAccessed ? '是' : '否') + '</code>' +
         (entry.itemId ? '<span class="dapi-detail-label">记录</span><code>#' + entry.itemId + '</code>' : '') +
         (entry.errorCode ? '<span class="dapi-detail-label">错误码</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
         (entry.tokenName ? '<span class="dapi-detail-label">令牌</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +

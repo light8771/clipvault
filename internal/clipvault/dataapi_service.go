@@ -62,8 +62,11 @@ type dataAPIStatus struct {
 
 // DataAPIService 是独立监听的外部数据 API 服务（低优先级附加服务）。
 // 剪贴板采集与主 Web 服务永远优先；本服务可拒绝、超时、降级甚至整体关闭。
+// 数据读取统一委托 ExternalReadService（敏感可见性在共享服务强制，
+// 协议层只做 DSL 解析与响应映射）。
 type DataAPIService struct {
 	cfgMgr  *ConfigManager
+	readSvc *ExternalReadService
 	store   *Store
 	logger  *DailyLogger
 	license *licensing.Manager
@@ -103,9 +106,14 @@ type dataAPIRateBucket struct {
 }
 
 // NewDataAPIService 创建服务（不监听），并启动异步审计 writer。
-func NewDataAPIService(cfgMgr *ConfigManager, store *Store, logger *DailyLogger, license *licensing.Manager, env Environment) *DataAPIService {
+// readSvc 是与 MCP 共享的只读业务服务；store 仍用于 Token 认证与审计。
+func NewDataAPIService(cfgMgr *ConfigManager, readSvc *ExternalReadService, store *Store, logger *DailyLogger, license *licensing.Manager, env Environment) *DataAPIService {
+	if readSvc == nil {
+		readSvc = NewExternalReadService(store, env)
+	}
 	svc := &DataAPIService{
 		cfgMgr:    cfgMgr,
+		readSvc:   readSvc,
 		store:     store,
 		logger:    logger,
 		license:   license,
@@ -308,6 +316,7 @@ func (svc *DataAPIService) wrap(next func(w http.ResponseWriter, r *http.Request
 }
 
 // authenticate 校验 Bearer Token（只允许 Authorization 头，禁止 query 传参）。
+// HTTP 数据接口只认 channel='http' 的 Token（SEC-07：HTTP 与 MCP 令牌隔离）。
 // 认证失败写 401 并留审计（operation=auth）。
 func (svc *DataAPIService) authenticate(w http.ResponseWriter, r *http.Request) (*APIToken, bool) {
 	header := r.Header.Get("Authorization")
@@ -324,7 +333,7 @@ func (svc *DataAPIService) authenticate(w http.ResponseWriter, r *http.Request) 
 		svc.emitAudit(auditEventFor(r, nil, "auth", err))
 		return nil, false
 	}
-	token, err := svc.store.AuthenticateAPIToken(r.Context(), strings.TrimSpace(raw))
+	token, err := svc.store.AuthenticateAPIToken(r.Context(), strings.TrimSpace(raw), TokenChannelHTTP)
 	if err != nil {
 		var apiErr *dataAPIError
 		switch {
@@ -332,7 +341,7 @@ func (svc *DataAPIService) authenticate(w http.ResponseWriter, r *http.Request) 
 			apiErr = newDataAPIError(http.StatusUnauthorized, "token_expired", "The access token has expired.")
 		case errors.Is(err, errAPITokenRevoked):
 			apiErr = newDataAPIError(http.StatusUnauthorized, "token_revoked", "The access token has been revoked.")
-		case errors.Is(err, errAPITokenNotFound):
+		case errors.Is(err, errAPITokenNotFound), errors.Is(err, errAPITokenChannel):
 			apiErr = newDataAPIError(http.StatusUnauthorized, "invalid_token", "The access token is invalid.")
 		default:
 			apiErr = newDataAPIError(http.StatusInternalServerError, "internal_error", "Internal server error.")
@@ -348,6 +357,11 @@ func (svc *DataAPIService) authenticate(w http.ResponseWriter, r *http.Request) 
 		_ = svc.store.TouchAPITokenLastUsed(ctx, id, ts)
 	}(token.ID, time.Now().UTC().UnixMilli())
 	return &token, true
+}
+
+// readAccess 把已认证 Token 映射为共享读取权限；协议层不实现可见性策略。
+func readAccessFor(token *APIToken) ReadAccess {
+	return ReadAccess{AllowSensitive: token != nil && token.AllowSensitive}
 }
 
 // allowRequest 每 IP 令牌桶限流（10/s，突发 30）。
@@ -417,6 +431,7 @@ func (svc *DataAPIService) emitAudit(event APIAuditEvent) {
 func auditEventFor(r *http.Request, token *APIToken, operation string, failed *dataAPIError) APIAuditEvent {
 	event := APIAuditEvent{
 		Timestamp: time.Now().UTC(),
+		Channel:   TokenChannelHTTP,
 		RemoteIP:  remoteIP(r),
 		Method:    r.Method,
 		Endpoint:  r.URL.Path,

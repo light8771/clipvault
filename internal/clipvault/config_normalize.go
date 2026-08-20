@@ -45,6 +45,9 @@ func normalizeConfig(cfg *Config) {
 	if strings.TrimSpace(cfg.DataAPI.ListenAddr) == "" {
 		cfg.DataAPI.ListenAddr = def.DataAPI.ListenAddr
 	}
+	if strings.TrimSpace(cfg.MCP.ListenAddr) == "" {
+		cfg.MCP.ListenAddr = def.MCP.ListenAddr
+	}
 	cfg.Source.normalize()
 }
 

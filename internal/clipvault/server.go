@@ -39,6 +39,7 @@ type SearchServer struct {
 	recoveryMu sync.Mutex
 	startedAt  time.Time
 	dataAPI    *DataAPIService
+	mcp        *MCPService
 }
 
 type freshSecondaryContextKey struct{}
@@ -83,7 +84,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/settings-data-api.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
+	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
 	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
@@ -166,6 +167,16 @@ func (s *SearchServer) Start() (string, error) {
 	api("GET /api/v1/data-api/audit", s.requireAuth(s.handleDataAPIAudit))
 	api("GET /api/v1/data-api/audit/export", s.requireAuth(s.handleDataAPIAuditExport))
 	api("DELETE /api/v1/data-api/audit", s.requireSecondary(s.handleDataAPIAuditClear))
+
+	api("GET /api/v1/mcp", s.requireAuth(s.handleMCPStatus))
+	api("PUT /api/v1/mcp/config", s.requireSecondary(s.handleMCPConfig))
+	api("GET /api/v1/mcp/tokens", s.requireAuth(s.handleMCPTokens))
+	api("POST /api/v1/mcp/tokens", s.requireSecondary(s.handleMCPTokenCreate))
+	api("POST /api/v1/mcp/tokens/regenerate", s.requireSecondary(s.handleMCPTokenRegenerate))
+	api("POST /api/v1/mcp/tokens/revoke", s.requireSecondary(s.handleMCPTokenRevoke))
+	api("GET /api/v1/mcp/audit", s.requireAuth(s.handleMCPAudit))
+	api("GET /api/v1/mcp/audit/export", s.requireAuth(s.handleMCPAuditExport))
+	api("DELETE /api/v1/mcp/audit", s.requireSecondary(s.handleMCPAuditClear))
 
 	api("GET /api/v1/logs/config-changes", s.requireAuth(s.handleConfigChangeLog))
 	api("DELETE /api/v1/logs/config-changes", s.requireSecondary(s.handleConfigChangeLogClear))

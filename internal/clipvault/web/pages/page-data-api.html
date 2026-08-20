@@ -146,6 +146,16 @@
           </div>
           <div class="field-row">
             <div class="field-info">
+              <label class="field-label" for="dapiTokenAllowSensitive">允许敏感数据</label>
+              <p class="field-hint">默认关闭。开启后此 Token 可读取被标记为敏感的记录；关闭时敏感记录对此 Token 完全不可见（与不存在无异）</p>
+            </div>
+            <label class="ar-toggle">
+              <input type="checkbox" id="dapiTokenAllowSensitive">
+              <span>允许</span>
+            </label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
               <span class="field-label">创建令牌</span>
               <p class="field-hint">创建与重新生成需要二次验证，且需要已激活的授权</p>
             </div>

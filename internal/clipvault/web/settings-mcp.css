@@ -1,0 +1,19 @@
+/* MCP 设置页样式：复用数据接口的 dapi-* 视觉体系（settings-data-api.css
+   已全局加载），这里只放 MCP 页专属微调。 */
+
+#mcpPage .dapi-op-endpoint code {
+  font-size: 11px;
+}
+
+#mcpPage .ssec-desc,
+#mcpPage .field-hint {
+  word-break: break-all;
+}
+
+/* 能力清单以等宽小号展示，便于复制工具/资源名。 */
+#mcpToolList,
+#mcpResourceList {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.7;
+}

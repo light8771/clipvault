@@ -25,6 +25,7 @@ var applicationModuleAssets = []string{
 	"/app/source-data.js", "/app/text-utils.js", "/app/transfer.js",
 	"/app/logs.js", "/app/groups-page.js", "/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
 	"/app/data-api.js", "/app/data-api-audit.js", "/app/confirm-arm.js",
+	"/app/mcp.js", "/app/mcp-audit.js",
 }
 
 type applicationPage struct {
@@ -143,6 +144,15 @@ var applicationPageDefinitions = []applicationPage{
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
 		Parts:            settingsPageParts("web/pages/page-data-api.html"),
+	},
+	{
+		Path:             "/mcp",
+		Name:             "settings",
+		Title:            "MCP",
+		Menu:             "mcp",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/page-mcp.html"),
 	},
 	{
 		Path:             "/license",

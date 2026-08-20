@@ -18,21 +18,37 @@ const apiTokenPrefix = "cv_"
 // apiTokenEntropyBytes 是 Token 的随机熵（256 bit），base64url 编码后 43 字符。
 const apiTokenEntropyBytes = 32
 
+// 外部访问令牌通道：HTTP 数据接口与 MCP 各自只认本通道签发的 Token。
+const (
+	TokenChannelHTTP = "http"
+	TokenChannelMCP  = "mcp"
+)
+
+// validTokenChannel 报告 channel 是否是受支持的外部访问通道。
+func validTokenChannel(channel string) bool {
+	return channel == TokenChannelHTTP || channel == TokenChannelMCP
+}
+
 var (
 	errAPITokenNotFound = errors.New("api token not found")
 	errAPITokenRevoked  = errors.New("api token revoked")
 	errAPITokenExpired  = errors.New("api token expired")
+	errAPITokenChannel  = errors.New("api token channel mismatch")
 )
 
-// APIToken 是一个数据接口 Access Token 的元数据。原始 Token 只在创建时
-// 返回一次，数据库只保存 SHA-256 哈希（AUTH-02）。
+// APIToken 是 HTTP 数据接口与 MCP 共享的外部访问令牌元数据。
+// 原始 Token 只在创建时返回一次，数据库只保存 SHA-256 哈希（AUTH-02）。
+// Channel 限定令牌可用于的服务（http|mcp）；AllowSensitive 控制敏感数据
+// 可见性，默认 false，必须由用户显式授权。
 type APIToken struct {
-	ID         int64      `json:"-"`
-	Name       string     `json:"name"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	ExpiresAt  *time.Time `json:"expiresAt"`  // null = 永不过期
-	LastUsedAt *time.Time `json:"lastUsedAt"` // null = 从未使用
-	RevokedAt  *time.Time `json:"revokedAt"`  // null = 未撤销
+	ID             int64      `json:"-"`
+	Name           string     `json:"name"`
+	Channel        string     `json:"channel"`        // "http" | "mcp"
+	AllowSensitive bool       `json:"allowSensitive"` // 默认 false
+	CreatedAt      time.Time  `json:"createdAt"`
+	ExpiresAt      *time.Time `json:"expiresAt"`  // null = 永不过期
+	LastUsedAt     *time.Time `json:"lastUsedAt"` // null = 从未使用
+	RevokedAt      *time.Time `json:"revokedAt"`  // null = 未撤销
 }
 
 // generateAPIToken 生成加密安全的随机 Token，返回原文（仅此一次可见）与存储哈希。
@@ -65,7 +81,8 @@ func apiTokenExpiryMS(preset string, now time.Time) (int64, error) {
 		d = 90 * 24 * time.Hour
 	case "1y":
 		d = 365 * 24 * time.Hour
-	case "never":
+	case "", "never":
+		// 空值与 never 都表示永不过期。
 		return 0, nil
 	default:
 		return 0, fmt.Errorf("unsupported expiry preset %q", preset)

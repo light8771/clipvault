@@ -39,7 +39,13 @@ func (s *SearchServer) handleDataAPIStatus(w http.ResponseWriter, r *http.Reques
 	}
 	if s.store != nil {
 		if tokens, err := s.store.ListAPITokens(r.Context()); err == nil {
-			resp["tokenCount"] = len(tokens)
+			count := 0
+			for _, token := range tokens {
+				if token.Channel == TokenChannelHTTP {
+					count++
+				}
+			}
+			resp["tokenCount"] = count
 		}
 	}
 	s.writeJSON(w, resp)
@@ -105,16 +111,19 @@ func (s *SearchServer) handleDataAPIConfig(w http.ResponseWriter, r *http.Reques
 	s.writeJSON(w, response)
 }
 
-// handleDataAPITokens 列出全部 Token 元数据（不含原文）。
+// handleDataAPITokens 列出全部 HTTP 通道 Token 元数据（不含原文）。
 func (s *SearchServer) handleDataAPITokens(w http.ResponseWriter, r *http.Request) {
 	tokens, err := s.store.ListAPITokens(r.Context())
 	if err != nil {
 		s.writeError(w, err)
 		return
 	}
-	out := make([]map[string]any, len(tokens))
+	out := []map[string]any{}
 	now := time.Now()
-	for i, token := range tokens {
+	for _, token := range tokens {
+		if token.Channel != TokenChannelHTTP {
+			continue
+		}
 		state := "active"
 		switch {
 		case token.RevokedAt != nil:
@@ -122,32 +131,41 @@ func (s *SearchServer) handleDataAPITokens(w http.ResponseWriter, r *http.Reques
 		case token.ExpiresAt != nil && now.After(*token.ExpiresAt):
 			state = "expired"
 		}
-		out[i] = map[string]any{
-			"id":         strconv.FormatInt(token.ID, 10),
-			"name":       token.Name,
-			"createdAt":  token.CreatedAt,
-			"expiresAt":  token.ExpiresAt,
-			"lastUsedAt": token.LastUsedAt,
-			"revokedAt":  token.RevokedAt,
-			"state":      state,
-		}
+		out = append(out, map[string]any{
+			"id":             strconv.FormatInt(token.ID, 10),
+			"name":           token.Name,
+			"channel":        token.Channel,
+			"allowSensitive": token.AllowSensitive,
+			"createdAt":      token.CreatedAt,
+			"expiresAt":      token.ExpiresAt,
+			"lastUsedAt":     token.LastUsedAt,
+			"revokedAt":      token.RevokedAt,
+			"state":          state,
+		})
 	}
 	s.writeJSON(w, map[string]any{"tokens": out})
 }
 
 // dataAPITokenCreated 是创建/重新生成 Token 的响应（原文只出现这一次）。
 type dataAPITokenCreated struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Token     string     `json:"token"`
-	CreatedAt time.Time  `json:"createdAt"`
-	ExpiresAt *time.Time `json:"expiresAt"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Channel        string     `json:"channel"`
+	AllowSensitive bool       `json:"allowSensitive"`
+	Token          string     `json:"token"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ExpiresAt      *time.Time `json:"expiresAt"`
 }
 
 // createAPIToken 是创建 Token 的共享实现；要求已激活（实时从磁盘校验，AUTH 门控）。
-func (s *SearchServer) createAPIToken(w http.ResponseWriter, r *http.Request, name, expiryPreset string) *dataAPITokenCreated {
+// channel 限定令牌用途（http|mcp）；allowSensitive 默认 false（敏感数据按 Token 显式授权）。
+func (s *SearchServer) createAPIToken(w http.ResponseWriter, r *http.Request, name, expiryPreset, channel string, allowSensitive bool) *dataAPITokenCreated {
 	if FreeTierRestriction(s.env) {
 		s.writeAPIError(w, http.StatusForbidden, "activation_required", "数据接口仅对已激活用户开放", nil)
+		return nil
+	}
+	if !validTokenChannel(channel) {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_channel", "无效的令牌通道", nil)
 		return nil
 	}
 	name, err := validateAPITokenName(name)
@@ -165,39 +183,42 @@ func (s *SearchServer) createAPIToken(w http.ResponseWriter, r *http.Request, na
 		s.writeError(w, err)
 		return nil
 	}
-	id, err := s.store.CreateAPIToken(r.Context(), name, hash, expiresAtMS)
+	id, err := s.store.CreateAPIToken(r.Context(), name, hash, expiresAtMS, channel, allowSensitive)
 	if err != nil {
 		s.writeError(w, err)
 		return nil
 	}
 	return &dataAPITokenCreated{
-		ID:        strconv.FormatInt(id, 10),
-		Name:      name,
-		Token:     raw,
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: msToTimePtr(expiresAtMS),
+		ID:             strconv.FormatInt(id, 10),
+		Name:           name,
+		Channel:        channel,
+		AllowSensitive: allowSensitive,
+		Token:          raw,
+		CreatedAt:      time.Now().UTC(),
+		ExpiresAt:      msToTimePtr(expiresAtMS),
 	}
 }
 
-// handleDataAPITokenCreate 创建新 Token。
+// handleDataAPITokenCreate 创建新 HTTP 数据接口 Token。
 func (s *SearchServer) handleDataAPITokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string `json:"name"`
-		ExpiresIn string `json:"expiresIn"`
+		Name           string `json:"name"`
+		ExpiresIn      string `json:"expiresIn"`
+		AllowSensitive bool   `json:"allowSensitive"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
-	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn)
+	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn, TokenChannelHTTP, req.AllowSensitive)
 	if created == nil {
 		return
 	}
-	s.logger.Info("data_api_token_created", map[string]any{"tokenId": created.ID, "name": created.Name})
+	s.logger.Info("data_api_token_created", map[string]any{"tokenId": created.ID, "name": created.Name, "allowSensitive": created.AllowSensitive})
 	s.writeJSON(w, created)
 }
 
-// handleDataAPITokenRegenerate 撤销旧 Token 并按原名称/有效期签发新 Token。
+// handleDataAPITokenRegenerate 撤销旧 Token 并按原名称/有效期/通道/敏感授权签发新 Token。
 func (s *SearchServer) handleDataAPITokenRegenerate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
@@ -223,7 +244,7 @@ func (s *SearchServer) handleDataAPITokenRegenerate(w http.ResponseWriter, r *ht
 			break
 		}
 	}
-	if old == nil {
+	if old == nil || (old.Channel != "" && old.Channel != TokenChannelHTTP) {
 		s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
 		return
 	}
@@ -243,6 +264,7 @@ func (s *SearchServer) handleDataAPITokenRegenerate(w http.ResponseWriter, r *ht
 			preset = "1y"
 		}
 	}
+	// 通道与敏感授权保持不变（重新生成不扩大权限）。
 	if err := s.store.RevokeAPIToken(r.Context(), id); err != nil {
 		if errors.Is(err, errAPITokenNotFound) {
 			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
@@ -251,7 +273,7 @@ func (s *SearchServer) handleDataAPITokenRegenerate(w http.ResponseWriter, r *ht
 		s.writeError(w, err)
 		return
 	}
-	created := s.createAPIToken(w, r, old.Name, preset)
+	created := s.createAPIToken(w, r, old.Name, preset, old.Channel, old.AllowSensitive)
 	if created == nil {
 		return
 	}
@@ -286,10 +308,11 @@ func (s *SearchServer) handleDataAPITokenRevoke(w http.ResponseWriter, r *http.R
 }
 
 // dataAPIAuditFilterFromRequest 把查询参数编译为审计过滤条件。
-// operation 支持逗号分隔多值；limit 上限 200。
+// operation 支持逗号分隔多值；limit 上限 200。数据接口审计页只看 http 通道。
 func dataAPIAuditFilterFromRequest(r *http.Request) APIAuditFilter {
 	query := r.URL.Query()
 	filter := APIAuditFilter{
+		Channel: TokenChannelHTTP,
 		Result:  query.Get("result"),
 		Query:   query.Get("q"),
 		TokenID: parseInt64OrZero(query.Get("tokenId")),
@@ -319,7 +342,7 @@ func parseInt64OrZero(text string) int64 {
 }
 
 // handleDataAPIAudit 分页返回外部 API 访问记录（支持操作/结果/令牌/关键词过滤），
-// 并附带全量统计概览。
+// 并附带该通道的统计概览。
 func (s *SearchServer) handleDataAPIAudit(w http.ResponseWriter, r *http.Request) {
 	filter := dataAPIAuditFilterFromRequest(r)
 	events, total, err := s.store.ListAPIAuditEvents(r.Context(), filter)
@@ -328,7 +351,7 @@ func (s *SearchServer) handleDataAPIAudit(w http.ResponseWriter, r *http.Request
 		return
 	}
 	resp := map[string]any{"entries": events, "total": total}
-	if stats, err := s.store.APIAuditStats(r.Context()); err == nil {
+	if stats, err := s.store.APIAuditStats(r.Context(), TokenChannelHTTP); err == nil {
 		resp["stats"] = stats
 	}
 	s.writeJSON(w, resp)
@@ -348,19 +371,25 @@ func (s *SearchServer) handleDataAPIAuditExport(w http.ResponseWriter, r *http.R
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	writer := csv.NewWriter(&buf)
-	_ = writer.Write([]string{"时间(UTC)", "令牌", "来源IP", "方法", "端点", "操作", "记录ID", "返回条数", "耗时(ms)", "状态码", "错误码", "请求摘要", "请求体"})
+	_ = writer.Write([]string{"时间(UTC)", "通道", "令牌", "来源IP", "方法", "端点", "操作", "资源URI", "记录ID", "返回条数", "耗时(ms)", "状态码", "错误码", "请求摘要", "请求体", "敏感访问"})
 	for _, event := range events {
 		itemID := ""
 		if event.ItemID > 0 {
 			itemID = strconv.FormatInt(event.ItemID, 10)
 		}
+		sensitive := "否"
+		if event.SensitiveAccessed {
+			sensitive = "是"
+		}
 		_ = writer.Write([]string{
 			event.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			event.Channel,
 			event.TokenName,
 			event.RemoteIP,
 			event.Method,
 			event.Endpoint,
 			event.Operation,
+			event.ResourceURI,
 			itemID,
 			strconv.Itoa(event.ItemCount),
 			strconv.FormatInt(event.DurationMs, 10),
@@ -368,6 +397,7 @@ func (s *SearchServer) handleDataAPIAuditExport(w http.ResponseWriter, r *http.R
 			event.ErrorCode,
 			event.RequestSummary,
 			event.RequestBody,
+			sensitive,
 		})
 	}
 	writer.Flush()
@@ -376,9 +406,9 @@ func (s *SearchServer) handleDataAPIAuditExport(w http.ResponseWriter, r *http.R
 	_, _ = w.Write(buf.Bytes())
 }
 
-// handleDataAPIAuditClear 清空外部 API 访问记录。
+// handleDataAPIAuditClear 清空数据接口（http 通道）访问记录，保留 MCP 审计。
 func (s *SearchServer) handleDataAPIAuditClear(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.ClearAPIAuditEvents(r.Context()); err != nil {
+	if err := s.store.ClearAPIAuditEvents(r.Context(), TokenChannelHTTP); err != nil {
 		s.writeError(w, err)
 		return
 	}

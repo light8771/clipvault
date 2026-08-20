@@ -41,18 +41,24 @@ func TestAPITokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := store.CreateAPIToken(ctx, "Ollama", hash, expiresAtMS)
+	id, err := store.CreateAPIToken(ctx, "Ollama", hash, expiresAtMS, TokenChannelHTTP, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := store.AuthenticateAPIToken(ctx, raw)
+	token, err := store.AuthenticateAPIToken(ctx, raw, TokenChannelHTTP)
 	if err != nil {
 		t.Fatalf("authenticate valid token: %v", err)
 	}
-	if token.ID != id || token.Name != "Ollama" || token.ExpiresAt == nil {
+	if token.ID != id || token.Name != "Ollama" || token.Channel != TokenChannelHTTP || token.ExpiresAt == nil {
 		t.Fatalf("unexpected token %+v", token)
 	}
-	if _, err := store.AuthenticateAPIToken(ctx, "cv_wrong"); err != errAPITokenNotFound {
+	if token.AllowSensitive {
+		t.Fatal("new token must default to allow_sensitive=false")
+	}
+	if _, err := store.AuthenticateAPIToken(ctx, raw, TokenChannelMCP); err != errAPITokenChannel {
+		t.Fatalf("http token on mcp channel err=%v, want channel mismatch", err)
+	}
+	if _, err := store.AuthenticateAPIToken(ctx, "cv_wrong", TokenChannelHTTP); err != errAPITokenNotFound {
 		t.Fatalf("wrong token err=%v, want not found", err)
 	}
 	// 数据库中找不到 Token 原文。
@@ -66,17 +72,17 @@ func TestAPITokenLifecycle(t *testing.T) {
 	}
 	// 过期 Token 被拒绝。
 	expiredHash := hashAPIToken("cv_expired")
-	if _, err := store.CreateAPIToken(ctx, "expired", expiredHash, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
+	if _, err := store.CreateAPIToken(ctx, "expired", expiredHash, time.Now().Add(-time.Hour).UnixMilli(), TokenChannelHTTP, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AuthenticateAPIToken(ctx, "cv_expired"); err != errAPITokenExpired {
+	if _, err := store.AuthenticateAPIToken(ctx, "cv_expired", TokenChannelHTTP); err != errAPITokenExpired {
 		t.Fatalf("expired token err=%v, want expired", err)
 	}
 	// 撤销后立即被拒绝。
 	if err := store.RevokeAPIToken(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AuthenticateAPIToken(ctx, raw); err != errAPITokenRevoked {
+	if _, err := store.AuthenticateAPIToken(ctx, raw, TokenChannelHTTP); err != errAPITokenRevoked {
 		t.Fatalf("revoked token err=%v, want revoked", err)
 	}
 	// 最后访问时间单调更新。
@@ -340,7 +346,7 @@ func startDataAPITestService(t *testing.T, items ...ClipboardItem) *dataAPITestF
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { logger.Close() })
-	svc := NewDataAPIService(nil, store, logger, nil, env)
+	svc := NewDataAPIService(nil, NewExternalReadService(store, env), store, logger, nil, env)
 	svc.activatedFn = func() bool { return true }
 	t.Cleanup(svc.Close)
 
@@ -363,7 +369,7 @@ func startDataAPITestService(t *testing.T, items ...ClipboardItem) *dataAPITestF
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateAPIToken(ctx, "e2e", hash, 0); err != nil {
+	if _, err := store.CreateAPIToken(ctx, "e2e", hash, 0, TokenChannelHTTP, false); err != nil {
 		t.Fatal(err)
 	}
 	return &dataAPITestFixture{
@@ -666,14 +672,14 @@ func TestDataAPIAuditStore(t *testing.T) {
 		t.Fatalf("token filter: total=%d events=%+v err=%v", tTotal, byToken, err)
 	}
 	// 全量统计。
-	stats, err := store.APIAuditStats(ctx)
+	stats, err := store.APIAuditStats(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stats.Total != 2 || stats.Success != 1 || stats.Error != 1 || stats.Last24h != 2 {
 		t.Fatalf("unexpected stats %+v", stats)
 	}
-	if err := store.ClearAPIAuditEvents(ctx); err != nil {
+	if err := store.ClearAPIAuditEvents(ctx, TokenChannelHTTP); err != nil {
 		t.Fatal(err)
 	}
 	if _, total, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10}); err != nil || total != 0 {
@@ -790,6 +796,137 @@ func TestDataAPIAuditEndpointsThroughHTTP(t *testing.T) {
 	}
 }
 
+// TestDataAPIHTTPSensitivePermission E2E：HTTP Token 的敏感授权开关
+// （S1/S2/S3/S4 + metadata 权限报告）。
+func TestDataAPIHTTPSensitivePermission(t *testing.T) {
+	fx := startDataAPITestService(t,
+		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "normal entry"},
+		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "secret entry"},
+	)
+	ctx := context.Background()
+	items, _, err := fx.store.Search(ctx, domain.SearchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var normalID, sensitiveID int64
+	for _, item := range items {
+		if item.Text == "secret entry" {
+			sensitiveID = item.ID
+		} else {
+			normalID = item.ID
+		}
+	}
+	if _, err := fx.store.db.ExecContext(ctx,
+		`UPDATE clipboard_items SET sensitive = true WHERE id = ?`, sensitiveID); err != nil {
+		t.Fatal(err)
+	}
+	// 授权 Token（allowSensitive=true）。
+	rawGranted, hashGranted, err := generateAPIToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.store.CreateAPIToken(ctx, "granted", hashGranted, 0, TokenChannelHTTP, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// ── 未授权（默认 Token，allowSensitive=false）────────
+	// 列表搜索不返回敏感行（S1）。
+	resp := fx.authed(t, "POST", "/api/v1/query", `{"resource": "clipboardItems", "limit": 10}`)
+	body := readResponseBody(t, resp)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "secret entry") {
+		t.Fatalf("unauthorized search leaked sensitive row: %d %s", resp.StatusCode, body)
+	}
+	// 调用方显式 sensitive=true 不能绕过限制，返回空集。
+	resp = fx.authed(t, "POST", "/api/v1/query", `{"resource": "clipboardItems", "filter": {"sensitive": {"eq": true}}}`)
+	body = readResponseBody(t, resp)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "secret entry") || !strings.Contains(body, `"hasMore":false`) {
+		t.Fatalf("sensitive=true filter must return empty for unauthorized token: %d %s", resp.StatusCode, body)
+	}
+	// 已知敏感 ID 的单条获取与内容获取都是 404（S2）。
+	resp = fx.authed(t, "GET", "/api/v1/items/"+strconv.FormatInt(sensitiveID, 10), "")
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(readResponseBody(t, resp), `"error":"not_found"`) {
+		t.Fatalf("unauthorized sensitive get must be 404: %d", resp.StatusCode)
+	}
+	resp = fx.authed(t, "GET", "/api/v1/items/"+strconv.FormatInt(sensitiveID, 10)+"/content", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unauthorized sensitive content must be 404: %d", resp.StatusCode)
+	}
+	// 批量获取静默省略敏感 ID（S3）。
+	batchBody := `{"ids": ["` + strconv.FormatInt(normalID, 10) + `", "` + strconv.FormatInt(sensitiveID, 10) + `"]}`
+	resp = fx.authed(t, "POST", "/api/v1/items/batch-get", batchBody)
+	body = readResponseBody(t, resp)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "secret entry") || !strings.Contains(body, "normal entry") {
+		t.Fatalf("unauthorized batch leaked sensitive row: %d %s", resp.StatusCode, body)
+	}
+	// 计数排除敏感行（S4）。
+	resp = fx.authed(t, "POST", "/api/v1/query", `{"resource": "clipboardItems", "groupBy": ["kind"], "aggregate": {"count": "*"}}`)
+	body = readResponseBody(t, resp)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"count":1`) {
+		t.Fatalf("unauthorized aggregate must count visible rows only: %d %s", resp.StatusCode, body)
+	}
+	// metadata 报告只读 + 无敏感权限。
+	resp = fx.authed(t, "GET", "/api/v1/metadata", "")
+	body = readResponseBody(t, resp)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"readOnly":true`) || !strings.Contains(body, `"allowSensitive":false`) {
+		t.Fatalf("metadata must report permissions: %d %s", resp.StatusCode, body)
+	}
+
+	// ── 已授权（allowSensitive=true）────────────────────
+	grantedReq, _ := http.NewRequest("GET", fx.base+"/api/v1/metadata", nil)
+	grantedReq.Header.Set("Authorization", "Bearer "+rawGranted)
+	grantedResp, err := http.DefaultClient.Do(grantedReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantedBody := readResponseBody(t, grantedResp)
+	if grantedResp.StatusCode != http.StatusOK || !strings.Contains(grantedBody, `"allowSensitive":true`) {
+		t.Fatalf("granted token metadata must report allowSensitive=true: %d %s", grantedResp.StatusCode, grantedBody)
+	}
+	grantedQuery, _ := http.NewRequest("POST", fx.base+"/api/v1/query", strings.NewReader(`{"resource": "clipboardItems", "limit": 10}`))
+	grantedQuery.Header.Set("Authorization", "Bearer "+rawGranted)
+	grantedQuery.Header.Set("Content-Type", "application/json")
+	grantedQueryResp, err := http.DefaultClient.Do(grantedQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantedQueryBody := readResponseBody(t, grantedQueryResp)
+	if grantedQueryResp.StatusCode != http.StatusOK || !strings.Contains(grantedQueryBody, "secret entry") {
+		t.Fatalf("granted token must see sensitive rows: %d %s", grantedQueryResp.StatusCode, grantedQueryBody)
+	}
+	grantedGet, _ := http.NewRequest("GET", fx.base+"/api/v1/items/"+strconv.FormatInt(sensitiveID, 10), nil)
+	grantedGet.Header.Set("Authorization", "Bearer "+rawGranted)
+	grantedGetResp, err := http.DefaultClient.Do(grantedGet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grantedGetResp.StatusCode != http.StatusOK {
+		t.Fatalf("granted token must fetch sensitive item: %d", grantedGetResp.StatusCode)
+	}
+	readResponseBody(t, grantedGetResp)
+}
+
+// TestDataAPIHTTPTokenChannelIsolation E2E：MCP 通道令牌不能调用 HTTP 数据接口（S7）。
+func TestDataAPIHTTPTokenChannelIsolation(t *testing.T) {
+	fx := startDataAPITestService(t)
+	raw, hash, err := generateAPIToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.store.CreateAPIToken(context.Background(), "mcp-token", hash, 0, TokenChannelMCP, false); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest("GET", fx.base+"/api/v1/metadata", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readResponseBody(t, resp)
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(body, `"error":"invalid_token"`) {
+		t.Fatalf("mcp token on http api must be 401 invalid_token: %d %s", resp.StatusCode, body)
+	}
+}
+
 func TestSummarizeDataAPIQuery(t *testing.T) {
 	req := dataAPIQueryRequest{
 		Resource: "clipboardItems",
@@ -823,5 +960,84 @@ func TestSummarizeDataAPIQuery(t *testing.T) {
 	batch := summarizeDataAPIBatchIDs(ids)
 	if !strings.Contains(batch, "+8]") || !strings.Contains(batch, "ids=[1,2,3") {
 		t.Fatalf("batch summary = %q", batch)
+	}
+}
+
+// TestAuditChannelFieldsRoundTrip 审计 channel/resource_uri 字段往返。
+func TestAuditChannelFieldsRoundTrip(t *testing.T) {
+	store := openDataAPITestStore(t)
+	ctx := context.Background()
+	events := []APIAuditEvent{
+		{Timestamp: time.Now().UTC(), Channel: TokenChannelMCP, TokenID: 3, TokenName: "Codex",
+			RemoteIP: "127.0.0.1", Method: "POST", Endpoint: "/mcp", Operation: "tool:search_clipboard",
+			ResourceURI: "clipvault://items", ItemCount: 4, DurationMs: 9, StatusCode: 200},
+		{Timestamp: time.Now().UTC(), Channel: TokenChannelHTTP, TokenID: 0, RemoteIP: "192.168.0.9",
+			Method: "GET", Endpoint: "/api/v1/metadata", Operation: "auth", StatusCode: 401, ErrorCode: "invalid_token"},
+	}
+	if err := store.InsertAPIAuditEvents(ctx, events); err != nil {
+		t.Fatal(err)
+	}
+	// 通道过滤：mcp 只见 mcp。
+	mcpEvents, mcpTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Channel: TokenChannelMCP, Limit: 10})
+	if err != nil || mcpTotal != 1 || len(mcpEvents) != 1 {
+		t.Fatalf("mcp channel filter total=%d events=%+v err=%v", mcpTotal, mcpEvents, err)
+	}
+	if mcpEvents[0].ResourceURI != "clipvault://items" || mcpEvents[0].Operation != "tool:search_clipboard" {
+		t.Fatalf("mcp audit roundtrip=%+v", mcpEvents[0])
+	}
+	httpEvents, httpTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Channel: TokenChannelHTTP, Limit: 10})
+	if err != nil || httpTotal != 1 || httpEvents[0].Operation != "auth" {
+		t.Fatalf("http channel filter total=%d events=%+v err=%v", httpTotal, httpEvents, err)
+	}
+	// 空通道统计全部。
+	allStats, err := store.APIAuditStats(ctx, "")
+	if err != nil || allStats.Total != 2 {
+		t.Fatalf("all stats=%+v err=%v", allStats, err)
+	}
+	mcpStats, err := store.APIAuditStats(ctx, TokenChannelMCP)
+	if err != nil || mcpStats.Total != 1 {
+		t.Fatalf("mcp stats=%+v err=%v", mcpStats, err)
+	}
+	// 按通道清空：清空 mcp 后 http 记录保留。
+	if err := store.ClearAPIAuditEvents(ctx, TokenChannelMCP); err != nil {
+		t.Fatal(err)
+	}
+	remaining, remainingTotal, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10})
+	if err != nil || remainingTotal != 1 || len(remaining) != 1 || remaining[0].Channel != TokenChannelHTTP {
+		t.Fatalf("after channel-scoped clear total=%d events=%+v err=%v", remainingTotal, remaining, err)
+	}
+}
+
+// TestSensitiveAccessedRoundTrip sensitive_accessed 字段往返。
+func TestSensitiveAccessedRoundTrip(t *testing.T) {
+	store := openDataAPITestStore(t)
+	ctx := context.Background()
+	events := []APIAuditEvent{
+		{Timestamp: time.Now().UTC(), Channel: TokenChannelMCP, TokenName: "Codex",
+			Operation: "tool:get_clipboard_item", ItemID: 7, StatusCode: 200, SensitiveAccessed: true},
+		{Timestamp: time.Now().UTC(), Channel: TokenChannelHTTP, TokenName: "Ollama",
+			Operation: "query_items", StatusCode: 200, SensitiveAccessed: false},
+	}
+	if err := store.InsertAPIAuditEvents(ctx, events); err != nil {
+		t.Fatal(err)
+	}
+	listed, total, err := store.ListAPIAuditEvents(ctx, APIAuditFilter{Limit: 10})
+	if err != nil || total != 2 {
+		t.Fatalf("total=%d err=%v", total, err)
+	}
+	// 按 id 倒序：listed[0]=http 事件（未访问敏感），listed[1]=mcp 事件（访问敏感）。
+	if listed[0].SensitiveAccessed || !listed[1].SensitiveAccessed {
+		t.Fatalf("sensitiveAccessed roundtrip=%+v %+v", listed[0], listed[1])
+	}
+	if listed[0].Channel != TokenChannelHTTP || listed[1].Channel != TokenChannelMCP {
+		t.Fatalf("channel roundtrip=%q %q", listed[0].Channel, listed[1].Channel)
+	}
+	// 审计不包含令牌原文或剪贴板正文（S10）。
+	var raw string
+	if err := store.db.QueryRowContext(ctx, `SELECT CAST(value AS VARCHAR) FROM settings WHERE key = 'schema.version'`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, "7") {
+		t.Fatalf("schema version marker=%q", raw)
 	}
 }

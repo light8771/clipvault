@@ -14,6 +14,10 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
           <span>数据接口</span>
         </a>
+        <a class="amenu-item{{if eq .Menu "mcp"}} active{{end}}" href="/mcp"{{if eq .Menu "mcp"}} aria-current="page"{{end}}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="2"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4"/></svg>
+          <span>MCP</span>
+        </a>
         <a class="amenu-item{{if eq .Menu "license"}} active{{end}}" href="/license"{{if eq .Menu "license"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
           <span>软件授权</span>
