@@ -11,6 +11,9 @@ screenshot*.png
 *.test
 *.out
 
+# 误展开的覆盖率产物（-o $coverPath 变量未定义时落盘的字面文件名）
+$coverPath
+
 # IDE 与 AI 助手工作目录
 .idea/
 .vscode/
