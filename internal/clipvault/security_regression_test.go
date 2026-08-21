@@ -909,7 +909,7 @@ func TestStartupGateCapabilityURLCompletesWithSessionCookie(t *testing.T) {
 		t.Fatal("opening the token-free URL must not grant a startup session")
 	}
 	html := string(indexBody)
-	if strings.Count(html, `<form `) != 2 || strings.Count(html, `autocomplete="username"`) != 2 {
+	if strings.Count(html, `<form `) != 3 || strings.Count(html, `autocomplete="username"`) != 3 {
 		t.Fatalf("startup credential forms are not separated or lack usernames")
 	}
 	for path, contentType := range map[string]string{

@@ -321,6 +321,8 @@ func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
 		Confirm           string `json:"confirm"`
 		SecondaryPassword string `json:"secondaryPassword"`
 		SecondaryConfirm  string `json:"secondaryConfirm"`
+		LockPassword      string `json:"lockPassword"`
+		LockConfirm       string `json:"lockConfirm"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil {
 		writeStartupGateJSON(w, false, "请求格式无效")
@@ -343,7 +345,11 @@ func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
 			writeStartupGateJSON(w, false, "两次输入的二次密码不一致")
 			return
 		}
-		err = g.setInitialCredentials(req.Password, req.SecondaryPassword)
+		if req.LockPassword != req.LockConfirm {
+			writeStartupGateJSON(w, false, "两次输入的锁屏密码不一致")
+			return
+		}
+		err = g.setInitialCredentials(req.Password, req.SecondaryPassword, req.LockPassword)
 	case startupGateRepairConfig:
 		err = VerifyRecoveryPassword(g.dataDir, req.Password)
 		if err == nil {
@@ -376,7 +382,10 @@ func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword string) error {
+// setInitialCredentials 完成首次启动的三层凭据初始化。锁屏密码可选：
+// 传空串表示用户明确跳过（界面留空），此时 Web 界面无锁屏门，
+// 搜索历史等非敏感端点对本机进程直接可见——引导页已明示该后果。
+func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword, lockPassword string) error {
 	if err := validateRecoveryPassword(recoveryPassword); err != nil {
 		return err
 	}
@@ -384,12 +393,22 @@ func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword 
 	if err != nil {
 		return err
 	}
+	var lockHash string
+	if lockPassword != "" {
+		lockHash, err = newPasswordHash(lockPassword)
+		if err != nil {
+			return err
+		}
+	}
 	cfg, err := g.store.GetConfig()
 	if err != nil {
 		return err
 	}
 	if cfg.Security.SecondaryPasswordHash != "" {
 		return errors.New("二次密码已设置，无法重复初始化")
+	}
+	if cfg.Security.LockPasswordHash != "" {
+		return errors.New("锁屏密码已设置，无法重复初始化")
 	}
 	hasRecovery, err := HasRecoveryPassword(g.dataDir)
 	if err != nil {
@@ -402,12 +421,13 @@ func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword 
 		return err
 	}
 	cfg.Security.SecondaryPasswordHash = secondaryHash
+	cfg.Security.LockPasswordHash = lockHash
 	if err := g.store.SaveConfig(cfg); err != nil {
 		removeErr := os.Remove(activeDatabaseFile(g.dataDir, databaseRecoveryFileName))
 		if removeErr != nil && !os.IsNotExist(removeErr) {
-			return errors.Join(fmt.Errorf("保存二次密码: %w", err), fmt.Errorf("回滚恢复密码: %w", removeErr))
+			return errors.Join(fmt.Errorf("保存凭据: %w", err), fmt.Errorf("回滚恢复密码: %w", removeErr))
 		}
-		return fmt.Errorf("保存二次密码: %w", err)
+		return fmt.Errorf("保存凭据: %w", err)
 	}
 	return nil
 }
@@ -443,6 +463,7 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <ol class="steps">
 <li class="is-current" id="step-recovery"><span class="step-name">设置恢复密码</span><span class="step-sub">数据库丢失时的最后保障</span></li>
 <li id="step-secondary"><span class="step-name">设置二次密码</span><span class="step-sub">敏感操作的二次确认</span></li>
+<li id="step-lock"><span class="step-name">设置锁屏密码</span><span class="step-sub">打开界面时的门，可留空跳过</span></li>
 <li id="step-finish"><span class="step-name">开始使用</span><span class="step-sub">完成后自动打开记录页</span></li>
 </ol>
 {{end}}
@@ -469,6 +490,15 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <p class="section-hint">用于查看或操作敏感数据时的二次确认，可与恢复密码不同。</p>
 <div class="field"><label for="secondaryPassword">二次密码</label><div class="wrap"><input id="secondaryPassword" name="password" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">显示</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
 <div class="field"><label for="secondaryConfirm">确认二次密码</label><div class="wrap"><input id="secondaryConfirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">显示</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
+</div>
+</form>
+<form id="lock-form" class="credential-form" novalidate>
+<input type="text" name="username" value="ClipVault 锁屏密码" autocomplete="username" hidden>
+<div class="section">
+<h2 class="section-title">锁屏密码（可选）</h2>
+<p class="section-hint">打开 ClipVault 界面时要求输入。留空跳过——跳过后本机任何程序都能直接查看你的剪贴板历史，建议设置。</p>
+<div class="field"><label for="lockPassword">锁屏密码</label><div class="wrap"><input id="lockPassword" name="password" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockPassword">显示</button></div><div class="msg" id="msg-lockPassword"></div></div>
+<div class="field"><label for="lockConfirm">确认锁屏密码</label><div class="wrap"><input id="lockConfirm" name="password-confirmation" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockConfirm">显示</button></div><div class="msg" id="msg-lockConfirm"></div></div>
 </div>
 </form>
 <div class="warn"><p class="warn-title">请务必离线保存恢复密码</p><p class="warn-copy">如果 Windows 密钥和恢复密码同时丢失，数据库将无法恢复。</p></div>

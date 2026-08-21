@@ -11,8 +11,8 @@ if(docEl.dataset.themeMode==='light'||docEl.dataset.themeMode==='dark')docEl.dat
 const root=document.querySelector('.main');
 const mode=root.dataset.mode,isSetup=mode==='set_credentials';
 const $=id=>document.getElementById(id);
-const els={password:$('password'),confirm:$('confirm'),secondaryPassword:$('secondaryPassword'),secondaryConfirm:$('secondaryConfirm')};
-const msgs={password:$('msg-password'),confirm:$('msg-confirm'),secondaryPassword:$('msg-secondaryPassword'),secondaryConfirm:$('msg-secondaryConfirm')};
+const els={password:$('password'),confirm:$('confirm'),secondaryPassword:$('secondaryPassword'),secondaryConfirm:$('secondaryConfirm'),lockPassword:$('lockPassword'),lockConfirm:$('lockConfirm')};
+const msgs={password:$('msg-password'),confirm:$('msg-confirm'),secondaryPassword:$('msg-secondaryPassword'),secondaryConfirm:$('msg-secondaryConfirm'),lockPassword:$('msg-lockPassword'),lockConfirm:$('msg-lockConfirm')};
 const submit=$('submit'),errBox=$('error');
 const MIN_REC=Number(root.dataset.minRecoveryRunes),MAX_REC_BYTES=Number(root.dataset.maxRecoveryBytes),MIN_SEC=Number(root.dataset.minSecondaryRunes),MAX_SEC_BYTES=Number(root.dataset.maxSecondaryBytes);
 const utf8Encoder=new TextEncoder();
@@ -46,11 +46,22 @@ function checkPassword(key,min,maxBytes){
   setMsg(key,true,'✓ 长度达标');mark(key,false);return true;
 }
 function checkPair(a,b){const va=els[a].value,vb=els[b].value;if(!vb){setMsg(b,false,'');mark(b,false);return false;}if(va!==vb){setMsg(b,false,'两次输入不一致');mark(b,true);return false;}setMsg(b,true,'✓ 一致');mark(b,false);return true;}
+// 可选密码（锁屏）：留空 = 明确跳过；填写则按与必填密码相同的规则校验。
+function checkOptionalPassword(key,min,maxBytes){
+  if(!els[key].value){setMsg(key,false,'');mark(key,false);return true;}
+  return checkPassword(key,min,maxBytes);
+}
+function checkOptionalPair(a,b){
+  if(!els[a].value&&!els[b].value){setMsg(b,false,'');mark(b,false);return true;}
+  if(!els[b].value){setMsg(b,false,'请再输入一次以确认');mark(b,true);return false;}
+  return checkPair(a,b);
+}
 
 function setStep(id,state){const el=$(id);if(!el)return;el.classList.toggle('is-done',state==='done');el.classList.toggle('is-current',state==='current');}
-function updateSteps(recoveryDone,secondaryDone,allDone){
+function updateSteps(recoveryDone,secondaryDone,lockDone,allDone){
   setStep('step-recovery',recoveryDone?'done':'current');
   setStep('step-secondary',recoveryDone?(secondaryDone?'done':'current'):'');
+  setStep('step-lock',recoveryDone&&secondaryDone?(lockDone?'done':'current'):'');
   setStep('step-finish',allDone?'current':'');
 }
 
@@ -61,8 +72,10 @@ function validate(){
     const recoveryPairOK=checkPair('password','confirm');
     const secondaryOK=checkPassword('secondaryPassword',MIN_SEC,MAX_SEC_BYTES);
     const secondaryPairOK=checkPair('secondaryPassword','secondaryConfirm');
-    ok=recoveryOK&&recoveryPairOK&&secondaryOK&&secondaryPairOK;
-    updateSteps(recoveryOK&&recoveryPairOK,secondaryOK&&secondaryPairOK,ok);
+    const lockOK=checkOptionalPassword('lockPassword',MIN_SEC,MAX_SEC_BYTES);
+    const lockPairOK=checkOptionalPair('lockPassword','lockConfirm');
+    ok=recoveryOK&&recoveryPairOK&&secondaryOK&&secondaryPairOK&&lockOK&&lockPairOK;
+    updateSteps(recoveryOK&&recoveryPairOK,secondaryOK&&secondaryPairOK,lockOK&&lockPairOK,ok);
   }else{
     ok=els.password.value.length>0;
   }
@@ -77,7 +90,7 @@ async function submitCredentials(e){
   if(submit.disabled)return;
   errBox.textContent='';submit.disabled=true;
   try{
-    const res=await fetch('/api/v1/startup/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:els.password.value,confirm:els.confirm?els.confirm.value:'',secondaryPassword:els.secondaryPassword?els.secondaryPassword.value:'',secondaryConfirm:els.secondaryConfirm?els.secondaryConfirm.value:''})});
+    const res=await fetch('/api/v1/startup/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:els.password.value,confirm:els.confirm?els.confirm.value:'',secondaryPassword:els.secondaryPassword?els.secondaryPassword.value:'',secondaryConfirm:els.secondaryConfirm?els.secondaryConfirm.value:'',lockPassword:els.lockPassword?els.lockPassword.value:'',lockConfirm:els.lockConfirm?els.lockConfirm.value:''})});
     let data={};try{data=await res.json();}catch(_){data={};}
     if(!res.ok){errBox.textContent=res.status===403?'安全会话已失效，请刷新页面后重试':(data.error?.message||'本地服务请求失败');submit.disabled=false;return;}
     const card=document.querySelector('.main');

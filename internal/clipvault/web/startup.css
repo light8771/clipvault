@@ -316,7 +316,7 @@ h1{
   .brand{margin-bottom:22px}
   h1{font-size:22px}
   .desc{margin-bottom:22px}
-  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
   .steps li{padding:30px 0 0}
   .steps li:not(:last-child)::after{display:none}
   .step-sub{display:none}
