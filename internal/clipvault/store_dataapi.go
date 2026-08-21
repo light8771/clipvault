@@ -68,13 +68,6 @@ func msToTimePtr(ms int64) *time.Time {
 	return &t
 }
 
-func timePtrToMS(t *time.Time) int64 {
-	if t == nil {
-		return 0
-	}
-	return t.UnixMilli()
-}
-
 // scanAPIToken 扫描 api_tokens 行（列顺序固定）。
 func scanAPIToken(row rowScanner, token *APIToken) error {
 	var createdAtMS, expiresAtMS, lastUsedAtMS, revokedAtMS int64

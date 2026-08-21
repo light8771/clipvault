@@ -268,9 +268,9 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 	if err := store.Delete(ctx, items[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	export, err := store.ExportFullForJSON(ctx)
-	if err != nil || len(export.ItemGroups) != 0 {
-		t.Fatalf("delete left item-group links: %#v, err = %v", export.ItemGroups, err)
+	export := exportAllForTest(t, store)
+	if len(export.ItemGroups) != 0 {
+		t.Fatalf("delete left item-group links: %#v", export.ItemGroups)
 	}
 
 	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "second", ByteLen: 6, CharLen: 6, SHA256: "second", MetaJSON: "{}"}); err != nil {
@@ -286,8 +286,8 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 	if _, err := store.Cleanup(ctx, CleanupOptions{Mode: "all"}); err != nil {
 		t.Fatal(err)
 	}
-	export, err = store.ExportFullForJSON(ctx)
-	if err != nil || len(export.Items) != 0 || len(export.ItemGroups) != 0 {
-		t.Fatalf("clear left exported data: %#v, err = %v", export, err)
+	export = exportAllForTest(t, store)
+	if len(export.Items) != 0 || len(export.ItemGroups) != 0 {
+		t.Fatalf("clear left exported data: %#v", export)
 	}
 }

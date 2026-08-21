@@ -136,10 +136,7 @@ func TestExportImportRoundtrip(t *testing.T) {
 	}
 
 	// Export
-	export, err := store.ExportFullForJSON(ctx)
-	if err != nil {
-		t.Fatalf("ExportFullForJSON: %v", err)
-	}
+	export := exportAllForTest(t, store)
 	if len(export.Items) != 3 {
 		t.Fatalf("export items: expected 3, got %d", len(export.Items))
 	}
@@ -627,7 +624,6 @@ func TestXLSXExportEndpoint(t *testing.T) {
 }
 
 func TestImportDataReloadsSensitiveSettings(t *testing.T) {
-	ctx := context.Background()
 	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -638,10 +634,7 @@ func TestImportDataReloadsSensitiveSettings(t *testing.T) {
 	if err := source.SaveConfig(sourceConfig); err != nil {
 		t.Fatal(err)
 	}
-	export, err := source.ExportFullForJSON(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	export := exportAllForTest(t, source)
 	data, err := json.Marshal(export)
 	if err != nil {
 		t.Fatal(err)
@@ -684,10 +677,7 @@ func TestImportDataSucceedsWhenRuntimeRefreshFails(t *testing.T) {
 	if err := source.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "imported", ByteLen: 8, CharLen: 8, SHA256: "imported", MetaJSON: "{}"}); err != nil {
 		t.Fatal(err)
 	}
-	export, err := source.ExportFullForJSON(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	export := exportAllForTest(t, source)
 	data, err := json.Marshal(export)
 	if err != nil {
 		t.Fatal(err)
@@ -791,7 +781,6 @@ func TestImportXLSXReloadsSensitiveSettings(t *testing.T) {
 }
 
 func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
-	ctx := context.Background()
 	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -802,10 +791,7 @@ func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
 	if err := source.SaveConfig(sourceConfig); err != nil {
 		t.Fatal(err)
 	}
-	export, err := source.ExportFullForJSON(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	export := exportAllForTest(t, source)
 	exportJSON, err := json.Marshal(export)
 	if err != nil {
 		t.Fatal(err)
@@ -854,10 +840,7 @@ func TestCVExportCarriesSensitiveSettings(t *testing.T) {
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
-	export, err := store.ExportFullForJSON(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	export := exportAllForTest(t, store)
 	exportJSON, err := json.Marshal(export)
 	if err != nil {
 		t.Fatal(err)
@@ -885,10 +868,7 @@ func TestEmptyExportUsesArrays(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	export, err := store.ExportFullForJSON(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	export := exportAllForTest(t, store)
 	data, err := json.Marshal(export)
 	if err != nil {
 		t.Fatal(err)
@@ -989,10 +969,7 @@ func TestExportDataDoesNotLeakKey(t *testing.T) {
 	}
 	defer store.Close()
 
-	export, err := store.ExportFullForJSON(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	export := exportAllForTest(t, store)
 	data, err := json.Marshal(export)
 	if err != nil {
 		t.Fatal(err)

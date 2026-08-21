@@ -4,53 +4,26 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 )
 
-// TestStreamExportMatchesFullExport 验证流式导出(full scope)的输出与
-// ExportFullForJSON 序列化结果在解析后等价（忽略时间戳 ExportedAt）。
-// 这是 StreamExport 正确性的核心保证：流式输出必须能被现有导入路径原样消费。
-func TestStreamExportMatchesFullExport(t *testing.T) {
-	ctx := context.Background()
-	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	seedStoreForExport(t, store)
+// TestStreamExportMatchesFullExport 已随 ExportFullForJSON 一并移除：
+// StreamExport 是唯一的全量导出实现，正确性由 roundtrip/range/incremental/
+// empty 四个行为测试直接保障，无需再与被替代实现做等价性对比。
 
-	full, err := store.ExportFullForJSON(ctx)
-	if err != nil {
-		t.Fatalf("ExportFullForJSON: %v", err)
-	}
-	fullJSON, err := json.Marshal(full)
-	if err != nil {
-		t.Fatalf("marshal full: %v", err)
-	}
-
+// exportAllForTest 用 StreamExport(full) 获取完整导出文档（测试辅助）。
+func exportAllForTest(t *testing.T, store *Store) *ExportData {
+	t.Helper()
 	var buf bytes.Buffer
-	if _, err := store.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
-		t.Fatalf("StreamExport: %v", err)
+	if _, err := store.StreamExport(context.Background(), ExportScope{Mode: "full"}, &buf); err != nil {
+		t.Fatalf("StreamExport full: %v", err)
 	}
-
-	var fullData, streamData ExportData
-	if err := json.Unmarshal(fullJSON, &fullData); err != nil {
-		t.Fatalf("unmarshal full: %v", err)
+	var data ExportData
+	if err := json.Unmarshal(buf.Bytes(), &data); err != nil {
+		t.Fatalf("unmarshal stream export: %v\n%s", err, buf.String())
 	}
-	if err := json.Unmarshal(buf.Bytes(), &streamData); err != nil {
-		t.Fatalf("StreamExport output is not valid JSON: %v\noutput: %s", err, buf.String())
-	}
-
-	// ExportedAt 是 time.Now()，两次调用必然不同，清空后比较
-	fullData.ExportedAt = ""
-	streamData.ExportedAt = ""
-	if !reflect.DeepEqual(fullData, streamData) {
-		t.Fatalf("stream export differs from full export:\nfull =%#v\nstream=%#v", fullData, streamData)
-	}
-	t.Logf("[OK] stream export matches full export (%d items, %d groups, %d links)",
-		len(streamData.Items), len(streamData.Groups), len(streamData.ItemGroups))
+	return &data
 }
 
 // TestStreamExportRangeScope 验证 range 模式只导出时间范围内的记录，
@@ -194,7 +167,7 @@ func TestStreamExportEmptyStore(t *testing.T) {
 		t.Fatalf("empty store should export empty arrays, got items=%d groups=%d links=%d",
 			len(data.Items), len(data.Groups), len(data.ItemGroups))
 	}
-	// 必须输出 [] 而非 null，与 ExportFullForJSON 一致
+	// 必须输出 [] 而非 null（导入方契约）
 	if !bytes.Contains(buf.Bytes(), []byte(`"items":[]`)) {
 		t.Fatalf("empty export should contain \"items\":[], got: %s", buf.String())
 	}

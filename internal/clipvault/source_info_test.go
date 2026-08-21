@@ -69,10 +69,7 @@ func TestExportCarriesSourceFields(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	export, err := store.ExportFullForJSON(ctx)
-	if err != nil {
-		t.Fatalf("ExportFullForJSON: %v", err)
-	}
+	export := exportAllForTest(t, store)
 	if len(export.Items) != 1 {
 		t.Fatalf("expected 1 exported item, got %d", len(export.Items))
 	}
