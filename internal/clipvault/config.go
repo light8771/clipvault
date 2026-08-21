@@ -87,7 +87,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	}{
 		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
 		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
-		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "previewLines", "navOpacity", "navBlur", "navBorder"}},
+		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"}},
 		{"search", []string{"listenAddr", "timeZone"}},
 		{"autostart", []string{"enabled", "appName"}},
 		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
@@ -226,6 +226,8 @@ type ThemeConfig struct {
 	NavBlur int `json:"navBlur"`
 	// NavBorder 控制是否绘制导航栏底部分隔线。
 	NavBorder bool `json:"navBorder"`
+	// NavSticky 控制导航栏是否固定悬浮在页面顶部（true）或随页面内容一起滚动（false）。
+	NavSticky bool `json:"navSticky"`
 }
 
 type SearchConfig struct {

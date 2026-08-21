@@ -91,11 +91,15 @@ body.has-background { background: transparent; }
 .background-media-layer img:not([src]),
 .background-media-layer video:not([src]) { display: none; }
 .background-shield { z-index: 1; background: var(--bg); opacity: var(--background-overlay); }
-body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay):not(.lock-overlay):not(.tc) { position: relative; z-index: 2; }
+/* 内容层压在背景媒体之上。navbar 必须排除：强制 relative 会盖掉
+   .navbar 的 position（sticky 吸顶 / static 随页面滚动）；navbar 自带
+   z-index: 100，层叠仍在背景层（0/1）与内容层（2）之上。 */
+body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay):not(.lock-overlay):not(.tc):not(.navbar) { position: relative; z-index: 2; }
 
 /* ── Navbar ────────────────────────────────────────────────── */
 .navbar {
-  position: sticky;
+  /* --nav-position 由 applyTheme 根据 NavSticky 配置设置：sticky=吸附跟随滚动，static=随页面滚动 */
+  position: var(--nav-position, sticky);
   top: 0;
   z-index: 100;
   background: var(--nav-bg);

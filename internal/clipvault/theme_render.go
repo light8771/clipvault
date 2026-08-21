@@ -264,6 +264,14 @@ func themeNavBorderBottom(theme ThemeConfig, border string) string {
 	return "1px solid " + border
 }
 
+// themeNavPosition 返回导航栏 position 值：NavSticky 为 true 时固定悬浮顶部（sticky），否则随页面滚动（static）。
+func themeNavPosition(theme ThemeConfig) string {
+	if !theme.NavSticky {
+		return "static"
+	}
+	return "sticky"
+}
+
 // themePreviewMaxH 生成历史卡片文本预览的最大高度（N 行 × 1.7em 行高），0 为不限制。
 func themePreviewMaxH(theme ThemeConfig) string {
 	lines := max(0, min(20, theme.PreviewLines))
@@ -298,6 +306,7 @@ func themeRootVars(theme ThemeConfig, dark bool) string {
 	write("--nav-bg", themeHexToRgba(colors.Bg, themeNavAlpha(theme)))
 	write("--nav-backdrop", themeNavBackdrop(theme))
 	write("--nav-border-bottom", themeNavBorderBottom(theme, colors.Border))
+	write("--nav-position", themeNavPosition(theme))
 	write("--preview-max-h", themePreviewMaxH(theme))
 	write("--tx", colors.Tx)
 	write("--sub", colors.Sub)

@@ -101,13 +101,14 @@ func TestThemeBootCSSCustomPreset(t *testing.T) {
 }
 
 func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
-	// 默认：导航栏跟随界面不透明度，16px 毛玻璃，带分隔线，文本预览 2 行
+	// 默认：导航栏跟随界面不透明度，16px 毛玻璃，带分隔线，吸附跟随滚动，文本预览 2 行
 	follow := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60,
-		NavOpacity: -1, NavBlur: 16, NavBorder: true, PreviewLines: 2})
+		NavOpacity: -1, NavBlur: 16, NavBorder: true, NavSticky: true, PreviewLines: 2})
 	for _, want := range []string{
 		"--nav-bg:rgba(240,253,251,0.6)",
 		"--nav-backdrop:blur(16px) saturate(180%)",
 		"--nav-border-bottom:1px solid ",
+		"--nav-position:sticky",
 		"--preview-max-h:3.4em",
 		"--on-accent:",
 	} {
@@ -116,13 +117,14 @@ func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
 		}
 	}
 
-	// 显式配置：独立不透明度、关闭模糊与分隔线、预览不限制
+	// 显式配置：独立不透明度、关闭模糊与分隔线、导航栏随页面滚动、预览不限制
 	explicit := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60,
-		NavOpacity: 35, NavBlur: 0, NavBorder: false, PreviewLines: 0})
+		NavOpacity: 35, NavBlur: 0, NavBorder: false, NavSticky: false, PreviewLines: 0})
 	for _, want := range []string{
 		"--nav-bg:rgba(240,253,251,0.35)",
 		"--nav-backdrop:none",
 		"--nav-border-bottom:none",
+		"--nav-position:static",
 		"--preview-max-h:none",
 	} {
 		if !strings.Contains(explicit, want) {
@@ -137,7 +139,7 @@ func TestThemeRootVarsMatchFrontendApplyTheme(t *testing.T) {
 	for _, name := range []string{
 		"--p", "--p2", "--on-p", "--on-p2", "--accent", "--on-accent", "--bg", "--bg2", "--card",
 		"--card-border", "--card-rgba", "--nav-bg", "--nav-backdrop", "--nav-border-bottom",
-		"--preview-max-h", "--tx", "--sub", "--muted",
+		"--nav-position", "--preview-max-h", "--tx", "--sub", "--muted",
 		"--p-dim", "--p-glow", "--p-border", "--accent-dim", "--accent-glow", "--accent-border",
 		"--shadow-md", "--shadow-lg",
 	} {

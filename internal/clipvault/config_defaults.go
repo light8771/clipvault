@@ -32,6 +32,7 @@ func DefaultConfig() Config {
 			NavOpacity:     -1,
 			NavBlur:        16,
 			NavBorder:      true,
+			NavSticky:      true,
 		},
 		MaxTextChars:     0,
 		MaxFileDropPaths: 0,

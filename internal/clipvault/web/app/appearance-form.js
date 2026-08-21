@@ -24,7 +24,8 @@ export function registerAppearanceForm() {
         ? (Number.isFinite(navOpacityRaw) ? Math.max(0, Math.min(100, navOpacityRaw)) : 100)
         : -1,
       navBlur: Number.isFinite(navBlurRaw) ? Math.max(0, Math.min(32, navBlurRaw)) : (current.navBlur ?? 16),
-      navBorder: document.getElementById('cfg-navBorder')?.checked !== false
+      navBorder: document.getElementById('cfg-navBorder')?.checked !== false,
+      navSticky: document.getElementById('cfg-navSticky')?.checked !== false
     };
   };
   app.applyThemeFormState = function applyThemeFormState(theme) {
@@ -78,6 +79,8 @@ export function registerAppearanceForm() {
     if (navBlurOutput) navBlurOutput.value = `${navBlurValue}px`;
     const navBorderEl = document.getElementById('cfg-navBorder');
     if (navBorderEl) navBorderEl.checked = value.navBorder !== false;
+    const navStickyEl = document.getElementById('cfg-navSticky');
+    if (navStickyEl) navStickyEl.checked = value.navSticky !== false;
     document.getElementById('customThemeColors')?.classList.toggle('hidden', value.preset !== 'custom');
     app.applyTheme(value.preset === 'custom' ? app.themeFromForm() : {
       ...value,

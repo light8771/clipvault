@@ -180,6 +180,8 @@ export function registerAppearanceTheme() {
     const navBlurPx = Number.isFinite(navBlur) ? Math.max(0, Math.min(32, navBlur)) : 16;
     root.style.setProperty('--nav-backdrop', navBlurPx > 0 ? `blur(${navBlurPx}px) saturate(180%)` : 'none');
     root.style.setProperty('--nav-border-bottom', normalized.navBorder === false ? 'none' : `1px solid ${colors.border}`);
+    // 导航栏是否吸附跟随滚动（sticky）还是随页面滚动（static）
+    root.style.setProperty('--nav-position', normalized.navSticky === false ? 'static' : 'sticky');
     // 历史卡片文本预览行数（0 表示不限制），供 history.css 的 pre 裁剪与渲染逻辑使用
     const previewLines = Number(normalized.previewLines);
     app.previewLines = Number.isFinite(previewLines) ? Math.max(0, Math.min(20, previewLines)) : 2;
@@ -239,7 +241,7 @@ export function registerAppearanceTheme() {
       }
     }
     const lockTitle = document.getElementById('lockTitle');
-    if (lockTitle) lockTitle.textContent = `${title} 锁屏`;
+    if (lockTitle) lockTitle.textContent = title;
     const lockLogo = document.getElementById('lockBrandLogo');
     const lockDefaultLogo = document.getElementById('lockDefaultLogo');
     if (lockLogo) {

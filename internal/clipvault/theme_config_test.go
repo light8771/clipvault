@@ -86,7 +86,7 @@ func TestNormalizeTheme(t *testing.T) {
 	}
 }
 
-// theme 的全部字段（含 layout/previewLines/navOpacity/navBlur/navBorder）都是
+// theme 的全部字段（含 layout/previewLines/navOpacity/navBlur/navBorder/navSticky）都是
 // 严格配置契约的一部分：缺失任意一个都视为配置损坏，绝不静默回退。
 func TestThemeConfigRequiresAllFields(t *testing.T) {
 	data, err := json.Marshal(DefaultConfig())
@@ -102,7 +102,7 @@ func TestThemeConfigRequiresAllFields(t *testing.T) {
 		t.Fatalf("theme missing in marshaled config: %#v", asMap)
 	}
 	for _, key := range []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity",
-		"layout", "previewLines", "navOpacity", "navBlur", "navBorder"} {
+		"layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"} {
 		value, present := themeMap[key]
 		if !present {
 			t.Fatalf("default config JSON missing theme.%s", key)

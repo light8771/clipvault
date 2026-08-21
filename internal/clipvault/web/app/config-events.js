@@ -86,7 +86,7 @@ export function registerConfigEvents() {
       if (output) output.value = `${navBlurControl.value}px`;
       app.applyTheme(app.themeFromForm());
     });
-    ['cfg-navBorder', 'cfg-historyLayout'].forEach(id => {
+    ['cfg-navBorder', 'cfg-navSticky', 'cfg-historyLayout'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
     });
     // 首页设置搜索框不是配置项，输入不得触发自动保存。

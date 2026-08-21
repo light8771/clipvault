@@ -189,6 +189,7 @@ var configFieldLabels = map[string]string{
 	"theme.navOpacity":                    "导航栏不透明度",
 	"theme.navBlur":                       "导航栏背景模糊",
 	"theme.navBorder":                     "导航栏分隔线",
+	"theme.navSticky":                     "导航栏固定",
 	"search.listenAddr":                   "Web 监听地址",
 	"search.timeZone":                     "日期筛选时区",
 	"dataApi.enabled":                     "数据接口开关",
