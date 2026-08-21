@@ -21,10 +21,9 @@ func (s *SearchServer) handleMCPStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.Get()
 	activated := s.license == nil || s.license.CanUsePaidFeatures()
 	resp := map[string]any{
-		"enabled":          cfg.MCP.Enabled,
-		"listenAddr":       cfg.MCP.ListenAddr,
-		"sensitiveDefault": cfg.MCP.SensitiveDefault,
-		"activated":        activated,
+		"enabled":    cfg.MCP.Enabled,
+		"listenAddr": cfg.MCP.ListenAddr,
+		"activated":  activated,
 		"capabilities": map[string]any{
 			"tools": mcpCoreToolNames(),
 			"resourceTemplates": []string{
@@ -102,7 +101,7 @@ func (s *SearchServer) handleMCPTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMCPTokenCreate 创建新 MCP 通道 Token。
-// 敏感授权初始值取全局默认（sensitiveDefault），创建后可在列表中单独调整。
+// 敏感授权初始值为关闭（安全默认），创建后可在令牌列表中单独调整。
 func (s *SearchServer) handleMCPTokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name   string `json:"name"`
@@ -112,7 +111,7 @@ func (s *SearchServer) handleMCPTokenCreate(w http.ResponseWriter, r *http.Reque
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
-	created := s.createAPIToken(w, r, req.Name, req.Expiry, TokenChannelMCP, s.cfgMgr.Get().MCP.SensitiveDefault)
+	created := s.createAPIToken(w, r, req.Name, req.Expiry, TokenChannelMCP, false)
 	if created == nil {
 		return
 	}

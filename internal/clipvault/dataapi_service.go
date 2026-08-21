@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -276,11 +277,39 @@ func (svc *DataAPIService) activated() bool {
 	return svc.activatedFn()
 }
 
+// drainRejectedBody 在拒绝请求（429/401/403）写完错误响应后，丢弃连接上剩余的
+// 请求体（上限取接口请求体上限 1MiB，读超时 2 秒）。拒绝发生在 handler 读 body
+// 之前，若不主动排空，net/http 要到 handler 返回后才尽力 drain（且仅 256KB）：
+// 慢客户端/已放弃发送 body 的客户端会让服务端阻塞到 ReadTimeout 再关连接；关闭
+// 时内核接收缓冲区若仍有未读字节，TCP 层发的是 RST 而非 FIN——压测客户端表现为
+// 偶发 ConnectionResetError，拿不到 429 + Retry-After 的限流语义。排空上限覆盖
+// 合法请求体全量（dataAPIMaxBodyBytes），排空后连接按 keep-alive 干净复用。
+// GET / 空 body / 不支持 deadline 的 ResponseWriter 均无额外开销。
+// 数据接口与 MCP（mcp_service.go）共享。
+func drainRejectedBody(w http.ResponseWriter, r *http.Request) {
+	if r.Body == nil || r.ContentLength == 0 {
+		return
+	}
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, dataAPIMaxBodyBytes))
+	_ = rc.SetReadDeadline(time.Time{})
+}
+
 // wrap 是认证端点的完整管线：启用检查 → 激活检查（每次请求）→ Bearer 认证 →
 // 限流 → 并发治理 → 查询超时。审计事件由 handler 通过 svc.emitAudit 上报。
+// 任何提前 return 都是拒绝（403/401/429）：defer 统一排空剩余请求体
+// （见 drainRejectedBody），保证连接以错误 JSON 响应干净收尾而不是被 TCP 重置；
+// 未来新增拒绝分支不会遗漏。
 func (svc *DataAPIService) wrap(next func(w http.ResponseWriter, r *http.Request, token *APIToken), operation string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		svc.requestsTotal.Add(1)
+		rejected := true
+		defer func() {
+			if rejected {
+				drainRejectedBody(w, r)
+			}
+		}()
 		if !svc.activated() {
 			svc.writeError(w, newDataAPIError(http.StatusForbidden, "activation_required", "ClipVault Data API requires an activated user."))
 			return
@@ -307,6 +336,7 @@ func (svc *DataAPIService) wrap(next func(w http.ResponseWriter, r *http.Request
 			svc.emitAudit(auditEventFor(r, token, operation, err))
 			return
 		}
+		rejected = false
 		svc.activeQueries.Add(1)
 		defer svc.activeQueries.Add(-1)
 		ctx, cancel := context.WithTimeout(r.Context(), dataAPIQueryTimeout)

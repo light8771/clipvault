@@ -92,8 +92,8 @@ func scanAPIToken(row rowScanner, token *APIToken) error {
 const apiTokenColumns = `id, name, channel, allow_sensitive, created_at, expires_at, last_used_at, revoked_at`
 
 // CreateAPIToken 持久化一个 Token 的哈希与元数据，返回自增 ID。
-// channel 必须是 http|mcp；allowSensitive 由调用方决定（新令牌继承通道
-// 全局 sensitiveDefault，重新生成保持原值）。
+// channel 必须是 http|mcp；allowSensitive 由调用方决定（新令牌默认关闭，
+// 重新生成保持原值）。
 func (s *Store) CreateAPIToken(ctx context.Context, name string, tokenHash []byte, expiresAtMS int64, channel string, allowSensitive bool) (int64, error) {
 	if !validTokenChannel(channel) {
 		return 0, fmt.Errorf("invalid token channel %q", channel)

@@ -39,11 +39,11 @@ var (
 // APIToken 是 HTTP 数据接口与 MCP 共享的外部访问令牌元数据。
 // 原始 Token 只在创建时返回一次，数据库只保存 SHA-256 哈希（AUTH-02）。
 // Channel 限定令牌可用于的服务（http|mcp）；AllowSensitive 控制敏感数据
-// 可见性：初始值取通道的全局 sensitiveDefault，创建后可单独调整。
+// 可见性：新令牌默认关闭，创建后可在令牌列表中单独调整。
 type APIToken struct {
-	ID             int64      `json:"-"`
-	Name           string     `json:"name"`
-	Channel        string     `json:"channel"` // "http" | "mcp"
+	ID      int64  `json:"-"`
+	Name    string `json:"name"`
+	Channel string `json:"channel"` // "http" | "mcp"
 	// AllowSensitive 运行时权限只认此字段（ExternalReadService 强制执行）。
 	AllowSensitive bool       `json:"allowSensitive"`
 	CreatedAt      time.Time  `json:"createdAt"`

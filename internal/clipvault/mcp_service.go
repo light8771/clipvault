@@ -272,6 +272,9 @@ func (svc *MCPService) wrapMCP(next http.Handler) http.HandlerFunc {
 			audit.StatusCode, audit.ErrorCode = err.Status, err.Code
 			svc.emitAudit(audit)
 			writeMCPHTTPError(w, err.Status, err.Code, err.Message)
+			// 拒绝发生在 SDK 读 body 之前：排空剩余请求体，避免连接因 body
+			// 残留被 TCP 重置（客户端表现为 ConnectionResetError 而非 429）。
+			drainRejectedBody(w, r)
 		}
 		if !svc.activated() {
 			fail(newMCPError(http.StatusForbidden, "activation_required", "ClipVault MCP requires an activated user."))

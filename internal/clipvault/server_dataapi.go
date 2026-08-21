@@ -23,10 +23,9 @@ func (s *SearchServer) handleDataAPIStatus(w http.ResponseWriter, r *http.Reques
 	cfg := s.cfgMgr.Get()
 	activated := s.license == nil || s.license.CanUsePaidFeatures()
 	resp := map[string]any{
-		"enabled":          cfg.DataAPI.Enabled,
-		"listenAddr":       cfg.DataAPI.ListenAddr,
-		"sensitiveDefault": cfg.DataAPI.SensitiveDefault,
-		"activated":        activated,
+		"enabled":    cfg.DataAPI.Enabled,
+		"listenAddr": cfg.DataAPI.ListenAddr,
+		"activated":  activated,
 	}
 	if s.dataAPI != nil {
 		status := s.dataAPI.Status()
@@ -46,14 +45,13 @@ func (s *SearchServer) handleDataAPIStatus(w http.ResponseWriter, r *http.Reques
 	s.writeJSON(w, resp)
 }
 
-// updateExternalServiceConfig 更新外部服务（数据接口 / MCP）启用开关、监听地址与
-// 敏感数据默认授权的共享实现（立即生效，无需重启）。selectCfg 从配置中选出目标段；
+// updateExternalServiceConfig 更新外部服务（数据接口 / MCP）启用开关与监听地址的
+// 共享实现（立即生效，无需重启）。selectCfg 从配置中选出目标段；
 // runtimeStatus 报告运行状态（服务未装配时 ok=false）。
 func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *http.Request, feature, runtimeLogEvent string, selectCfg func(*Config) *ExternalServiceConfig, runtimeStatus func() (externalServiceStatus, bool)) {
 	var req struct {
-		Enabled          bool   `json:"enabled"`
-		ListenAddr       string `json:"listenAddr"`
-		SensitiveDefault bool   `json:"sensitiveDefault"`
+		Enabled    bool   `json:"enabled"`
+		ListenAddr string `json:"listenAddr"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
@@ -82,7 +80,6 @@ func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *htt
 	curCfg := cfg
 	target.Enabled = req.Enabled
 	target.ListenAddr = req.ListenAddr
-	target.SensitiveDefault = req.SensitiveDefault
 	changes := diffConfigChanges(curCfg, cfg)
 	response := map[string]any{"ok": true}
 	if err := s.cfgMgr.Update(cfg); err != nil {
@@ -103,7 +100,6 @@ func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *htt
 	newTarget := selectCfg(&newCfg)
 	response["enabled"] = newTarget.Enabled
 	response["listenAddr"] = newTarget.ListenAddr
-	response["sensitiveDefault"] = newTarget.SensitiveDefault
 	if status, ok := runtimeStatus(); ok {
 		response["running"] = status.Running
 		response["url"] = status.URL
@@ -171,8 +167,8 @@ type dataAPITokenCreated struct {
 }
 
 // createAPIToken 是创建 Token 的共享实现；要求已激活（实时从磁盘校验，AUTH 门控）。
-// channel 限定令牌用途（http|mcp）；allowSensitive 由调用方决定：新令牌继承
-// 通道的全局 sensitiveDefault，重新生成则保持原值。
+// channel 限定令牌用途（http|mcp）；allowSensitive 由调用方决定：新令牌默认不
+// 授权敏感数据（安全默认），重新生成则保持原值。
 func (s *SearchServer) createAPIToken(w http.ResponseWriter, r *http.Request, name, expiryPreset, channel string, allowSensitive bool) *dataAPITokenCreated {
 	if FreeTierRestriction(s.env) {
 		s.writeAPIError(w, http.StatusForbidden, "activation_required", "令牌创建仅对已激活用户开放", nil)
@@ -214,7 +210,7 @@ func (s *SearchServer) createAPIToken(w http.ResponseWriter, r *http.Request, na
 }
 
 // handleDataAPITokenCreate 创建新 HTTP 数据接口 Token。
-// 敏感授权初始值取全局默认（sensitiveDefault），创建后可在列表中单独调整。
+// 敏感授权初始值为关闭（安全默认），创建后可在令牌列表中单独调整。
 func (s *SearchServer) handleDataAPITokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name      string `json:"name"`
@@ -224,7 +220,7 @@ func (s *SearchServer) handleDataAPITokenCreate(w http.ResponseWriter, r *http.R
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
-	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn, TokenChannelHTTP, s.cfgMgr.Get().DataAPI.SensitiveDefault)
+	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn, TokenChannelHTTP, false)
 	if created == nil {
 		return
 	}

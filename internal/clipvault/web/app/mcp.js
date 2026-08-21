@@ -41,7 +41,6 @@ export function registerMCP() {
       : '未激活：MCP 仅对已激活用户开放';
     el('mcpUrlRow').classList.toggle('hidden', !(enabled && d.running && d.url));
     el('mcpUrlText').value = d.url || '';
-    el('mcpSensitiveDefault').checked = !!d.sensitiveDefault;
     applyListenAddrToForm(d.listenAddr || '127.0.0.1:17840');
     renderCapabilities(d.capabilities);
     updateLanWarning();
@@ -103,8 +102,7 @@ export function registerMCP() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enabled,
-          listenAddr,
-          sensitiveDefault: el('mcpSensitiveDefault').checked
+          listenAddr
         })
       });
       await app.requireOK(res, '保存失败');

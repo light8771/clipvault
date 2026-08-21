@@ -26,7 +26,7 @@ type Config struct {
 	SearchHotkey  HotkeyConfig       `json:"searchHotkey"`
 	Image         ImageCaptureConfig `json:"image"`
 	Popup         SearchPopupConfig  `json:"popup"`
-	Backup BackupConfig `json:"backup"`
+	Backup        BackupConfig       `json:"backup"`
 	// DataAPI 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
 	// 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。
 	DataAPI ExternalServiceConfig `json:"dataApi"`
@@ -42,9 +42,6 @@ type Config struct {
 type ExternalServiceConfig struct {
 	Enabled    bool   `json:"enabled"`
 	ListenAddr string `json:"listenAddr"`
-	// SensitiveDefault 新建令牌的敏感数据授权初始值。运行时权限只认令牌
-	// 自身的 allowSensitive，此值仅在创建令牌时作为初始授权。
-	SensitiveDefault bool `json:"sensitiveDefault"`
 }
 
 // ImageCaptureConfig 图片捕获配置（Win+Shift+S 截图、浏览器 Copy Image、
@@ -99,8 +96,8 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"searchHotkey", []string{"enabled", "modifiers", "key"}},
 		{"image", []string{"enabled", "maxBytes"}},
 		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
-		{"dataApi", []string{"enabled", "listenAddr", "sensitiveDefault"}},
-		{"mcp", []string{"enabled", "listenAddr", "sensitiveDefault"}},
+		{"dataApi", []string{"enabled", "listenAddr"}},
+		{"mcp", []string{"enabled", "listenAddr"}},
 	}
 	for _, object := range objects {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {

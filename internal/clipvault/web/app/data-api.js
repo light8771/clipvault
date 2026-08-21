@@ -41,7 +41,6 @@ export function registerDataAPI() {
       : '未激活：数据接口仅对已激活用户开放';
     el('dapiUrlRow').classList.toggle('hidden', !(enabled && d.running && d.url));
     el('dapiUrlText').value = d.url || '';
-    el('dapiSensitiveDefault').checked = !!d.sensitiveDefault;
     applyListenAddrToForm(d.listenAddr || '127.0.0.1:17839');
     updateLanWarning();
   }
@@ -88,8 +87,7 @@ export function registerDataAPI() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enabled,
-          listenAddr,
-          sensitiveDefault: el('dapiSensitiveDefault').checked
+          listenAddr
         })
       });
       await app.requireOK(res, '保存失败');

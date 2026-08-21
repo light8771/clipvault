@@ -51,16 +51,6 @@
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="dapiSensitiveDefault">敏感数据默认授权</label>
-              <p class="field-hint">新建令牌的敏感数据授权初始值，创建后可在令牌列表中单独调整。关闭时新令牌只能读取普通数据</p>
-            </div>
-            <label class="ar-toggle">
-              <input type="checkbox" id="dapiSensitiveDefault">
-              <span>允许</span>
-            </label>
-          </div>
-          <div class="field-row">
-            <div class="field-info">
               <span class="field-label">监听范围</span>
               <p class="field-hint">仅本机只允许 127.0.0.1；局域网监听 0.0.0.0；指定地址可绑定到具体网卡 IP</p>
             </div>
@@ -157,7 +147,7 @@
           <div class="field-row">
             <div class="field-info">
               <span class="field-label">敏感数据授权</span>
-              <p class="field-hint">新令牌默认继承上方「敏感数据默认授权」；创建后可在令牌列表中单独调整。关闭时敏感记录对此令牌完全不可见（与不存在无异）</p>
+              <p class="field-hint">新令牌默认只能读取普通数据；创建后可在令牌列表中单独开启敏感授权。开启时敏感记录对此令牌可见，关闭时完全不可见（与不存在无异）</p>
             </div>
           </div>
           <div class="field-row">

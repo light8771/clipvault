@@ -107,14 +107,12 @@ func DefaultConfig() Config {
 			},
 		},
 		DataAPI: ExternalServiceConfig{
-			Enabled:          false,
-			ListenAddr:       "127.0.0.1:17839",
-			SensitiveDefault: false,
+			Enabled:    false,
+			ListenAddr: "127.0.0.1:17839",
 		},
 		MCP: ExternalServiceConfig{
-			Enabled:          false,
-			ListenAddr:       "127.0.0.1:17840",
-			SensitiveDefault: false,
+			Enabled:    false,
+			ListenAddr: "127.0.0.1:17840",
 		},
 	}
 }
