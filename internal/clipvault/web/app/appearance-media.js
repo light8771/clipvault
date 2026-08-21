@@ -1,4 +1,7 @@
 import { app } from "./app-context.js";
+
+const t = window.clipvaultI18n.t;
+
 export function registerAppearanceMedia() {
   app.assetOperationTail = {
     logo: Promise.resolve(),
@@ -32,12 +35,12 @@ export function registerAppearanceMedia() {
       favicon: 10 * 1024 * 1024
     };
     if (file.size > limits[kind]) {
-      app.toast('文件不能超过 10 MB', 'err');
+      app.toast(t('appearance.asset_too_large'), 'err');
       return;
     }
     const accepted = kind === 'logo' ? ['image/png', 'image/jpeg'] : ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon'];
     if (!accepted.includes(file.type)) {
-      app.toast(kind === 'logo' ? 'Logo 仅支持 PNG、JPEG' : 'favicon 仅支持 PNG、ICO', 'err');
+      app.toast(kind === 'logo' ? t('appearance.logo_type_invalid') : t('appearance.favicon_type_invalid'), 'err');
       return;
     }
     const complete = await app.reserveAssetOperation(kind);
@@ -49,19 +52,19 @@ export function registerAppearanceMedia() {
         },
         body: file
       });
-      await app.requireOK(res, '素材上传失败');
+      await app.requireOK(res, t('appearance.asset_upload_failed'));
       const data = await res.json();
       app.updateCurrentConfig({
         brand: data.brand
       });
       app.applyBrandFormState(data.brand);
       if (data.runtimeError || data.hotkeyError) {
-        app.toast('素材已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
+        app.toast(t('appearance.asset_saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
       }
-      app.toast(kind === 'logo' ? 'Logo 已更新' : 'favicon 已更新');
+      app.toast(kind === 'logo' ? t('appearance.logo_updated') : t('appearance.favicon_updated'));
     } catch (error) {
-      app.toast('上传失败: ' + (error.message || error), 'err');
+      app.toast(t('appearance.upload_failed_with', { message: error.message || error }), 'err');
     } finally {
       complete();
     }
@@ -72,19 +75,19 @@ export function registerAppearanceMedia() {
       const res = await app.protectedFetch(`/api/v1/appearance/${kind}`, {
         method: 'DELETE'
       });
-      await app.requireOK(res, '素材还原失败');
+      await app.requireOK(res, t('appearance.asset_reset_failed'));
       const data = await res.json();
       app.updateCurrentConfig({
         brand: data.brand
       });
       app.applyBrandFormState(data.brand);
       if (data.runtimeError || data.hotkeyError) {
-        app.toast('设置已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
+        app.toast(t('config.saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
       }
-      app.toast(kind === 'logo' ? '已还原默认 Logo' : '已还原默认 favicon');
+      app.toast(kind === 'logo' ? t('appearance.logo_reset') : t('appearance.favicon_reset'));
     } catch (error) {
-      app.toast('还原失败: ' + (error.message || error), 'err');
+      app.toast(t('appearance.reset_failed_with', { message: error.message || error }), 'err');
     } finally {
       complete();
     }
@@ -154,7 +157,7 @@ export function registerAppearanceMedia() {
     if (!file) return;
     const isVideo = String(file.type || '').startsWith('video/') || /\.(mp4|webm)$/i.test(file.name || '');
     if (!isVideo && file.size > 10 * 1024 * 1024) {
-      app.toast('背景图片不能超过 10 MB', 'err');
+      app.toast(t('appearance.background_too_large'), 'err');
       return;
     }
     const complete = await app.reserveAssetOperation('background');
@@ -166,19 +169,19 @@ export function registerAppearanceMedia() {
         },
         body: file
       });
-      await app.requireOK(res, '背景上传失败');
+      await app.requireOK(res, t('appearance.background_upload_failed'));
       const data = await res.json();
       app.updateCurrentConfig({
         background: data.background
       });
       app.applyBackgroundFormState(data.background);
       if (data.runtimeError || data.hotkeyError) {
-        app.toast('背景已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
+        app.toast(t('appearance.background_saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
       }
-      app.toast('背景已更新');
+      app.toast(t('appearance.background_updated'));
     } catch (error) {
-      app.toast('背景上传失败: ' + (error.message || error), 'err');
+      app.toast(t('appearance.background_upload_failed_with', { message: error.message || error }), 'err');
     } finally {
       complete();
     }
@@ -189,19 +192,19 @@ export function registerAppearanceMedia() {
       const res = await app.protectedFetch('/api/v1/appearance/background', {
         method: 'DELETE'
       });
-      await app.requireOK(res, '背景移除失败');
+      await app.requireOK(res, t('appearance.background_remove_failed'));
       const data = await res.json();
       app.updateCurrentConfig({
         background: data.background
       });
       app.applyBackgroundFormState(data.background);
       if (data.runtimeError || data.hotkeyError) {
-        app.toast('设置已保存，但' + (data.runtimeError || data.hotkeyError), 'err');
+        app.toast(t('config.saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
       }
-      app.toast('背景已移除');
+      app.toast(t('appearance.background_removed'));
     } catch (error) {
-      app.toast('移除背景失败: ' + (error.message || error), 'err');
+      app.toast(t('appearance.background_remove_failed_with', { message: error.message || error }), 'err');
     } finally {
       complete();
     }

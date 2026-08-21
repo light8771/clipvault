@@ -28,7 +28,7 @@ func (s *SearchServer) handlePause(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleItems(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	if !s.authorizeItemAccess(w, r, id) {
@@ -44,7 +44,7 @@ func (s *SearchServer) handleItems(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleStarItem(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	if !s.authorizeItemAccess(w, r, id) {
@@ -74,19 +74,19 @@ type cleanupRequest struct {
 func (s *SearchServer) parseCleanupOptions(w http.ResponseWriter, r *http.Request) (CleanupOptions, bool) {
 	var req cleanupRequest
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return CleanupOptions{}, false
 	}
 	opts := CleanupOptions{Mode: req.Mode, PreserveStarred: req.PreserveStarred}
 	switch req.Mode {
 	case "all":
 		if req.From != "" || req.To != "" {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "全部清理不接受时间范围", nil)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_all_no_range", nil), nil)
 			return CleanupOptions{}, false
 		}
 	case "range":
 		if req.From == "" || req.To == "" {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围清理需要 from 和 to", nil)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_range_need_both", nil), nil)
 			return CleanupOptions{}, false
 		}
 		_, fromDateErr := time.Parse("2006-01-02", req.From)
@@ -94,23 +94,23 @@ func (s *SearchServer) parseCleanupOptions(w http.ResponseWriter, r *http.Reques
 		if fromDateErr == nil && toDateErr == nil {
 			fromMS, beforeMS, err := localDateFilterBounds(req.From, req.To, s.configuredTimeZone())
 			if err != nil {
-				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "清理范围无效", err)
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_range_invalid", nil), err)
 				return CleanupOptions{}, false
 			}
 			opts.FromMS, opts.ToExclusiveMS = fromMS, beforeMS
 		} else {
 			if (fromDateErr == nil) != (toDateErr == nil) {
-				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围边界必须同为日期或同为 RFC3339 时间", nil)
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_range_boundary_mixed", nil), nil)
 				return CleanupOptions{}, false
 			}
 			from, err := parseExportInstant(req.From)
 			if err != nil {
-				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围起始时间无效", err)
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_range_from_invalid", nil), err)
 				return CleanupOptions{}, false
 			}
 			to, err := parseExportInstant(req.To)
 			if err != nil {
-				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "范围结束时间无效", err)
+				s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_range_to_invalid", nil), err)
 				return CleanupOptions{}, false
 			}
 			// 范围精确到秒：起始向下取整（含该秒），结束秒 +1000ms 作为开区间上界。
@@ -118,11 +118,11 @@ func (s *SearchServer) parseCleanupOptions(w http.ResponseWriter, r *http.Reques
 			opts.ToExclusiveMS = to.UTC().Truncate(time.Second).Add(time.Second).UnixMilli()
 		}
 	default:
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_mode", "不支持的清理模式", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_mode", s.i18nT("api.error.cleanup_mode_unsupported", nil), nil)
 		return CleanupOptions{}, false
 	}
 	if err := validateCleanupOptions(opts); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", "清理条件无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_cleanup_range", s.i18nT("api.error.cleanup_condition_invalid", nil), err)
 		return CleanupOptions{}, false
 	}
 	return opts, true
@@ -167,7 +167,7 @@ func (s *SearchServer) handleCleanup(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handleSensitiveMark(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	sensitive := r.URL.Query().Get("sensitive") != "0"
@@ -254,7 +254,7 @@ func (s *SearchServer) handleSensitiveRules(w http.ResponseWriter, r *http.Reque
 func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg Config
 	if err := decodeJSONRequest(w, r, &cfg, 1<<20); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "配置格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_config_json", nil), err)
 		return
 	}
 	s.assetMu.Lock()
@@ -263,23 +263,23 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	preserveAssetMetadata(&cfg, curCfg)
 	listenHost, listenPort, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", "监听地址无效: "+err.Error(), err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", s.i18nT("api.error.invalid_listen_addr", map[string]any{"detail": err.Error()}), err)
 		return
 	}
 	// 监听地址变更需重启生效，保存时提前探测端口可用性，避免重启后静默顺延或启动失败。
 	// 地址未变更时跳过：当前端口正被本服务占用属于正常情况。
 	if strings.TrimSpace(cfg.Search.ListenAddr) != strings.TrimSpace(curCfg.Search.ListenAddr) {
 		if err := listenAddrAvailable(listenHost, listenPort); err != nil {
-			s.writeAPIError(w, http.StatusBadRequest, "listen_addr_unavailable", "监听地址 "+cfg.Search.ListenAddr+" 当前不可用（端口可能被其他程序占用），请更换端口", err)
+			s.writeAPIError(w, http.StatusBadRequest, "listen_addr_unavailable", s.i18nT("api.error.listen_addr_unavailable", map[string]any{"addr": cfg.Search.ListenAddr}), err)
 			return
 		}
 	}
 	if _, err := configuredLocation(cfg.Search.TimeZone); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_time_zone", "日期筛选时区无效，请填写 system 或有效 IANA 时区", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_time_zone", s.i18nT("api.error.invalid_time_zone", nil), err)
 		return
 	}
 	if !isLoopbackHost(listenHost) && !s.auth.HasLockPassword(curCfg) {
-		s.writeAPIError(w, http.StatusBadRequest, "lock_password_required", "开放局域网访问前，必须先设置锁屏密码", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "lock_password_required", s.i18nT("api.error.lan_needs_lock_password", nil), nil)
 		return
 	}
 
@@ -290,7 +290,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := validateSensitiveRules(cfg.Sensitive); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_sensitive_rule", "敏感规则无效: "+err.Error(), err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_sensitive_rule", s.i18nT("api.error.invalid_sensitive_rule", map[string]any{"detail": err.Error()}), err)
 		return
 	}
 
@@ -302,19 +302,19 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	cfg.Backup.EmailBackup.Password = resolveSecretField(cfg.Backup.EmailBackup.Password, curCfg.Backup.EmailBackup.Password)
 	normalizeConfig(&cfg)
 	if err := validateConfig(cfg); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_config", "配置参数无效: "+err.Error(), err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_config", s.i18nT("api.error.invalid_config", map[string]any{"detail": err.Error()}), err)
 		return
 	}
 
 	if cfg.Backup.DirBackup.Enabled {
 		if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_config", "目录备份配置不完整："+msg, nil)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_config", s.i18nT("backup.incomplete_dir", map[string]any{"items": msg}), nil)
 			return
 		}
 	}
 	if cfg.Backup.EmailBackup.Enabled {
 		if msg := validateEmailBackupEnabled(cfg.Backup.EmailBackup); msg != "" {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_config", "邮件备份配置不完整："+msg, nil)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_config", s.i18nT("backup.incomplete_email", map[string]any{"items": msg}), nil)
 			return
 		}
 	}

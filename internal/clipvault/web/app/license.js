@@ -1,4 +1,7 @@
 import { app } from "./app-context.js";
+
+const t = window.clipvaultI18n.t;
+
 export function registerLicense() {
   app.licenseState = {
     licensed: true,
@@ -28,10 +31,10 @@ export function registerLicense() {
       const details = document.getElementById('licenseDetailsRow');
       badge?.classList.toggle('warn', !d.licensed);
       if (d.licensed && badge && hint) {
-        badge.textContent = '已激活';
-        hint.textContent = '当前设备永久有效';
+        badge.textContent = t('license.badge_licensed');
+        hint.textContent = t('license.hint_licensed');
       } else if (badge && hint) {
-        badge.textContent = '未激活';
+        badge.textContent = t('license.badge_unlicensed');
         hint.textContent = app.licenseStatusText(d.status);
       }
       banner?.classList.toggle('hidden', d.licensed);
@@ -40,7 +43,9 @@ export function registerLicense() {
       if (!d.licensed && banner) {
         // 限额未知时退化为不带数字的说法，但保留横幅本身（它同时是激活入口）。
         const limit = app.licenseState.freeLimit;
-        banner.querySelector('span').textContent = limit > 0 ? '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索最近 ' + limit + ' 条。激活后解锁完整历史记录，以及导出与备份功能。' : '免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。';
+        banner.querySelector('span').textContent = limit > 0
+          ? t('nav.free_tier_banner_limited', { count: limit })
+          : t('nav.free_tier_banner');
       }
       const licenseID = document.getElementById('licenseIdText');
       if (d.licenseId && licenseID) licenseID.textContent = d.licenseId;
@@ -50,16 +55,16 @@ export function registerLicense() {
     } catch (_) {
       const badge = document.getElementById('licenseStatusBadge');
       const hint = document.getElementById('licenseStatusHint');
-      if (badge) badge.textContent = '读取失败';
-      if (hint) hint.textContent = '无法读取本机授权状态，请查看本地日志';
+      if (badge) badge.textContent = t('license.read_failed');
+      if (hint) hint.textContent = t('license.read_failed_hint');
     }
   };
   app.licenseStatusText = function licenseStatusText(status) {
-    if (status === 'machine_mismatch') return '授权与当前设备不匹配，请申请重新签发';
-    if (status === 'corrupt') return '本地授权信息损坏，请重新输入激活码';
-    if (status === 'machine_error') return '无法读取设备信息，请复制诊断信息联系支持';
-    if (status === 'unconfigured') return '正式授权公钥尚未配置';
-    return '输入对应当前设备的激活码后即可永久使用';
+    if (status === 'machine_mismatch') return t('license.status_machine_mismatch');
+    if (status === 'corrupt') return t('license.status_corrupt');
+    if (status === 'machine_error') return t('license.status_machine_error');
+    if (status === 'unconfigured') return t('license.status_unconfigured');
+    return t('license.status_unlicensed');
   };
   app.loadMachineID = async function loadMachineID() {
     try {
@@ -76,16 +81,20 @@ export function registerLicense() {
   app.copyPurchaseInfo = async function () {
     if (!app.fullMachineId) await app.loadMachineID();
     if (!app.fullMachineId) {
-      app.toast('机器码读取失败', 'err');
+      app.toast(t('license.machine_code_failed'), 'err');
       return;
     }
     const displayCode = document.getElementById('licenseMachineCode').value || '';
-    const info = '产品：ClipVault\n版本：' + (app.licenseState.version || '未知') + '\n机器码：' + app.fullMachineId + (displayCode && displayCode !== '读取中…' ? '\n识别码：' + displayCode : '');
+    const info = t('license.purchase_info', {
+      version: app.licenseState.version || t('common.unknown'),
+      machineId: app.fullMachineId,
+      displayCode: displayCode && displayCode !== t('common.loading') ? t('license.purchase_info_display', { code: displayCode }) : ''
+    });
     try {
       await navigator.clipboard.writeText(info);
-      app.toast('购买信息已复制');
+      app.toast(t('license.purchase_info_copied'));
     } catch (_) {
-      app.toast('复制失败', 'err');
+      app.toast(t('common.copy_failed'), 'err');
     }
   };
   app.activateLicense = async function () {
@@ -94,12 +103,12 @@ export function registerLicense() {
     const message = document.getElementById('licenseMessage');
     const token = input.value.trim();
     if (!token) {
-      message.textContent = '请粘贴完整激活码';
+      message.textContent = t('license.paste_token');
       message.className = 'license-message err';
       return;
     }
     button.disabled = true;
-    button.textContent = '正在验证…';
+    button.textContent = t('license.verifying');
     message.textContent = '';
     try {
       const res = await app.fetch('/api/v1/license/activation', {
@@ -118,24 +127,24 @@ export function registerLicense() {
         return;
       }
       input.value = '';
-      message.textContent = '激活成功，已解锁全部历史记录与导出备份功能';
+      message.textContent = t('license.activated_ok');
       message.className = 'license-message ok';
-      app.toast('激活成功');
+      app.toast(t('license.activated_ok_toast'));
       await app.loadLicenseStatus();
     } catch (_) {
-      message.textContent = '本地服务暂时无法完成激活，请重试';
+      message.textContent = t('license.activate_retry');
       message.className = 'license-message err';
     } finally {
       button.disabled = false;
-      button.textContent = '立即激活';
+      button.textContent = t('nav.activate_now');
     }
   };
   app.licenseActivationError = function licenseActivationError(code, message) {
-    if (code === 'license_bad_format') return '激活码不完整，请重新复制后粘贴';
-    if (code === 'license_bad_signature') return '激活码验证未通过，请确认输入是否正确。';
-    if (code === 'license_machine_mismatch') return '此激活码不适用于当前设备，请重新提供本机机器码。';
-    if (code === 'license_unsupported') return '当前版本无法识别此激活码，请联系技术支持。';
-    if (code === 'license_machine_unavailable') return '无法读取设备信息，尚未进行激活';
-    return message || '激活码有效性或本地保存失败，请重试';
+    if (code === 'license_bad_format') return t('license.err_bad_format');
+    if (code === 'license_bad_signature') return t('license.err_bad_signature');
+    if (code === 'license_machine_mismatch') return t('license.err_machine_mismatch');
+    if (code === 'license_unsupported') return t('license.err_unsupported');
+    if (code === 'license_machine_unavailable') return t('license.err_machine_unavailable');
+    return message || t('license.err_generic');
   };
 }

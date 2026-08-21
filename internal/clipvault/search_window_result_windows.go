@@ -13,7 +13,7 @@ func formatSuggestion(it StoredItem) string {
 	}
 	displayKind := quickSearchKindLabel(kind)
 	if it.IsDuplicate {
-		displayKind += "·重复"
+		displayKind += "·" + templateT("history.duplicate_tag", nil)
 	}
 
 	var text string
@@ -40,32 +40,32 @@ func formatSuggestion(it StoredItem) string {
 func unavailableReasonLabel(reason string) string {
 	switch reason {
 	case "superseded_before_read":
-		return "内容已被覆盖"
+		return templateT("history.unavail_superseded", nil)
 	case "unsupported_format":
-		return "不支持的格式"
+		return templateT("history.unavail_format", nil)
 	case "text_limit_exceeded":
-		return "文本超长未保存"
+		return templateT("history.unavail_text_limit", nil)
 	case "read_failed":
-		return "读取失败"
+		return templateT("history.unavail_read_failed", nil)
 	default:
-		return "无内容"
+		return templateT("history.unavailable_content", nil)
 	}
 }
 
 func quickSearchKindLabel(kind string) string {
 	switch kind {
 	case "text":
-		return "文本"
+		return templateT("history.kind_text", nil)
 	case "image":
-		return "图片"
+		return templateT("history.kind_image", nil)
 	case "video":
-		return "视频"
+		return templateT("history.kind_video", nil)
 	case "archive":
-		return "压缩包"
+		return templateT("history.kind_archive", nil)
 	case "office":
-		return "Office"
+		return templateT("history.kind_office", nil)
 	case "files":
-		return "其他文件"
+		return templateT("history.kind_files", nil)
 	default:
 		return kind
 	}
@@ -93,7 +93,7 @@ func (sw *searchWindow) restoreSelection(paste bool) {
 		return
 	}
 	if !item.ContentAvailable {
-		sw.showSearchStatus("该记录没有可用内容")
+		sw.showSearchStatus(sw.t("swindow.no_content", nil))
 		return
 	}
 	seq, err := restoreItemToClipboard(item, sw.dataDir)
@@ -101,7 +101,7 @@ func (sw *searchWindow) restoreSelection(paste bool) {
 		if sw.logger != nil {
 			sw.logger.Warn("search_window_restore_failed", map[string]any{"error": err.Error(), "id": item.ID})
 		}
-		sw.showSearchStatus("恢复失败：" + err.Error())
+		sw.showSearchStatus(sw.t("swindow.restore_failed", map[string]any{"error": err.Error()}))
 		return
 	}
 	if activeRuntime != nil {

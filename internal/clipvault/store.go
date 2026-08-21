@@ -185,6 +185,12 @@ func openStoreDirectory(databaseDir string, initializeSchema func(*Store) error)
 		_ = db.Close()
 		return nil, err
 	}
+	// 官方词条集按 i18n.seed_version 标记幂等同步：新库首次写入，
+	// 已同步的库只花一次 settings 读，词条集版本前进后增量更新。
+	if err := store.ensureI18nSeed(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ensure i18n seed: %w", err)
+	}
 	return store, nil
 }
 

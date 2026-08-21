@@ -10,9 +10,9 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type startupGateMode string
@@ -28,6 +28,7 @@ type startupGatePageData struct {
 	Description       string
 	Button            string
 	Mode              string
+	Lang              string
 	MinRecoveryRunes  int
 	MaxRecoveryBytes  int
 	MinSecondaryRunes int
@@ -134,6 +135,9 @@ type StartupGate struct {
 	opMu     sync.Mutex
 	complete bool
 	success  bool
+	// i18n 在门禁期独立构建（store 已打开且官方词条已 Seed）；主服务
+	// 就绪后会用完整服务覆盖全局模板指针。
+	i18n *I18nService
 
 	recordURL  string
 	recordDone chan struct{}
@@ -141,13 +145,29 @@ type StartupGate struct {
 }
 
 func NewStartupGate(store *Store, dataDir string, mode startupGateMode) *StartupGate {
-	return &StartupGate{
+	gate := &StartupGate{
 		store:      store,
 		dataDir:    dataDir,
 		mode:       mode,
 		done:       make(chan struct{}),
 		recordDone: make(chan struct{}),
 	}
+	if store != nil {
+		if svc, err := NewI18nService(store, nil, nil); err == nil {
+			gate.i18n = svc
+			// 门禁页 {{T}} 渲染依赖包级服务指针；主流程随后会覆盖注册。
+			templateI18nService.Store(svc)
+		}
+	}
+	return gate
+}
+
+// t 门禁文案查询；i18n 构建失败的异常场景回退 key 原文。
+func (g *StartupGate) t(key string, params map[string]any) string {
+	if g.i18n == nil {
+		return key
+	}
+	return g.i18n.T(key, params)
 }
 
 func (g *StartupGate) Start() (string, error) {
@@ -235,12 +255,12 @@ func (g *StartupGate) secureHTTP(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
 		if !hostMatchesLoopbackPort(r.Host, g.port) {
-			writeStandaloneError(w, http.StatusForbidden, "invalid_host", "请求主机无效")
+			writeStandaloneError(w, http.StatusForbidden, "invalid_host", "invalid host")
 			return
 		}
 		if isMutationMethod(r.Method) {
 			if !originMatchesRequest(r.Header.Get("Origin"), r.Host, g.port) || !g.hasStartupCapability(r) {
-				writeStandaloneError(w, http.StatusForbidden, "startup_authorization_failed", "启动授权验证失败")
+				writeStandaloneError(w, http.StatusForbidden, "startup_authorization_failed", "startup authorization failed")
 				return
 			}
 		}
@@ -279,22 +299,27 @@ func (g *StartupGate) handleSession(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
-	title := "首次启动安全设置"
-	description := "完成以下安全设置后开始记录剪贴板。"
-	button := "完成设置并开始使用"
+	title := g.t("startup_page.title_setup", nil)
+	description := g.t("startup_page.desc_setup", nil)
+	button := g.t("startup_page.button_setup", nil)
 	switch g.mode {
 	case startupGateRepairConfig:
-		title = "配置损坏，需验证恢复密码"
-		description = "安全配置无法解析。输入恢复密码，验证通过后恢复最近一次有效配置。"
-		button = "验证并修复配置"
+		title = g.t("startup_page.title_repair", nil)
+		description = g.t("startup_page.desc_repair", nil)
+		button = g.t("startup_page.button_repair", nil)
 	}
 	themeMode, palette := startupGateThemeColors(g.store)
+	lang := I18nChinese
+	if g.i18n != nil {
+		lang = g.i18n.CurrentLanguage()
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = startupGateTemplate.Execute(w, startupGatePageData{
 		Title:             title,
 		Description:       description,
 		Button:            button,
 		Mode:              string(g.mode),
+		Lang:              lang,
 		MinRecoveryRunes:  minRecoveryPasswordRunes,
 		MaxRecoveryBytes:  maxRecoveryPasswordBytes,
 		MinSecondaryRunes: minAuthPasswordRunes,
@@ -325,28 +350,28 @@ func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
 		LockConfirm       string `json:"lockConfirm"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil {
-		writeStartupGateJSON(w, false, "请求格式无效")
+		writeStartupGateJSON(w, false, g.t("startup_page.err_invalid_request", nil))
 		return
 	}
 	g.opMu.Lock()
 	defer g.opMu.Unlock()
 	if g.complete {
-		writeStartupGateJSON(w, false, "安全设置已完成")
+		writeStartupGateJSON(w, false, g.t("startup_page.err_already_done", nil))
 		return
 	}
 	var err error
 	switch g.mode {
 	case startupGateSetCredentials:
 		if req.Password != req.Confirm {
-			writeStartupGateJSON(w, false, "两次输入的恢复密码不一致")
+			writeStartupGateJSON(w, false, g.t("startup_page.err_recovery_mismatch", nil))
 			return
 		}
 		if req.SecondaryPassword != req.SecondaryConfirm {
-			writeStartupGateJSON(w, false, "两次输入的二次密码不一致")
+			writeStartupGateJSON(w, false, g.t("startup_page.err_secondary_mismatch", nil))
 			return
 		}
 		if req.LockPassword != req.LockConfirm {
-			writeStartupGateJSON(w, false, "两次输入的锁屏密码不一致")
+			writeStartupGateJSON(w, false, g.t("startup_page.err_lock_mismatch", nil))
 			return
 		}
 		err = g.setInitialCredentials(req.Password, req.SecondaryPassword, req.LockPassword)
@@ -359,10 +384,19 @@ func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("unsupported startup mode")
 	}
 	if err != nil {
-		message := "恢复密码不正确，无法修复配置"
+		message := g.t("startup_page.err_repair_wrong_password", nil)
 		if g.mode != startupGateRepairConfig {
-			message = err.Error()
-			message = strings.TrimPrefix(message, "weak_password: ")
+			var recoveryErr *RecoveryPasswordError
+			if errors.As(err, &recoveryErr) && recoveryErr.Code == "weak_password" {
+				// 弱密码错误按具体情形给参数化词条。
+				if utf8.RuneCountInString(req.Password) > maxRecoveryPasswordBytes {
+					message = g.t("startup_page.err_recovery_too_long", nil)
+				} else {
+					message = g.t("startup_page.err_recovery_rule", map[string]any{"n": minRecoveryPasswordRunes})
+				}
+			} else {
+				message = err.Error()
+			}
 		}
 		writeStartupGateJSON(w, false, message)
 		return
@@ -405,17 +439,17 @@ func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword,
 		return err
 	}
 	if cfg.Security.SecondaryPasswordHash != "" {
-		return errors.New("二次密码已设置，无法重复初始化")
+		return errors.New(g.t("startup_page.err_secondary_initialized", nil))
 	}
 	if cfg.Security.LockPasswordHash != "" {
-		return errors.New("锁屏密码已设置，无法重复初始化")
+		return errors.New(g.t("startup_page.err_lock_initialized", nil))
 	}
 	hasRecovery, err := HasRecoveryPassword(g.dataDir)
 	if err != nil {
 		return err
 	}
 	if hasRecovery {
-		return errors.New("恢复密码已设置，无法重复初始化")
+		return errors.New(g.t("startup_page.err_recovery_initialized", nil))
 	}
 	if err := SetRecoveryPassword(g.dataDir, g.store.DBKey(), recoveryPassword); err != nil {
 		return err
@@ -425,9 +459,9 @@ func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword,
 	if err := g.store.SaveConfig(cfg); err != nil {
 		removeErr := os.Remove(activeDatabaseFile(g.dataDir, databaseRecoveryFileName))
 		if removeErr != nil && !os.IsNotExist(removeErr) {
-			return errors.Join(fmt.Errorf("保存凭据: %w", err), fmt.Errorf("回滚恢复密码: %w", removeErr))
+			return errors.Join(fmt.Errorf("save credentials: %w", err), fmt.Errorf("rollback recovery password: %w", removeErr))
 		}
-		return fmt.Errorf("保存凭据: %w", err)
+		return fmt.Errorf("save credentials: %w", err)
 	}
 	return nil
 }
@@ -451,8 +485,8 @@ func writeStandaloneError(w http.ResponseWriter, status int, code, message strin
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
 }
 
-var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!doctype html>
-<html lang="zh-CN" data-theme-mode="{{.ThemeMode}}" data-p-light="{{.PrimaryLight}}" data-p-light-hover="{{.PrimaryLightHover}}" data-p-dark="{{.PrimaryDark}}" data-p-dark-hover="{{.PrimaryDarkHover}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+var startupGateTemplate = template.Must(template.New("startup-gate").Funcs(templateFuncMap()).Parse(`<!doctype html>
+<html lang="{{.Lang}}" data-theme-mode="{{.ThemeMode}}" data-p-light="{{.PrimaryLight}}" data-p-light-hover="{{.PrimaryLightHover}}" data-p-dark="{{.PrimaryDark}}" data-p-dark-hover="{{.PrimaryDarkHover}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}}</title><link rel="stylesheet" href="/startup.css"></head><body><main class="main" data-mode="{{.Mode}}" data-min-recovery-runes="{{.MinRecoveryRunes}}" data-max-recovery-bytes="{{.MaxRecoveryBytes}}" data-min-secondary-runes="{{.MinSecondaryRunes}}" data-max-secondary-bytes="{{.MaxSecondaryBytes}}">
 <div class="shell">
 <div class="intro">
@@ -464,10 +498,10 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 </div>
 {{if eq .Mode "set_credentials"}}
 <ol class="steps">
-<li class="is-current" id="step-recovery"><span>恢复密码</span></li>
-<li id="step-secondary"><span>二次密码</span></li>
-<li id="step-lock"><span>锁屏密码</span></li>
-<li id="step-finish"><span>完成</span></li>
+<li class="is-current" id="step-recovery"><span>{{T "startup_page.step_recovery"}}</span></li>
+<li id="step-secondary"><span>{{T "startup_page.step_secondary"}}</span></li>
+<li id="step-lock"><span>{{T "startup_page.step_lock"}}</span></li>
+<li id="step-finish"><span>{{T "startup_page.step_finish"}}</span></li>
 </ol>
 {{end}}
 </div>
@@ -475,43 +509,43 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <section class="panel">
 {{if eq .Mode "set_credentials"}}
 <form id="recovery-form" class="credential-form" novalidate>
-<input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
+<input type="text" name="username" value="ClipVault recovery password" autocomplete="username" hidden>
 <div class="section">
-<div class="section-info"><h2 class="section-title">恢复密码</h2><p class="section-hint">用于重装系统、迁移电脑或 Windows 密钥失效时恢复数据库，请离线妥善保存。</p></div>
+<div class="section-info"><h2 class="section-title">{{T "startup_page.step_recovery"}}</h2><p class="section-hint">{{T "startup_page.recovery_hint"}}</p></div>
 <div class="section-fields">
-<div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="new-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
-<div class="field"><label for="confirm">确认恢复密码</label><div class="wrap"><input id="confirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="confirm">显示</button></div><div class="msg" id="msg-confirm"></div></div>
+<div class="field"><label for="password">{{T "startup_page.recovery_label"}}</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="new-password" required autofocus><button type="button" class="eye" data-target="password">{{T "startup.show"}}</button></div><div class="msg" id="msg-password"></div></div>
+<div class="field"><label for="confirm">{{T "startup_page.recovery_confirm_label"}}</label><div class="wrap"><input id="confirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="confirm">{{T "startup.show"}}</button></div><div class="msg" id="msg-confirm"></div></div>
 </div>
 </div>
 </form>
 <form id="secondary-form" class="credential-form" novalidate>
-<input type="text" name="username" value="ClipVault 二次密码" autocomplete="username" hidden>
+<input type="text" name="username" value="ClipVault secondary password" autocomplete="username" hidden>
 <div class="section">
-<div class="section-info"><h2 class="section-title">二次密码</h2><p class="section-hint">用于查看或操作敏感数据时的二次确认，可与恢复密码不同。</p></div>
+<div class="section-info"><h2 class="section-title">{{T "startup_page.step_secondary"}}</h2><p class="section-hint">{{T "startup_page.secondary_hint"}}</p></div>
 <div class="section-fields">
-<div class="field"><label for="secondaryPassword">二次密码</label><div class="wrap"><input id="secondaryPassword" name="password" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">显示</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
-<div class="field"><label for="secondaryConfirm">确认二次密码</label><div class="wrap"><input id="secondaryConfirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">显示</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
+<div class="field"><label for="secondaryPassword">{{T "startup_page.secondary_label"}}</label><div class="wrap"><input id="secondaryPassword" name="password" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">{{T "startup.show"}}</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
+<div class="field"><label for="secondaryConfirm">{{T "startup_page.secondary_confirm_label"}}</label><div class="wrap"><input id="secondaryConfirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">{{T "startup.show"}}</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
 </div>
 </div>
 </form>
 <form id="lock-form" class="credential-form" novalidate>
-<input type="text" name="username" value="ClipVault 锁屏密码" autocomplete="username" hidden>
+<input type="text" name="username" value="ClipVault lock password" autocomplete="username" hidden>
 <div class="section">
-<div class="section-info"><h2 class="section-title">锁屏密码（可选）</h2><p class="section-hint">打开 ClipVault 界面时要求输入。留空跳过——跳过后本机任何程序都能直接查看你的剪贴板历史，建议设置。</p></div>
+<div class="section-info"><h2 class="section-title">{{T "startup_page.lock_title"}}</h2><p class="section-hint">{{T "startup_page.lock_hint"}}</p></div>
 <div class="section-fields">
-<div class="field"><label for="lockPassword">锁屏密码</label><div class="wrap"><input id="lockPassword" name="password" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockPassword">显示</button></div><div class="msg" id="msg-lockPassword"></div></div>
-<div class="field"><label for="lockConfirm">确认锁屏密码</label><div class="wrap"><input id="lockConfirm" name="password-confirmation" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockConfirm">显示</button></div><div class="msg" id="msg-lockConfirm"></div></div>
+<div class="field"><label for="lockPassword">{{T "startup_page.lock_label"}}</label><div class="wrap"><input id="lockPassword" name="password" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockPassword">{{T "startup.show"}}</button></div><div class="msg" id="msg-lockPassword"></div></div>
+<div class="field"><label for="lockConfirm">{{T "startup_page.lock_confirm_label"}}</label><div class="wrap"><input id="lockConfirm" name="password-confirmation" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockConfirm">{{T "startup.show"}}</button></div><div class="msg" id="msg-lockConfirm"></div></div>
 </div>
 </div>
 </form>
-<div class="warn"><p class="warn-title">请务必离线保存恢复密码</p><p class="warn-copy">如果 Windows 密钥和恢复密码同时丢失，数据库将无法恢复。</p></div>
+<div class="warn"><p class="warn-title">{{T "startup_page.warn_title"}}</p><p class="warn-copy">{{T "startup_page.warn_copy"}}</p></div>
 {{else}}
 <form id="recovery-form" class="credential-form" novalidate>
-<input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
+<input type="text" name="username" value="ClipVault recovery password" autocomplete="username" hidden>
 <div class="section">
-<div class="section-info"><h2 class="section-title">验证恢复密码</h2><p class="section-hint">输入首次启动时设置的恢复密码，验证通过后自动恢复最近一次有效配置。</p></div>
+<div class="section-info"><h2 class="section-title">{{T "startup_page.verify_title"}}</h2><p class="section-hint">{{T "startup_page.verify_hint"}}</p></div>
 <div class="section-fields is-single">
-<div class="field is-full"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
+<div class="field is-full"><label for="password">{{T "startup_page.recovery_label"}}</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">{{T "startup.show"}}</button></div><div class="msg" id="msg-password"></div></div>
 </div>
 </div>
 </form>
@@ -519,7 +553,7 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <div class="actions">
 <button type="button" class="submit" id="submit" disabled>{{.Button}}</button>
 <div class="error" id="error" role="alert"></div>
-<p class="local-note">所有数据仅存储在本地设备，此页面通过 127.0.0.1 本地回环地址提供。</p>
+<p class="local-note">{{T "startup_page.local_note"}}</p>
 </div>
 </section>
 </div>

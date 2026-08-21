@@ -34,7 +34,7 @@ func (bs *BackupService) doEmailBackup(cfg Config, trigger string, forceFull boo
 	}
 	eb := cfg.Backup.EmailBackup
 	if msg := validateEmailBackupEnabled(eb); msg != "" {
-		return fmt.Errorf("邮件备份配置不完整: %s", msg)
+		return fmt.Errorf("%s: %s", templateT("backup.incomplete_email_prefix", nil), msg)
 	}
 	bs.markEmailRunning(trigger)
 	fail := func(now time.Time, scope ExportScope, autoFallback bool, partsSent, totalParts, items int, runErr error) error {
@@ -57,7 +57,7 @@ func (bs *BackupService) doEmailBackup(cfg Config, trigger string, forceFull boo
 	// 不发送空备份邮件，水位线保持不动。
 	total, err := bs.store.CountInScope(context.Background(), scope)
 	if err != nil {
-		return fail(now, scope, autoFallback, 0, 0, 0, fmt.Errorf("统计备份数据失败: %w", err))
+		return fail(now, scope, autoFallback, 0, 0, 0, fmt.Errorf("%s: %w", templateT("backup.err_stats", nil), err))
 	}
 	if total == 0 {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "email")
@@ -82,7 +82,7 @@ func (bs *BackupService) doEmailBackup(cfg Config, trigger string, forceFull boo
 		}
 		if size > int64(eb.MaxPartSize) {
 			return fail(now, scope, autoFallback, 0, totalParts, total,
-				fmt.Errorf("第 %d/%d 封邮件为 %d 字节，超过阈值 %d，请缩小备份范围或减少单条记录大小", i+1, totalParts, size, eb.MaxPartSize))
+				fmt.Errorf("%s", templateT("backup.err_part_too_large", map[string]any{"i": i + 1, "total": totalParts, "size": size, "limit": eb.MaxPartSize})))
 		}
 	}
 
@@ -96,13 +96,13 @@ func (bs *BackupService) doEmailBackup(cfg Config, trigger string, forceFull boo
 		}); err != nil {
 			bs.sendBackupFailureNotice(eb, now, i, totalParts, ext, err)
 			return fail(now, scope, autoFallback, i, totalParts, total,
-				fmt.Errorf("发送邮件失败(第%d封/%d): %w", i+1, totalParts, err))
+				fmt.Errorf("%s: %w", templateT("backup.err_send_failed", map[string]any{"i": i + 1, "total": totalParts}), err))
 		}
 		lastFilename = filename
 		if advancePerPart && part.endID > 0 {
 			if _, wmErr := updateBackupWatermark(bs.store, "email", ExportScope{Mode: "incremental"}, part.endID); wmErr != nil {
 				return fail(now, scope, autoFallback, i+1, totalParts, total,
-					fmt.Errorf("第 %d 封已发送，但记录备份进度失败: %w", i+1, wmErr))
+					fmt.Errorf("%s: %w", templateT("backup.err_progress_after_part", map[string]any{"i": i + 1}), wmErr))
 			}
 		}
 	}
@@ -116,7 +116,7 @@ func (bs *BackupService) doEmailBackup(cfg Config, trigger string, forceFull boo
 		if wmErr != nil {
 			bs.logger.Error("email_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
 			return fail(now, scope, autoFallback, totalParts, totalParts, total,
-				fmt.Errorf("邮件已全部发送，但更新备份进度失败: %w", wmErr))
+				fmt.Errorf("%s: %w", templateT("backup.err_progress_final", nil), wmErr))
 		}
 	}
 	statusFile := lastFilename
@@ -144,7 +144,7 @@ func sendSMTPMessage(cfg EmailBackupConfig, msg []byte) error {
 
 func sendSMTPMessageStream(cfg EmailBackupConfig, writeMessage func(io.Writer) error) error {
 	if problems := smtpDeliveryErrors(cfg); len(problems) > 0 {
-		return fmt.Errorf("SMTP 配置不完整: %s", strings.Join(problems, "、"))
+		return fmt.Errorf("%s: %s", templateT("backup.smtp_incomplete", nil), translateBackupMissingList(problems))
 	}
 	host := strings.TrimSpace(cfg.SMTPHost)
 	from, _ := mail.ParseAddress(strings.TrimSpace(cfg.From))
@@ -159,66 +159,66 @@ func sendSMTPMessageStream(cfg EmailBackupConfig, writeMessage func(io.Writer) e
 	if cfg.SMTPPort == 465 {
 		conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 		if err != nil {
-			return fmt.Errorf("SMTP TLS 连接失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_tls", nil), err)
 		}
 		if err := conn.SetDeadline(time.Now().Add(smtpOperationTimeout)); err != nil {
 			conn.Close()
-			return fmt.Errorf("设置 SMTP 超时失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_timeout", nil), err)
 		}
 		client, err = smtp.NewClient(conn, host)
 		if err != nil {
 			conn.Close()
-			return fmt.Errorf("SMTP 握手失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_handshake", nil), err)
 		}
 	} else {
 		conn, err := dialer.Dial("tcp", addr)
 		if err != nil {
-			return fmt.Errorf("SMTP 连接失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_connect", nil), err)
 		}
 		if err := conn.SetDeadline(time.Now().Add(smtpOperationTimeout)); err != nil {
 			conn.Close()
-			return fmt.Errorf("设置 SMTP 超时失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_timeout", nil), err)
 		}
 		client, err = smtp.NewClient(conn, host)
 		if err != nil {
 			conn.Close()
-			return fmt.Errorf("SMTP 握手失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_handshake", nil), err)
 		}
 		if ok, _ := client.Extension("STARTTLS"); !ok {
 			client.Close()
-			return fmt.Errorf("SMTP 服务器不支持 STARTTLS，已拒绝明文发送")
+			return fmt.Errorf("%s", templateT("backup.err_smtp_starttls_unsupported", nil))
 		}
 		if err := client.StartTLS(tlsConfig); err != nil {
 			client.Close()
-			return fmt.Errorf("SMTP STARTTLS 失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_starttls", nil), err)
 		}
 	}
 	defer client.Close()
 
 	if smtpUser != "" {
 		if ok, _ := client.Extension("AUTH"); !ok {
-			return fmt.Errorf("SMTP 服务器不支持身份认证")
+			return fmt.Errorf("%s", templateT("backup.err_smtp_noauth", nil))
 		}
 		if err := client.Auth(smtp.PlainAuth("", smtpUser, cfg.SMTPPass, host)); err != nil {
-			return fmt.Errorf("SMTP 认证失败: %w", err)
+			return fmt.Errorf("%s: %w", templateT("backup.err_smtp_auth", nil), err)
 		}
 	}
 	if err := client.Mail(from.Address); err != nil {
-		return fmt.Errorf("SMTP 发件人被拒绝: %w", err)
+		return fmt.Errorf("%s: %w", templateT("backup.err_smtp_from_rejected", nil), err)
 	}
 	if err := client.Rcpt(to.Address); err != nil {
-		return fmt.Errorf("SMTP 收件人被拒绝: %w", err)
+		return fmt.Errorf("%s: %w", templateT("backup.err_smtp_to_rejected", nil), err)
 	}
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("SMTP DATA 失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("backup.err_smtp_data", nil), err)
 	}
 	if err := writeMessage(w); err != nil {
 		w.Close()
-		return fmt.Errorf("SMTP 邮件写入失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("backup.err_smtp_write", nil), err)
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("SMTP 邮件提交失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("backup.err_smtp_submit", nil), err)
 	}
 	_ = client.Quit()
 	return nil

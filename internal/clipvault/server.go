@@ -40,6 +40,7 @@ type SearchServer struct {
 	startedAt  time.Time
 	dataAPI    *DataAPIService
 	mcp        *MCPService
+	i18n       *I18nService
 }
 
 type freshSecondaryContextKey struct{}
@@ -84,13 +85,15 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css"} {
+	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css", "/language.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
 	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
+	mux.HandleFunc("GET /i18n-dict.js", s.handleI18nDictJS)
 	mux.HandleFunc("GET /theme-mode.js", s.handleStatic)
 	mux.HandleFunc("GET /theme-utils.js", s.handleStatic)
 	mux.HandleFunc("GET /hotkey-utils.js", s.handleStatic)
+	mux.HandleFunc("GET /i18n.js", s.handleStatic)
 	mux.HandleFunc("GET /api.js", s.handleStatic)
 	mux.HandleFunc("GET /store.js", s.handleStatic)
 	for _, asset := range applicationModuleAssets {
@@ -147,6 +150,16 @@ func (s *SearchServer) Start() (string, error) {
 	api("POST /api/v1/items/group", s.requireAuth(s.handleItemAddToGroup))
 	api("DELETE /api/v1/items/group", s.requireAuth(s.handleItemRemoveFromGroup))
 	api("GET /api/v1/items/groups", s.requireAuth(s.handleItemGroups))
+
+	// 多语言：查看/切换为登录态（显示偏好）；创建/编辑/删除为变更操作
+	// 需二次认证（与存储、备份等页的变更门控口径一致）。
+	api("GET /api/v1/i18n/languages", s.requireAuth(s.handleI18nLanguagesGet))
+	api("POST /api/v1/i18n/languages", s.requireSecondary(s.handleI18nLanguagesCreate))
+	api("PUT /api/v1/i18n/languages", s.requireSecondary(s.handleI18nLanguagesUpdate))
+	api("DELETE /api/v1/i18n/languages", s.requireSecondary(s.handleI18nLanguagesDelete))
+	api("PUT /api/v1/i18n/current-language", s.requireAuth(s.handleI18nCurrentLanguagePut))
+	api("GET /api/v1/i18n/entries", s.requireAuth(s.handleI18nEntriesGet))
+	api("PUT /api/v1/i18n/entries", s.requireSecondary(s.handleI18nEntriesPut))
 
 	api("GET /api/v1/transfer/export", s.requireSecondary(s.handleExportData))
 	api("POST /api/v1/transfer/export", s.requireSecondary(s.handleExportData))

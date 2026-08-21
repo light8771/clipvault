@@ -41,6 +41,8 @@ func (r *WindowsRuntime) showPauseNotification(paused bool) {
 		return
 	}
 
+	// 标题/正文默认空 = 本地化默认值（标题为品牌名，正文取 i18n 词条）；
+	// 用户显式填写的内容原样使用。
 	notifications := r.cfgMgr.Get().Notifications
 	title := notifications.ResumeTitle
 	message := notifications.ResumeBody
@@ -48,19 +50,14 @@ func (r *WindowsRuntime) showPauseNotification(paused bool) {
 		title = notifications.PauseTitle
 		message = notifications.PauseBody
 	}
-	defaults := DefaultConfig().Notifications
 	if title == "" {
-		if paused {
-			title = defaults.PauseTitle
-		} else {
-			title = defaults.ResumeTitle
-		}
+		title = "ClipVault"
 	}
 	if message == "" {
 		if paused {
-			message = defaults.PauseBody
+			message = r.i18nT("notification.paused.body", nil)
 		} else {
-			message = defaults.ResumeBody
+			message = r.i18nT("notification.resumed.body", nil)
 		}
 	}
 	nid := notifyIconData{
@@ -102,11 +99,11 @@ func (r *WindowsRuntime) notifyIconData() notifyIconData {
 		CallbackMessage: wmTrayIcon,
 		Icon:            r.hIcon,
 	}
-	tip := "ClipVault - 正在记录"
+	tip := r.i18nT("tray.tip_recording", nil)
 	if r.license != nil && !r.license.CanUsePaidFeatures() {
-		tip = fmt.Sprintf("ClipVault - 免费版：仅可查看最近 %d 条", FreeTierVisibleLimit)
+		tip = r.i18nT("tray.tip_free_tier", map[string]any{"count": FreeTierVisibleLimit})
 	} else if r.state.IsPaused() {
-		tip = "ClipVault - 已暂停"
+		tip = r.i18nT("tray.tip_paused", nil)
 	}
 	copy(nid.Tip[:], syscall.StringToUTF16(tip))
 	return nid
@@ -119,29 +116,31 @@ func (r *WindowsRuntime) showMenu() {
 	}
 	defer procDestroyMenu.Call(menu)
 
-	toggleText := "暂停录制"
+	// 菜单每次弹出时重建，文案在弹出当下经 i18n 解析——切语言后无需
+	// 主动重建菜单，下一次右键即生效。
+	toggleText := r.i18nT("tray.pause_recording", nil)
 	if r.state.IsPaused() {
-		toggleText = "继续录制"
+		toggleText = r.i18nT("tray.resume_recording", nil)
 	}
 	appendMenu(menu, mfString, idMenuTogglePause, toggleText)
 
 	searchFlags := uint32(mfString)
-	searchText := "搜索历史 / 设置"
+	searchText := r.i18nT("tray.open_search", nil)
 	if r.SearchURL() == "" {
 		searchFlags |= mfDisabled
-		searchText = "搜索历史 / 设置（端口不可用）"
+		searchText = r.i18nT("tray.open_search_unavailable", nil)
 	}
 	appendMenu(menu, searchFlags, idMenuSearch, searchText)
-	appendMenu(menu, mfString, idMenuDataDir, "打开数据目录")
+	appendMenu(menu, mfString, idMenuDataDir, r.i18nT("tray.open_data_dir", nil))
 
 	cfg := r.cfgMgr.Get()
 	autostartFlags := uint32(mfString)
 	if enabled, _, err := AutostartStatus(cfg.Autostart.AppName); err == nil && enabled {
 		autostartFlags |= mfChecked
 	}
-	appendMenu(menu, autostartFlags, idMenuAutostart, "开机自启动")
+	appendMenu(menu, autostartFlags, idMenuAutostart, r.i18nT("tray.autostart", nil))
 	appendMenu(menu, mfSeparator, 0, "")
-	appendMenu(menu, mfString, idMenuExit, "退出")
+	appendMenu(menu, mfString, idMenuExit, r.i18nT("tray.exit", nil))
 
 	var pt point
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

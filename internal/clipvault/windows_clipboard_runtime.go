@@ -149,7 +149,7 @@ func (r *WindowsRuntime) warnQueueDepth(depth int) {
 	r.logger.Warn("clipboard_queue_high_water", map[string]any{
 		"depth":     depth,
 		"threshold": clipQueueHighWater,
-		"hint":      "剪贴板事件积压（消费端可能被导入等长事务阻塞）；事件不会丢失，消费恢复后按序回放",
+		"hint":      "clipboard events backlogged (consumer may be blocked by a long transaction such as import); events are not lost and replay in order once the consumer resumes",
 	})
 }
 
@@ -187,7 +187,7 @@ func (r *WindowsRuntime) cleanup() {
 
 func (r *WindowsRuntime) doRegisterHotkey(id int, hk HotkeyConfig) error {
 	if err := validateHotkeyConfig("runtime hotkey", hk); err != nil {
-		return &HotkeyError{Msg: "快捷键配置无效: " + err.Error()}
+		return &HotkeyError{Msg: "invalid hotkey config: " + err.Error()}
 	}
 	if !hk.Enabled {
 		r.logger.Info("hotkey_disabled", map[string]any{"id": id})
@@ -196,7 +196,7 @@ func (r *WindowsRuntime) doRegisterHotkey(id int, hk HotkeyConfig) error {
 	ok, _, err := procRegisterHotKey.Call(r.hwnd, uintptr(id), uintptr(hk.Modifiers), uintptr(hk.Key))
 	if ok == 0 {
 		r.logger.Warn("hotkey_register_failed", map[string]any{"id": id, "error": err.Error()})
-		return &HotkeyError{Msg: fmt.Sprintf("快捷键注册失败（可能与其他应用冲突）: %v", err)}
+		return &HotkeyError{Msg: fmt.Sprintf("hotkey registration failed (possibly conflicting with another app): %v", err)}
 	}
 	r.logger.Info("hotkey_registered", map[string]any{"id": id, "modifiers": hk.Modifiers, "key": hk.Key})
 	return nil
@@ -246,7 +246,7 @@ func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
 	case err := <-r.pendingHotkeyResult:
 		return err
 	case <-time.After(3 * time.Second):
-		return &HotkeyError{Msg: "快捷键注册超时"}
+		return &HotkeyError{Msg: "hotkey registration timed out"}
 	}
 }
 

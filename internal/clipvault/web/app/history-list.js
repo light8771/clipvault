@@ -1,4 +1,7 @@
 import { app } from "./app-context.js";
+
+const t = window.clipvaultI18n.t;
+
 export function registerHistoryList() {
   app.Q = document.getElementById('q');
   app.PAGESIZE = document.getElementById('pagesize');
@@ -17,7 +20,7 @@ export function registerHistoryList() {
   app.filterDateFrom = '';
   app.filterDateTo = '';
   app.currentGroupID = 0;
-  app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 查看';
+  app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ' + t('history.view');
   app.delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   app.groupBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>';
   app.locateHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
@@ -36,7 +39,7 @@ export function registerHistoryList() {
           <line x1="9" y1="12" x2="15" y2="12"/>
           <line x1="9" y1="16" x2="13" y2="16"/>
         </svg>
-        <span>暂无剪切板记录</span>
+        <span>${t('history.empty')}</span>
       </div>`;
       return;
     }
@@ -44,13 +47,13 @@ export function registerHistoryList() {
       const kindKey = it.kind || 'text';
       const isNonText = app.isNonTextKind(kindKey);
       const kindClass = 'mkind mkind-' + kindKey;
-      const kindLabel = app.KIND_LABEL[kindKey] || kindKey;
-      const fullTime = app.esc(new Date(it.createdAt).toLocaleString());
+      const kindLabel = app.KIND_LABEL[kindKey] ? t(app.KIND_LABEL[kindKey]) : kindKey;
+      const fullTime = app.esc(new Date(it.createdAt).toLocaleString(window.clipvaultI18n.locale()));
       const starHTML = it.starred ? app.starOnHTML : app.starOffHTML;
-      const starTitle = it.starred ? '取消收藏' : '收藏';
-      const sensHTML = it.sensitive ? '<span class="msens">敏感</span>' : '';
+      const starTitle = it.starred ? t('history.unstar') : t('history.kind_starred');
+      const sensHTML = it.sensitive ? '<span class="msens">' + t('history.sensitive_tag') + '</span>' : '';
       const sensAttr = it.sensitive ? ' data-sensitive="1"' : '';
-      const dupHTML = it.isDuplicate ? '<span class="msep">·</span><span class="mdup">重复</span>' : '';
+      const dupHTML = it.isDuplicate ? '<span class="msep">·</span><span class="mdup">' + t('history.duplicate_tag') + '</span>' : '';
       // 来源应用（前台窗口法）：ShowExe 缺省视为 true；标签用别名（若有），悬停看窗口标题与完整路径
       let srcHTML = '';
       if (app.currentCfg?.source?.showExe !== false && it.sourceExeName) {
@@ -59,23 +62,23 @@ export function registerHistoryList() {
         srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${app.esc(srcLabel)}</span>`;
       }
       const managedImage = app.isManagedImage(it);
-      let bodyHTML, charText, showView;
-      let viewAction = 'view-item';
+      let bodyHTML, charText, showView, viewAction = 'view-item';
       if (it.sensitive && !app.authState.secondaryAuthed) {
         // 敏感内容未通过二次认证时显示遮蔽占位；字数与来源元数据一并遮蔽（旁信道）
-        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>敏感内容已隐藏，点击查看按钮查看明文</pre>`;
-        charText = '已隐藏';
+        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${t('history.sensitive_masked')}</pre>`;
+        charText = t('history.hidden_count');
         showView = true;
       } else if (it.contentAvailable === false) {
         // 事件优先：事件已落库但内容不可用（被覆盖/格式不支持/超限等）
-        const reasonLabel = app.UNAVAILABLE_LABEL[it.unavailableReason] || '无可用内容';
+        const reasonKey = app.UNAVAILABLE_LABEL_KEY[it.unavailableReason];
+        const reasonLabel = reasonKey ? t(reasonKey) : t('history.unavailable_content');
         bodyHTML = `<pre class="open event-only">${app.esc(reasonLabel)}</pre>`;
-        charText = '事件';
+        charText = t('history.event_only');
         showView = false;
       } else if (managedImage) {
         // 托管剪贴板图片（CLIPVAULT_IMAGE_FILE）：内联缩略图，点击查看大图
-        bodyHTML = `<div class="managed-image"><img data-action="view-managed-image" data-item-id="${it.id}" loading="lazy" alt="剪贴板图片"></div>`;
-        charText = '图片';
+        bodyHTML = `<div class="managed-image"><img data-action="view-managed-image" data-item-id="${it.id}" loading="lazy" alt="${t('history.clipboard_image')}"></div>`;
+        charText = t('history.kind_image');
         try {
           const meta = JSON.parse(it.metaJson || '{}');
           if (meta.width && meta.height) charText = meta.width + '×' + meta.height;
@@ -85,13 +88,13 @@ export function registerHistoryList() {
       } else if (isNonText) {
         const paths = it.text.split('\n').filter(Boolean);
         bodyHTML = app.renderFileList(it);
-        charText = paths.length + ' 个文件';
+        charText = t('history.file_count', { count: paths.length });
         showView = true;
       } else {
         const preview = app.textPreviewBody(it, q);
         bodyHTML = preview.html;
         showView = preview.showView;
-        charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
+        charText = it.charLen >= 1000 ? t('history.char_count_k', { count: (it.charLen / 1000).toFixed(1) }) : t('history.char_count', { count: it.charLen });
       }
       const canCopy = it.contentAvailable !== false && !managedImage;
       return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}"${sensAttr}>
@@ -111,12 +114,12 @@ export function registerHistoryList() {
           </div>
           <div class="card-acts">
             ${showView ? `<button class="ab exp" data-action="${viewAction}" data-item-id="${it.id}">${app.viewHTML}</button>` : ''}
-            ${q ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="定位到时间线">${app.locateHTML}</button>` : ''}
+            ${q ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="${t('history.locate')}">${app.locateHTML}</button>` : ''}
             ${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}">${app.cpHTML}</button>` : ''}
             <button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
-            <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? '取消敏感标记' : '标记为敏感'}">${app.sensBtnHTML}</button>
-            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="加入分组">${app.groupBtnHTML}</button>
-            <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="删除">${app.delHTML}</button>
+            <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? t('history.unmark_sensitive') : t('history.mark_sensitive')}">${app.sensBtnHTML}</button>
+            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="${t('groups.modal_assign')}">${app.groupBtnHTML}</button>
+            <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="${t('common.delete')}">${app.delHTML}</button>
           </div>
         </div>
       </article>`;
@@ -162,17 +165,14 @@ export function registerHistoryList() {
       app.filterDateTo = '';
       document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
       document.querySelector('.filter-chip[data-kind=""]').classList.add('active');
-      const df = document.getElementById('dateFrom');
-      const dt = document.getElementById('dateTo');
-      if (df) df.value = '';
-      if (dt) dt.value = '';
-      const cdb = document.getElementById('clearDateBtn');
-      if (cdb) cdb.classList.add('hidden');
+      const df = document.getElementById('dateFrom'), dt = document.getElementById('dateTo');
+      if (df) df.value = ''; if (dt) dt.value = '';
+      document.getElementById('clearDateBtn')?.classList.add('hidden');
       await app.search();
       app.locateActive = false;
       clearTimeout(app.debounce);
     } catch (_) {
-      app.toast('定位失败', 'err');
+      app.toast(t('history.locate_failed'), 'err');
     }
   };
   app.searchRevision = 0;
@@ -219,7 +219,7 @@ export function registerHistoryList() {
       const d = await response.json();
       if (revision !== app.searchRevision) return;
       if (!response.ok) {
-        app.toast(d.error || '搜索失败，请重试', 'err');
+        app.toast(d.error || t('history.search_failed'), 'err');
         return;
       }
       app.totalCount = d.total || 0;
@@ -245,13 +245,13 @@ export function registerHistoryList() {
       counter.classList.toggle('hidden', !selected);
     }
     if (btn) btn.classList.toggle('active', selected > 0);
-    if (footInfo) footInfo.textContent = selected ? '已筛选 ' + selected + ' 个应用' : '显示全部来源';
+    if (footInfo) footInfo.textContent = selected ? t('history.src_filtered', { count: selected }) : t('history.source_apps_all');
     if (resetBtn) resetBtn.classList.toggle('hidden', !selected);
     const cfg = app.currentCfg || {};
     const recordingOn = cfg.recordSourceInfo !== false;
     if (!recordingOn) {
       wrap.classList.add('disabled');
-      list.innerHTML = '<p class="src-exe-empty">来源采集已关闭</p>';
+      list.innerHTML = '<p class="src-exe-empty">' + t('history.src_recording_off') + '</p>';
       return;
     }
     wrap.classList.remove('disabled');
@@ -267,7 +267,7 @@ export function registerHistoryList() {
       });
     }
     if (!items.length) {
-      list.innerHTML = '<p class="src-exe-empty">没有匹配的应用</p>';
+      list.innerHTML = '<p class="src-exe-empty">' + t('history.src_no_match') + '</p>';
     } else {
       list.innerHTML = items.map(e => {
         const label = app.sourceAliases[e.name] || e.name;
@@ -347,15 +347,16 @@ export function registerHistoryList() {
     const totalPages = Math.ceil(app.totalCount / pageSize) || 1;
     const start = app.totalCount === 0 ? 0 : app.currentPage * pageSize + 1;
     const end = Math.min((app.currentPage + 1) * pageSize, app.totalCount);
-    PI.textContent = `${start}–${end} / 共 ${app.totalCount} 条`;
+    PI.textContent = `${start}–${end} / ` + t('history.total_items', { count: app.totalCount });
     PREV.disabled = app.currentPage === 0;
     NEXT.disabled = end >= app.totalCount;
     PAG.classList.toggle('hidden', app.totalCount === 0);
     // 未激活时 badge 始终显示全量总数（转化钩子），已激活时跟随当前结果
     app.BADGE.textContent = !app.licenseState.licensed && app.fullTotalCount > 0 ? app.fullTotalCount : app.totalCount;
     // 限额未知（freeLimit 为 0）时整条提示隐藏，绝不渲染"仅显示最近 0 条"。
-    const freeNote = !app.licenseState.licensed && app.licenseState.freeLimit > 0 && app.fullTotalCount > app.totalCount ? ' · 免费版仅显示最近 ' + app.licenseState.freeLimit + ' 条，激活后查看全部' : '';
-    app.RC.textContent = app.totalCount + ' 条结果' + freeNote;
+    const showFree = !app.licenseState.licensed && app.licenseState.freeLimit > 0 && app.fullTotalCount > app.totalCount;
+    const freeNote = showFree ? ' · ' + t('history.free_note', { count: app.licenseState.freeLimit }) : '';
+    app.RC.textContent = t('history.result_count', { count: app.totalCount }) + freeNote;
     if (JI) {
       JI.value = app.currentPage + 1;
       JI.max = totalPages;

@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { trapModalFocus } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerSettingsSources() {
   const sourceAppsModal = document.getElementById('sourceAppsModal');
   let sourceAppsTrigger = null;
@@ -7,14 +10,16 @@ export function registerSettingsSources() {
     const summary = document.getElementById('sourceAppsSummary');
     if (!summary) return;
     const aliasCount = Object.keys(app.sourceAliases || {}).length;
-    const scope = app.sourceWhitelist?.length ? `下拉显示 ${app.sourceWhitelist.length} 个应用` : '下拉显示全部应用';
-    summary.textContent = `${scope}；已设置 ${aliasCount} 个别名`;
+    const scope = app.sourceWhitelist?.length
+      ? t('source_apps.summary_scoped', { count: app.sourceWhitelist.length })
+      : t('source_apps.summary_all');
+    summary.textContent = t('source_apps.summary', { scope: scope, count: aliasCount });
   };
   app.renderSourceAppsDialog = function renderSourceAppsDialog() {
     const wrap = document.getElementById('srcAliases');
     if (!wrap || !app.sourceAppsDraft) return;
     if (!app.allSourceExes.length) {
-      wrap.innerHTML = '<p class="src-empty-hint">暂无已记录的来源应用</p>';
+      wrap.innerHTML = '<p class="src-empty-hint">' + t('source_apps.empty') + '</p>';
       app.updateSourceAppsSelectionHint();
       return;
     }
@@ -28,26 +33,29 @@ export function registerSettingsSources() {
     wrap.innerHTML = visible.map(e => {
       const custom = app.sourceAppsDraft.aliases[e.name] || '';
       return `<div class="src-alias-row" data-raw="${app.esc(e.name)}">
-        <label class="src-app-check" title="控制是否出现在搜索下拉"><input type="checkbox"${selected.has(e.name) ? ' checked' : ''}${selectedMode ? '' : ' disabled'} aria-label="${app.esc(e.name)} 出现在搜索下拉"></label>
+        <label class="src-app-check" title="${t('source_apps.check_title')}"><input type="checkbox"${selected.has(e.name) ? ' checked' : ''}${selectedMode ? '' : ' disabled'} aria-label="${app.esc(e.name)} ${t('source_apps.check_aria')}"></label>
         <span class="src-alias-raw" title="${app.esc(e.name)}">${app.esc(e.name)}</span>
-        <input type="text" class="src-alias-input" maxlength="40" placeholder="别名（可选）" value="${app.esc(custom)}">
+        <input type="text" class="src-alias-input" maxlength="40" placeholder="${t('source_apps.alias_placeholder')}" value="${app.esc(custom)}">
       </div>`;
     }).join('');
-    if (!visible.length) wrap.innerHTML = '<p class="src-empty-hint">没有匹配的来源应用</p>';
+    if (!visible.length) wrap.innerHTML = '<p class="src-empty-hint">' + t('source_apps.no_match') + '</p>';
     app.updateSourceAppsSelectionHint();
   };
   app.updateSourceAppsSelectionHint = function updateSourceAppsSelectionHint() {
     const hint = document.getElementById('sourceAppsSelectionHint');
     if (!hint || !app.sourceAppsDraft) return;
     if (app.sourceAppsDraft.mode === 'all') {
-      hint.textContent = `共 ${app.allSourceExes.length} 个应用，全部显示在搜索下拉`;
+      hint.textContent = t('source_apps.hint_all', { count: app.allSourceExes.length });
       return;
     }
     const knownNames = new Set(app.allSourceExes.map(e => e.name));
     const configured = app.sourceAppsDraft.whitelist || [];
     const selectedKnown = configured.filter(name => knownNames.has(name)).length;
     const unavailable = configured.length - selectedKnown;
-    hint.textContent = `已选择 ${selectedKnown} / ${app.allSourceExes.length} 个当前应用` + (unavailable ? `；另保留 ${unavailable} 个历史应用` : '');
+    hint.textContent = t('source_apps.hint_selected', {
+      selected: selectedKnown,
+      total: app.allSourceExes.length
+    }) + (unavailable ? t('source_apps.hint_unavailable', { count: unavailable }) : '');
   };
   app.syncVisibleSourceAppsDraft = function syncVisibleSourceAppsDraft() {
     if (!app.sourceAppsDraft) return;
@@ -106,7 +114,7 @@ export function registerSettingsSources() {
     const knownNames = new Set(app.allSourceExes.map(e => e.name));
     const selectedKnown = (app.sourceAppsDraft.whitelist || []).filter(name => knownNames.has(name));
     if (app.sourceAppsDraft.mode === 'selected' && selectedKnown.length === 0) {
-      app.toast('“仅显示选中”模式下请至少选择一个应用', 'err');
+      app.toast(t('source_apps.need_one_selected'), 'err');
       return;
     }
     const previousAliases = app.sourceAliases;
@@ -161,9 +169,9 @@ export function registerSettingsSources() {
         document.getElementById('filterAuthGate').classList.add('hidden');
         document.getElementById('filterContent').classList.remove('hidden');
         app.renderPatterns(patterns);
-        app.toast('已解锁敏感过滤规则');
+        app.toast(t('source_apps.rules_unlocked'));
       } catch (_) {
-        app.toast('加载过滤规则失败', 'err');
+        app.toast(t('source_apps.rules_load_failed'), 'err');
       }
     });
   }
@@ -172,13 +180,13 @@ export function registerSettingsSources() {
     const list = document.getElementById('patternList');
     if (!list) return;
     if (!patterns.length) {
-      list.innerHTML = '<p class="no-patterns">暂无过滤规则，所有内容均会被记录</p>';
+      list.innerHTML = '<p class="no-patterns">' + t('source_apps.no_patterns') + '</p>';
       return;
     }
     list.innerHTML = patterns.map((p, i) => `
       <div class="pattern-row" data-idx="${i}">
-        <input type="text" class="pattern-input" value="${app.esc(p)}" placeholder="正则表达式">
-        <button class="pattern-del" data-action="remove-pattern" data-index="${i}" title="删除">
+        <input type="text" class="pattern-input" value="${app.esc(p)}" placeholder="${t('source_apps.pattern_placeholder')}">
+        <button class="pattern-del" data-action="remove-pattern" data-index="${i}" title="${t('common.delete')}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>

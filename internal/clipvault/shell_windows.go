@@ -31,7 +31,7 @@ var (
 func openFolderAndSelectItem(path string) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			retErr = fmt.Errorf("Shell API 异常: %v (路径: %s)", r, path)
+			retErr = fmt.Errorf("shell API panic: %v (path: %s)", r, path)
 		}
 	}()
 
@@ -45,26 +45,26 @@ func openFolderAndSelectItem(path string) (retErr error) {
 
 	pPath, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
-		return fmt.Errorf("无法编码路径: %w", err)
+		return fmt.Errorf("failed to encode path: %w", err)
 	}
 
 	// Create a PIDL from the full file path
 	fullPidl, _, _ := procILCreateFromPathW.Call(uintptr(unsafe.Pointer(pPath)))
 	if fullPidl == 0 {
-		return fmt.Errorf("无法定位文件 (ILCreateFromPathW 返回空): %s", path)
+		return fmt.Errorf("failed to locate file (ILCreateFromPathW returned null): %s", path)
 	}
 	defer procILFree.Call(fullPidl)
 
 	// Clone the full PIDL, then remove the last item ID to get the parent folder PIDL
 	parentPidl, _, _ := procILClone.Call(fullPidl)
 	if parentPidl == 0 {
-		return fmt.Errorf("无法克隆 PIDL (ILClone 返回空): %s", path)
+		return fmt.Errorf("failed to clone PIDL (ILClone returned null): %s", path)
 	}
 	defer procILFree.Call(parentPidl)
 
 	r, _, _ := procILRemoveLastID.Call(parentPidl)
 	if r == 0 {
-		return fmt.Errorf("无法移除末尾 ID (ILRemoveLastID 失败): %s", path)
+		return fmt.Errorf("failed to remove last ID (ILRemoveLastID failed): %s", path)
 	}
 
 	// The child PIDL is the portion of fullPidl after parentPidl's bytes.
@@ -72,7 +72,7 @@ func openFolderAndSelectItem(path string) (retErr error) {
 	// ILGetNext returns a pointer into fullPidl's memory pointing to the child item.
 	childPidl := computeChildPidl(parentPidl, fullPidl)
 	if childPidl == 0 {
-		return fmt.Errorf("无法计算子项 PIDL: %s", path)
+		return fmt.Errorf("failed to compute child PIDL: %s", path)
 	}
 
 	// Open the parent folder and select the child item
@@ -84,7 +84,7 @@ func openFolderAndSelectItem(path string) (retErr error) {
 		0,
 	)
 	if hr != 0 {
-		return fmt.Errorf("打开文件夹失败 (SHOpenFolderAndSelectItems 错误码 0x%x): %s", hr, path)
+		return fmt.Errorf("failed to open folder (SHOpenFolderAndSelectItems error 0x%x): %s", hr, path)
 	}
 	return nil
 }
@@ -104,7 +104,7 @@ func openDirectory(path string) error {
 		swShowNormal,
 	)
 	if ret <= 32 {
-		return fmt.Errorf("打开目录失败 (ShellExecuteW 返回 %d): %s", ret, path)
+		return fmt.Errorf("failed to open directory (ShellExecuteW returned %d): %s", ret, path)
 	}
 	return nil
 }

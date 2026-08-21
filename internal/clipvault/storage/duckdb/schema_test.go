@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func TestSchemaV7ExternalReadMCP(t *testing.T) {
-	if SchemaVersion != "7" {
-		t.Fatalf("SchemaVersion = %q, want 7", SchemaVersion)
+func TestSchemaV8I18n(t *testing.T) {
+	if SchemaVersion != "8" {
+		t.Fatalf("SchemaVersion = %q, want 8", SchemaVersion)
 	}
-	if SchemaIdentity != "clipvault.duckdb.v7.external-read-mcp" {
-		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v7.external-read-mcp", SchemaIdentity)
+	if SchemaIdentity != "clipvault.duckdb.v8.i18n" {
+		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v8.i18n", SchemaIdentity)
 	}
 	schema := strings.Join(SchemaStatements, "\n")
 	for _, fragment := range []string{
@@ -40,6 +40,17 @@ func TestSchemaV7ExternalReadMCP(t *testing.T) {
 	for _, column := range []string{"id", "name", "token_hash", "created_at", "expires_at", "last_used_at", "revoked_at", "channel", "allow_sensitive"} {
 		if !strings.Contains(schema, column) {
 			t.Fatalf("api_tokens missing column %q", column)
+		}
+	}
+	// i18n 三表：keys（语言 Schema）/ languages（语言定义）/ translations（译文）。
+	for _, fragment := range []string{
+		"i18n_keys", "translation_key VARCHAR", "module VARCHAR", "source_version INTEGER", "is_active BOOLEAN",
+		"i18n_languages", "base_language_code VARCHAR", "is_builtin BOOLEAN", "is_enabled BOOLEAN",
+		"i18n_translations", "language_code VARCHAR", "translation_value VARCHAR",
+		"idx_i18n_keys_key", "idx_i18n_languages_code", "idx_i18n_translations_lang_key",
+	} {
+		if !strings.Contains(schema, fragment) {
+			t.Fatalf("schema does not contain %q", fragment)
 		}
 	}
 }

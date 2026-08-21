@@ -107,7 +107,7 @@ func writeEmailBackupMessage(dst io.Writer, cfg EmailBackupConfig, ext string, n
 	}
 	attachment, err := os.Open(attachmentPath)
 	if err != nil {
-		return fmt.Errorf("打开邮件分片失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("backup.err_open_part", nil), err)
 	}
 	defer attachment.Close()
 	return writeMIMEAttachmentStream(dst, cfg.From, cfg.To, subject, body, htmlBody, filename, contentType, attachment)

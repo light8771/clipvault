@@ -15,7 +15,7 @@ func copyStorageEntry(source, target string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("数据目录不支持链接项: %s", source)
+		return fmt.Errorf("data directory must not contain links: %s", source)
 	}
 	if info.IsDir() {
 		if err := os.Mkdir(target, info.Mode().Perm()); err != nil {

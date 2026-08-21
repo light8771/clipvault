@@ -1,6 +1,8 @@
 import { app } from './app-context.js';
 import { armConfirm } from './confirm-arm.js';
 
+const t = window.clipvaultI18n.t;
+
 // MCP 页「访问记录」子特性：统计概览、筛选、表格详情、分页与导出。
 // 服务配置/令牌/接入示例逻辑在 mcp.js；这里只关心 MCP 通道审计。
 
@@ -47,8 +49,8 @@ export function registerMCPAudit() {
       if (d.stats) renderAuditStats(d.stats);
       renderAudit(d.entries || []);
     } catch (_) {
-      el('mcpAuditTotal').textContent = '读取失败';
-      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">无法读取访问记录，请查看本地日志</td></tr>';
+      el('mcpAuditTotal').textContent = t('logs.load_failed');
+      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' + t('audit.load_failed') + '</td></tr>';
     }
   };
 
@@ -73,31 +75,31 @@ export function registerMCPAudit() {
     const resource = entry.resourceUri || '';
     const expanded = state.expanded.has(String(entry.id));
     const sensitive = entry.sensitiveAccessed
-      ? '<span class="dapi-tag warn">敏感</span>'
+      ? '<span class="dapi-tag warn">' + t('audit.sensitive_yes') + '</span>'
       : '<span class="dapi-muted">—</span>';
     let row = '<tr class="dapi-audit-row' + (expanded ? ' is-open' : '') + '" data-audit-id="' + entry.id + '" data-action="mcp-audit-toggle">' +
       '<td class="col-time">' + app.esc(app.formatLogTime(entry.timestamp)) + '</td>' +
-      '<td class="col-token">' + app.esc(entry.tokenName || '（未认证）') + '</td>' +
+      '<td class="col-token">' + app.esc(entry.tokenName || t('audit.unauthenticated')) + '</td>' +
       '<td class="col-op"><span class="dapi-op-cell">' +
       '<span class="dapi-op-label">' + app.esc(op) + '</span>' +
       (resource ? '<span class="dapi-op-endpoint"><code>' + app.esc(resource) + '</code></span>' : '') +
       '</span></td>' +
       '<td class="col-summary">' + sensitive + '</td>' +
       '<td class="col-result"><span class="dapi-result-cell">' + auditResultBadge(entry) +
-      '<span class="dapi-result-count">' + (entry.itemCount ? entry.itemCount + ' 条' : (entry.itemId ? '#' + entry.itemId : '—')) + '</span></span></td>' +
+      '<span class="dapi-result-count">' + (entry.itemCount ? t('audit.item_count', { count: entry.itemCount }) : (entry.itemId ? '#' + entry.itemId : '—')) + '</span></span></td>' +
       '<td class="col-ms">' + entry.durationMs + 'ms</td>' +
       '<td class="col-ip">' + app.esc(entry.remoteIP || '—') + '</td>' +
       '</tr>';
     if (expanded) {
       row += '<tr class="dapi-audit-detail"><td colspan="7">' +
         '<div class="dapi-detail-grid">' +
-        '<span class="dapi-detail-label">操作</span><code>' + app.esc(op) + '</code>' +
-        (resource ? '<span class="dapi-detail-label">资源</span><code>' + app.esc(resource) + '</code>' : '') +
-        '<span class="dapi-detail-label">返回</span><code>' + (entry.itemCount || 0) + ' 条 · ' + entry.durationMs + 'ms</code>' +
-        (entry.itemId ? '<span class="dapi-detail-label">记录</span><code>#' + entry.itemId + '</code>' : '') +
-        (entry.errorCode ? '<span class="dapi-detail-label">错误码</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
-        '<span class="dapi-detail-label">敏感访问</span><code>' + (entry.sensitiveAccessed ? '是' : '否') + '</code>' +
-        (entry.tokenName ? '<span class="dapi-detail-label">令牌</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + t('audit.detail_operation') + '</span><code>' + app.esc(op) + '</code>' +
+        (resource ? '<span class="dapi-detail-label">' + t('audit.detail_resource') + '</span><code>' + app.esc(resource) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + t('audit.detail_returned') + '</span><code>' + t('audit.detail_result', { count: entry.itemCount || 0, duration: entry.durationMs }) + '</code>' +
+        (entry.itemId ? '<span class="dapi-detail-label">' + t('audit.detail_item') + '</span><code>#' + entry.itemId + '</code>' : '') +
+        (entry.errorCode ? '<span class="dapi-detail-label">' + t('audit.detail_error_code') + '</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + t('audit.detail_sensitive') + '</span><code>' + (entry.sensitiveAccessed ? t('audit.yes') : t('audit.no')) + '</code>' +
+        (entry.tokenName ? '<span class="dapi-detail-label">' + t('audit.detail_token') + '</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
         '</div>' +
         '</td></tr>';
     }
@@ -109,11 +111,11 @@ export function registerMCPAudit() {
     const list = el('mcpAuditList');
     const filtering = state.filters.operation || state.filters.result || state.filters.tokenId || state.filters.q;
     el('mcpAuditTotal').textContent = filtering
-      ? '筛出 ' + state.total + ' 条'
-      : '共 ' + state.total + ' 条访问记录';
+      ? t('audit.total_filtered', { count: state.total })
+      : t('audit.total', { count: state.total });
     if (!entries.length) {
       list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' +
-        (state.page > 0 ? '本页没有记录' : (filtering ? '没有符合条件的记录' : '暂无访问记录')) + '</td></tr>';
+        (state.page > 0 ? t('audit.empty_page') : (filtering ? t('audit.empty_filtered') : t('audit.empty'))) + '</td></tr>';
     } else {
       list.innerHTML = entries.map(auditRowHTML).join('');
     }
@@ -190,7 +192,7 @@ export function registerMCPAudit() {
     const label = button.textContent;
     try {
       const res = await app.fetch('/api/v1/mcp/audit/export?' + auditQueryString());
-      await app.requireOK(res, '导出失败');
+      await app.requireOK(res, t('audit.export_failed'));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -200,17 +202,17 @@ export function registerMCPAudit() {
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      button.textContent = '已导出';
+      button.textContent = t('audit.exported');
       setTimeout(() => { button.textContent = label; }, 1200);
     } catch (e) {
-      app.toast('导出失败：' + (e.message || e), 'err');
+      app.toast(t('audit.export_failed_with', { message: e.message || e }), 'err');
     }
   };
 
   app.clearMCPAudit = function clearMCPAudit(button) {
-    armConfirm(button, '再次点击确认清空', async () => {
-      await app.requireOK(await app.protectedFetch('/api/v1/mcp/audit', { method: 'DELETE' }), '清空失败');
-      app.toast('MCP 访问记录已清空');
+    armConfirm(button, t('audit.confirm_clear'), async () => {
+      await app.requireOK(await app.protectedFetch('/api/v1/mcp/audit', { method: 'DELETE' }), t('audit.clear_failed'));
+      app.toast(t('mcp.audit_cleared'));
       app.mcpAuditState.page = 0;
       app.mcpAuditState.expanded.clear();
       await app.loadMCPAudit();
@@ -224,7 +226,7 @@ export function registerMCPAudit() {
     if (!select) return;
     const current = select.value;
     const tokens = app.mcpTokens || [];
-    select.innerHTML = '<option value="">全部令牌</option>' +
+    select.innerHTML = '<option value="">' + t('audit.all_tokens') + '</option>' +
       tokens.map(token =>
         '<option value="' + app.esc(token.id) + '">' + app.esc(token.name) + '</option>').join('');
     if (Array.from(select.options).some(option => option.value === current)) select.value = current;

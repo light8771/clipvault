@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -12,10 +11,10 @@ import (
 )
 
 var (
-	errBackupLicenseRequired = errors.New("需要先激活 ClipVault 才能使用备份功能")
-	errBackupStopped         = errors.New("备份服务已停止")
+	errBackupLicenseRequired = errors.New("api.error.backup_needs_license")
+	errBackupStopped         = errors.New("api.error.backup_unavailable")
 	// errBackupBusy 表示已有备份正在执行（手动触发与定时触发共用全局执行锁）。
-	errBackupBusy = errors.New("已有备份任务正在执行，请等待其完成")
+	errBackupBusy = errors.New("backup.err_busy")
 )
 
 const (
@@ -362,7 +361,7 @@ func (bs *BackupService) RunDirBackup(forceFull bool) error {
 	}
 	cfg := bs.cfgMgr.Get()
 	if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
-		return fmt.Errorf("目录备份配置不完整: %s", msg)
+		return fmt.Errorf("%s: %s", templateT("backup.incomplete_dir_prefix", nil), msg)
 	}
 	if !bs.execMu.TryLock() {
 		return errBackupBusy
@@ -388,7 +387,7 @@ func (bs *BackupService) RunEmailBackup(forceFull bool) error {
 	}
 	cfg := bs.cfgMgr.Get()
 	if msg := validateEmailBackupEnabled(cfg.Backup.EmailBackup); msg != "" {
-		return fmt.Errorf("邮件备份配置不完整: %s", msg)
+		return fmt.Errorf("%s: %s", templateT("backup.incomplete_email_prefix", nil), msg)
 	}
 	if !bs.execMu.TryLock() {
 		return errBackupBusy
@@ -415,12 +414,12 @@ func (bs *BackupService) SendTestEmail() error {
 	cfg := bs.cfgMgr.Get()
 	eb := cfg.Backup.EmailBackup
 	if problems := smtpDeliveryErrors(eb); len(problems) > 0 {
-		return fmt.Errorf("SMTP 配置不完整: %s", strings.Join(problems, "、"))
+		return fmt.Errorf("%s: %s", templateT("backup.smtp_incomplete", nil), translateBackupMissingList(problems))
 	}
 	if errors := emailTemplateErrors(eb); len(errors) > 0 {
-		return fmt.Errorf("邮件模板配置不完整: %s", strings.Join(errors, "、"))
+		return fmt.Errorf("%s: %s", templateT("backup.template_incomplete", nil), translateBackupMissingList(errors))
 	}
-	subject, body, htmlBody := renderEmailTemplate(eb, "测试邮件（无附件）", "测试", time.Now())
+	subject, body, htmlBody := renderEmailTemplate(eb, templateT("backup.test_subject", nil), templateT("backup.test_kind", nil), time.Now())
 	msg := buildTemplateMIME(eb.From, eb.To, subject, body, htmlBody)
 
 	return sendSMTPMessage(eb, msg)

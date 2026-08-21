@@ -44,13 +44,13 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 	// 打进 zip 后再用同一容器加密。附件扩展名恒为 cvexport。
 	ext = "cvexport"
 	if format != "json" && format != "xlsx" && format != "cvexport" {
-		return nil, "", 0, fmt.Errorf("不支持的备份格式: %s", format)
+		return nil, "", 0, fmt.Errorf("%s: %s", templateT("backup.err_unsupported_format", nil), format)
 	}
 	if cfg.Password == "" {
-		return nil, "", 0, errors.New("邮件备份必须设置加密密码（仅支持加密导出）")
+		return nil, "", 0, errors.New(templateT("backup.err_password_required", nil))
 	}
 	if cfg.MaxPartSize <= 0 {
-		return nil, "", 0, errors.New("单封邮件大小上限必须大于 0")
+		return nil, "", 0, errors.New(templateT("backup.err_max_part_size_positive", nil))
 	}
 	var parts []emailBackupPartFile
 	defer func() {
@@ -60,12 +60,12 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 	}()
 	total, err := bs.store.CountInScope(context.Background(), scope)
 	if err != nil {
-		return nil, "", 0, fmt.Errorf("统计分片行数失败: %w", err)
+		return nil, "", 0, fmt.Errorf("%s: %w", templateT("backup.err_part_rows", nil), err)
 	}
 	if total <= 0 {
 		part, err := bs.exportEmailPartFile(format, cfg.Password, scope)
 		if err != nil {
-			return nil, "", 0, fmt.Errorf("导出空备份失败: %w", err)
+			return nil, "", 0, fmt.Errorf("%s: %w", templateT("backup.err_empty_export", nil), err)
 		}
 		parts = append(parts, part)
 		size, err := emailBackupFileMessageSize(cfg, ext, time.Unix(0, 0), maxEmailParts-1, maxEmailParts, part.path)
@@ -73,7 +73,7 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 			return nil, "", 0, err
 		}
 		if size > int64(cfg.MaxPartSize) {
-			return nil, "", 0, fmt.Errorf("空备份邮件仍超过上限 %d 字节", cfg.MaxPartSize)
+			return nil, "", 0, fmt.Errorf("%s", templateT("backup.err_empty_too_large", map[string]any{"limit": cfg.MaxPartSize}))
 		}
 		return parts, ext, 0, nil
 	}
@@ -85,7 +85,7 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 	consumed := 0
 	for consumed < total {
 		if len(parts) >= maxEmailParts {
-			return nil, "", 0, fmt.Errorf("备份需要超过 %d 封邮件，请提高单封大小上限、改用目录备份或缩小范围", maxEmailParts)
+			return nil, "", 0, fmt.Errorf("%s", templateT("backup.err_too_many_parts", map[string]any{"max": maxEmailParts}))
 		}
 
 		remaining := emailPartCandidateUpperBound(total, consumed)
@@ -104,7 +104,7 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 				if errors.Is(err, sql.ErrNoRows) {
 					return false, nil
 				}
-				return false, fmt.Errorf("定位分片边界失败: %w", err)
+				return false, fmt.Errorf("%s: %w", templateT("backup.err_seek_boundary", nil), err)
 			}
 			partScope := scope
 			partScope.SinceID = lastID
@@ -164,7 +164,7 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 		}
 		if bestRows == 0 {
 			removeBest()
-			return nil, "", 0, fmt.Errorf("至少一条记录单独导出后邮件仍超过上限 %d 字节；请提高上限或改用目录备份", cfg.MaxPartSize)
+			return nil, "", 0, fmt.Errorf("%s", templateT("backup.err_single_record_too_large", map[string]any{"limit": cfg.MaxPartSize}))
 		}
 		bestPart.endID = bestEndID
 		parts = append(parts, bestPart)
@@ -194,7 +194,7 @@ func nextEmailPartProbe(current, remaining int) int {
 func (bs *BackupService) exportEmailPartFile(format, password string, scope ExportScope) (_ emailBackupPartFile, resultErr error) {
 	file, err := os.CreateTemp("", "clipvault-email-part-*.cvexport")
 	if err != nil {
-		return emailBackupPartFile{}, fmt.Errorf("创建邮件分片文件失败: %w", err)
+		return emailBackupPartFile{}, fmt.Errorf("%s: %w", templateT("backup.err_create_part", nil), err)
 	}
 	path := file.Name()
 	success := false
@@ -208,10 +208,10 @@ func (bs *BackupService) exportEmailPartFile(format, password string, scope Expo
 		return emailBackupPartFile{}, err
 	}
 	if err := file.Sync(); err != nil {
-		return emailBackupPartFile{}, fmt.Errorf("同步邮件分片失败: %w", err)
+		return emailBackupPartFile{}, fmt.Errorf("%s: %w", templateT("backup.err_sync_part", nil), err)
 	}
 	if err := file.Close(); err != nil {
-		return emailBackupPartFile{}, fmt.Errorf("关闭邮件分片失败: %w", err)
+		return emailBackupPartFile{}, fmt.Errorf("%s: %w", templateT("backup.err_close_part", nil), err)
 	}
 	success = true
 	return emailBackupPartFile{path: path}, nil
@@ -221,22 +221,15 @@ func (bs *BackupService) exportEmailPartFile(format, password string, scope Expo
 // 已发送的片段已计入备份进度（不会重发），剩余数据将在下次备份时
 // 自动从断点续发。通知发送失败只记日志，不掩盖原始备份错误。
 func (bs *BackupService) sendBackupFailureNotice(eb EmailBackupConfig, startedAt time.Time, sentParts, totalParts int, ext string, cause error) {
-	subject := fmt.Sprintf("⚠️ ClipVault 备份未完成（已发 %d/%d 片）", sentParts, totalParts)
-	body := fmt.Sprintf(`ClipVault 邮件备份未完成
-
-备份发起时间：%s
-备份格式：%s
-计划分片总数：%d
-已成功发送：%d 片
-失败位置：第 %d 片
-失败原因：%v
-
-说明：
-- 已发送的 %d 片已计入备份进度，不会重复发送。
-- 剩余数据将在下一次备份时自动续发（从断点继续）。
-- 请在 ClipVault 设置页查看备份状态与历史，修复 SMTP 或网络问题后，等待下次定时备份，或点"立即发送"。
-
-—— ClipVault`, startedAt.Format("2006-01-02 15:04:05"), ext, totalParts, sentParts, sentParts+1, cause, sentParts)
+	subject := templateT("backup.partial_subject", map[string]any{"sent": sentParts, "total": totalParts})
+	body := templateT("backup.partial_body", map[string]any{
+		"started": startedAt.Format("2006-01-02 15:04:05"),
+		"format":  ext,
+		"total":   totalParts,
+		"sent":    sentParts,
+		"failed":  sentParts + 1,
+		"cause":   cause.Error(),
+	})
 	htmlBody := renderEmailHTML(subject, strings.ReplaceAll(body, "\n", "<br>"), eb.Style, eb.AccentColor)
 	msg := buildMIME(eb.From, eb.To, subject, body, htmlBody, nil)
 	if err := sendSMTPMessage(eb, msg); err != nil {

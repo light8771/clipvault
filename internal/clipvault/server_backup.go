@@ -3,7 +3,6 @@ package clipvault
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -68,7 +67,7 @@ func backupStatusJSON(st BackupStatus, fullFallbackDays int) map[string]any {
 func (s *SearchServer) handleBackupHistory(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	if kind != "dir" && kind != "email" {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_kind", "kind 必须是 dir 或 email", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_backup_kind", s.i18nT("api.error.invalid_backup_kind", nil), nil)
 		return
 	}
 	history, err := s.store.ListBackupHistory(r.Context(), kind, 100)
@@ -83,48 +82,62 @@ func (s *SearchServer) handleBackupHistory(w http.ResponseWriter, r *http.Reques
 // 返回非空字符串描述缺失项，空字符串表示通过。
 // 目录备份仅支持加密导出（cvexport）或明文 zip 加密打包（json/xlsx），
 // 因此任何格式都必须设置加密密码，与邮件备份规则一致。
+// validateDirBackupEnabled 校验已启用的目录备份配置是否完整。
+// 返回非空字符串描述缺失项（已翻译），空字符串表示通过。
+// 目录备份仅支持加密导出（cvexport）或明文 zip 加密打包（json/xlsx），
+// 因此任何格式都必须设置加密密码，与邮件备份规则一致。
 func validateDirBackupEnabled(db DirBackupConfig) string {
 	var missing []string
 	if db.Interval < 1 || db.Interval > maxBackupIntervalHours {
-		missing = append(missing, "备份间隔")
+		missing = append(missing, "backup.missing_interval")
 	}
 	if strings.TrimSpace(db.Dir) == "" {
-		missing = append(missing, "目标目录")
+		missing = append(missing, "backup.missing_target_dir")
 	}
 	if !isBackupFormat(db.Format) {
-		missing = append(missing, "备份格式")
+		missing = append(missing, "backup.missing_format")
 	} else if db.Password == "" {
-		missing = append(missing, "加密密码（目录备份仅支持加密导出）")
+		missing = append(missing, "backup.missing_encryption_pwd")
 	}
 	if len(missing) == 0 {
 		return ""
 	}
-	return strings.Join(missing, "、")
+	return translateBackupMissingList(missing)
 }
 
 // validateEmailBackupEnabled 校验已启用的邮件备份配置是否完整。
-// 返回非空字符串描述缺失项，空字符串表示通过。
+// 返回已翻译的缺失项描述，空字符串表示通过。
 // 邮件备份仅支持加密导出（cvexport）或明文 zip 加密打包（json/xlsx），
 // 因此任何格式都必须设置加密密码。
 func validateEmailBackupEnabled(eb EmailBackupConfig) string {
 	var missing []string
 	if eb.Interval < 1 || eb.Interval > maxBackupIntervalHours {
-		missing = append(missing, "备份间隔")
+		missing = append(missing, "backup.missing_interval")
 	}
 	missing = append(missing, smtpDeliveryErrors(eb)...)
 	if !isBackupFormat(eb.Format) {
-		missing = append(missing, "备份格式")
+		missing = append(missing, "backup.missing_format")
 	} else if eb.Password == "" {
-		missing = append(missing, "加密密码（邮件备份仅支持加密导出）")
+		missing = append(missing, "backup.missing_encryption_pwd")
 	}
 	if eb.MaxPartSize < 1<<20 || eb.MaxPartSize > 50<<20 {
-		missing = append(missing, "单封邮件上限")
+		missing = append(missing, "backup.missing_max_part_size")
 	}
 	missing = append(missing, emailTemplateErrors(eb)...)
 	if len(missing) == 0 {
 		return ""
 	}
-	return strings.Join(missing, "、")
+	return translateBackupMissingList(missing)
+}
+
+// translateBackupMissingList 把缺失项 key 列表翻译为当前语言的并列描述
+// （无 i18n 服务时回退 key 原文，保持可诊断）。
+func translateBackupMissingList(keys []string) string {
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, templateT(key, nil))
+	}
+	return strings.Join(parts, templateT("common.list_separator", nil))
 }
 
 // writeBackupRunError 把手动触发的同步错误映射为 HTTP 响应。
@@ -146,7 +159,7 @@ func (s *SearchServer) writeBackupRunError(w http.ResponseWriter, err error) {
 // 完成；启动后返回 started=true，执行结果通过 GET /api/v1/backup 状态观察。
 func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
-		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", s.i18nT("api.error.backup_unavailable", nil), nil)
 		return
 	}
 	forceFull := r.URL.Query().Get("forceFull") == "1"
@@ -160,7 +173,7 @@ func (s *SearchServer) handleBackupDirNow(w http.ResponseWriter, r *http.Request
 // handleBackupEmailNow 异步启动一次邮件备份。语义同 handleBackupDirNow。
 func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
-		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", s.i18nT("api.error.backup_unavailable", nil), nil)
 		return
 	}
 	forceFull := r.URL.Query().Get("forceFull") == "1"
@@ -174,12 +187,12 @@ func (s *SearchServer) handleBackupEmailNow(w http.ResponseWriter, r *http.Reque
 // handleBackupEmailTest 发送一封测试邮件。
 func (s *SearchServer) handleBackupEmailTest(w http.ResponseWriter, r *http.Request) {
 	if s.backup == nil {
-		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", "备份服务未启动", nil)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "backup_unavailable", s.i18nT("api.error.backup_unavailable", nil), nil)
 		return
 	}
 	if err := s.backup.SendTestEmail(); err != nil {
 		s.logger.Error("email_test_failed", err, nil)
-		s.writeAPIError(w, http.StatusInternalServerError, "email_test_failed", "测试邮件发送失败: "+err.Error(), err)
+		s.writeAPIError(w, http.StatusInternalServerError, "email_test_failed", s.i18nT("api.error.email_test_failed", map[string]any{"detail": err.Error()}), err)
 		return
 	}
 	s.logger.Info("email_test_ok", nil)
@@ -195,10 +208,10 @@ func (s *SearchServer) writeFileRefError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrFreeWindowOutside):
 		s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
-			"未激活仅可查看最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该文件不在可查看范围内", nil)
+			s.i18nT("api.error.free_window_file", map[string]any{"n": FreeTierVisibleLimit}), nil)
 	case errors.Is(err, ErrFileRefLookup):
 		s.writeError(w, err)
 	default:
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", "无效的文件引用", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_file_ref", s.i18nT("api.error.invalid_file_ref", nil), nil)
 	}
 }

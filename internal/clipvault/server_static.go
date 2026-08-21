@@ -26,12 +26,14 @@ var applicationModuleAssets = []string{
 	"/app/logs.js", "/app/groups-page.js", "/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
 	"/app/data-api.js", "/app/data-api-audit.js", "/app/confirm-arm.js",
 	"/app/mcp.js", "/app/mcp-audit.js",
+	"/app/language-editor.js",
 }
 
 type applicationPage struct {
-	Path  string
-	Name  string
-	Title string
+	Path string
+	Name string
+	// TitleKey 是页面标题的 i18n 词条 Key；渲染时经 {{T}} 翻译为当前语言。
+	TitleKey string
 	// Menu 是左侧菜单的分组键，模板用它高亮当前顶级菜单项。
 	Menu             string
 	Bootstrap        string
@@ -53,7 +55,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/",
 		Name:      "history",
-		Title:     "历史",
+		TitleKey:  "app.title.history",
 		Bootstrap: "/app/history-bootstrap.js",
 		Parts: []string{
 			"web/pages/page-start.html", "web/pages/history-content.html", "web/pages/history-overlay.html",
@@ -63,15 +65,23 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/settings",
 		Name:      "settings",
-		Title:     "设置",
+		TitleKey:  "app.title.settings",
 		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-home.html"),
 	},
 	{
+		Path:      "/settings/language",
+		Name:      "settings",
+		TitleKey:  "app.title.language",
+		Menu:      "language",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-language.html"),
+	},
+	{
 		Path:      "/settings/appearance",
 		Name:      "settings",
-		Title:     "外观与通知",
+		TitleKey:  "app.title.appearance",
 		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-appearance.html"),
@@ -79,7 +89,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/settings/general",
 		Name:      "settings",
-		Title:     "录制与快捷键",
+		TitleKey:  "app.title.general",
 		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-general.html"),
@@ -87,7 +97,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/settings/security",
 		Name:             "settings",
-		Title:            "安全与隐私",
+		TitleKey:         "app.title.security",
 		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -96,7 +106,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/settings/storage",
 		Name:             "settings",
-		Title:            "存储与数据",
+		TitleKey:         "app.title.storage",
 		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -105,7 +115,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/settings/backup",
 		Name:             "settings",
-		Title:            "定时备份",
+		TitleKey:         "app.title.backup",
 		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -114,7 +124,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/settings/transfer",
 		Name:      "settings",
-		Title:     "导入导出",
+		TitleKey:  "app.title.transfer",
 		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-transfer.html"),
@@ -122,7 +132,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/settings/service",
 		Name:             "settings",
-		Title:            "网络与服务",
+		TitleKey:         "app.title.service",
 		Menu:             "settings",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -131,7 +141,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/groups",
 		Name:      "settings",
-		Title:     "分组管理",
+		TitleKey:  "app.title.groups",
 		Menu:      "groups",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/page-groups.html"),
@@ -139,7 +149,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/data-api",
 		Name:             "settings",
-		Title:            "数据接口",
+		TitleKey:         "app.title.data_api",
 		Menu:             "data-api",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -148,7 +158,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/mcp",
 		Name:             "settings",
-		Title:            "MCP",
+		TitleKey:         "app.title.mcp",
 		Menu:             "mcp",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -157,7 +167,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/license",
 		Name:             "settings",
-		Title:            "软件授权",
+		TitleKey:         "app.title.license",
 		Menu:             "license",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -166,7 +176,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:             "/maintenance",
 		Name:             "settings",
-		Title:            "运行维护",
+		TitleKey:         "app.title.maintenance",
 		Menu:             "maintenance",
 		Bootstrap:        "/app/settings-bootstrap.js",
 		RequireSecondary: true,
@@ -175,7 +185,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/logs/operations",
 		Name:      "settings",
-		Title:     "操作记录",
+		TitleKey:  "app.title.logs_operations",
 		Menu:      "logs-operations",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/page-logs-operations.html"),
@@ -183,7 +193,7 @@ var applicationPageDefinitions = []applicationPage{
 	{
 		Path:      "/logs/searches",
 		Name:      "settings",
-		Title:     "搜索记录",
+		TitleKey:  "app.title.logs_searches",
 		Menu:      "logs-searches",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/page-logs-searches.html"),
@@ -209,7 +219,7 @@ func compileApplicationPages(pages []applicationPage) map[string]applicationPage
 			source.Write(data)
 			source.WriteByte('\n')
 		}
-		page.template = template.Must(template.New(page.Name).Parse(source.String()))
+		page.template = template.Must(template.New(page.Name).Funcs(templateFuncMap()).Parse(source.String()))
 		compiled[page.Path] = page
 	}
 	return compiled
@@ -232,6 +242,10 @@ func collectApplicationPageParts(pages []applicationPage) []string {
 
 type applicationPageView struct {
 	applicationPage
+	// Title 遮蔽嵌入的页面定义，渲染期为当前语言的标题译文。
+	Title string
+	// Lang 是当前界面语言（BCP 47 code），渲染为 <html lang>。
+	Lang string
 	// ThemeMode 非空时表示固定显示模式（"light"/"dark"），渲染为 <html> 的
 	// data-theme-mode 属性；system 模式留空，由 theme-mode.js 按系统偏好设置。
 	ThemeMode string
@@ -245,13 +259,13 @@ func (s *SearchServer) serveApplicationPage(w http.ResponseWriter, page applicat
 	if s.cfgMgr != nil {
 		theme = s.cfgMgr.Get().Theme
 	}
-	view := applicationPageView{applicationPage: page, ThemeMode: themeFixedMode(theme)}
+	view := applicationPageView{applicationPage: page, Title: templateT(page.TitleKey, nil), Lang: currentTemplateLanguage(), ThemeMode: themeFixedMode(theme)}
 	if theme.Layout == "sidebar" {
 		view.HistoryLayout = "sidebar"
 	}
 	var rendered bytes.Buffer
 	if err := page.template.Execute(&rendered, view); err != nil {
-		s.writeAPIError(w, http.StatusInternalServerError, "asset_invalid", "页面资源渲染失败", err)
+		s.writeAPIError(w, http.StatusInternalServerError, "asset_invalid", s.i18nT("api.error.asset_invalid", nil), err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -274,7 +288,7 @@ func (s *SearchServer) handleThemeBootCSS(w http.ResponseWriter, _ *http.Request
 func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string) {
 	data, err := fs.ReadFile(webFS, name)
 	if err != nil {
-		s.writeAPIError(w, http.StatusNotFound, "not_found", "资源不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.not_found", nil), nil)
 		return
 	}
 	w.Header().Set("Content-Type", contentType)

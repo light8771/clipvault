@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerGroups() {
   app.allGroups = [];
   app.GROUP_EXPAND = new Set();
@@ -43,15 +46,15 @@ export function registerGroups() {
     opts = opts || {};
     app.closeGroupModal();
     const titles = {
-      filter: '选择分组筛选',
-      assign: '加入分组',
-      manage: '分组管理'
+      filter: t('groups.modal_filter'),
+      assign: t('groups.modal_assign'),
+      manage: t('groups.modal_manage')
     };
     const boxClass = mode === 'manage' ? 'group-modal-box-wide' : 'group-modal-box';
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'groupModalOverlay';
-    overlay.innerHTML = '<div class="modal-box ' + boxClass + '" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + titles[mode] + '</span>' + '<button class="modal-close" id="groupModalCloseBtn" type="button" aria-label="关闭分组对话框">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body group-modal-body" id="groupModalBody"></div>' + '</div>';
+    overlay.innerHTML = '<div class="modal-box ' + boxClass + '" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + titles[mode] + '</span>' + '<button class="modal-close" id="groupModalCloseBtn" type="button" aria-label="' + t('groups.close_label') + '">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body group-modal-body" id="groupModalBody"></div>' + '</div>';
     document.body.appendChild(overlay);
     document.body.style.overflow = 'hidden';
     app.groupModalController = createRemovableModal(overlay, {
@@ -96,7 +99,7 @@ export function registerGroups() {
         const d = await res.json();
         itemGroupIds = d.groupIds || [];
       } catch (_) {
-        app.toast('无法读取条目分组', 'err');
+        app.toast(t('groups.read_item_failed'), 'err');
         app.closeGroupModal();
         return;
       }
@@ -104,10 +107,10 @@ export function registerGroups() {
     let html = '';
     // Toolbar for manage mode
     if (mode === 'manage') {
-      html += '<div class="group-modal-toolbar">' + '<button class="btn-add-group" id="gmAddRootBtn">' + app.PLUS_SVG + ' 新建分组</button>' + '</div>';
+      html += '<div class="group-modal-toolbar">' + '<button class="btn-add-group" id="gmAddRootBtn">' + app.PLUS_SVG + ' ' + t('groups.create') + '</button>' + '</div>';
     }
     if (app.allGroups.length === 0) {
-      const msg = mode === 'manage' ? '暂无分组，点击上方按钮创建' : '暂无分组，请在设置中创建';
+      const msg = mode === 'manage' ? t('groups.empty_manage') : t('groups.empty_other');
       html += '<div class="group-modal-empty">' + msg + '</div>';
     } else {
       const rootNodes = app.buildGroupTree(0);
@@ -176,9 +179,9 @@ export function registerGroups() {
     html += '<span class="gm-icon">' + app.FOLDER_SVG + '</span>';
     html += '<span class="gm-name" data-id="' + node.id + '">' + app.esc(node.name) + '</span>';
     html += '<div class="gm-actions">';
-    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="添加子分组">' + app.PLUS_SVG + '</button>';
-    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="重命名">' + app.EDIT_SVG + '</button>';
-    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="删除">' + app.DEL_SVG + '</button>';
+    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="' + t('groups.add_child') + '">' + app.PLUS_SVG + '</button>';
+    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="' + t('groups.rename') + '">' + app.EDIT_SVG + '</button>';
+    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="' + t('common.delete') + '">' + app.DEL_SVG + '</button>';
     html += '</div>';
     html += '</div>';
     if (hasChildren) {
@@ -241,7 +244,7 @@ export function registerGroups() {
               });
               if (!res.ok) throw new Error('HTTP ' + res.status);
               checkEl.classList.remove('checked');
-              app.toast('已移出分组');
+              app.toast(t('groups.removed'));
             } else {
               const res = await app.authorizedItemFetch(opts.itemId, '/api/v1/items/group', {
                 method: 'POST',
@@ -255,10 +258,10 @@ export function registerGroups() {
               });
               if (!res.ok) throw new Error('HTTP ' + res.status);
               checkEl.classList.add('checked');
-              app.toast('已加入分组');
+              app.toast(t('groups.added'));
             }
           } catch (_) {
-            app.toast('操作失败', 'err');
+            app.toast(t('common.action_failed'), 'err');
           }
         });
       });
@@ -281,13 +284,13 @@ export function registerGroups() {
               });
               const d = await res.json();
               if (d.ok) {
-                app.toast('分组已创建');
+                app.toast(t('groups.created'));
                 await app.refreshGroupViews(true);
               } else {
-                app.toast(d.error || '创建失败', 'err');
+                app.toast(d.error || t('groups.create_failed'), 'err');
               }
             } catch (_) {
-              app.toast('创建失败', 'err');
+              app.toast(t('groups.create_failed'), 'err');
             }
           });
         });
@@ -324,14 +327,14 @@ export function registerGroups() {
         });
         const d = await res.json();
         if (d.ok) {
-          app.toast('子分组已创建');
+          app.toast(t('groups.child_created'));
           app.GROUP_EXPAND.add(parentId);
           await app.refreshGroupViews(true);
         } else {
-          app.toast(d.error || '创建失败', 'err');
+          app.toast(d.error || t('groups.create_failed'), 'err');
         }
       } catch (_) {
-        app.toast('创建失败', 'err');
+        app.toast(t('groups.create_failed'), 'err');
       }
     });
   };
@@ -365,14 +368,14 @@ export function registerGroups() {
         });
         const d = await res.json();
         if (d.ok) {
-          app.toast('已重命名');
+          app.toast(t('groups.renamed'));
           await app.refreshGroupViews(true);
         } else {
-          app.toast(d.error || '重命名失败', 'err');
+          app.toast(d.error || t('groups.rename_failed'), 'err');
           await app.refreshGroupViews(false);
         }
       } catch (_) {
-        app.toast('重命名失败', 'err');
+        app.toast(t('groups.rename_failed'), 'err');
         await app.refreshGroupViews(false);
       }
     }
@@ -392,26 +395,26 @@ export function registerGroups() {
       return g.id === id;
     });
     if (!g) return;
-    app.showConfirmDialog('删除分组', '确定删除分组「' + g.name + '」及其子分组吗？此操作不可撤销。', async function () {
+    app.showConfirmDialog(t('groups.delete_title'), t('groups.delete_confirm', { name: g.name }), async function () {
       try {
         const res = await app.fetch('/api/v1/groups?id=' + id, {
           method: 'DELETE'
         });
         const d = await res.json();
         if (d.ok) {
-          app.toast('分组已删除');
+          app.toast(t('groups.deleted'));
           await app.refreshGroupViews(true);
         } else {
-          app.toast('删除失败', 'err');
+          app.toast(t('common.delete_failed'), 'err');
         }
       } catch (_) {
-        app.toast('删除失败', 'err');
+        app.toast(t('common.delete_failed'), 'err');
       }
     });
   };
   app.showGroupEditDialog = function showGroupEditDialog(mode, parentId, defaultName, onConfirm) {
-    const title = mode === 'create' ? '新建分组' : '重命名分组';
-    const html = '<div class="modal-overlay" id="groupEditOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + title + '</span>' + '<button class="modal-close" type="button" aria-label="关闭分组编辑" data-action="close-group-edit">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body u-inline-16">' + '<form id="groupEditForm" class="lock-form">' + '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="分组名称" value="' + app.esc(defaultName) + '" autofocus>' + '<button type="submit" class="lock-btn">确定</button>' + '</form>' + '</div>' + '</div>' + '</div>';
+    const title = mode === 'create' ? t('groups.create') : t('groups.rename_group');
+    const html = '<div class="modal-overlay" id="groupEditOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + title + '</span>' + '<button class="modal-close" type="button" aria-label="' + t('groups.close_edit_label') + '" data-action="close-group-edit">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body u-inline-16">' + '<form id="groupEditForm" class="lock-form">' + '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="' + t('groups.name_placeholder') + '" value="' + app.esc(defaultName) + '" autofocus>' + '<button type="submit" class="lock-btn">' + t('common.confirm') + '</button>' + '</form>' + '</div>' + '</div>' + '</div>';
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
@@ -430,7 +433,7 @@ export function registerGroups() {
     });
   };
   app.showConfirmDialog = function showConfirmDialog(title, message, onConfirm) {
-    const html = '<div class="modal-overlay" id="confirmDialogOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head"><span class="modal-title">' + title + '</span></div>' + '<div class="modal-body u-inline-16">' + '<p class="u-inline-34">' + app.esc(message) + '</p>' + '<div class="u-inline-19">' + '<button class="btn-cancel" data-action="close-confirm">取消</button>' + '<button class="lock-btn u-inline-35" id="confirmDialogBtn">删除</button>' + '</div>' + '</div>' + '</div>' + '</div>';
+    const html = '<div class="modal-overlay" id="confirmDialogOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head"><span class="modal-title">' + title + '</span></div>' + '<div class="modal-body u-inline-16">' + '<p class="u-inline-34">' + app.esc(message) + '</p>' + '<div class="u-inline-19">' + '<button class="btn-cancel" data-action="close-confirm">' + t('common.cancel') + '</button>' + '<button class="lock-btn u-inline-35" id="confirmDialogBtn">' + t('common.delete') + '</button>' + '</div>' + '</div>' + '</div>' + '</div>';
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);

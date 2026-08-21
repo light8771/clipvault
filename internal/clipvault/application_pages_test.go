@@ -47,6 +47,7 @@ func TestApplicationPageRoutesAreExact(t *testing.T) {
 	want := map[string]string{
 		"/":                    "history",
 		"/settings":            "settings",
+		"/settings/language":   "settings",
 		"/settings/appearance": "settings",
 		"/settings/general":    "settings",
 		"/settings/security":   "settings",

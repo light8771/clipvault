@@ -260,10 +260,10 @@ func TestSMTPDeliveryValidationRequiresEmailUsername(t *testing.T) {
 		To:       "to@example.com",
 	}
 	problems := smtpDeliveryErrors(cfg)
-	if !strings.Contains(strings.Join(problems, "、"), "SMTP 用户名必须为邮箱") {
+	if !strings.Contains(strings.Join(problems, "、"), "backup.missing_smtp_user_email") {
 		t.Fatalf("SMTP username validation = %v", problems)
 	}
-	if err := sendSMTPMessage(cfg, nil); err == nil || !strings.Contains(err.Error(), "SMTP 用户名必须为邮箱") {
+	if err := sendSMTPMessage(cfg, nil); err == nil || !strings.Contains(err.Error(), "backup.missing_smtp_user_email") {
 		t.Fatalf("send validation error = %v", err)
 	}
 

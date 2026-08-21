@@ -34,10 +34,10 @@ func (w *apiContractWriter) WriteHeader(status int) {
 		switch status {
 		case http.StatusNotFound:
 			code = "not_found"
-			message = "资源不存在"
+			message = templateT("api.error.not_found", nil)
 		case http.StatusMethodNotAllowed:
 			code = "method_not_allowed"
-			message = "请求方法不允许"
+			message = templateT("api.error.method_not_allowed", nil)
 		}
 		w.Header().Del("Content-Length")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -88,7 +88,7 @@ func (s *SearchServer) writeAPIError(w http.ResponseWriter, status int, code, us
 
 // writeInternalError 内部错误便捷封装：不透传原始 err（仅日志），统一 500。
 func (s *SearchServer) writeInternalError(w http.ResponseWriter, err error) {
-	s.writeAPIError(w, http.StatusInternalServerError, "internal_error", "操作失败，请查看日志", err)
+	s.writeAPIError(w, http.StatusInternalServerError, "internal_error", s.i18nT("api.error.internal", nil), err)
 }
 
 func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
@@ -97,28 +97,29 @@ func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
 
 func (s *SearchServer) writeItemLookupError(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrItemNotFound) {
-		s.writeAPIError(w, http.StatusNotFound, "not_found", "记录不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.item_not_found", nil), nil)
 		return
 	}
 	s.writeInternalError(w, err)
 }
 
-// formatDuration 将时长格式化为中文可读字符串。
-func formatDuration(d time.Duration) string {
+// formatDuration 将时长格式化为当前语言的可读字符串（{n} 参数化词条）。
+func (s *SearchServer) formatDuration(d time.Duration) string {
 	if d >= time.Minute {
 		min := int((d + time.Minute - 1) / time.Minute)
-		return fmt.Sprintf("%d 分钟", min)
+		return s.i18nT("api.duration.minutes", map[string]any{"n": min})
 	}
 	seconds := int((d + time.Second - 1) / time.Second)
 	if seconds < 1 {
 		seconds = 1
 	}
-	return fmt.Sprintf("%d 秒", seconds)
+	return s.i18nT("api.duration.seconds", map[string]any{"n": seconds})
 }
 
 func (s *SearchServer) writeRateLimitBlocked(w http.ResponseWriter, status RateLimitStatus) {
 	w.Header().Set("Retry-After", fmt.Sprintf("%d", int((status.RetryAfter+time.Second-1)/time.Second)))
-	s.writeAPIError(w, http.StatusTooManyRequests, "rate_limited", fmt.Sprintf("5 分钟内最多尝试 10 次，请 %s 后再试", formatDuration(status.RetryAfter)), nil)
+	s.writeAPIError(w, http.StatusTooManyRequests, "rate_limited",
+		s.i18nT("api.error.rate_limited", map[string]any{"duration": s.formatDuration(status.RetryAfter)}), nil)
 }
 
 func (s *SearchServer) writePasswordFailure(w http.ResponseWriter, label string, status RateLimitStatus) {
@@ -126,5 +127,6 @@ func (s *SearchServer) writePasswordFailure(w http.ResponseWriter, label string,
 		s.writeRateLimitBlocked(w, status)
 		return
 	}
-	s.writeAPIError(w, http.StatusUnauthorized, "invalid_password", fmt.Sprintf("%s；5 分钟内还可尝试 %d 次", label, status.Remaining), nil)
+	s.writeAPIError(w, http.StatusUnauthorized, "invalid_password",
+		s.i18nT("api.error.invalid_password", map[string]any{"label": label, "remaining": status.Remaining}), nil)
 }

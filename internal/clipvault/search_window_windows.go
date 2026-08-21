@@ -3,7 +3,6 @@ package clipvault
 import (
 	"clipboard_ext/internal/licensing"
 	"context"
-	"fmt"
 	"runtime"
 	"sync"
 	"syscall"
@@ -192,6 +191,12 @@ func (sw *searchWindow) filterToggleLabel(name string, on bool) string {
 	return "○ " + name
 }
 
+// t 搜索窗文案查询：优先用全局模板 i18n 服务（主服务启动后注册），
+// 未注册时回退 key 原文。
+func (sw *searchWindow) t(key string, params map[string]any) string {
+	return templateT(key, params)
+}
+
 type searchRect struct {
 	left, top, right, bottom int32
 }
@@ -282,7 +287,7 @@ func (sw *searchWindow) run() {
 		return
 	}
 
-	title, _ := syscall.UTF16PtrFromString("ClipVault 快速搜索")
+	title, _ := syscall.UTF16PtrFromString("ClipVault " + sw.t("swindow.title", nil))
 	cx := 680
 	cy := 500
 	screenCx, _, _ := procGetSystemMetrics.Call(smCxScreen)
@@ -318,7 +323,7 @@ func (sw *searchWindow) run() {
 		20, 14, 150, 18,
 		hwnd, 0, instance, 0,
 	)
-	subtitleText, _ := syscall.UTF16PtrFromString("快速搜索")
+	subtitleText, _ := syscall.UTF16PtrFromString(sw.t("swindow.title", nil))
 	procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(staticCls)),
@@ -337,7 +342,7 @@ func (sw *searchWindow) run() {
 	)
 
 	btnCls, _ := syscall.UTF16PtrFromString("BUTTON")
-	btnText, _ := syscall.UTF16PtrFromString("搜索")
+	btnText, _ := syscall.UTF16PtrFromString(sw.t("swindow.search", nil))
 	closeText, _ := syscall.UTF16PtrFromString("X")
 	procCreateWindowExW.Call(
 		0,
@@ -365,7 +370,7 @@ func (sw *searchWindow) run() {
 		hwnd, 2003, instance, 0,
 	)
 	// 显示过滤开关（重复事件 / 无内容记录），初始状态来自系统配置 popup.*。
-	dupLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤重", sw.hideDuplicates))
+	dupLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_dup", nil), sw.hideDuplicates))
 	sw.hFilterDup, _, _ = procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
@@ -374,7 +379,7 @@ func (sw *searchWindow) run() {
 		420, 12, 100, 24,
 		hwnd, uintptr(idcSearchFilterDup), instance, 0,
 	)
-	unLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤无效", sw.hideUnavailable))
+	unLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_unavail", nil), sw.hideUnavailable))
 	sw.hFilterUn, _, _ = procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
@@ -404,10 +409,11 @@ func (sw *searchWindow) run() {
 	sw.applyTextFont(sw.hEdit)
 	sw.applyTextFont(sw.hList)
 	sw.applyTextFont(sw.hEmpty)
-	hintBase := fmt.Sprintf("最近 %d 条   %s 打开   双击/%s 恢复   %s 粘贴   Esc 关闭",
-		quickSearchResultLimit, sw.keyOpenLabel, sw.keyRestoreLabel, sw.keyPasteLabel)
+	hintBase := sw.t("swindow.hint", map[string]any{
+		"n": quickSearchResultLimit, "open": sw.keyOpenLabel, "restore": sw.keyRestoreLabel, "paste": sw.keyPasteLabel,
+	})
 	if sw.license != nil && !sw.license.CanUsePaidFeatures() {
-		hintBase = fmt.Sprintf("免费版仅在最近 %d 条内筛选，激活解锁全部   Esc 关闭", FreeTierVisibleLimit)
+		hintBase = sw.t("swindow.hint_free", map[string]any{"n": FreeTierVisibleLimit})
 	}
 	hintText, _ := syscall.UTF16PtrFromString(hintBase)
 	procCreateWindowExW.Call(

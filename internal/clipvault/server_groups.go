@@ -24,25 +24,25 @@ func (s *SearchServer) handleGroupsCreate(w http.ResponseWriter, r *http.Request
 		ParentID int64  `json:"parentId"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能为空", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", s.i18nT("api.error.group_name_empty", nil), nil)
 		return
 	}
 	g, err := s.store.CreateGroup(r.Context(), strings.TrimSpace(req.Name), req.ParentID)
 	if err != nil {
 		if errors.Is(err, ErrInvalidGroupName) {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能超过 100 个字符", err)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", s.i18nT("api.error.group_name_too_long", nil), err)
 			return
 		}
 		if errors.Is(err, ErrInvalidGroupParent) {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_parent_id", "父分组 ID 无效", err)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_parent_id", s.i18nT("api.error.invalid_parent_id", nil), err)
 			return
 		}
 		if errors.Is(err, ErrGroupParentMissing) {
-			s.writeAPIError(w, http.StatusNotFound, "parent_not_found", "父分组不存在", err)
+			s.writeAPIError(w, http.StatusNotFound, "parent_not_found", s.i18nT("api.error.parent_not_found", nil), err)
 			return
 		}
 		s.writeError(w, err)
@@ -56,7 +56,7 @@ func (s *SearchServer) handleGroupsCreate(w http.ResponseWriter, r *http.Request
 func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	var req struct {
@@ -64,21 +64,21 @@ func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request
 		ParentID int64  `json:"parentId"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能为空", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", s.i18nT("api.error.group_name_empty", nil), nil)
 		return
 	}
 	if err := s.store.UpdateGroup(r.Context(), id, strings.TrimSpace(req.Name), req.ParentID); err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidGroupName):
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", "分组名称不能超过 100 个字符", err)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_group_name", s.i18nT("api.error.group_name_too_long", nil), err)
 		case errors.Is(err, ErrGroupNotFound), errors.Is(err, ErrGroupParentMissing):
-			s.writeAPIError(w, http.StatusNotFound, "group_not_found", "分组或父分组不存在", err)
+			s.writeAPIError(w, http.StatusNotFound, "group_not_found", s.i18nT("api.error.group_or_parent_not_found", nil), err)
 		case errors.Is(err, ErrInvalidGroupParent), errors.Is(err, ErrGroupCycle):
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_parent_id", "父分组无效或会形成循环", err)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_parent_id", s.i18nT("api.error.invalid_parent_cycle", nil), err)
 		default:
 			s.writeError(w, err)
 		}
@@ -92,12 +92,12 @@ func (s *SearchServer) handleGroupsUpdate(w http.ResponseWriter, r *http.Request
 func (s *SearchServer) handleGroupsDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	if err := s.store.DeleteGroup(r.Context(), id); err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "group_not_found", "分组不存在", err)
+			s.writeAPIError(w, http.StatusNotFound, "group_not_found", s.i18nT("api.error.group_not_found", nil), err)
 			return
 		}
 		s.writeError(w, err)
@@ -114,11 +114,11 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 		GroupID int64 `json:"groupId"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	if req.ItemID <= 0 || req.GroupID <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的条目或分组 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_item_or_group_id", nil), nil)
 		return
 	}
 	if !s.authorizeItemAccess(w, r, req.ItemID) {
@@ -126,7 +126,7 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 	}
 	if err := s.store.AddItemToGroup(r.Context(), req.ItemID, req.GroupID); err != nil {
 		if errors.Is(err, errItemOrGroupNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "条目或分组不存在", err)
+			s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.item_or_group_not_found", nil), err)
 			return
 		}
 		s.writeError(w, err)
@@ -139,12 +139,12 @@ func (s *SearchServer) handleItemAddToGroup(w http.ResponseWriter, r *http.Reque
 func (s *SearchServer) handleItemRemoveFromGroup(w http.ResponseWriter, r *http.Request) {
 	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", "无效的条目 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", s.i18nT("api.error.invalid_item_id", nil), nil)
 		return
 	}
 	groupID, err := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 	if err != nil || groupID <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "无效的分组 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", s.i18nT("api.error.invalid_group_id", nil), nil)
 		return
 	}
 	if !s.authorizeItemAccess(w, r, itemID) {
@@ -161,7 +161,7 @@ func (s *SearchServer) handleItemRemoveFromGroup(w http.ResponseWriter, r *http.
 func (s *SearchServer) handleItemGroups(w http.ResponseWriter, r *http.Request) {
 	itemID, err := strconv.ParseInt(r.URL.Query().Get("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", "无效的条目 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_item_id", s.i18nT("api.error.invalid_item_id", nil), nil)
 		return
 	}
 	if !s.authorizeItemAccess(w, r, itemID) {

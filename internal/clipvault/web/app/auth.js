@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { trapModalFocus } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerAuth() {
   app.authState = {
     hasLockPassword: false,
@@ -67,13 +70,13 @@ export function registerAuth() {
         });
         app.init();
       } else {
-        app.LOCK_ERR.textContent = d.error || '密码错误';
+        app.LOCK_ERR.textContent = d.error || t('auth.lock_wrong_password');
         app.LOCK_ERR.classList.remove('hidden');
         app.LOCK_INPUT.value = '';
         app.LOCK_INPUT.focus();
       }
     } catch (_) {
-      app.LOCK_ERR.textContent = '网络错误';
+      app.LOCK_ERR.textContent = t('common.network_error');
       app.LOCK_ERR.classList.remove('hidden');
     }
   });
@@ -183,7 +186,7 @@ export function registerAuth() {
           secondaryAuthenticated: app.authState.secondaryAuthed
         });
         app.pendingSecondaryToken = d.secondaryToken || null;
-        app.toast(d.message || '二次验证成功');
+        app.toast(d.message || t('auth.secondary_ok'));
         if (app.secondaryResolve) {
           app.secondaryResolve(true);
           app.secondaryResolve = null;
@@ -196,7 +199,7 @@ export function registerAuth() {
         app.appStore.update({ authenticated: false });
         app.expireSecondaryAuth();
         app.showLockScreen();
-        app.LOCK_ERR.textContent = d.error || '锁屏会话已过期，请重新解锁后重试';
+        app.LOCK_ERR.textContent = d.error || t('auth.lock_session_expired');
         app.LOCK_ERR.classList.remove('hidden');
         if (app.secondaryResolve) {
           app.secondaryResolve(false);
@@ -204,13 +207,13 @@ export function registerAuth() {
         }
         app.secondaryTrigger = null;
       } else {
-        app.SECONDARY_ERR.textContent = d.error || '二次密码错误';
+        app.SECONDARY_ERR.textContent = d.error || t('auth.secondary_wrong_password');
         app.SECONDARY_ERR.classList.remove('hidden');
         app.SECONDARY_INPUT.value = '';
         app.SECONDARY_INPUT.focus();
       }
     } catch (_) {
-      app.SECONDARY_ERR.textContent = '网络错误';
+      app.SECONDARY_ERR.textContent = t('common.network_error');
       app.SECONDARY_ERR.classList.remove('hidden');
     }
   });
@@ -231,16 +234,21 @@ export function registerAuth() {
     const trigger = document.activeElement;
     const isChange = action === 'change';
     const isRemove = action === 'remove';
-    const passwordName = type === 'lock' ? '锁屏密码' : '二次密码';
-    const title = passwordName + (isRemove ? '删除' : isChange ? '修改' : '设置');
-    const oldLabel = isChange || isRemove ? '当前密码' : null;
-    const removeWarning = type === 'lock' ? '删除后，任何能打开此服务的人都可以直接进入 ClipVault。' : '删除后，敏感数据、导出、备份和安全设置将不再受二次密码保护。';
+    const nameKey = type === 'lock' ? 'auth.pwd_name_lock' : 'auth.pwd_name_secondary';
+    const passwordName = t(nameKey);
+    const verbKey = isRemove ? 'auth.pwd_verb_remove' : isChange ? 'auth.pwd_verb_change' : 'auth.pwd_verb_set';
+    const title = t('auth.pwd_title', { verb: t(verbKey), name: passwordName });
+    const oldLabel = isChange || isRemove ? t('auth.pwd_current') : null;
+    const removeWarning = type === 'lock' ? t('auth.pwd_remove_lock_warning') : t('auth.pwd_remove_secondary_warning');
+    const submitLabel = isRemove
+      ? t('auth.pwd_submit_remove', { name: passwordName })
+      : t('auth.pwd_submit', { verb: t(verbKey), name: passwordName });
     const html = `
       <div class="modal-overlay" id="pwdDialogOverlay">
         <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="pwdDialogTitle" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title" id="pwdDialogTitle">${title}</span>
-            <button class="modal-close" type="button" aria-label="关闭密码设置" data-action="close-password">
+            <button class="modal-close" type="button" aria-label="${t('auth.pwd_close_label')}" data-action="close-password">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -249,13 +257,13 @@ export function registerAuth() {
               <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
               ${oldLabel ? `<label class="field-label" for="pwdDlgOld">${oldLabel}</label><input type="password" id="pwdDlgOld" class="lock-input" autocomplete="current-password">` : ''}
               ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
-              <label class="field-label" for="pwdDlgNew">新密码</label>
+              <label class="field-label" for="pwdDlgNew">${t('auth.pwd_new')}</label>
               <input type="password" id="pwdDlgNew" class="lock-input" autocomplete="new-password" aria-describedby="pwdDlgHint">
-              <p class="field-hint" id="pwdDlgHint">至少 8 个字符，首尾不能有空格</p>
-              <label class="field-label" for="pwdDlgConfirm">确认新密码</label>
+              <p class="field-hint" id="pwdDlgHint">${t('auth.pwd_rule_hint')}</p>
+              <label class="field-label" for="pwdDlgConfirm">${t('auth.pwd_confirm')}</label>
               <input type="password" id="pwdDlgConfirm" class="lock-input" autocomplete="new-password">`}
-              <label class="password-show"><input type="checkbox" id="pwdDlgShow"> 显示密码</label>
-              <button type="submit" class="lock-btn${isRemove ? ' danger' : ''}">${isRemove ? '确认删除' : isChange ? '修改' : '设置'}${passwordName}</button>
+              <label class="password-show"><input type="checkbox" id="pwdDlgShow"> ${t('auth.pwd_show')}</label>
+              <button type="submit" class="lock-btn${isRemove ? ' danger' : ''}">${submitLabel}</button>
             </form>
             <p class="lock-err hidden" id="pwdDlgErr" role="alert" aria-live="assertive"></p>
           </div>
@@ -312,12 +320,12 @@ export function registerAuth() {
       const confirmPwd = confirmInput ? confirmInput.value : '';
       errEl.classList.add('hidden');
       if (!isRemove && newPwd !== confirmPwd) {
-        errEl.textContent = '两次输入的密码不一致';
+        errEl.textContent = t('auth.pwd_mismatch');
         errEl.classList.remove('hidden');
         return;
       }
       if (!isRemove && (Array.from(newPwd).length < 8 || newPwd.trim() !== newPwd)) {
-        errEl.textContent = '密码至少需要 8 个字符，且首尾不能有空格';
+        errEl.textContent = t('auth.pwd_rule_error');
         errEl.classList.remove('hidden');
         return;
       }
@@ -337,16 +345,16 @@ export function registerAuth() {
         const d = await res.json();
         if (d.ok) {
           app.closePwdDialog();
-          const successMessage = passwordName + '已' + (isRemove ? '删除' : isChange ? '修改' : '设置');
-          app.toast(d.runtimeError ? successMessage + '，但' + d.runtimeError : successMessage, d.runtimeError ? 'err' : undefined);
+          const successMessage = t('auth.pwd_done', { verb: t(verbKey), name: passwordName });
+          app.toast(d.runtimeError ? t('auth.pwd_done_runtime', { message: successMessage, error: d.runtimeError }) : successMessage, d.runtimeError ? 'err' : undefined);
           await app.checkAuthStatus();
           app.updatePwdStatusUI();
         } else {
-          errEl.textContent = d.error || '操作失败';
+          errEl.textContent = d.error || t('common.action_failed');
           errEl.classList.remove('hidden');
         }
       } catch (_) {
-        errEl.textContent = '网络错误';
+        errEl.textContent = t('common.network_error');
         errEl.classList.remove('hidden');
       }
     });
@@ -360,11 +368,11 @@ export function registerAuth() {
     const lockRemoveBtn = document.getElementById('lockPwdRemoveBtn');
     const secStatus = document.getElementById('secondaryPwdStatus');
     const secChangeBtn = document.getElementById('secondaryPwdChangeBtn');
-    if (lockStatus) lockStatus.textContent = lockSet ? '已设置' : '未设置';
+    if (lockStatus) lockStatus.textContent = lockSet ? t('security.pwd_set_status') : t('security.pwd_not_set');
     if (lockSetBtn) lockSetBtn.classList.toggle('hidden', lockSet);
     if (lockChangeBtn) lockChangeBtn.classList.toggle('hidden', !lockSet);
     if (lockRemoveBtn) lockRemoveBtn.classList.toggle('hidden', !lockSet);
-    if (secStatus) secStatus.textContent = secSet ? '已设置（必需）' : '状态异常';
+    if (secStatus) secStatus.textContent = secSet ? t('recovery.pwd_set') : t('recovery.pwd_status_error');
     if (secChangeBtn) secChangeBtn.classList.toggle('hidden', !secSet);
     app.updateRecoveryPwdUI();
   };

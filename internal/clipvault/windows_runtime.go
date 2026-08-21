@@ -107,6 +107,9 @@ type WindowsRuntime struct {
 	recorder *Recorder
 	license  *licensing.Manager
 	store    *Store
+	// i18n 提供托盘菜单/tooltip/通知的当前语言文案；由应用启动时注入
+	// （SetI18nService），未注入时（部分测试）回退官方 zh-CN 词条。
+	i18n atomic.Pointer[I18nService]
 	// searchURL 由主 goroutine（Web 服务重启）写入、消息循环线程（托盘/
 	// 快捷搜索）读取，使用 atomic.Value 避免数据竞争。
 	searchURL atomic.Value
@@ -211,6 +214,41 @@ func NewWindowsRuntime(env Environment, cfgMgr *ConfigManager, logger *DailyLogg
 		license.OnChange(func(licensing.Context) { r.updateTrayIcon() })
 	}
 	return r
+}
+
+// SetI18nService 注入运行时翻译服务并注册语言切换钩子：
+// 托盘 tooltip 经 NIM_MODIFY 即时刷新；菜单在下次弹出时自然取新文案。
+func (r *WindowsRuntime) SetI18nService(svc *I18nService) {
+	r.i18n.Store(svc)
+	if svc != nil {
+		svc.OnLanguageChanged(r.updateTrayIcon)
+	}
+}
+
+// i18nT 翻译原生 UI 文案；服务未注入时回退官方 zh-CN 词条。
+func (r *WindowsRuntime) i18nT(key string, params map[string]any) string {
+	if svc := r.i18n.Load(); svc != nil {
+		return svc.T(key, params)
+	}
+	return renderI18nParams(key, builtinZhCNText(key), params, nil)
+}
+
+// builtinZhCNOnce 惰性构建官方 zh-CN 词条内存表（服务未注入时的兜底）。
+var builtinZhCNOnce sync.Once
+
+var builtinZhCNTable map[string]string
+
+func builtinZhCNText(key string) string {
+	builtinZhCNOnce.Do(func() {
+		builtinZhCNTable = make(map[string]string, len(BuiltinTranslations))
+		for _, entry := range BuiltinTranslations {
+			builtinZhCNTable[entry.Key] = entry.ZhCN
+		}
+	})
+	if text, ok := builtinZhCNTable[key]; ok {
+		return text
+	}
+	return key
 }
 
 // SearchURL 返回当前 Web 管理界面地址，可从任意线程调用。

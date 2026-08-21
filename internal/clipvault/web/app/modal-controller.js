@@ -35,13 +35,15 @@ export function trapModalFocus(overlay, event) {
   }
 }
 
+const t = window.clipvaultI18n.t;
+
 function ensureDialogSemantics(panel) {
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   if (panel.hasAttribute('aria-label') || panel.hasAttribute('aria-labelledby')) return;
   const title = panel.querySelector('.modal-title, h1, h2');
   if (!title) {
-    panel.setAttribute('aria-label', '对话框');
+    panel.setAttribute('aria-label', t('common.dialog'));
     return;
   }
   if (!title.id) title.id = `generatedModalTitle${++generatedTitleID}`;

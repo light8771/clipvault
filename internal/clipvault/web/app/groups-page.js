@@ -1,5 +1,7 @@
 import { app } from "./app-context.js";
 
+const t = window.clipvaultI18n.t;
+
 // 分组管理页：页内树形交互（无弹窗）。树节点操作（重命名输入框、
 // 新建输入行、两步确认删除）全部在页面内完成。
 export function registerGroupsPage() {
@@ -17,7 +19,7 @@ export function registerGroupsPage() {
     return '<div class="gm-row gm-create-row">' +
       '<span class="gm-toggle no-children">' + app.CHEVRON_SVG + '</span>' +
       '<span class="gm-icon">' + app.FOLDER_SVG + '</span>' +
-      '<input type="text" class="gm-name-input" id="groupCreateInput" placeholder="分组名称，Enter 确认 / Esc 取消" maxlength="100">' +
+      '<input type="text" class="gm-name-input" id="groupCreateInput" placeholder="' + t('groups.inline_create_placeholder') + '" maxlength="100">' +
       '</div>';
   }
 
@@ -31,9 +33,9 @@ export function registerGroupsPage() {
     html += '<span class="gm-icon">' + app.FOLDER_SVG + '</span>';
     html += '<span class="gm-name" data-id="' + node.id + '">' + app.esc(node.name) + '</span>';
     html += '<div class="gm-actions">';
-    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="添加子分组">' + app.PLUS_SVG + '</button>';
-    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="重命名">' + app.EDIT_SVG + '</button>';
-    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="删除">' + app.DEL_SVG + '</button>';
+    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="' + t('groups.add_child') + '">' + app.PLUS_SVG + '</button>';
+    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="' + t('groups.rename') + '">' + app.EDIT_SVG + '</button>';
+    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="' + t('common.delete') + '">' + app.DEL_SVG + '</button>';
     html += '</div></div>';
     if (hasChildren || creatingHere) {
       html += '<div class="gm-children' + (expanded || creatingHere ? ' expanded' : '') + '">';
@@ -50,11 +52,11 @@ export function registerGroupsPage() {
     if (!tree) return;
     await app.loadGroups();
     const total = document.getElementById('groupsPageTotal');
-    if (total) total.textContent = '共 ' + app.allGroups.length + ' 个分组';
+    if (total) total.textContent = t('groups.page_total', { count: app.allGroups.length });
     let html = '';
     if (app.groupCreatingUnder === 0) html += groupCreateRowHTML();
     if (app.allGroups.length === 0) {
-      html += '<div class="group-modal-empty">暂无分组，点击「新建分组」创建</div>';
+      html += '<div class="group-modal-empty">' + t('groups.empty_page') + '</div>';
     } else {
       html += app.buildGroupTree(0).map(app.renderPageNode).join('');
     }
@@ -130,13 +132,13 @@ export function registerGroupsPage() {
         });
         const d = await res.json();
         if (d.ok) {
-          app.toast(parentId ? '子分组已创建' : '分组已创建');
+          app.toast(parentId ? t('groups.child_created') : t('groups.created'));
           if (parentId) app.GROUP_EXPAND.add(parentId);
         } else {
-          app.toast(d.error || '创建失败', 'err');
+          app.toast(d.error || t('groups.create_failed'), 'err');
         }
       } catch (_) {
-        app.toast('创建失败', 'err');
+        app.toast(t('groups.create_failed'), 'err');
       }
     }
     await app.refreshGroupViews(true);
@@ -152,7 +154,7 @@ export function registerGroupsPage() {
     btn.dataset.armed = '1';
     btn.dataset.icon = btn.innerHTML;
     btn.classList.add('armed');
-    btn.textContent = '确认删除';
+    btn.textContent = t('groups.confirm_delete');
     setTimeout(function () {
       if (btn.dataset.armed === '1') {
         btn.dataset.armed = '';
@@ -169,12 +171,12 @@ export function registerGroupsPage() {
       });
       const d = await res.json();
       if (d.ok) {
-        app.toast('分组已删除');
+        app.toast(t('groups.deleted'));
       } else {
-        app.toast('删除失败', 'err');
+        app.toast(t('common.delete_failed'), 'err');
       }
     } catch (_) {
-      app.toast('删除失败', 'err');
+      app.toast(t('common.delete_failed'), 'err');
     }
     await app.refreshGroupViews(true);
   };

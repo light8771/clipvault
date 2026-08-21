@@ -28,6 +28,7 @@ import { registerDataAPI } from './data-api.js';
 import { registerDataAPIAudit } from './data-api-audit.js';
 import { registerMCP } from './mcp.js';
 import { registerMCPAudit } from './mcp-audit.js';
+import { registerLanguageEditor } from './language-editor.js';
 
 registerActions({
   'copy-purchase-info': () => app.copyPurchaseInfo(),
@@ -134,10 +135,11 @@ registerTransfer();
 registerGroups();
 registerGroupsPage();
 registerCleanupModal();
-registerSettingsSystem();
 registerSettingsLifecycle();
+registerSettingsSystem();
 registerLogs();
 registerDataAPIAudit(); // 先注册审计（提供令牌筛选渲染器），再注册数据接口主体
 registerDataAPI();
 registerMCPAudit(); // 同上：MCP 审计先于 MCP 主体注册
 registerMCP();
+registerLanguageEditor();

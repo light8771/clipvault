@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { trapModalFocus } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerHistoryActions() {
   app.items = new Map();
   app.filePaths = new Map();
@@ -7,14 +10,15 @@ export function registerHistoryActions() {
   app.IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif', 'avif'];
   app.relTime = function relTime(s) {
     const d = Math.floor((Date.now() - new Date(s).getTime()) / 1000);
-    if (d < 5) return '刚刚';
-    if (d < 60) return d + '秒前';
-    if (d < 3600) return Math.floor(d / 60) + '分钟前';
-    if (d < 86400) return Math.floor(d / 3600) + '小时前';
-    if (d < 604800) return Math.floor(d / 86400) + '天前';
-    return new Date(s).toLocaleString();
+    if (d < 5) return t('history.rel_now');
+    if (d < 60) return t('history.rel_seconds', { n: d });
+    if (d < 3600) return t('history.rel_minutes', { n: Math.floor(d / 60) });
+    if (d < 86400) return t('history.rel_hours', { n: Math.floor(d / 3600) });
+    if (d < 604800) return t('history.rel_days', { n: Math.floor(d / 86400) });
+    return new Date(s).toLocaleString(window.clipvaultI18n.locale());
   };
-  app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
+  app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> ' + t('common.copy');
+  app.copiedHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ' + t('common.copied');
   app.fetchSensitiveText = async function fetchSensitiveText(id) {
     const url = '/api/v1/items/sensitive/item?id=' + id;
     const res = await app.authorizedItemFetch(id, url);
@@ -33,21 +37,21 @@ export function registerHistoryActions() {
         textToCopy = null;
       }
       if (textToCopy === null) {
-        app.toast('需要二次验证才能复制敏感内容', 'err');
+        app.toast(t('history.sensitive_copy_blocked'), 'err');
         return;
       }
     }
     try {
       await navigator.clipboard.writeText(textToCopy);
-      btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
+      btn.innerHTML = app.copiedHTML;
       btn.classList.add('ok');
-      app.toast('已复制到剪切板');
+      app.toast(t('history.copied_to_clipboard'));
       setTimeout(() => {
         btn.innerHTML = app.cpHTML;
         btn.classList.remove('ok');
       }, 1600);
     } catch (_) {
-      app.toast('复制失败', 'err');
+      app.toast(t('common.copy_failed'), 'err');
     }
   };
   app.doDelete = async function doDelete(id, art) {
@@ -67,9 +71,9 @@ export function registerHistoryActions() {
       app.totalCount = Math.max(0, app.totalCount - 1);
       app.fullTotalCount = Math.max(0, app.fullTotalCount - 1);
       app.updatePagination();
-      app.toast('已删除');
+      app.toast(t('history.deleted'));
     } catch (_) {
-      app.toast('删除失败', 'err');
+      app.toast(t('common.delete_failed'), 'err');
     }
   };
   app.starOnHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
@@ -87,11 +91,11 @@ export function registerHistoryActions() {
       const art = btn.closest('article');
       btn.innerHTML = newStarred ? app.starOnHTML : app.starOffHTML;
       btn.classList.toggle('on', newStarred);
-      btn.title = newStarred ? '取消收藏' : '收藏';
+      btn.title = newStarred ? t('history.unstar') : t('history.kind_starred');
       art.dataset.starred = newStarred ? '1' : '0';
-      app.toast(newStarred ? '已收藏' : '已取消收藏');
+      app.toast(newStarred ? t('history.starred') : t('history.unstarred'));
     } catch (_) {
-      app.toast('操作失败', 'err');
+      app.toast(t('common.action_failed'), 'err');
     }
   };
   app.currentModalId = 0;
@@ -115,13 +119,13 @@ export function registerHistoryActions() {
           displayText = d.item.text;
         }
       } catch (_) {
-        app.toast('获取敏感内容失败', 'err');
+        app.toast(t('history.sensitive_load_failed'), 'err');
         return;
       }
     }
     if (app.isNonTextKind(kindKey)) {
       const paths = displayText.split('\n').filter(Boolean);
-      app.MODAL_TITLE.textContent = '文件列表 · #' + id;
+      app.MODAL_TITLE.textContent = t('history.file_list_title', { id: id });
       app.MODAL_PRE.style.display = 'none';
       let preview = document.getElementById('modalFilePreview');
       if (!preview) {
@@ -141,7 +145,7 @@ export function registerHistoryActions() {
         app.loadFileImage(img, item.id, Number(img.dataset.fileIndex));
       });
     } else {
-      app.MODAL_TITLE.textContent = '内容预览 · #' + id + (item.sensitive ? ' · 敏感' : '');
+      app.MODAL_TITLE.textContent = t('history.preview_title') + ' · #' + id + (item.sensitive ? ' · ' + t('history.sensitive_tag') : '');
       app.MODAL_PRE.style.display = 'block';
       app.MODAL_PRE.textContent = displayText;
       const preview = document.getElementById('modalFilePreview');
@@ -184,41 +188,42 @@ export function registerHistoryActions() {
         textToCopy = null;
       }
       if (textToCopy === null) {
-        app.toast('需要二次验证才能复制敏感内容', 'err');
+        app.toast(t('history.sensitive_copy_blocked'), 'err');
         return;
       }
     }
     try {
       await navigator.clipboard.writeText(textToCopy);
-      btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
+      btn.innerHTML = app.copiedHTML;
       btn.classList.add('ok');
-      app.toast('已复制到剪切板');
+      app.toast(t('history.copied_to_clipboard'));
       setTimeout(() => {
-        btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
+        btn.innerHTML = app.cpHTML;
         btn.classList.remove('ok');
       }, 1600);
     } catch (_) {
-      app.toast('复制失败', 'err');
+      app.toast(t('common.copy_failed'), 'err');
     }
   };
 
   // ── Kind label map ────────────────────────────────
+  // 值为 i18n key，渲染处统一 t() 解析（切换语言即时生效）。
   app.KIND_LABEL = {
-    text: '文本',
-    image: '图片',
-    video: '视频',
-    archive: '压缩包',
-    office: 'Office',
-    files: '其他文件',
-    other: '事件'
+    text: 'history.kind_text',
+    image: 'history.kind_image',
+    video: 'history.kind_video',
+    archive: 'history.kind_archive',
+    office: 'history.kind_office',
+    files: 'history.kind_files',
+    other: 'history.kind_other'
   };
-  // 内容不可用原因（event-first 记录状态）
-  app.UNAVAILABLE_LABEL = {
-    superseded_before_read: '内容已被新复制覆盖',
-    unsupported_format: '不支持的剪贴板格式',
-    text_limit_exceeded: '文本超过长度上限，未保存内容',
-    image_limit_exceeded: '图片超过大小上限，未保存内容',
-    read_failed: '剪贴板读取失败'
+  // 内容不可用原因（event-first 记录状态）；值为 i18n key。
+  app.UNAVAILABLE_LABEL_KEY = {
+    superseded_before_read: 'history.unavail_superseded',
+    unsupported_format: 'history.unavail_format',
+    text_limit_exceeded: 'history.unavail_text_limit',
+    image_limit_exceeded: 'history.unavail_image_limit',
+    read_failed: 'history.unavail_read_failed'
   };
   app.sensBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
   app.isManagedImage = function isManagedImage(it) {
@@ -242,7 +247,7 @@ export function registerHistoryActions() {
     if (!item) return;
     app.currentModalId = id;
     app.viewModalTrigger = document.activeElement;
-    app.MODAL_TITLE.textContent = '剪贴板图片 · #' + id + (item.sensitive ? ' · 敏感' : '');
+    app.MODAL_TITLE.textContent = t('history.image_title', { id: id }) + (item.sensitive ? ' · ' + t('history.sensitive_tag') : '');
     app.MODAL_PRE.style.display = 'none';
     let preview = document.getElementById('modalFilePreview');
     if (!preview) {
@@ -252,7 +257,7 @@ export function registerHistoryActions() {
       document.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
-    preview.innerHTML = '<img alt="剪贴板图片 #' + id + '">';
+    preview.innerHTML = '<img alt="' + t('history.image_title', { id: id }) + '">';
     await app.loadManagedImage(preview.querySelector('img'), id);
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
@@ -268,13 +273,13 @@ export function registerHistoryActions() {
       const res = next ? await app.fetch(url, { method: 'PATCH' }) : await app.protectedFetch(url, { method: 'PATCH' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       item.sensitive = next;
-      app.toast(next ? '已标记为敏感' : '已取消敏感标记');
+      app.toast(next ? t('history.marked_sensitive') : t('history.unmarked_sensitive'));
       await app.search();
     } catch (e) {
       if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
-        app.toast('需要二次验证才能取消敏感标记', 'err');
+        app.toast(t('history.unmark_needs_verify'), 'err');
       } else {
-        app.toast('操作失败', 'err');
+        app.toast(t('common.action_failed'), 'err');
       }
     }
   };
@@ -298,8 +303,8 @@ export function registerHistoryActions() {
   app.fileIconHTML = function fileIconHTML() {
     return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   };
-  app.dlHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载';
-  app.dirHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> 目录';
+  app.dlHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ' + t('history.download');
+  app.dirHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> ' + t('history.directory');
   app.hashHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> Hash';
   app.fileObjectURLs = new Set();
   app.revokeFileObjectURLs = function revokeFileObjectURLs() {
@@ -335,7 +340,7 @@ export function registerHistoryActions() {
       const name = app.getBaseName(p);
       const ext = app.getExt(name);
       const isImg = app.IMAGE_EXTS.includes(ext);
-      return '<div class="file-row" id="frow-' + it.id + '-' + idx + '">' + (isImg ? '<div class="file-thumb" id="fthumb-' + it.id + '-' + idx + '"></div>' : '<div class="file-icon">' + app.fileIconHTML() + '</div>') + '<div class="file-info">' + '<div class="file-name">' + app.esc(name) + '</div>' + '<div class="file-path">' + app.esc(p) + '</div>' + '<div class="file-status" id="fstat-' + it.id + '-' + idx + '"><span class="fcheck">检查中...</span></div>' + '<div class="file-hash" id="fhash-' + it.id + '-' + idx + '"></div>' + '</div>' + '<div class="file-actions">' + '<button class="ab dl" data-action="file-download" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdl-' + it.id + '-' + idx + '" disabled>' + app.dlHTML + '</button>' + '<button class="ab dir" data-action="file-open-directory" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdir-' + it.id + '-' + idx + '" disabled>' + app.dirHTML + '</button>' + '<button class="ab hash" data-action="file-hash" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fhashbtn-' + it.id + '-' + idx + '" disabled>' + app.hashHTML + '</button>' + '</div>' + '</div>';
+      return '<div class="file-row" id="frow-' + it.id + '-' + idx + '">' + (isImg ? '<div class="file-thumb" id="fthumb-' + it.id + '-' + idx + '"></div>' : '<div class="file-icon">' + app.fileIconHTML() + '</div>') + '<div class="file-info">' + '<div class="file-name">' + app.esc(name) + '</div>' + '<div class="file-path">' + app.esc(p) + '</div>' + '<div class="file-status" id="fstat-' + it.id + '-' + idx + '"><span class="fcheck">' + t('history.checking') + '</span></div>' + '<div class="file-hash" id="fhash-' + it.id + '-' + idx + '"></div>' + '</div>' + '<div class="file-actions">' + '<button class="ab dl" data-action="file-download" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdl-' + it.id + '-' + idx + '" disabled>' + app.dlHTML + '</button>' + '<button class="ab dir" data-action="file-open-directory" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdir-' + it.id + '-' + idx + '" disabled>' + app.dirHTML + '</button>' + '<button class="ab hash" data-action="file-hash" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fhashbtn-' + it.id + '-' + idx + '" disabled>' + app.hashHTML + '</button>' + '</div>' + '</div>';
     }).join('') + '</div>';
   };
   app.checkFiles = async function checkFiles(itemId) {
@@ -364,11 +369,11 @@ export function registerHistoryActions() {
             }
           }
         } else {
-          if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 \u6587\u4ef6\u4e0d\u5b58\u5728</span>';
+          if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 ' + t('history.file_missing') + '</span>';
         }
       } catch (_) {
         const stat = document.getElementById('fstat-' + itemId + '-' + idx);
-        if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 \u68c0\u67e5\u5931\u8d25</span>';
+        if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 ' + t('history.file_check_failed') + '</span>';
       }
     }
   };
@@ -387,9 +392,9 @@ export function registerHistoryActions() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      app.toast('开始下载');
+      app.toast(t('history.download_started'));
     } catch (e) {
-      app.toast('下载失败: ' + (e.message || e), 'err');
+      app.toast(t('history.download_failed_with', { message: e.message || e }), 'err');
     }
   };
   app.doOpenDir = async function doOpenDir(itemId, idx) {
@@ -404,12 +409,12 @@ export function registerHistoryActions() {
         method: 'POST'
       });
       if (!res.ok) {
-        const failure = await app.readAPIError(res, '无法打开文件目录');
+        const failure = await app.readAPIError(res, t('history.open_dir_failed'));
         throw new app.APIError(failure.code, failure.message, failure.status);
       }
-      app.toast('已打开所在目录并选中文件');
+      app.toast(t('history.opened_dir'));
     } catch (e) {
-      app.toast('打开目录失败: ' + (e.message || e), 'err');
+      app.toast(t('history.open_dir_failed_with', { message: e.message || e }), 'err');
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -424,16 +429,16 @@ export function registerHistoryActions() {
     if (btn) {
       btn.disabled = true;
     }
-    if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">计算中...</span>';
+    if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">' + t('history.hash_computing') + '</span>';
     try {
       const d = await app.authorizedItemFetch(itemId, '/api/v1/files/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
       if (d.ok) {
         if (hashDiv) hashDiv.innerHTML = '<div class="fhash-line"><span class="fhash-label">MD5</span> <span class="fhash-val">' + app.esc(d.md5) + '</span></div>' + '<div class="fhash-line"><span class="fhash-label">SHA256</span> <span class="fhash-val">' + app.esc(d.sha256) + '</span></div>';
       } else {
-        if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 ' + app.esc(d.error || '计算失败') + '</span>';
+        if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 ' + app.esc(d.error || t('history.hash_failed')) + '</span>';
       }
     } catch (e) {
-      if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 计算失败</span>';
+      if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 ' + t('history.hash_failed') + '</span>';
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -456,7 +461,7 @@ export function registerHistoryActions() {
       document.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
-    preview.innerHTML = app.getExt(name) === 'svg' ? '<div class="fmiss">SVG 文件仅支持下载，不提供内联预览</div>' : '<img alt="' + app.esc(name) + '">';
+    preview.innerHTML = app.getExt(name) === 'svg' ? '<div class="fmiss">' + t('history.svg_no_preview') + '</div>' : '<img alt="' + app.esc(name) + '">';
     if (app.getExt(name) !== 'svg') await app.loadFileImage(preview.querySelector('img'), itemId, idx);
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';

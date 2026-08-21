@@ -48,7 +48,7 @@ func (s *SearchServer) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := os.Stat(p)
 	if err != nil || info.IsDir() {
-		s.writeAPIError(w, http.StatusNotFound, "file_not_found", "文件不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "file_not_found", s.i18nT("api.error.file_not_found", nil), nil)
 		return
 	}
 	if r.URL.Query().Get("download") == "1" || !safeInlineImageExt(filepath.Ext(p)) {
@@ -69,20 +69,20 @@ func (s *SearchServer) handleFileHash(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := os.Stat(p)
 	if err != nil || info.IsDir() {
-		s.writeAPIError(w, http.StatusNotFound, "file_not_found", "文件不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "file_not_found", s.i18nT("api.error.file_not_found", nil), nil)
 		return
 	}
 	f, err := os.Open(p)
 	if err != nil {
 
-		s.writeAPIError(w, http.StatusInternalServerError, "file_open_failed", "无法读取文件", err)
+		s.writeAPIError(w, http.StatusInternalServerError, "file_open_failed", s.i18nT("api.error.file_read_failed", nil), err)
 		return
 	}
 	defer f.Close()
 	m := md5.New()
 	sh := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(m, sh), f); err != nil {
-		s.writeAPIError(w, http.StatusInternalServerError, "file_read_failed", "读取文件失败", err)
+		s.writeAPIError(w, http.StatusInternalServerError, "file_read_failed", s.i18nT("api.error.file_read_failed", nil), err)
 		return
 	}
 	s.writeJSON(w, map[string]any{"ok": true, "md5": hex.EncodeToString(m.Sum(nil)), "sha256": hex.EncodeToString(sh.Sum(nil))})
@@ -110,12 +110,12 @@ func (s *SearchServer) handleFileOpenDir(w http.ResponseWriter, r *http.Request)
 func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	item, err := s.store.GetByID(r.Context(), id)
 	if errors.Is(err, ErrItemNotFound) {
-		s.writeAPIError(w, http.StatusNotFound, "item_not_found", "记录不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "item_not_found", s.i18nT("api.error.item_not_found", nil), nil)
 		return
 	}
 	if err != nil {
@@ -129,12 +129,12 @@ func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if pos >= FreeTierVisibleLimit {
-			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside", "该记录不在免费版可查看范围内", nil)
+			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside", s.i18nT("api.error.free_window_generic", nil), nil)
 			return
 		}
 	}
 	if item.Format != "CLIPVAULT_IMAGE_FILE" || !item.ContentAvailable {
-		s.writeAPIError(w, http.StatusBadRequest, "not_image", "该记录不是托管图片", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "not_image", s.i18nT("api.error.not_managed_image", nil), nil)
 		return
 	}
 	if item.Sensitive && !s.authorizeSecondaryRequest(w, r) {
@@ -143,12 +143,12 @@ func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
 	imagesRoot := filepath.Clean(s.env.ImagesDirectory())
 	full := filepath.Clean(filepath.Join(imagesRoot, filepath.FromSlash(strings.TrimPrefix(item.Text, "images/"))))
 	if full != imagesRoot && !strings.HasPrefix(full, imagesRoot+string(os.PathSeparator)) {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_image_path", "图片路径无效", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_image_path", s.i18nT("api.error.invalid_image_path", nil), nil)
 		return
 	}
 	info, err := os.Stat(full)
 	if err != nil || info.IsDir() {
-		s.writeAPIError(w, http.StatusNotFound, "file_not_found", "图片文件不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "file_not_found", s.i18nT("api.error.image_file_not_found", nil), nil)
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")

@@ -1,22 +1,22 @@
       <div class="amenu-sub">
-        <div class="amenu-sub-title">录制与快捷键</div>
-        <a class="amenu-anchor" href="#s-general-limits">记录与限制</a>
-        <a class="amenu-anchor" href="#s-general-sources">来源应用</a>
-        <a class="amenu-anchor" href="#s-general-hotkeys">快捷键</a>
-        <a class="amenu-anchor" href="#s-general-image">图片捕获</a>
-        <a class="amenu-anchor" href="#s-general-popup">搜索弹窗</a>
+        <div class="amenu-sub-title">{{T "app.title.general"}}</div>
+        <a class="amenu-anchor" href="#s-general-limits">{{T "general.limits"}}</a>
+        <a class="amenu-anchor" href="#s-general-sources">{{T "general.sources"}}</a>
+        <a class="amenu-anchor" href="#s-general-hotkeys">{{T "general.hotkeys"}}</a>
+        <a class="amenu-anchor" href="#s-general-image">{{T "general.image"}}</a>
+        <a class="amenu-anchor" href="#s-general-popup">{{T "general.popup"}}</a>
       </div>
     </aside>
 
     <div class="settings-main">
       <header class="sd-head">
-        <nav class="sd-crumb" aria-label="当前位置">
-          <a class="sd-crumb-link" href="/settings">系统设置</a>
+        <nav class="sd-crumb" aria-label="{{T "settings.crumb_label"}}">
+          <a class="sd-crumb-link" href="/settings">{{T "menu.settings"}}</a>
           <span class="sd-crumb-sep">/</span>
-          <span class="sd-crumb-current">录制与快捷键</span>
+          <span class="sd-crumb-current">{{T "app.title.general"}}</span>
         </nav>
-        <h1 class="sd-title">录制与快捷键</h1>
-        <p class="sd-desc">记录行为、来源应用、快捷键、图片捕获与搜索弹窗。修改自动保存并立即生效。</p>
+        <h1 class="sd-title">{{T "app.title.general"}}</h1>
+        <p class="sd-desc">{{T "general.desc"}}</p>
       </header>
 
       <section class="ssec" id="s-general">
@@ -25,82 +25,82 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">基本设置</h2>
-            <p class="ssec-desc">配置剪贴板记录行为与数据限制</p>
+            <h2 class="ssec-title">{{T "general.basic_title"}}</h2>
+            <p class="ssec-desc">{{T "general.basic_desc"}}</p>
           </div>
         </div>
 
         <div class="fsec" id="s-general-limits">
-          <h3 class="fsec-title">记录与限制</h3>
-          <p class="fsec-desc">控制超长文本与批量文件路径的记录方式</p>
+          <h3 class="fsec-title">{{T "general.limits"}}</h3>
+          <p class="fsec-desc">{{T "general.limits_desc"}}</p>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-maxTextChars">最大文字长度</label>
-              <p class="field-hint">超过此长度的文本不会被记录；填 0 表示不限制</p>
+              <label class="field-label" for="cfg-maxTextChars">{{T "general.max_text_chars"}}</label>
+              <p class="field-hint">{{T "general.max_text_chars_hint"}}</p>
             </div>
             <input type="number" id="cfg-maxTextChars" class="field-input field-input-sm" min="0" max="100000" step="100" placeholder="0">
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-maxFileDropPaths">最大文件路径数</label>
-              <p class="field-hint">文件拖放时最多记录的路径条数；填 0 表示不限制</p>
+              <label class="field-label" for="cfg-maxFileDropPaths">{{T "general.max_file_paths"}}</label>
+              <p class="field-hint">{{T "general.max_file_paths_hint"}}</p>
             </div>
             <input type="number" id="cfg-maxFileDropPaths" class="field-input field-input-sm" min="0" max="1000">
           </div>
         </div>
 
         <div class="fsec" id="s-general-sources">
-          <h3 class="fsec-title">来源应用</h3>
-          <p class="fsec-desc">识别并展示每条内容来自哪个应用</p>
+          <h3 class="fsec-title">{{T "general.sources"}}</h3>
+          <p class="fsec-desc">{{T "general.sources_desc"}}</p>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-recordSourceInfo">记录来源应用</label>
-              <p class="field-hint">记录每条内容来自哪个应用（前台窗口法识别进程名与窗口标题）；隐私敏感环境可关闭</p>
+              <label class="field-label" for="cfg-recordSourceInfo">{{T "general.record_source"}}</label>
+              <p class="field-hint">{{T "general.record_source_hint"}}</p>
             </div>
             <label class="ar-toggle">
               <input type="checkbox" id="cfg-recordSourceInfo">
-              <span>启用</span>
+              <span>{{T "common.enabled_short"}}</span>
             </label>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-sourceShowExe">显示来源应用</label>
-              <p class="field-hint">在列表卡片上展示每条内容来自哪个应用</p>
+              <label class="field-label" for="cfg-sourceShowExe">{{T "general.show_source"}}</label>
+              <p class="field-hint">{{T "general.show_source_hint"}}</p>
             </div>
             <label class="ar-toggle">
               <input type="checkbox" id="cfg-sourceShowExe">
-              <span>启用</span>
+              <span>{{T "common.enabled_short"}}</span>
             </label>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label">来源应用管理</label>
-              <p class="field-hint" id="sourceAppsSummary">设置应用别名，以及哪些应用出现在搜索下拉中</p>
+              <label class="field-label">{{T "general.source_apps_manage"}}</label>
+              <p class="field-hint" id="sourceAppsSummary">{{T "general.source_apps_manage_hint"}}</p>
             </div>
             <button class="btn-export" type="button" data-action="open-source-apps">
-              管理来源应用
+              {{T "source_apps.title"}}
             </button>
           </div>
         </div>
 
         <div class="fsec" id="s-general-hotkeys">
-          <h3 class="fsec-title">快捷键</h3>
-          <p class="fsec-desc">全局快捷键与快速搜索弹窗</p>
+          <h3 class="fsec-title">{{T "general.hotkeys"}}</h3>
+          <p class="fsec-desc">{{T "general.hotkeys_desc"}}</p>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label">全局快捷键</label>
-              <p class="field-hint" id="hotkeyKeyHint">按下快捷键暂停/恢复剪贴板录制；主键支持 A–Z、0–9、F1–F24 或 Space</p>
+              <label class="field-label">{{T "general.global_hotkey"}}</label>
+              <p class="field-hint" id="hotkeyKeyHint">{{T "general.global_hotkey_hint"}}</p>
             </div>
             <div class="u-inline-3">
               <label class="ar-toggle">
                 <input type="checkbox" id="cfg-hotkeyEnabled">
-                <span>启用</span>
+                <span>{{T "common.enabled_short"}}</span>
               </label>
               <div class="mod-group" id="hotkeyMods">
                 <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
@@ -113,13 +113,13 @@
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label">搜索框快捷键</label>
-              <p class="field-hint" id="searchHotkeyKeyHint">按下快捷键呼出桌面快速搜索框；主键支持 A–Z、0–9、F1–F24 或 Space</p>
+              <label class="field-label">{{T "general.search_hotkey"}}</label>
+              <p class="field-hint" id="searchHotkeyKeyHint">{{T "general.search_hotkey_hint"}}</p>
             </div>
             <div class="u-inline-3">
               <label class="ar-toggle">
                 <input type="checkbox" id="cfg-searchHotkeyEnabled">
-                <span>启用</span>
+                <span>{{T "common.enabled_short"}}</span>
               </label>
               <div class="mod-group" id="searchHotkeyMods">
                 <label class="mod-btn"><input type="checkbox" value="2">Ctrl</label>
@@ -133,59 +133,59 @@
         </div>
 
         <div class="fsec" id="s-general-image">
-          <h3 class="fsec-title">图片捕获</h3>
-          <p class="fsec-desc">剪贴板图片的记录方式与大小上限</p>
+          <h3 class="fsec-title">{{T "general.image"}}</h3>
+          <p class="fsec-desc">{{T "general.image_desc"}}</p>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-imageEnabled">剪贴板图片捕获</label>
-              <p class="field-hint">记录截图、浏览器复制的图片等，统一转码为 PNG，保存在数据目录下的 images 子目录（数据目录位置见「存储与数据」）；关闭后图片事件只保留事件记录</p>
+              <label class="field-label" for="cfg-imageEnabled">{{T "general.image_capture"}}</label>
+              <p class="field-hint">{{T "general.image_capture_hint"}}</p>
             </div>
             <label class="ar-toggle">
               <input type="checkbox" id="cfg-imageEnabled">
-              <span>启用</span>
+              <span>{{T "common.enabled_short"}}</span>
             </label>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="cfg-imageMaxMB">图片大小上限（MB）</label>
-              <p class="field-hint">超过上限的图片只保留事件记录，不保存图片内容（1–256）</p>
+              <label class="field-label" for="cfg-imageMaxMB">{{T "general.image_max_mb"}}</label>
+              <p class="field-hint">{{T "general.image_max_mb_hint"}}</p>
             </div>
             <input type="number" id="cfg-imageMaxMB" class="field-input field-input-sm" min="1" max="256" step="1" placeholder="32">
           </div>
         </div>
 
         <div class="fsec" id="s-general-popup">
-          <h3 class="fsec-title">搜索弹窗</h3>
-          <p class="fsec-desc">快速搜索弹窗的显示过滤与动作快捷键</p>
+          <h3 class="fsec-title">{{T "general.popup"}}</h3>
+          <p class="fsec-desc">{{T "general.popup_desc"}}</p>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label">弹窗显示过滤</label>
-              <p class="field-hint">快速搜索弹窗默认过滤重复事件 / 无内容记录；免费版始终在最新 100 条原始记录内过滤</p>
+              <label class="field-label">{{T "general.popup_filter"}}</label>
+              <p class="field-hint">{{T "general.popup_filter_hint"}}</p>
             </div>
             <div class="u-inline-3">
               <label class="ar-toggle">
                 <input type="checkbox" id="cfg-popupHideDuplicates">
-                <span>过滤重复</span>
+                <span>{{T "general.popup_filter_duplicates"}}</span>
               </label>
               <label class="ar-toggle">
                 <input type="checkbox" id="cfg-popupHideUnavailable">
-                <span>过滤无内容</span>
+                <span>{{T "general.popup_filter_unavailable"}}</span>
               </label>
             </div>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label">弹窗动作快捷键</label>
-              <p class="field-hint">依次为：打开浏览器 / 仅恢复到剪贴板 / 恢复并粘贴到之前窗口。仅支持 [Ctrl+][Shift+][Alt+]Enter 组合且三者不能相同；双击列表恒为恢复</p>
+              <label class="field-label">{{T "general.popup_action_keys"}}</label>
+              <p class="field-hint">{{T "general.popup_action_keys_hint"}}</p>
             </div>
             <div class="u-inline-3">
-              <input type="text" id="cfg-popupKeyOpen" class="field-input popup-key-input" placeholder="Enter" aria-label="打开浏览器快捷键">
-              <input type="text" id="cfg-popupKeyRestore" class="field-input popup-key-input" placeholder="Shift+Enter" aria-label="恢复剪贴板快捷键">
-              <input type="text" id="cfg-popupKeyPaste" class="field-input popup-key-input" placeholder="Ctrl+Enter" aria-label="粘贴到之前窗口快捷键">
+              <input type="text" id="cfg-popupKeyOpen" class="field-input popup-key-input" placeholder="Enter" aria-label='{{T "general.popup_key_open_label"}}'>
+              <input type="text" id="cfg-popupKeyRestore" class="field-input popup-key-input" placeholder="Shift+Enter" aria-label='{{T "general.popup_key_restore_label"}}'>
+              <input type="text" id="cfg-popupKeyPaste" class="field-input popup-key-input" placeholder="Ctrl+Enter" aria-label='{{T "general.popup_key_paste_label"}}'>
             </div>
           </div>
         </div>

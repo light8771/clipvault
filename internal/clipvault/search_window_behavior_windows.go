@@ -172,11 +172,11 @@ func (sw *searchWindow) toggleFilter(duplicates bool) {
 
 func (sw *searchWindow) refreshFilterButtons() {
 	if sw.hFilterDup != 0 {
-		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤重", sw.hideDuplicates))
+		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_dup", nil), sw.hideDuplicates))
 		procSetWindowTextW.Call(sw.hFilterDup, uintptr(unsafe.Pointer(label)))
 	}
 	if sw.hFilterUn != 0 {
-		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel("滤无效", sw.hideUnavailable))
+		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_unavail", nil), sw.hideUnavailable))
 		procSetWindowTextW.Call(sw.hFilterUn, uintptr(unsafe.Pointer(label)))
 	}
 }
@@ -245,7 +245,7 @@ func (sw *searchWindow) startSearch(q string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	sw.searchCancel = cancel
 	sw.mu.Unlock()
-	sw.showSearchStatus("正在搜索...")
+	sw.showSearchStatus(sw.t("swindow.searching", nil))
 
 	go func() {
 		opts := SearchOptions{
@@ -294,7 +294,7 @@ func (sw *searchWindow) handleSearchResult(sequence uint64) {
 		if sw.logger != nil {
 			sw.logger.Warn("search_window_query_failed", map[string]any{"error": result.err.Error()})
 		}
-		sw.showSearchStatus("搜索失败，请重试")
+		sw.showSearchStatus(sw.t("swindow.search_failed", nil))
 		return
 	}
 	sw.recordSearchHistory(result.query, int64(len(result.items)))
@@ -308,12 +308,13 @@ func (sw *searchWindow) recordSearchHistory(query string, resultCount int64) {
 	if strings.TrimSpace(query) == "" || sw.store == nil {
 		return
 	}
+	// filters 持久化词条 key（与 Web 端 searchHistoryFilters 同一约定）。
 	filters := map[string]string{}
 	if sw.hideDuplicates {
-		filters["滤重"] = "开"
+		filters["shlog.filter.dup"] = "shlog.filter.on"
 	}
 	if sw.hideUnavailable {
-		filters["滤无效"] = "开"
+		filters["shlog.filter.unavail"] = "shlog.filter.on"
 	}
 	go func() {
 		if err := sw.store.LogSearchQuery(context.Background(), query, filters, resultCount); err != nil && sw.logger != nil {
@@ -329,9 +330,9 @@ func (sw *searchWindow) refreshList(items []StoredItem, query string) {
 	procSendMessageW.Call(sw.hList, lbResetContent, 0, 0)
 	sw.items = items
 	if len(items) == 0 {
-		message := "没有找到匹配的剪贴板记录"
+		message := sw.t("swindow.no_match", nil)
 		if strings.TrimSpace(query) == "" {
-			message = "暂无可搜索的剪贴板记录"
+			message = sw.t("swindow.empty", nil)
 		}
 		sw.showSearchStatus(message)
 		return

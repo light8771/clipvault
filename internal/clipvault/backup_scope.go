@@ -15,7 +15,7 @@ import (
 // 最后一条记录的 id（无数据时为 0），供写水印使用，避免二次查询竞态。
 func (bs *BackupService) exportBackupData(format, password string, scope ExportScope) ([]byte, string, int64, error) {
 	if format != "json" && format != "xlsx" && format != "cvexport" {
-		return nil, "", 0, fmt.Errorf("不支持的备份格式: %s", format)
+		return nil, "", 0, fmt.Errorf("%s: %s", templateT("backup.err_unsupported_format", nil), format)
 	}
 	var buf bytes.Buffer
 	maxID, err := bs.exportBackupTo(&buf, format, password, scope)
@@ -35,7 +35,7 @@ func resolveBackupScope(store *Store, kind string, configured ExportScope, fullF
 	}
 	wm, err := store.GetBackupWatermark(context.Background(), kind)
 	if err != nil {
-		return configured, false, fmt.Errorf("读取备份水印失败: %w", err)
+		return configured, false, fmt.Errorf("%s: %w", templateT("backup.err_read_watermark", nil), err)
 	}
 	lastFullAt, _ := time.Parse(time.RFC3339, wm.LastFullAt) // 零值表示从未全量
 	return backuppolicy.ResolveScope(configured,
@@ -53,7 +53,7 @@ func resolveBackupScope(store *Store, kind string, configured ExportScope, fullF
 func updateBackupWatermark(store *Store, kind string, scope ExportScope, exportedMaxID int64) (BackupWatermark, error) {
 	wm, err := store.GetBackupWatermark(context.Background(), kind)
 	if err != nil {
-		return BackupWatermark{}, fmt.Errorf("读取水印失败: %w", err)
+		return BackupWatermark{}, fmt.Errorf("%s: %w", templateT("backup.err_read_watermark", nil), err)
 	}
 
 	if scope.Mode == "range" || exportedMaxID <= 0 {
@@ -65,7 +65,7 @@ func updateBackupWatermark(store *Store, kind string, scope ExportScope, exporte
 		newWM.LastFullAt = now
 	}
 	if err := store.SetBackupWatermark(context.Background(), kind, newWM); err != nil {
-		return wm, fmt.Errorf("写回水印失败: %w", err)
+		return wm, fmt.Errorf("%s: %w", templateT("backup.err_write_watermark", nil), err)
 	}
 	return newWM, nil
 }

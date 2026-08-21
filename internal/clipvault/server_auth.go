@@ -3,7 +3,6 @@ package clipvault
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 )
@@ -19,7 +18,7 @@ func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		token := GetSessionToken(r)
 		sess := s.auth.GetSession(token)
 		if sess == nil || !sess.Authenticated {
-			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
+			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", s.i18nT("api.error.unauthorized", nil), nil)
 			return
 		}
 		next(w, r)
@@ -38,7 +37,7 @@ func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc 
 		if s.auth.HasLockPassword(cfg) {
 			sess := s.auth.GetSession(GetSessionToken(r))
 			if sess == nil || !sess.Authenticated {
-				s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
+				s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", s.i18nT("api.error.unauthorized", nil), nil)
 				return
 			}
 		}
@@ -50,7 +49,7 @@ func (s *SearchServer) requireSecondary(next http.HandlerFunc) http.HandlerFunc 
 }
 
 // authorizeSecondaryRequest 对单个请求执行二次认证检查。它既供中间件使用，
-// 也供“仅当目标记录敏感时才保护”的文件端点使用。
+// 也供"仅当目标记录敏感时才保护"的文件端点使用。
 func (s *SearchServer) authorizeSecondaryRequest(w http.ResponseWriter, r *http.Request) bool {
 	cfg := s.cfgMgr.Get()
 	if !s.auth.HasSecondaryPassword(cfg) {
@@ -60,9 +59,9 @@ func (s *SearchServer) authorizeSecondaryRequest(w http.ResponseWriter, r *http.
 	sess := s.auth.GetSession(token)
 	if sess == nil || !sess.Authenticated {
 		if s.auth.HasLockPassword(cfg) {
-			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", "未认证", nil)
+			s.writeAPIError(w, http.StatusUnauthorized, "unauthorized", s.i18nT("api.error.unauthorized", nil), nil)
 		} else {
-			s.writeAPIError(w, http.StatusForbidden, "secondary_required", "需要二次认证", nil)
+			s.writeAPIError(w, http.StatusForbidden, "secondary_required", s.i18nT("apijs.secondary_required", nil), nil)
 		}
 		return false
 	}
@@ -80,7 +79,7 @@ func (s *SearchServer) authorizeSecondaryRequest(w http.ResponseWriter, r *http.
 	if s.auth.ConsumeSecondaryToken(oneTimeToken, token) {
 		return true
 	}
-	s.writeAPIError(w, http.StatusForbidden, "secondary_required", "需要二次认证", nil)
+	s.writeAPIError(w, http.StatusForbidden, "secondary_required", s.i18nT("apijs.secondary_required", nil), nil)
 	return false
 }
 
@@ -110,7 +109,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
@@ -123,7 +122,7 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.auth.VerifyLockPassword(cfg, req.Password) {
-		s.writePasswordFailure(w, "密码错误", s.auth.RecordFailedAttemptFor(ratePurposeLock))
+		s.writePasswordFailure(w, s.i18nT("api.error.wrong_password", nil), s.auth.RecordFailedAttemptFor(ratePurposeLock))
 		return
 	}
 	s.auth.ResetRateLimitFor(ratePurposeLock)
@@ -151,7 +150,7 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		Password string `json:"password"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
@@ -167,12 +166,12 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 	sess := s.auth.GetSession(token)
 	if sess == nil || !sess.Authenticated {
 		if s.auth.HasLockPassword(cfg) {
-			s.writeAPIError(w, http.StatusUnauthorized, "lock_session_expired", "锁屏会话已过期，请重新解锁后重试", nil)
+			s.writeAPIError(w, http.StatusUnauthorized, "lock_session_expired", s.i18nT("auth.lock_session_expired", nil), nil)
 			return
 		}
 	}
 	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
-		s.writePasswordFailure(w, "二次密码错误", s.auth.RecordFailedAttemptFor(ratePurposeSecondary))
+		s.writePasswordFailure(w, s.i18nT("api.error.wrong_secondary_password", nil), s.auth.RecordFailedAttemptFor(ratePurposeSecondary))
 		return
 	}
 	s.auth.ResetRateLimitFor(ratePurposeSecondary)
@@ -201,9 +200,9 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		"secondaryCached": true,
 	}
 	if cfg.Security.SecondaryAuthTimeout > 0 {
-		resp["message"] = fmt.Sprintf("二次验证成功，%d 分钟内无需重复验证", cfg.Security.SecondaryAuthTimeout)
+		resp["message"] = s.i18nT("api.error.secondary_ok_minutes", map[string]any{"n": cfg.Security.SecondaryAuthTimeout})
 	} else {
-		resp["message"] = "二次验证成功，当前会话内无需重复验证"
+		resp["message"] = s.i18nT("api.error.secondary_ok_session", nil)
 	}
 	s.logger.Info("auth_secondary", nil)
 	s.writeJSON(w, resp)
@@ -222,20 +221,20 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		NewPassword string `json:"newPassword"` // 新密码
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 
 	if req.Type != "lock" && req.Type != "secondary" {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_type", "无效的类型", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_type", s.i18nT("api.error.invalid_type", nil), nil)
 		return
 	}
 	if req.Action != "set" && req.Action != "change" && req.Action != "remove" {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_action", "无效的操作", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_action", s.i18nT("api.error.invalid_action", nil), nil)
 		return
 	}
 	if req.Type == "secondary" && req.Action != "change" {
-		s.writeAPIError(w, http.StatusBadRequest, "secondary_password_required", "二次密码只能修改，无法重新设置或删除", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "secondary_password_required", s.i18nT("api.error.secondary_password_mandatory", nil), nil)
 		return
 	}
 
@@ -249,12 +248,12 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		}
 		if req.Type == "lock" {
 			if !s.auth.VerifyLockPassword(cfg, req.OldPassword) {
-				s.writePasswordFailure(w, "当前锁屏密码错误", s.auth.RecordFailedAttemptFor(purpose))
+				s.writePasswordFailure(w, s.i18nT("api.error.wrong_current_lock_password", nil), s.auth.RecordFailedAttemptFor(purpose))
 				return
 			}
 		} else {
 			if !s.auth.VerifySecondaryPassword(cfg, req.OldPassword) {
-				s.writePasswordFailure(w, "当前二次密码错误", s.auth.RecordFailedAttemptFor(purpose))
+				s.writePasswordFailure(w, s.i18nT("api.error.wrong_current_secondary_password", nil), s.auth.RecordFailedAttemptFor(purpose))
 				return
 			}
 		}
@@ -262,7 +261,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	} else if req.Action == "set" {
 
 		if s.auth.HasLockPassword(cfg) {
-			s.writeAPIError(w, http.StatusConflict, "password_already_set", "锁屏密码已设置，请使用修改功能", nil)
+			s.writeAPIError(w, http.StatusConflict, "password_already_set", s.i18nT("api.error.lock_password_already_set", nil), nil)
 			return
 		}
 	}
@@ -270,7 +269,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	if req.Action == "remove" {
 		listenHost, _, listenErr := validateListenAddr(cfg.Search.ListenAddr)
 		if listenErr == nil && !isLoopbackHost(listenHost) {
-			s.writeAPIError(w, http.StatusConflict, "password_required_for_lan", "当前已开放局域网监听，请先将监听地址改回 127.0.0.1 后再删除密码", nil)
+			s.writeAPIError(w, http.StatusConflict, "password_required_for_lan", s.i18nT("api.error.lan_active_password_delete", nil), nil)
 			return
 		}
 		cfg.Security.LockPasswordHash = ""

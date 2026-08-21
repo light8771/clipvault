@@ -1,0 +1,123 @@
+    </aside>
+
+    <div class="settings-main" id="langPage">
+      <header class="sd-head">
+        <h1 class="sd-title">{{T "app.title.language"}}</h1>
+        <p class="sd-desc">{{T "i18n.page_desc"}}</p>
+      </header>
+
+      <!-- ── 列表视图 ── -->
+      <div id="langListView">
+        <section class="ssec" id="s-lang-current">
+          <div class="fsec">
+            <h3 class="fsec-title">{{T "i18n.current_language"}}</h3>
+            <p class="fsec-desc">{{T "i18n.current_language_desc"}}</p>
+          </div>
+          <div class="ssec-fields">
+            <div class="field-row">
+              <div class="field-info">
+                <span class="field-label">{{T "i18n.current_language"}}</span>
+              </div>
+              <select id="langCurrentSelect" class="lang-select" aria-label="{{T "i18n.current_language"}}"></select>
+            </div>
+          </div>
+        </section>
+
+        <section class="ssec" id="s-lang-builtin">
+          <div class="fsec">
+            <h3 class="fsec-title">{{T "i18n.builtin_section"}}</h3>
+            <p class="fsec-desc">{{T "i18n.builtin_readonly"}}</p>
+          </div>
+          <div class="ssec-fields">
+            <ul class="lang-list" id="langBuiltinList"></ul>
+          </div>
+        </section>
+
+        <section class="ssec" id="s-lang-custom">
+          <div class="fsec">
+            <h3 class="fsec-title">{{T "i18n.custom_section"}}</h3>
+          </div>
+          <div class="ssec-fields">
+            <ul class="lang-list" id="langCustomList"></ul>
+            <!-- 新建表单（默认收起） -->
+            <form class="lang-new-form" id="langNewForm" hidden>
+              <div class="lang-new-grid">
+                <label class="lang-new-field">
+                  <span>{{T "i18n.code"}}</span>
+                  <input type="text" id="langNewCode" maxlength="16" autocomplete="off" placeholder="ja-JP" required>
+                </label>
+                <label class="lang-new-field">
+                  <span>{{T "i18n.name"}}</span>
+                  <input type="text" id="langNewName" maxlength="64" autocomplete="off" required>
+                </label>
+                <label class="lang-new-field">
+                  <span>{{T "i18n.native_name"}}</span>
+                  <input type="text" id="langNewNative" maxlength="64" autocomplete="off">
+                </label>
+                <label class="lang-new-field">
+                  <span>{{T "i18n.base_language"}}</span>
+                  <select id="langNewBase" class="lang-select"></select>
+                </label>
+              </div>
+              <p class="lang-new-error" id="langNewError" role="alert" hidden></p>
+              <div class="lang-new-actions">
+                <button type="button" class="btn" id="langNewCancel">{{T "common.cancel"}}</button>
+                <button type="submit" class="btn btn-primary" id="langNewSubmit">{{T "i18n.create"}}</button>
+              </div>
+            </form>
+            <div class="field-row">
+              <div class="field-info">
+                <span class="field-label">{{T "i18n.new_language"}}</span>
+              </div>
+              <button type="button" class="btn" id="langNewToggle">{{T "i18n.new_language"}}</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── 翻译编辑视图 ── -->
+      <div id="langEditorView" hidden>
+        <header class="sd-head lang-editor-head">
+          <div>
+            <h1 class="sd-title" id="langEditorTitle">-</h1>
+            <p class="sd-desc">
+              <span id="langEditorBaseNote">-</span> · <span id="langEditorCompletion">-</span>
+            </p>
+          </div>
+          <button type="button" class="btn" id="langEditorBack">{{T "i18n.editor.back"}}</button>
+        </header>
+
+        <section class="ssec lang-editor" id="s-lang-editor">
+          <div class="lang-editor-toolbar">
+            <input type="search" id="langEditorSearch" class="lang-search" autocomplete="off"
+                   placeholder='{{T "i18n.editor.search_placeholder"}}' aria-label='{{T "i18n.editor.search_placeholder"}}'>
+            <div class="lang-filter-seg" id="langEditorFilters" role="tablist">
+              <button type="button" class="lang-seg-btn active" data-status="">{{T "i18n.editor.filter.all"}}</button>
+              <button type="button" class="lang-seg-btn" data-status="translated">{{T "i18n.editor.filter.translated"}}</button>
+              <button type="button" class="lang-seg-btn" data-status="untranslated">{{T "i18n.editor.filter.untranslated"}}</button>
+              <button type="button" class="lang-seg-btn" data-status="recent">{{T "i18n.editor.filter.recent"}}</button>
+            </div>
+            <select id="langEditorModule" class="lang-select" aria-label="{{T "i18n.editor.module_all"}}">
+              <option value="">{{T "i18n.editor.module_all"}}</option>
+            </select>
+          </div>
+
+          <p class="lang-editor-readonly" id="langEditorReadonly" hidden>{{T "i18n.builtin_readonly"}}</p>
+
+          <div class="lang-editor-table" id="langEditorTable">
+            <div class="lang-table-head" role="row">
+              <span class="lang-col-source" role="columnheader">{{T "i18n.editor.source_column"}}</span>
+              <span class="lang-col-translation" role="columnheader">{{T "i18n.editor.translation_column"}}</span>
+            </div>
+            <div class="lang-table-body" id="langEditorBody"></div>
+          </div>
+
+          <div class="lang-editor-pager">
+            <button type="button" class="btn lang-pager-btn" id="langPagerPrev">{{T "i18n.editor.prev_page"}}</button>
+            <span class="lang-pager-info" id="langPagerInfo">-</span>
+            <button type="button" class="btn lang-pager-btn" id="langPagerNext">{{T "i18n.editor.next_page"}}</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>

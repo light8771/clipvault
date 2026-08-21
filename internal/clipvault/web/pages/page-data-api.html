@@ -1,16 +1,16 @@
       <div class="amenu-sub">
-        <div class="amenu-sub-title">数据接口</div>
-        <a class="amenu-anchor" href="#s-dapi-service">服务设置</a>
-        <a class="amenu-anchor" href="#s-dapi-reference">接口说明</a>
-        <a class="amenu-anchor" href="#s-dapi-tokens">访问令牌</a>
-        <a class="amenu-anchor" href="#s-dapi-audit">访问记录</a>
+        <div class="amenu-sub-title">{{T "app.title.data_api"}}</div>
+        <a class="amenu-anchor" href="#s-dapi-service">{{T "mcp.service_settings"}}</a>
+        <a class="amenu-anchor" href="#s-dapi-reference">{{T "dapi.reference"}}</a>
+        <a class="amenu-anchor" href="#s-dapi-tokens">{{T "mcp.tokens"}}</a>
+        <a class="amenu-anchor" href="#s-dapi-audit">{{T "mcp.audit"}}</a>
       </div>
     </aside>
 
     <div class="settings-main" id="dapiPage">
       <header class="sd-head">
-        <h1 class="sd-title">数据接口</h1>
-        <p class="sd-desc">本地 / 局域网数据 API，供本机或局域网中的 AI、Agent 与脚本通过 HTTP + Token 只读访问 ClipVault 数据。仅对已激活用户开放。</p>
+        <h1 class="sd-title">{{T "app.title.data_api"}}</h1>
+        <p class="sd-desc">{{T "dapi.desc"}}</p>
       </header>
 
       <section class="ssec" id="s-dapi-service">
@@ -19,71 +19,71 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">服务设置</h2>
-            <p class="ssec-desc">启用与监听地址，保存后立即生效</p>
+            <h2 class="ssec-title">{{T "mcp.service_settings"}}</h2>
+            <p class="ssec-desc">{{T "mcp.service_settings_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">运行状态</span>
-              <p class="field-hint" id="dapiStatusHint">服务当前状态</p>
+              <span class="field-label">{{T "mcp.status"}}</span>
+              <p class="field-hint" id="dapiStatusHint">{{T "mcp.status_hint"}}</p>
             </div>
-            <span class="field-label" id="dapiStatusText">读取中…</span>
+            <span class="field-label" id="dapiStatusText">{{T "common.loading"}}</span>
           </div>
           <div class="field-row" id="dapiUrlRow">
             <div class="field-info">
-              <span class="field-label">访问地址</span>
-              <p class="field-hint">所有接口的 Base URL，请求时拼接下方端点路径即可</p>
+              <span class="field-label">{{T "dapi.base_url"}}</span>
+              <p class="field-hint">{{T "dapi.base_url_hint"}}</p>
             </div>
             <input type="text" id="dapiUrlText" class="field-input u-inline-10" readonly value="">
-            <button class="btn-export" type="button" data-action="data-api-copy-url">复制</button>
+            <button class="btn-export" type="button" data-action="data-api-copy-url">{{T "common.copy"}}</button>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="dapiEnabled">启用数据接口</label>
-              <p class="field-hint">关闭后监听端口立即释放，不再接受任何连接</p>
+              <label class="field-label" for="dapiEnabled">{{T "dapi.enable"}}</label>
+              <p class="field-hint">{{T "dapi.enable_hint"}}</p>
             </div>
             <label class="ar-toggle">
               <input type="checkbox" id="dapiEnabled">
-              <span>启用</span>
+              <span>{{T "common.enabled_short"}}</span>
             </label>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">监听范围</span>
-              <p class="field-hint">仅本机只允许 127.0.0.1；局域网监听 0.0.0.0；指定地址可绑定到具体网卡 IP</p>
+              <span class="field-label">{{T "mcp.scope"}}</span>
+              <p class="field-hint">{{T "mcp.scope_hint"}}</p>
             </div>
             <div>
-              <label><input type="radio" name="dapiScope" value="local" checked> 仅本机</label>
-              <label><input type="radio" name="dapiScope" value="lan"> 局域网</label>
-              <label><input type="radio" name="dapiScope" value="custom"> 指定地址</label>
+              <label><input type="radio" name="dapiScope" value="local" checked> {{T "mcp.scope_local"}}</label>
+              <label><input type="radio" name="dapiScope" value="lan"> {{T "mcp.scope_lan"}}</label>
+              <label><input type="radio" name="dapiScope" value="custom"> {{T "mcp.scope_custom"}}</label>
             </div>
           </div>
           <div class="field-row hidden" id="dapiCustomAddrRow">
             <div class="field-info">
-              <label class="field-label" for="dapiCustomAddr">指定监听地址</label>
-              <p class="field-hint">本机网卡 IP，例如 192.168.1.10</p>
+              <label class="field-label" for="dapiCustomAddr">{{T "mcp.custom_addr"}}</label>
+              <p class="field-hint">{{T "mcp.custom_addr_hint"}}</p>
             </div>
             <input type="text" id="dapiCustomAddr" class="field-input u-inline-7" placeholder="192.168.1.10">
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="dapiPort">端口</label>
-              <p class="field-hint">端口范围 1024–65535，默认 17839；不能与 Web 界面端口相同</p>
+              <label class="field-label" for="dapiPort">{{T "mcp.port"}}</label>
+              <p class="field-hint">{{T "dapi.port_hint"}}</p>
             </div>
             <input type="text" id="dapiPort" class="field-input u-inline-7" placeholder="17839">
           </div>
           <div class="listen-security-warning hidden" id="dapiLanWarning" role="alert">
-            <strong>明文 HTTP 提示</strong>
-            <span>此 API 使用 HTTP，建议仅在可信本机或局域网中使用，请勿直接暴露到公网。持有有效 Token 的客户端可以读取全部 ClipVault 业务数据，包括敏感记录。</span>
+            <strong>{{T "mcp.lan_warning_title"}}</strong>
+            <span>{{T "dapi.lan_warning_text"}}</span>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">保存设置</span>
-              <p class="field-hint">保存后立即应用，无需重启应用</p>
+              <span class="field-label">{{T "mcp.save_settings"}}</span>
+              <p class="field-hint">{{T "mcp.save_settings_hint"}}</p>
             </div>
-            <button class="btn-export" type="button" data-action="data-api-save">保存</button>
+            <button class="btn-export" type="button" data-action="data-api-save">{{T "common.save"}}</button>
           </div>
         </div>
       </section>
@@ -94,19 +94,19 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">接口文档</h2>
-            <p class="ssec-desc">快速开始、端点、参数与错误码——给 AI / 脚本接入用的完整说明</p>
+            <h2 class="ssec-title">{{T "dapi.reference_title"}}</h2>
+            <p class="ssec-desc">{{T "dapi.reference_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">查看接口文档</span>
-              <p class="field-hint">在弹窗中打开，所有示例均可一键复制</p>
+              <span class="field-label">{{T "dapi.view_doc"}}</span>
+              <p class="field-hint">{{T "dapi.view_doc_hint"}}</p>
             </div>
             <button class="btn-export" type="button" data-action="data-api-open-doc">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-              打开文档
+              {{T "dapi.open_doc"}}
             </button>
           </div>
         </div>
@@ -118,51 +118,51 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">访问令牌</h2>
-            <p class="ssec-desc">Token 只在创建时完整显示一次，请立即复制保存</p>
+            <h2 class="ssec-title">{{T "mcp.tokens"}}</h2>
+            <p class="ssec-desc">{{T "dapi.tokens_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="dapiTokenName">新令牌名称</label>
-              <p class="field-hint">用于标识使用方，例如「MacBook AI」「Ollama」</p>
+              <label class="field-label" for="dapiTokenName">{{T "mcp.token_name"}}</label>
+              <p class="field-hint">{{T "dapi.token_name_hint"}}</p>
             </div>
             <input type="text" id="dapiTokenName" class="field-input u-inline-7" placeholder="Ollama" maxlength="60">
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="dapiTokenExpiry">有效期</label>
-              <p class="field-hint">到期后 Token 自动失效；推荐 30 天或 90 天</p>
+              <label class="field-label" for="dapiTokenExpiry">{{T "mcp.token_expiry"}}</label>
+              <p class="field-hint">{{T "mcp.token_expiry_hint"}}</p>
             </div>
             <select id="dapiTokenExpiry" class="field-input u-inline-10">
-              <option value="1d">1 天</option>
-              <option value="7d">7 天</option>
-              <option value="30d" selected>30 天</option>
-              <option value="90d">90 天</option>
-              <option value="1y">1 年</option>
-              <option value="never">永不过期</option>
+              <option value="1d">{{T "mcp.expiry_1d"}}</option>
+              <option value="7d">{{T "mcp.expiry_7d"}}</option>
+              <option value="30d" selected>{{T "mcp.expiry_30d"}}</option>
+              <option value="90d">{{T "mcp.expiry_90d"}}</option>
+              <option value="1y">{{T "mcp.expiry_1y"}}</option>
+              <option value="never">{{T "mcp.expiry_never"}}</option>
             </select>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">敏感数据授权</span>
-              <p class="field-hint">新令牌默认只能读取普通数据；创建后可在令牌列表中单独开启敏感授权。开启时敏感记录对此令牌可见，关闭时完全不可见（与不存在无异）</p>
+              <span class="field-label">{{T "mcp.sensitive_grant"}}</span>
+              <p class="field-hint">{{T "mcp.sensitive_grant_hint"}}</p>
             </div>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">创建令牌</span>
-              <p class="field-hint">创建与重新生成需要二次验证，且需要已激活的授权</p>
+              <span class="field-label">{{T "mcp.create_token"}}</span>
+              <p class="field-hint">{{T "mcp.create_token_hint"}}</p>
             </div>
-            <button class="btn-export" type="button" data-action="data-api-token-create">生成 Token</button>
+            <button class="btn-export" type="button" data-action="data-api-token-create">{{T "mcp.generate_token"}}</button>
           </div>
           <div class="dapi-token-banner hidden" id="dapiNewTokenBox" role="status">
-            <span class="dapi-token-banner-title">请立即复制此 Token（只显示一次）</span>
+            <span class="dapi-token-banner-title">{{T "mcp.token_banner_title"}}</span>
             <code class="dapi-token-value" id="dapiNewTokenValue"></code>
             <div class="dapi-token-banner-actions">
-              <button class="dapi-btn" type="button" data-action="data-api-token-copy">复制 Token</button>
-              <button class="dapi-btn" type="button" data-action="data-api-token-dismiss">我已保存</button>
+              <button class="dapi-btn" type="button" data-action="data-api-token-copy">{{T "mcp.copy_token"}}</button>
+              <button class="dapi-btn" type="button" data-action="data-api-token-dismiss">{{T "mcp.token_saved"}}</button>
             </div>
           </div>
           <div class="dapi-list" id="dapiTokenList"></div>
@@ -175,77 +175,77 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h6M9 17h4"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">访问记录</h2>
-            <p class="ssec-desc">外部 API 调用审计：谁、什么时候、调了哪个端点、问了什么条件、返回多少、耗时多久。点击行可展开完整请求体。最多保留最近 1000 条</p>
+            <h2 class="ssec-title">{{T "mcp.audit"}}</h2>
+            <p class="ssec-desc">{{T "dapi.audit_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="dapi-stats">
-            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStatTotal">–</span><span class="dapi-stat-label">总请求</span></div>
-            <div class="dapi-stat is-ok"><span class="dapi-stat-value" id="dapiStatSuccess">–</span><span class="dapi-stat-label">成功</span></div>
-            <div class="dapi-stat is-err"><span class="dapi-stat-value" id="dapiStatError">–</span><span class="dapi-stat-label">失败</span></div>
-            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStatAvg">–</span><span class="dapi-stat-label">平均耗时</span></div>
-            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStat24h">–</span><span class="dapi-stat-label">近 24 小时</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStatTotal">–</span><span class="dapi-stat-label">{{T "mcp.stat_total"}}</span></div>
+            <div class="dapi-stat is-ok"><span class="dapi-stat-value" id="dapiStatSuccess">–</span><span class="dapi-stat-label">{{T "mcp.stat_success"}}</span></div>
+            <div class="dapi-stat is-err"><span class="dapi-stat-value" id="dapiStatError">–</span><span class="dapi-stat-label">{{T "mcp.stat_error"}}</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStatAvg">–</span><span class="dapi-stat-label">{{T "mcp.stat_avg"}}</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="dapiStat24h">–</span><span class="dapi-stat-label">{{T "mcp.stat_24h"}}</span></div>
           </div>
           <div class="dapi-filter-bar">
-            <select id="dapiFilterOp" class="dapi-filter-select" aria-label="按操作筛选">
-              <option value="">全部操作</option>
-              <option value="query_items">查询</option>
-              <option value="get_item">取单条</option>
-              <option value="batch_get">批量获取</option>
-              <option value="get_content">取内容</option>
-              <option value="get_metadata">元数据</option>
-              <option value="auth">认证失败</option>
+            <select id="dapiFilterOp" class="dapi-filter-select" aria-label='{{T "mcp.filter_op_label"}}'>
+              <option value="">{{T "mcp.filter_all_ops"}}</option>
+              <option value="query_items">{{T "dapi.op_query"}}</option>
+              <option value="get_item">{{T "mcp.op_get_item"}}</option>
+              <option value="batch_get">{{T "mcp.op_get_items"}}</option>
+              <option value="get_content">{{T "mcp.op_get_content"}}</option>
+              <option value="get_metadata">{{T "dapi.op_metadata"}}</option>
+              <option value="auth">{{T "mcp.op_auth_failed"}}</option>
             </select>
-            <select id="dapiFilterResult" class="dapi-filter-select" aria-label="按结果筛选">
-              <option value="">全部结果</option>
-              <option value="success">仅成功</option>
-              <option value="error">仅失败</option>
+            <select id="dapiFilterResult" class="dapi-filter-select" aria-label='{{T "mcp.filter_result_label"}}'>
+              <option value="">{{T "mcp.filter_all_results"}}</option>
+              <option value="success">{{T "mcp.filter_success_only"}}</option>
+              <option value="error">{{T "mcp.filter_error_only"}}</option>
             </select>
-            <select id="dapiFilterToken" class="dapi-filter-select" aria-label="按令牌筛选">
-              <option value="">全部令牌</option>
+            <select id="dapiFilterToken" class="dapi-filter-select" aria-label='{{T "mcp.filter_token_label"}}'>
+              <option value="">{{T "mcp.filter_all_tokens"}}</option>
             </select>
-            <input type="text" id="dapiFilterQuery" class="dapi-filter-input" placeholder="搜索令牌 / IP / 摘要 / 错误码" maxlength="80">
-            <button type="button" class="dapi-btn" data-action="data-api-audit-apply">筛选</button>
-            <button type="button" class="dapi-btn" data-action="data-api-audit-reset">重置</button>
+            <input type="text" id="dapiFilterQuery" class="dapi-filter-input" placeholder='{{T "dapi.filter_search_placeholder"}}' maxlength="80">
+            <button type="button" class="dapi-btn" data-action="data-api-audit-apply">{{T "mcp.filter_apply"}}</button>
+            <button type="button" class="dapi-btn" data-action="data-api-audit-reset">{{T "mcp.filter_reset"}}</button>
           </div>
           <div class="log-toolbar">
-            <span class="log-total" id="dapiAuditTotal">正在读取…</span>
+            <span class="log-total" id="dapiAuditTotal">{{T "common.loading"}}</span>
             <span class="dapi-toolbar-btns">
-              <button type="button" class="log-page-btn" data-action="data-api-audit-refresh">刷新</button>
-              <button type="button" class="log-page-btn" data-action="data-api-audit-export">导出 CSV</button>
-              <button type="button" class="btn-export" data-action="data-api-audit-clear">清空记录</button>
+              <button type="button" class="log-page-btn" data-action="data-api-audit-refresh">{{T "mcp.refresh"}}</button>
+              <button type="button" class="log-page-btn" data-action="data-api-audit-export">{{T "mcp.export_csv"}}</button>
+              <button type="button" class="btn-export" data-action="data-api-audit-clear">{{T "logs.clear"}}</button>
             </span>
           </div>
           <div class="dapi-audit-wrap">
             <table class="dapi-audit-table">
               <thead>
                 <tr>
-                  <th class="col-time">时间</th>
-                  <th class="col-token">令牌</th>
-                  <th class="col-op">操作 / 端点</th>
-                  <th class="col-summary">请求摘要</th>
-                  <th class="col-result">结果</th>
-                  <th class="col-ms">耗时</th>
-                  <th class="col-ip">来源 IP</th>
+                  <th class="col-time">{{T "mcp.col_time"}}</th>
+                  <th class="col-token">{{T "mcp.col_token"}}</th>
+                  <th class="col-op">{{T "dapi.col_op"}}</th>
+                  <th class="col-summary">{{T "dapi.col_summary"}}</th>
+                  <th class="col-result">{{T "mcp.col_result"}}</th>
+                  <th class="col-ms">{{T "mcp.col_ms"}}</th>
+                  <th class="col-ip">{{T "mcp.col_ip"}}</th>
                 </tr>
               </thead>
               <tbody id="dapiAuditList"></tbody>
             </table>
           </div>
           <div class="log-pager hidden" id="dapiAuditPager">
-            <label class="dapi-page-size">每页
-              <select id="dapiAuditPageSize" aria-label="每页条数">
+            <label class="dapi-page-size">{{T "mcp.per_page_prefix"}}
+              <select id="dapiAuditPageSize" aria-label='{{T "mcp.per_page_label"}}'>
                 <option value="20" selected>20</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
-              </select> 条
+              </select> {{T "mcp.per_page_suffix"}}
             </label>
-            <button type="button" class="log-page-btn" id="dapiAuditFirst" data-action="data-api-audit-first" title="首页">«</button>
-            <button type="button" class="log-page-btn" id="dapiAuditPrev" data-action="data-api-audit-prev">上一页</button>
+            <button type="button" class="log-page-btn" id="dapiAuditFirst" data-action="data-api-audit-first" title='{{T "mcp.first_page"}}'>«</button>
+            <button type="button" class="log-page-btn" id="dapiAuditPrev" data-action="data-api-audit-prev">{{T "history.prev_page"}}</button>
             <span class="dapi-page-btns" id="dapiAuditPageBtns"></span>
-            <button type="button" class="log-page-btn" id="dapiAuditNext" data-action="data-api-audit-next">下一页</button>
-            <button type="button" class="log-page-btn" id="dapiAuditLast" data-action="data-api-audit-last" title="末页">»</button>
+            <button type="button" class="log-page-btn" id="dapiAuditNext" data-action="data-api-audit-next">{{T "history.next_page"}}</button>
+            <button type="button" class="log-page-btn" id="dapiAuditLast" data-action="data-api-audit-last" title='{{T "mcp.last_page"}}'>»</button>
           </div>
         </div>
       </section>
@@ -255,181 +255,133 @@
   <div class="modal-overlay hidden" id="dapiDocModal" data-action="data-api-close-doc">
     <div class="modal-box dapi-doc-modal" role="dialog" aria-modal="true" aria-labelledby="dapiDocTitle" data-modal-panel>
       <div class="modal-head">
-        <span class="modal-title" id="dapiDocTitle">数据接口文档</span>
+        <span class="modal-title" id="dapiDocTitle">{{T "dapi.doc_title"}}</span>
         <div class="modal-acts">
-          <button class="modal-close" type="button" data-action="data-api-close-doc" aria-label="关闭文档" title="关闭">
+          <button class="modal-close" type="button" data-action="data-api-close-doc" aria-label='{{T "dapi.doc_close_label"}}' title='{{T "common.close"}}'>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
       <div class="modal-body dapi-doc-body">
-        <nav class="dapi-doc-nav" aria-label="文档目录">
-          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecStart">快速开始</button>
-          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecAuth">认证</button>
-          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecEndpoints">端点</button>
-          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecQuery">查询</button>
-          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecFilters">筛选</button>
-          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecErrors">错误处理</button>
+        <nav class="dapi-doc-nav" aria-label="{{T "dapi.doc_toc_label"}}">
+          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecStart">{{T "dapi.doc_nav_start"}}</button>
+          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecAuth">{{T "dapi.doc_nav_auth"}}</button>
+          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecEndpoints">{{T "dapi.doc_nav_endpoints"}}</button>
+          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecQuery">{{T "dapi.doc_nav_query"}}</button>
+          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecFilters">{{T "dapi.doc_nav_filters"}}</button>
+          <button type="button" data-action="data-api-doc-nav" data-target="dapiDocSecErrors">{{T "dapi.doc_nav_errors"}}</button>
         </nav>
         <section class="dapi-doc-sec" id="dapiDocSecStart">
-          <h3 class="dapi-doc-h">快速开始</h3>
+          <h3 class="dapi-doc-h">{{T "dapi.doc_nav_start"}}</h3>
           <ol class="dapi-doc-steps">
-            <li>在上方「服务设置」中启用数据接口，记下访问地址（本文档示例已按当前地址 <code>{BASE_URL}</code> 生成）</li>
-            <li>在「访问令牌」中生成一个 Token（只显示一次，立即保存）</li>
-            <li>把 Token 放进 <code>Authorization: Bearer</code> 请求头，POST 到 <code>/api/v1/query</code> 即可查询</li>
+            <li>{{T "dapi.doc_step1"}}</li>
+            <li>{{T "dapi.doc_step2"}}</li>
+            <li>{{T "dapi.doc_step3"}}</li>
           </ol>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
               <span class="dapi-doc-lang">curl</span>
-              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExCurl">复制</button>
+              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExCurl">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="dapiExCurl">curl {BASE_URL}/api/v1/query \
-  -H "Authorization: Bearer cv_你的Token" \
-  -H "Content-Type: application/json" \
-  -d '{"resource":"clipboardItems","filter":{"text":{"contains":"docker"}},"limit":5}'</pre>
+            <pre class="dapi-doc-pre" id="dapiExCurl">{{T "dapi.doc_ex_curl"}}</pre>
           </div>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
               <span class="dapi-doc-lang">PowerShell</span>
-              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExPs">复制</button>
+              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExPs">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="dapiExPs">Invoke-RestMethod -Uri {BASE_URL}/api/v1/query -Method Post `
-  -Headers @{ Authorization = 'Bearer cv_你的Token' } `
-  -ContentType 'application/json' `
-  -Body '{"resource":"clipboardItems","limit":5}'</pre>
+            <pre class="dapi-doc-pre" id="dapiExPs">{{T "dapi.doc_ex_ps"}}</pre>
           </div>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
               <span class="dapi-doc-lang">Python</span>
-              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExPy">复制</button>
+              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExPy">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="dapiExPy">import requests
-
-r = requests.post(
-    "{BASE_URL}/api/v1/query",
-    headers={"Authorization": "Bearer cv_你的Token"},
-    json={"resource": "clipboardItems",
-          "filter": {"text": {"contains": "docker"}},
-          "limit": 5},
-    timeout=10,
-)
-print(r.json())</pre>
+            <pre class="dapi-doc-pre" id="dapiExPy">{{T "dapi.doc_ex_py"}}</pre>
           </div>
         </section>
 
         <section class="dapi-doc-sec" id="dapiDocSecAuth">
-          <h3 class="dapi-doc-h">认证</h3>
-          <p class="dapi-doc-p">除健康检查外，所有请求必须在请求头携带 <code>Authorization: Bearer &lt;Token&gt;</code>。Token 只认请求头，不支持 URL 参数传递。Token 过期、被撤销或不符都会返回 <code>401</code>，见下方错误码表。</p>
+          <h3 class="dapi-doc-h">{{T "dapi.doc_nav_auth"}}</h3>
+          <p class="dapi-doc-p">{{T "dapi.doc_auth_p"}}</p>
         </section>
 
         <section class="dapi-doc-sec" id="dapiDocSecEndpoints">
-          <h3 class="dapi-doc-h">端点</h3>
-          <p class="dapi-doc-p">最后一列是「访问记录」里显示的审计操作名，可用于把调用记录对应回本表端点。</p>
+          <h3 class="dapi-doc-h">{{T "dapi.doc_nav_endpoints"}}</h3>
+          <p class="dapi-doc-p">{{T "dapi.doc_endpoints_p"}}</p>
           <table class="dapi-doc-table">
             <tbody>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/health</code></td><td>健康检查，无需 Token；返回服务与激活状态</td><td>不记录</td></tr>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/metadata</code></td><td>资源字段、可筛选/可排序字段与限制的机器可读描述</td><td>审计 <code>get_metadata</code></td></tr>
-              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/query</code></td><td>核心查询：筛选、排序、分页、分组统计</td><td>审计 <code>query_items</code></td></tr>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}</code></td><td>单条完整记录（文本不截断）</td><td>审计 <code>get_item</code></td></tr>
-              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/items/batch-get</code></td><td>按 ID 批量取完整记录，最多 100 个</td><td>审计 <code>batch_get</code></td></tr>
-              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}/content</code></td><td>二进制内容：托管图片为 PNG，文本为纯文本</td><td>审计 <code>get_content</code></td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/health</code></td><td>{{T "dapi.doc_ep_health"}}</td><td>{{T "dapi.doc_ep_health_audit"}}</td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/metadata</code></td><td>{{T "dapi.doc_ep_metadata"}}</td><td>{{T "dapi.doc_ep_metadata_audit"}}</td></tr>
+              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/query</code></td><td>{{T "dapi.doc_ep_query"}}</td><td>{{T "dapi.doc_ep_query_audit"}}</td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}</code></td><td>{{T "dapi.doc_ep_item"}}</td><td>{{T "dapi.doc_ep_item_audit"}}</td></tr>
+              <tr><td><span class="dapi-method post">POST</span></td><td><code>/api/v1/items/batch-get</code></td><td>{{T "dapi.doc_ep_batch"}}</td><td>{{T "dapi.doc_ep_batch_audit"}}</td></tr>
+              <tr><td><span class="dapi-method get">GET</span></td><td><code>/api/v1/items/{id}/content</code></td><td>{{T "dapi.doc_ep_content"}}</td><td>{{T "dapi.doc_ep_content_audit"}}</td></tr>
             </tbody>
           </table>
         </section>
 
         <section class="dapi-doc-sec" id="dapiDocSecQuery">
-          <h3 class="dapi-doc-h">查询接口 POST /api/v1/query</h3>
-          <p class="dapi-doc-p">请求体是一个 JSON 对象，所有字段均可省略。示例把「最近 24 小时内、来自 Code.exe、内容包含 docker 的非敏感文本」按时间倒序取 50 条：</p>
+          <h3 class="dapi-doc-h">{{T "dapi.doc_query_title"}}</h3>
+          <p class="dapi-doc-p">{{T "dapi.doc_query_p"}}</p>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
-              <span class="dapi-doc-lang">请求体</span>
-              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExBody">复制</button>
+              <span class="dapi-doc-lang">{{T "dapi.doc_request_body"}}</span>
+              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExBody">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="dapiExBody">{
-  "resource": "clipboardItems",
-  "filter": {
-    "createdAt": { "gte": "2026-08-18T00:00:00+08:00" },
-    "kind": { "in": ["text"] },
-    "sourceApp": { "eq": "Code.exe" },
-    "text": { "contains": "docker" },
-    "sensitive": { "eq": false }
-  },
-  "orderBy": [{ "field": "createdAt", "direction": "desc" }],
-  "limit": 50,
-  "cursor": null
-}</pre>
+            <pre class="dapi-doc-pre" id="dapiExBody">{{T "dapi.doc_ex_body"}}</pre>
           </div>
           <table class="dapi-doc-table">
             <tbody>
-              <tr><td><code>resource</code></td><td>固定为 <code>"clipboardItems"</code></td></tr>
-              <tr><td><code>filter</code></td><td>字段 → 操作符 → 值 的嵌套对象，多个字段之间为 AND 关系</td></tr>
-              <tr><td><code>orderBy</code></td><td>最多一条：<code>createdAt</code> 或 <code>id</code>，方向 <code>asc</code>/<code>desc</code>；默认 <code>createdAt desc</code></td></tr>
-              <tr><td><code>limit</code></td><td>每页条数，默认 50、最大 500</td></tr>
-              <tr><td><code>cursor</code></td><td>翻页游标：把上一页响应的 <code>nextCursor</code> 原样传入</td></tr>
-              <tr><td><code>groupBy</code> + <code>aggregate</code></td><td>分组统计（互斥于 cursor）：<code>{"groupBy": ["sourceApp"], "aggregate": {"count": "*"}}</code>，返回各组数量</td></tr>
+              <tr><td><code>resource</code></td><td>{{T "dapi.doc_field_resource"}}</td></tr>
+              <tr><td><code>filter</code></td><td>{{T "dapi.doc_field_filter"}}</td></tr>
+              <tr><td><code>orderBy</code></td><td>{{T "dapi.doc_field_orderby"}}</td></tr>
+              <tr><td><code>limit</code></td><td>{{T "dapi.doc_field_limit"}}</td></tr>
+              <tr><td><code>cursor</code></td><td>{{T "dapi.doc_field_cursor"}}</td></tr>
+              <tr><td><code>groupBy</code> + <code>aggregate</code></td><td>{{T "dapi.doc_field_groupby"}}</td></tr>
             </tbody>
           </table>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
-              <span class="dapi-doc-lang">响应</span>
-              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExResp">复制</button>
+              <span class="dapi-doc-lang">{{T "dapi.doc_response"}}</span>
+              <button class="dapi-copy" type="button" data-action="data-api-copy-doc" data-copy-target="dapiExResp">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="dapiExResp">{
-  "items": [
-    {
-      "id": "42",
-      "createdAt": "2026-08-19T02:23:45Z",
-      "kind": "text",
-      "text": "docker compose up -d",
-      "textTruncated": false,
-      "byteLen": 19,
-      "sha256": "9f2b…",
-      "sourceApp": "Code.exe",
-      "sourceWindow": "main.go — clipvault",
-      "starred": false,
-      "sensitive": false,
-      "groupId": null,
-      "contentAvailable": true
-    }
-  ],
-  "nextCursor": null,
-  "hasMore": false
-}</pre>
+            <pre class="dapi-doc-pre" id="dapiExResp">{{T "dapi.doc_ex_resp"}}</pre>
           </div>
-          <p class="dapi-doc-p">列表里的 <code>text</code> 超过 4000 字符会截断并标记 <code>textTruncated: true</code>；要完整内容用 <code>GET /api/v1/items/{id}</code>。<code>hasMore</code> 为 true 时，把 <code>nextCursor</code> 传入下一次请求继续翻页。</p>
+          <p class="dapi-doc-p">{{T "dapi.doc_query_note"}}</p>
         </section>
 
         <section class="dapi-doc-sec" id="dapiDocSecFilters">
-          <h3 class="dapi-doc-h">筛选字段与操作符</h3>
+          <h3 class="dapi-doc-h">{{T "dapi.doc_filters_title"}}</h3>
           <table class="dapi-doc-table">
             <tbody>
-              <tr><td><code>createdAt</code></td><td><code>gte</code> <code>gt</code> <code>lte</code> <code>lt</code>，值为 RFC3339 时间字符串（如 <code>2026-08-19T00:00:00+08:00</code>）</td></tr>
-              <tr><td><code>kind</code></td><td><code>eq</code> <code>neq</code> <code>in</code>；取值：<code>text</code> / <code>image</code> / <code>files</code> / <code>office</code> / <code>archive</code> / <code>video</code> / <code>other</code>（事件已记录但内容不可用/未分类）</td></tr>
-              <tr><td><code>id</code></td><td><code>eq</code> <code>neq</code> <code>in</code> <code>gt</code> <code>gte</code> <code>lt</code> <code>lte</code>，值为整数或整数数组</td></tr>
-              <tr><td><code>sourceApp</code> / <code>sourceWindow</code></td><td><code>eq</code> <code>neq</code> <code>in</code> <code>contains</code> <code>startsWith</code> <code>endsWith</code>（不区分大小写）</td></tr>
-              <tr><td><code>text</code></td><td><code>contains</code> <code>eq</code> <code>neq</code>（contains 不区分大小写）</td></tr>
-              <tr><td><code>starred</code> / <code>sensitive</code></td><td><code>eq</code> <code>neq</code>，值为布尔</td></tr>
-              <tr><td><code>groupId</code></td><td><code>eq</code> <code>neq</code> <code>in</code>，值为分组 ID</td></tr>
+              <tr><td><code>createdAt</code></td><td>{{T "dapi.doc_filter_createdat"}}</td></tr>
+              <tr><td><code>kind</code></td><td>{{T "dapi.doc_filter_kind"}}</td></tr>
+              <tr><td><code>id</code></td><td>{{T "dapi.doc_filter_id"}}</td></tr>
+              <tr><td><code>sourceApp</code> / <code>sourceWindow</code></td><td>{{T "dapi.doc_filter_source"}}</td></tr>
+              <tr><td><code>text</code></td><td>{{T "dapi.doc_filter_text"}}</td></tr>
+              <tr><td><code>starred</code> / <code>sensitive</code></td><td>{{T "dapi.doc_filter_flags"}}</td></tr>
+              <tr><td><code>groupId</code></td><td>{{T "dapi.doc_filter_groupid"}}</td></tr>
             </tbody>
           </table>
-          <p class="dapi-doc-p">白名单之外的字段或操作符一律返回 <code>400 unsupported_filter</code>，不会执行任何拼接表达式。</p>
+          <p class="dapi-doc-p">{{T "dapi.doc_filters_note"}}</p>
         </section>
 
         <section class="dapi-doc-sec" id="dapiDocSecErrors">
-          <h3 class="dapi-doc-h">错误处理</h3>
-          <p class="dapi-doc-p">所有错误统一为 <code>{"error": "错误码", "message": "人类可读说明"}</code>，按 HTTP 状态码区分：</p>
+          <h3 class="dapi-doc-h">{{T "dapi.doc_nav_errors"}}</h3>
+          <p class="dapi-doc-p">{{T "dapi.doc_errors_p"}}</p>
           <table class="dapi-doc-table">
             <tbody>
-              <tr><td><code>400</code></td><td><code>invalid_request</code> 请求体不合法 / <code>unsupported_filter</code> 不支持的字段或操作符 / <code>invalid_cursor</code> 游标损坏</td></tr>
-              <tr><td><code>401</code></td><td><code>missing_token</code> 未带请求头 / <code>invalid_token</code> Token 错误 / <code>token_expired</code> 已过期 / <code>token_revoked</code> 已撤销</td></tr>
-              <tr><td><code>403</code></td><td><code>activation_required</code> 授权未激活</td></tr>
-              <tr><td><code>404</code></td><td><code>not_found</code> 记录不存在或无内容</td></tr>
-              <tr><td><code>413</code></td><td><code>response_too_large</code> 内容超过大小上限</td></tr>
-              <tr><td><code>429</code></td><td><code>too_many_requests</code> 触发限流（10 次/秒，可看 <code>Retry-After</code> 头）/ <code>api_busy</code> 并发已满</td></tr>
-              <tr><td><code>500</code> / <code>504</code></td><td><code>internal_error</code> 内部错误 / <code>query_timeout</code> 查询超时（5 秒）</td></tr>
+              <tr><td><code>400</code></td><td>{{T "dapi.doc_err_400"}}</td></tr>
+              <tr><td><code>401</code></td><td>{{T "dapi.doc_err_401"}}</td></tr>
+              <tr><td><code>403</code></td><td>{{T "dapi.doc_err_403"}}</td></tr>
+              <tr><td><code>404</code></td><td>{{T "dapi.doc_err_404"}}</td></tr>
+              <tr><td><code>413</code></td><td>{{T "dapi.doc_err_413"}}</td></tr>
+              <tr><td><code>429</code></td><td>{{T "dapi.doc_err_429"}}</td></tr>
+              <tr><td><code>500</code> / <code>504</code></td><td>{{T "dapi.doc_err_500"}}</td></tr>
             </tbody>
           </table>
-          <p class="dapi-doc-p">限制速览：每页最多 500 条；批量取最多 100 条；单次查询 5 秒超时；每个 IP 每秒 10 次请求（突发 30）；并发查询最多 4 个。所有访问都记录在「访问记录」中，包括请求摘要与完整请求体（便于审计谁查了什么），但不包含剪贴板正文与 Token 原文。</p>
+          <p class="dapi-doc-p">{{T "dapi.doc_limits_note"}}</p>
         </section>
       </div>
     </div>

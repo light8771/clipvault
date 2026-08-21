@@ -1273,7 +1273,7 @@ func TestSensitiveAccessedRoundTrip(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, `SELECT CAST(value AS VARCHAR) FROM settings WHERE key = 'schema.version'`).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(raw, "7") {
+	if !strings.Contains(raw, storeSchemaVersion) {
 		t.Fatalf("schema version marker=%q", raw)
 	}
 }

@@ -1,4 +1,7 @@
 import { app } from "./app-context.js";
+
+const t = window.clipvaultI18n.t;
+
 export function registerAppearanceForm() {
   app.themeFromForm = function themeFromForm() {
     const selected = document.querySelector('.theme-preset.active');
@@ -70,7 +73,7 @@ export function registerAppearanceForm() {
       navOpacityEl.value = navFollowing ? surfaceOpacityValue : Math.min(100, Math.max(0, navOpacityRaw));
       navOpacityEl.disabled = navFollowing;
     }
-    if (navOpacityOutput) navOpacityOutput.value = navFollowing ? '跟随' : `${navOpacityEl?.value ?? 100}%`;
+    if (navOpacityOutput) navOpacityOutput.value = navFollowing ? t('appearance.follow') : `${navOpacityEl?.value ?? 100}%`;
     const navBlurEl = document.getElementById('cfg-navBlur');
     const navBlurOutput = document.getElementById('cfg-navBlurOutput');
     const navBlurRaw = Number(value.navBlur);

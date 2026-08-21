@@ -2,42 +2,42 @@
 
     <div class="settings-main">
       <header class="sd-head">
-        <h1 class="sd-title">软件授权</h1>
-        <p class="sd-desc">查看授权状态，使用激活码激活。激活过程无需联网，激活码不会上传。</p>
+        <h1 class="sd-title">{{T "app.title.license"}}</h1>
+        <p class="sd-desc">{{T "license.desc"}}</p>
       </header>
 
       <section class="ssec" id="s-license">
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">当前状态</span>
-              <p class="field-hint" id="licenseStatusHint">正在读取授权状态…</p>
+              <span class="field-label">{{T "license.current_status"}}</span>
+              <p class="field-hint" id="licenseStatusHint">{{T "license.loading_status"}}</p>
             </div>
-            <span class="license-status" id="licenseStatusBadge">检查中</span>
+            <span class="license-status" id="licenseStatusBadge">{{T "license.checking"}}</span>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="licenseMachineCode">机器码</label>
-              <p class="field-hint">发送购买信息给卖家以获取只适用于此设备的激活码</p>
+              <label class="field-label" for="licenseMachineCode">{{T "license.machine_code"}}</label>
+              <p class="field-hint">{{T "license.machine_code_hint"}}</p>
             </div>
             <div class="license-copy-row">
-              <input id="licenseMachineCode" class="field-input license-machine" type="text" readonly value="读取中…">
-              <button class="btn-export" type="button" data-action="copy-purchase-info">复制购买信息</button>
+              <input id="licenseMachineCode" class="field-input license-machine" type="text" readonly value="{{T "common.loading"}}">
+              <button class="btn-export" type="button" data-action="copy-purchase-info">{{T "license.copy_purchase_info"}}</button>
             </div>
           </div>
           <div class="license-activate-block" id="licenseActivateBlock">
-            <label class="field-label" for="licenseTokenInput">激活码</label>
-            <p class="field-hint">完整粘贴卖家提供的激活码。激活码不会上传到网络。</p>
+            <label class="field-label" for="licenseTokenInput">{{T "license.activation_code"}}</label>
+            <p class="field-hint">{{T "license.activation_code_hint"}}</p>
             <textarea id="licenseTokenInput" class="field-input license-token-input" rows="4" autocomplete="off" spellcheck="false" placeholder="CV1.…"></textarea>
             <div class="license-actions">
-              <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" data-action="activate-license">立即激活</button>
+              <button class="lock-btn license-activate-btn" id="licenseActivateBtn" type="button" data-action="activate-license">{{T "nav.activate_now"}}</button>
               <span class="license-message" id="licenseMessage" role="alert" aria-live="polite"></span>
             </div>
           </div>
           <div class="field-row hidden" id="licenseDetailsRow">
             <div class="field-info">
-              <span class="field-label">授权编号</span>
-              <p class="field-hint">当前设备永久买断授权</p>
+              <span class="field-label">{{T "license.license_id"}}</span>
+              <p class="field-hint">{{T "license.license_id_hint"}}</p>
             </div>
             <code id="licenseIdText"></code>
           </div>

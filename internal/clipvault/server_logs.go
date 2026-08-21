@@ -29,7 +29,7 @@ func parseLogPage(r *http.Request) (limit, offset int, err error) {
 func (s *SearchServer) handleConfigChangeLog(w http.ResponseWriter, r *http.Request) {
 	limit, offset, err := parseLogPage(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_log_page", "分页参数无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_log_page", s.i18nT("api.error.invalid_log_page", nil), err)
 		return
 	}
 	entries, total, err := s.store.ListConfigChanges(r.Context(), limit, offset)
@@ -54,7 +54,7 @@ func (s *SearchServer) handleConfigChangeLogClear(w http.ResponseWriter, r *http
 func (s *SearchServer) handleSearchHistory(w http.ResponseWriter, r *http.Request) {
 	limit, offset, err := parseLogPage(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_log_page", "分页参数无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_log_page", s.i18nT("api.error.invalid_log_page", nil), err)
 		return
 	}
 	entries, total, err := s.store.ListSearchHistory(r.Context(), limit, offset)

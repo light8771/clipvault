@@ -76,6 +76,9 @@ func validateConfig(cfg Config) error {
 	if err := validateConfiguredBackupScope(cfg.Backup.EmailBackup.Scope, cfg.Search.TimeZone); err != nil {
 		return fmt.Errorf("invalid email backup scope: %w", err)
 	}
+	if err := validateUIConfig(cfg.UI); err != nil {
+		return err
+	}
 	dataAPIHost, dataAPIPort, err := validateListenAddr(cfg.DataAPI.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("invalid data API listen address: %w", err)
@@ -104,6 +107,18 @@ func validateConfig(cfg Config) error {
 				return fmt.Errorf("MCP listen address conflicts with the Data API listen address")
 			}
 		}
+	}
+	return nil
+}
+
+// validateUIConfig 校验界面语言取值："auto" 或 BCP 47 风格语言代码。
+// 语言是否存在/启用由 I18nService 在运行时解析（此处不依赖数据库）。
+func validateUIConfig(ui UIConfig) error {
+	if ui.Language == I18nAuto {
+		return nil
+	}
+	if err := validateI18nLanguageCode(ui.Language); err != nil {
+		return fmt.Errorf("ui.language: %w", err)
 	}
 	return nil
 }

@@ -48,6 +48,10 @@ func normalizeConfig(cfg *Config) {
 	if strings.TrimSpace(cfg.MCP.ListenAddr) == "" {
 		cfg.MCP.ListenAddr = def.MCP.ListenAddr
 	}
+	cfg.UI.Language = strings.TrimSpace(cfg.UI.Language)
+	if cfg.UI.Language == "" {
+		cfg.UI.Language = def.UI.Language
+	}
 	cfg.Source.normalize()
 }
 
@@ -82,18 +86,19 @@ func isEmailTemplateStyle(style string) bool {
 }
 
 func emailTemplateErrors(backup EmailBackupConfig) []string {
+	// 返回词条 key（backup.missing_*），由调用方翻译拼接。
 	var errors []string
 	if subject := strings.TrimSpace(backup.Subject); subject == "" || len([]rune(backup.Subject)) > 200 || strings.ContainsAny(backup.Subject, "\r\n") {
-		errors = append(errors, "邮件标题")
+		errors = append(errors, "backup.missing_subject")
 	}
 	if len([]rune(backup.Body)) > 5000 {
-		errors = append(errors, "邮件正文")
+		errors = append(errors, "backup.missing_body")
 	}
 	if !isEmailTemplateStyle(backup.Style) {
-		errors = append(errors, "邮件样式")
+		errors = append(errors, "backup.missing_style")
 	}
 	if !isHexColor(backup.AccentColor) {
-		errors = append(errors, "邮件主色")
+		errors = append(errors, "backup.missing_accent_color")
 	}
 	return errors
 }
@@ -101,30 +106,30 @@ func emailTemplateErrors(backup EmailBackupConfig) []string {
 func smtpDeliveryErrors(backup EmailBackupConfig) []string {
 	var errors []string
 	if strings.TrimSpace(backup.SMTPHost) == "" {
-		errors = append(errors, "SMTP 服务器")
+		errors = append(errors, "backup.missing_smtp_host")
 	}
 	if backup.SMTPPort < 1 || backup.SMTPPort > 65535 {
-		errors = append(errors, "SMTP 端口")
+		errors = append(errors, "backup.missing_smtp_port")
 	}
 	user := strings.TrimSpace(backup.SMTPUser)
 	pass := backup.SMTPPass
 	if (user == "") != (pass == "") {
-		errors = append(errors, "SMTP 用户名和密码需同时填写")
+		errors = append(errors, "backup.missing_smtp_user_pass_pair")
 	}
 	if user != "" {
 		if _, err := mail.ParseAddress(user); err != nil {
-			errors = append(errors, "SMTP 用户名必须为邮箱")
+			errors = append(errors, "backup.missing_smtp_user_email")
 		}
 	}
 	if from := strings.TrimSpace(backup.From); from == "" {
-		errors = append(errors, "发件人邮箱")
+		errors = append(errors, "backup.missing_from")
 	} else if _, err := mail.ParseAddress(from); err != nil {
-		errors = append(errors, "发件人邮箱")
+		errors = append(errors, "backup.missing_from")
 	}
 	if to := strings.TrimSpace(backup.To); to == "" {
-		errors = append(errors, "收件人邮箱")
+		errors = append(errors, "backup.missing_to")
 	} else if _, err := mail.ParseAddress(to); err != nil {
-		errors = append(errors, "收件人邮箱")
+		errors = append(errors, "backup.missing_to")
 	}
 	return errors
 }

@@ -10,21 +10,21 @@
             </div>
           </div>
           <div class="lock-brand-text">
-            <div class="lock-brand-slogan">私密 · 安全 · 可控</div>
+            <div class="lock-brand-slogan">{{T "auth.slogan"}}</div>
           </div>
         </div>
         <div class="lock-panel">
           <div class="lock-panel-head">
-            <h2 class="lock-title" id="lockTitle">ClipVault 锁屏</h2>
-            <p class="lock-desc">输入锁屏密码以访问 Web 界面，继续使用剪贴板历史与设置。</p>
+            <h2 class="lock-title" id="lockTitle">{{T "auth.lock_title"}}</h2>
+            <p class="lock-desc">{{T "auth.lock_desc"}}</p>
           </div>
           <form id="lockForm" class="lock-form">
             <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
             <div class="lock-field">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              <input type="password" id="lockPassword" class="lock-input" placeholder="锁屏密码" autocomplete="current-password" autofocus>
+              <input type="password" id="lockPassword" class="lock-input" placeholder='{{T "auth.lock_password_placeholder"}}' autocomplete="current-password" autofocus>
             </div>
-            <button type="submit" class="lock-btn" id="lockBtn">解锁</button>
+            <button type="submit" class="lock-btn" id="lockBtn">{{T "auth.unlock"}}</button>
           </form>
           <p class="lock-err hidden" id="lockErr"></p>
         </div>
@@ -34,19 +34,19 @@
           <span class="lock-feature-icon">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
           </span>
-          <span class="lock-feature-text"><strong>安全访问</strong><small>从验证开始</small></span>
+          <span class="lock-feature-text"><strong>{{T "auth.feature_secure_title"}}</strong><small>{{T "auth.feature_secure_sub"}}</small></span>
         </div>
         <div class="lock-feature">
           <span class="lock-feature-icon">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </span>
-          <span class="lock-feature-text"><strong>隐私保护</strong><small>数据加密存储</small></span>
+          <span class="lock-feature-text"><strong>{{T "auth.feature_privacy_title"}}</strong><small>{{T "auth.feature_privacy_sub"}}</small></span>
         </div>
         <div class="lock-feature">
           <span class="lock-feature-icon">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </span>
-          <span class="lock-feature-text"><strong>防止未授权访问</strong><small>守护你的安全</small></span>
+          <span class="lock-feature-text"><strong>{{T "auth.feature_guard_title"}}</strong><small>{{T "auth.feature_guard_sub"}}</small></span>
         </div>
       </div>
     </div>
@@ -56,8 +56,8 @@
   <div class="modal-overlay hidden" id="secondaryModal">
     <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="secondaryModalTitle" data-modal-panel>
       <div class="modal-head">
-        <span class="modal-title" id="secondaryModalTitle">二次验证</span>
-        <button class="modal-close" type="button" data-action="close-secondary" aria-label="关闭二次验证">
+        <span class="modal-title" id="secondaryModalTitle">{{T "auth.secondary_title"}}</span>
+        <button class="modal-close" type="button" data-action="close-secondary" aria-label='{{T "auth.secondary_close_label"}}'>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -65,11 +65,11 @@
         <div class="secondary-icon">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         </div>
-        <p class="secondary-desc">此操作需要二次密码验证。请输入二次密码以继续。</p>
+        <p class="secondary-desc">{{T "auth.secondary_desc"}}</p>
         <form id="secondaryForm" class="lock-form">
           <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
-          <input type="password" id="secondaryPassword" class="lock-input" placeholder="二次密码" autocomplete="current-password">
-          <button type="submit" class="lock-btn" id="secondaryBtn">验证</button>
+          <input type="password" id="secondaryPassword" class="lock-input" placeholder='{{T "auth.secondary_password_placeholder"}}' autocomplete="current-password">
+          <button type="submit" class="lock-btn" id="secondaryBtn">{{T "auth.verify"}}</button>
         </form>
         <p class="lock-err hidden" id="secondaryErr"></p>
       </div>

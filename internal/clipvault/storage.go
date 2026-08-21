@@ -2,6 +2,7 @@ package clipvault
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,10 +44,10 @@ func (env Environment) StorageStatus() StorageStatus {
 	switch env.Source {
 	case "portable":
 		status.Movable = false
-		status.Reason = "便携模式的数据目录由 portable.flag 固定"
+		status.Reason = templateT("storage.reason_portable", nil)
 	case "environment", "command":
 		status.Movable = false
-		status.Reason = "数据目录由启动环境指定"
+		status.Reason = templateT("storage.reason_env", nil)
 	}
 	if status.Movable {
 		_, err := os.Stat(filepath.Join(environmentControlDir(), storageMoveFile))
@@ -136,28 +137,28 @@ func ScheduleDataDirectoryMove(env Environment, target string) error {
 func resolveExistingDirectory(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", fmt.Errorf("请选择数据目录")
+		return "", errors.New(templateT("storage.err_choose_dir", nil))
 	}
 	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("数据目录必须使用绝对路径")
+		return "", errors.New(templateT("storage.err_absolute_path", nil))
 	}
 	abs := filepath.Clean(path)
 	info, err := os.Lstat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("目录不存在；请先在系统中创建: %w", os.ErrNotExist)
+			return "", fmt.Errorf("%s: %w", templateT("storage.err_dir_not_exist", nil), os.ErrNotExist)
 		}
-		return "", fmt.Errorf("访问目录失败: %w", err)
+		return "", fmt.Errorf("%s: %w", templateT("storage.err_dir_access", nil), err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("指定路径不是目录")
+		return "", errors.New(templateT("storage.err_not_dir", nil))
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return "", fmt.Errorf("解析目录失败: %w", err)
+		return "", fmt.Errorf("%s: %w", templateT("storage.err_resolve", nil), err)
 	}
 	if !strings.EqualFold(filepath.Clean(resolved), abs) {
-		return "", fmt.Errorf("数据目录不能是符号链接或联接点")
+		return "", errors.New(templateT("storage.err_symlink", nil))
 	}
 	return abs, nil
 }
@@ -170,14 +171,14 @@ func verifyDirectoryWritable(dir string) error {
 
 	probeDir := probe + "-dir"
 	if err := os.Mkdir(probeDir, 0o700); err != nil {
-		return fmt.Errorf("目录创建子目录检查失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_mkdir_check", nil), err)
 	}
 	defer os.RemoveAll(probeDir)
 	if err := verifyFileRoundTrip(filepath.Join(probeDir, "probe")); err != nil {
 		return err
 	}
 	if err := os.Remove(probeDir); err != nil {
-		return fmt.Errorf("目录删除子目录检查失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_rmdir_check", nil), err)
 	}
 	return nil
 }
@@ -186,25 +187,25 @@ func verifyFileRoundTrip(probe string) error {
 	const probeData = "clipvault"
 	f, err := os.OpenFile(probe, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return fmt.Errorf("目录不可写，请检查权限: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_not_writable", nil), err)
 	}
 	defer os.Remove(probe)
 	if _, err := f.WriteString(probeData); err != nil {
 		_ = f.Close()
-		return fmt.Errorf("目录写入检查失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_write_check", nil), err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("目录写入检查失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_write_check", nil), err)
 	}
 	data, err := os.ReadFile(probe)
 	if err != nil {
-		return fmt.Errorf("目录读取检查失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_read_check", nil), err)
 	}
 	if string(data) != probeData {
-		return fmt.Errorf("目录读写检查数据不一致")
+		return errors.New(templateT("storage.err_round_trip_mismatch", nil))
 	}
 	if err := os.Remove(probe); err != nil {
-		return fmt.Errorf("目录删除检查失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_remove_check", nil), err)
 	}
 	return nil
 }
@@ -212,13 +213,13 @@ func verifyFileRoundTrip(probe string) error {
 func validateDataDirectoryMoveTarget(targetDir, controlDir string) error {
 	entries, err := os.ReadDir(targetDir)
 	if err != nil {
-		return fmt.Errorf("读取目标目录失败: %w", err)
+		return fmt.Errorf("%s: %w", templateT("storage.err_read_target", nil), err)
 	}
 	for _, entry := range entries {
 		if samePath(targetDir, controlDir) && isManagedControlEntry(entry) {
 			continue
 		}
-		return fmt.Errorf("目标目录必须为空")
+		return errors.New(templateT("storage.err_target_not_empty", nil))
 	}
 	return nil
 }
@@ -284,11 +285,11 @@ func configuredStorageLocation(controlDir string) (storageLocation, bool, error)
 		return storageLocation{}, false, nil
 	}
 	if err != nil {
-		return storageLocation{}, false, fmt.Errorf("读取数据目录配置失败: %w", err)
+		return storageLocation{}, false, fmt.Errorf("%s: %w", templateT("storage.err_read_config", nil), err)
 	}
 	var location storageLocation
 	if err := decodeStrictJSON(data, &location); err != nil {
-		return storageLocation{}, false, fmt.Errorf("解析数据目录配置失败: %w", err)
+		return storageLocation{}, false, fmt.Errorf("%s: %w", templateT("storage.err_parse_config", nil), err)
 	}
 	dataDir, err := resolveAbsoluteDataDirectory(location.DataDir, "configured data directory")
 	if err != nil {

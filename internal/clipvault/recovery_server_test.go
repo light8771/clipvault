@@ -13,13 +13,15 @@ import (
 	"testing"
 )
 
-func TestRecoveryPageIsChineseAndExplainsCredentials(t *testing.T) {
+func TestRecoveryPageIsLocalizedAndExplainsCredentials(t *testing.T) {
+	// 骨架语言中立，文案由 recovery.js 的内嵌字典按浏览器语言填充；
+	// 服务端 HTML 校验结构与 data-i18n 标注完整性。
 	required := []string{
-		`lang="zh-CN"`,
-		"恢复剪贴板数据库",
-		"这不是软件激活码，也不是锁屏密码",
-		"仅在本机处理",
-		"创建新数据库",
+		`data-i18n="page_title"`,
+		`data-i18n="panel_desc"`,
+		`data-i18n="local_status"`,
+		`data-i18n-placeholder="confirm_phrase"`,
+		`data-i18n="new_btn"`,
 		`role="status"`,
 		`aria-live="polite"`,
 	}
@@ -28,9 +30,20 @@ func TestRecoveryPageIsChineseAndExplainsCredentials(t *testing.T) {
 			t.Fatalf("recovery page is missing %q", text)
 		}
 	}
-	for _, stale := range []string{"Data Recovery", "Recovery Password", "location.reload()"} {
+	for _, stale := range []string{"location.reload()"} {
 		if strings.Contains(recoveryHTML, stale) {
 			t.Fatalf("recovery page still contains stale content %q", stale)
+		}
+	}
+	// 双语字典必须在 recovery.js 中成对出现（中英各一份关键文案）。
+	recoveryJS, err := webFS.ReadFile("web/recovery.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(recoveryJS)
+	for _, text := range []string{"恢复剪贴板数据库", "Recover the Clipboard Database", "'zh-CN'", "'en-US'", "confirm_phrase"} {
+		if !strings.Contains(js, text) {
+			t.Fatalf("recovery.js dictionary is missing %q", text)
 		}
 	}
 }
@@ -43,13 +56,14 @@ func TestRecoveryHandlerAcceptsEmptyPassword(t *testing.T) {
 
 	var response struct {
 		Error struct {
+			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Error.Message != "恢复失败：密码不正确，或恢复文件已经损坏" {
+	if response.Error.Code != "recovery_failed" || response.Error.Message != "recover_failed" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }

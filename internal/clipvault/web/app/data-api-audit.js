@@ -1,16 +1,18 @@
 import { app } from './app-context.js';
 import { armConfirm } from './confirm-arm.js';
 
+const t = window.clipvaultI18n.t;
+
 // 数据接口「访问记录」子特性：统计概览、筛选、表格详情、分页与导出。
 // 服务配置/令牌/文档逻辑在 data-api.js；这里只关心审计列表。
 
 const AUDIT_OP_LABELS = {
-  query_items: '查询',
-  get_item: '取单条',
-  batch_get: '批量获取',
-  get_content: '取内容',
-  get_metadata: '元数据',
-  auth: '认证失败'
+  query_items: 'dapi.op_query',
+  get_item: 'mcp.op_get_item',
+  batch_get: 'mcp.op_get_items',
+  get_content: 'mcp.op_get_content',
+  get_metadata: 'dapi.op_metadata',
+  auth: 'mcp.op_auth_failed'
 };
 
 export function registerDataAPIAudit() {
@@ -57,8 +59,8 @@ export function registerDataAPIAudit() {
       if (d.stats) renderAuditStats(d.stats);
       renderAudit(d.entries || []);
     } catch (_) {
-      el('dapiAuditTotal').textContent = '读取失败';
-      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">无法读取访问记录，请查看本地日志</td></tr>';
+      el('dapiAuditTotal').textContent = t('logs.load_failed');
+      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' + t('audit.load_failed') + '</td></tr>';
     }
   };
 
@@ -79,7 +81,7 @@ export function registerDataAPIAudit() {
 
   function auditResultText(entry) {
     if (entry.operation === 'query_items' || entry.operation === 'batch_get' || entry.operation === 'get_metadata') {
-      return entry.itemCount + ' 条';
+      return t('audit.item_count', { count: entry.itemCount });
     }
     if (entry.itemId) return '#' + entry.itemId;
     return '—';
@@ -90,11 +92,11 @@ export function registerDataAPIAudit() {
     const list = el('dapiAuditList');
     const filtering = state.filters.operation || state.filters.result || state.filters.tokenId || state.filters.q;
     el('dapiAuditTotal').textContent = filtering
-      ? '筛出 ' + state.total + ' 条'
-      : '共 ' + state.total + ' 条访问记录';
+      ? t('audit.total_filtered', { count: state.total })
+      : t('audit.total', { count: state.total });
     if (!entries.length) {
       list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' +
-        (state.page > 0 ? '本页没有记录' : (filtering ? '没有符合条件的记录' : '暂无访问记录')) + '</td></tr>';
+        (state.page > 0 ? t('audit.empty_page') : (filtering ? t('audit.empty_filtered') : t('audit.empty'))) + '</td></tr>';
     } else {
       list.innerHTML = entries.map(auditRowHTML).join('');
     }
@@ -103,24 +105,25 @@ export function registerDataAPIAudit() {
 
   function auditRowHTML(entry) {
     const state = app.dapiAuditState;
-    const opLabel = AUDIT_OP_LABELS[entry.operation] || entry.operation;
+    const opKey = AUDIT_OP_LABELS[entry.operation];
+    const opLabel = opKey ? t(opKey) : entry.operation;
     const summary = entry.requestSummary || '';
     const summaryShort = summary.length > 64 ? summary.slice(0, 64) + '…' : summary;
     const hasBody = !!entry.requestBody;
     const sensitiveTag = entry.sensitiveAccessed
-      ? ' <span class="dapi-tag warn" title="本次调用实际返回了敏感记录">敏感</span>'
+      ? ' <span class="dapi-tag warn" title="' + t('audit.sensitive_returned_tip') + '">' + t('audit.sensitive_yes') + '</span>'
       : '';
     // 展开集合以字符串 id 为键（dataset.auditId 是字符串，entry.id 是数字）。
     const expanded = state.expanded.has(String(entry.id));
     let row = '<tr class="dapi-audit-row' + (expanded ? ' is-open' : '') + '" data-audit-id="' + entry.id + '" data-action="data-api-audit-toggle">' +
       '<td class="col-time">' + app.esc(app.formatLogTime(entry.timestamp)) + '</td>' +
-      '<td class="col-token">' + app.esc(entry.tokenName || '（未认证）') + '</td>' +
+      '<td class="col-token">' + app.esc(entry.tokenName || t('audit.unauthenticated')) + '</td>' +
       '<td class="col-op"><span class="dapi-op-cell">' +
       '<span class="dapi-op-label">' + app.esc(opLabel) + '</span>' +
       '<span class="dapi-op-endpoint"><span class="dapi-method ' + app.esc(entry.method.toLowerCase()) + '">' + app.esc(entry.method) + '</span><code>' + app.esc(entry.endpoint) + '</code></span>' +
       '</span></td>' +
       '<td class="col-summary">' + (hasBody
-        ? '<span class="dapi-summary dapi-summary-link" title="点击行查看完整请求体">' + app.esc(summaryShort || '点击查看请求体') + '</span>'
+        ? '<span class="dapi-summary dapi-summary-link" title="' + t('audit.click_to_view_body') + '">' + app.esc(summaryShort || t('audit.click_to_view_body')) + '</span>'
         : (summaryShort ? '<code class="dapi-summary">' + app.esc(summaryShort) + '</code>' : '<span class="dapi-muted">—</span>')) + sensitiveTag + '</td>' +
       '<td class="col-result"><span class="dapi-result-cell">' + auditResultBadge(entry) + '<span class="dapi-result-count">' + app.esc(auditResultText(entry)) + '</span></span></td>' +
       '<td class="col-ms">' + entry.durationMs + 'ms</td>' +
@@ -129,12 +132,12 @@ export function registerDataAPIAudit() {
     if (expanded) {
       row += '<tr class="dapi-audit-detail"><td colspan="7">' +
         '<div class="dapi-detail-grid">' +
-        '<span class="dapi-detail-label">请求</span><code>' + app.esc(entry.method + ' ' + entry.endpoint) + '</code>' +
-        '<span class="dapi-detail-label">响应</span><code>' + app.esc(auditResultText(entry)) + ' · ' + entry.durationMs + 'ms</code>' +
-        '<span class="dapi-detail-label">敏感访问</span><code>' + (entry.sensitiveAccessed ? '是' : '否') + '</code>' +
-        (entry.itemId ? '<span class="dapi-detail-label">记录</span><code>#' + entry.itemId + '</code>' : '') +
-        (entry.errorCode ? '<span class="dapi-detail-label">错误码</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
-        (entry.tokenName ? '<span class="dapi-detail-label">令牌</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + t('audit.detail_request') + '</span><code>' + app.esc(entry.method + ' ' + entry.endpoint) + '</code>' +
+        '<span class="dapi-detail-label">' + t('audit.detail_response') + '</span><code>' + app.esc(auditResultText(entry)) + ' · ' + entry.durationMs + 'ms</code>' +
+        '<span class="dapi-detail-label">' + t('audit.detail_sensitive') + '</span><code>' + (entry.sensitiveAccessed ? t('audit.yes') : t('audit.no')) + '</code>' +
+        (entry.itemId ? '<span class="dapi-detail-label">' + t('audit.detail_item') + '</span><code>#' + entry.itemId + '</code>' : '') +
+        (entry.errorCode ? '<span class="dapi-detail-label">' + t('audit.detail_error_code') + '</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
+        (entry.tokenName ? '<span class="dapi-detail-label">' + t('audit.detail_token') + '</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
         '</div>' +
         (hasBody ? auditBodyHTML(entry) : '') +
         '</td></tr>';
@@ -149,7 +152,7 @@ export function registerDataAPIAudit() {
       text = JSON.stringify(JSON.parse(entry.requestBody), null, 2);
     } catch (_) { /* 保留原文（截断的 JSON 或非 JSON 内容） */ }
     return '<div class="dapi-detail-body">' +
-      '<span class="dapi-detail-label">请求体</span>' +
+      '<span class="dapi-detail-label">' + t('audit.detail_request_body') + '</span>' +
       '<pre class="dapi-body-pre">' + app.esc(text) + '</pre>' +
       '</div>';
   }
@@ -226,7 +229,7 @@ export function registerDataAPIAudit() {
     const label = button.textContent;
     try {
       const res = await app.fetch('/api/v1/data-api/audit/export?' + auditQueryString());
-      await app.requireOK(res, '导出失败');
+      await app.requireOK(res, t('audit.export_failed'));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -236,17 +239,17 @@ export function registerDataAPIAudit() {
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      button.textContent = '已导出';
+      button.textContent = t('audit.exported');
       setTimeout(() => { button.textContent = label; }, 1200);
     } catch (e) {
-      app.toast('导出失败：' + (e.message || e), 'err');
+      app.toast(t('audit.export_failed_with', { message: e.message || e }), 'err');
     }
   };
 
   app.clearDataAPIAudit = function clearDataAPIAudit(button) {
-    armConfirm(button, '再次点击确认清空', async () => {
-      await app.requireOK(await app.protectedFetch('/api/v1/data-api/audit', { method: 'DELETE' }), '清空失败');
-      app.toast('访问记录已清空');
+    armConfirm(button, t('audit.confirm_clear'), async () => {
+      await app.requireOK(await app.protectedFetch('/api/v1/data-api/audit', { method: 'DELETE' }), t('audit.clear_failed'));
+      app.toast(t('dapi.audit_cleared'));
       app.dapiAuditState.page = 0;
       app.dapiAuditState.expanded.clear();
       await app.loadDataAPIAudit();
@@ -260,7 +263,7 @@ export function registerDataAPIAudit() {
     if (!select) return;
     const current = select.value;
     const tokens = app.dapiTokens || [];
-    select.innerHTML = '<option value="">全部令牌</option>' +
+    select.innerHTML = '<option value="">' + t('audit.all_tokens') + '</option>' +
       tokens.map(token =>
         '<option value="' + app.esc(token.id) + '">' + app.esc(token.name) + '</option>').join('');
     if (Array.from(select.options).some(option => option.value === current)) select.value = current;

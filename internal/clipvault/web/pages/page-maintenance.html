@@ -2,39 +2,39 @@
 
     <div class="settings-main">
       <header class="sd-head">
-        <h1 class="sd-title">运行维护</h1>
-        <p class="sd-desc">运行信息、诊断日志与运行维护。导出诊断日志需要二次验证。</p>
+        <h1 class="sd-title">{{T "app.title.maintenance"}}</h1>
+        <p class="sd-desc">{{T "maintenance.desc"}}</p>
       </header>
 
       <!-- 运行信息 -->
-      <section class="sysinfo" aria-label="运行信息">
+      <section class="sysinfo" aria-label="{{T "maintenance.runtime_info"}}">
         <div class="sysinfo-head">
-          <h2 class="sysinfo-title">运行信息</h2>
-          <span class="sysinfo-note">本机实时数据</span>
+          <h2 class="sysinfo-title">{{T "maintenance.runtime_info"}}</h2>
+          <span class="sysinfo-note">{{T "maintenance.runtime_live"}}</span>
         </div>
         <dl class="sysinfo-grid">
           <div class="sysinfo-item">
-            <dt>录制状态</dt>
+            <dt>{{T "maintenance.recording_status"}}</dt>
             <dd id="sysStatus">-</dd>
           </div>
           <div class="sysinfo-item">
-            <dt>历史记录</dt>
+            <dt>{{T "maintenance.history_records"}}</dt>
             <dd id="sysRecords">-</dd>
           </div>
           <div class="sysinfo-item">
-            <dt>数据库大小</dt>
+            <dt>{{T "maintenance.db_size"}}</dt>
             <dd id="sysDBSize">-</dd>
           </div>
           <div class="sysinfo-item">
-            <dt>运行时间</dt>
+            <dt>{{T "maintenance.uptime"}}</dt>
             <dd id="sysUptime">-</dd>
           </div>
           <div class="sysinfo-item">
-            <dt>版本</dt>
+            <dt>{{T "maintenance.version"}}</dt>
             <dd id="sysVersion">-</dd>
           </div>
           <div class="sysinfo-item sysinfo-item-wide">
-            <dt>数据目录</dt>
+            <dt>{{T "maintenance.data_dir"}}</dt>
             <dd class="sysinfo-path" id="sysDataDir">-</dd>
           </div>
         </dl>
@@ -42,16 +42,16 @@
 
       <section class="ssec" id="s-maintenance">
         <div class="fsec" id="s-maintenance-diag">
-          <h3 class="fsec-title">诊断日志</h3>
-          <p class="fsec-desc">导出问题排查所需的脱敏运行日志</p>
+          <h3 class="fsec-title">{{T "maintenance.diag_logs"}}</h3>
+          <p class="fsec-desc">{{T "maintenance.diag_logs_desc"}}</p>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">运行日志</span>
-              <p class="field-hint">导出最近 7 天、最多 8 MiB 的脱敏日志和运行环境信息，不包含剪贴板内容、数据库、配置或密钥。请将 ZIP 文件发送给技术支持。</p>
+              <span class="field-label">{{T "maintenance.runtime_logs"}}</span>
+              <p class="field-hint">{{T "maintenance.runtime_logs_hint"}}</p>
             </div>
-            <button type="button" class="btn-export" id="diagnosticsExportBtn">导出运行日志</button>
+            <button type="button" class="btn-export" id="diagnosticsExportBtn">{{T "maintenance.export_logs"}}</button>
           </div>
         </div>
       </section>

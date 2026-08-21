@@ -17,7 +17,8 @@ export function vkToDisplay(vk) {
 export function parseVkInput(value) {
     const input = (value || '').trim().toUpperCase();
     if (!input) return 0;
-    if (input === 'SPACE' || input === '空格') return 0x20;
+    // "空格" 是中文用户对 Space 键的习惯输入，作为按键别名识别（非 UI 文案）。
+    if (input === 'SPACE' || input === '\u7A7A\u683C') return 0x20;
     if (/^[A-Z0-9]$/.test(input)) return input.charCodeAt(0);
     const functionKey = /^F([1-9]|1[0-9]|2[0-4])$/.exec(input);
     if (functionKey) return 0x70 + Number(functionKey[1]) - 1;

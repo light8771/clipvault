@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { trapModalFocus } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerConfigSave() {
   app.RESTART_OVERLAY = document.getElementById('restartOverlay');
   app.RESTART_CONFIRM = document.getElementById('restartConfirm');
@@ -52,11 +55,11 @@ export function registerConfigSave() {
       });
       const hkKeyChar = app.parseVkInput(document.getElementById('cfg-hotkeyKey')?.value);
       if (hkKeyChar === null) {
-        app.toast('全局快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
+        app.toast(t('config.hotkey_key_invalid'), 'err');
         return null;
       }
       if (hkEnabled && (hkMods === 0 || hkKeyChar === 0)) {
-        app.toast('启用快捷键时需选择至少一个修饰键并输入一个按键', 'err');
+        app.toast(t('config.hotkey_need_mods'), 'err');
         return null;
       }
       const shkEnabled = document.getElementById('cfg-searchHotkeyEnabled')?.checked || false;
@@ -66,16 +69,16 @@ export function registerConfigSave() {
       });
       const shkKeyChar = app.parseVkInput(document.getElementById('cfg-searchHotkeyKey')?.value);
       if (shkKeyChar === null) {
-        app.toast('搜索框快捷键主键仅支持 A–Z、0–9、F1–F24 或 Space', 'err');
+        app.toast(t('config.search_hotkey_key_invalid'), 'err');
         return null;
       }
       if (shkEnabled && (shkMods === 0 || shkKeyChar === 0)) {
-        app.toast('启用搜索框快捷键时需选择至少一个修饰键并输入一个按键', 'err');
+        app.toast(t('config.search_hotkey_need_mods'), 'err');
         return null;
       }
       // 防止两个快捷键完全相同
       if (hkEnabled && shkEnabled && hkMods === shkMods && hkKeyChar === shkKeyChar) {
-        app.toast('搜索框快捷键不能与全局快捷键相同', 'err');
+        app.toast(t('config.hotkey_conflict'), 'err');
         return null;
       }
       // 弹窗三动作快捷键：仅 [Ctrl+][Shift+][Alt+]Enter，三者互不相同
@@ -83,11 +86,11 @@ export function registerConfigSave() {
       const popupKeys = ['cfg-popupKeyOpen', 'cfg-popupKeyRestore', 'cfg-popupKeyPaste'].map(id => (document.getElementById(id)?.value || '').trim());
       const popupKeyNormalized = popupKeys.map(k => k.toLowerCase());
       if (popupKeyNormalized.some(k => !popupKeyPattern.test(k))) {
-        app.toast('弹窗动作快捷键仅支持 [Ctrl+][Shift+][Alt+]Enter 组合', 'err');
+        app.toast(t('config.popup_key_invalid'), 'err');
         return null;
       }
       if (new Set(popupKeyNormalized).size !== popupKeyNormalized.length) {
-        app.toast('弹窗三个动作的快捷键不能相同', 'err');
+        app.toast(t('config.popup_key_conflict'), 'err');
         return null;
       }
       const imageMaxMB = parseInt(document.getElementById('cfg-imageMaxMB')?.value) || 32;
@@ -241,7 +244,7 @@ export function registerConfigSave() {
     if (onBackupPage) {
       const emailMaxPartSizeMB = newCfg.backup.emailBackup.maxPartSize / (1024 * 1024);
       if (!Number.isInteger(emailMaxPartSizeMB) || emailMaxPartSizeMB < 1 || emailMaxPartSizeMB > 50) {
-        app.toast('单封邮件上限必须是 1–50MB 的整数', 'err');
+        app.toast(t('backup.max_part_size_invalid'), 'err');
         return false;
       }
     }
@@ -253,14 +256,14 @@ export function registerConfigSave() {
     if (onBackupPage && newCfg.backup?.dirBackup?.enabled) {
       const missing = app.validateDirBackupConfig();
       if (missing.length) {
-        app.toast('目录备份配置不完整：' + missing.join('、'), 'err');
+        app.toast(t('backup.incomplete_dir', { items: missing.join('、') }), 'err');
         return false;
       }
     }
     if (onBackupPage && newCfg.backup?.emailBackup?.enabled) {
       const missing = app.validateEmailBackupConfig();
       if (missing.length) {
-        app.toast('邮件备份配置不完整：' + missing.join('、'), 'err');
+        app.toast(t('backup.incomplete_email', { items: missing.join('、') }), 'err');
         return false;
       }
     }
@@ -269,13 +272,13 @@ export function registerConfigSave() {
     const openingLAN = addrChanged && app.isLoopbackListenAddress(previousSearch.listenAddr) && !app.isLoopbackListenAddress(newCfg.search.listenAddr);
     if (openingLAN) {
       if (!app.authState.hasLockPassword) {
-        app.toast('开放远程访问前，请先设置锁屏密码', 'err');
+        app.toast(t('config.lan_needs_lock_password'), 'err');
         return false;
       }
-      if (!window.confirm('安全警告：非回环地址会通过明文 HTTP 向同一网络开放 ClipVault。请确认网络可信、防火墙规则正确，并只向可信用户提供锁屏密码。是否继续？')) {
+      if (!window.confirm(t('config.lan_confirm'))) {
         document.getElementById('cfg-listenAddr').value = previousSearch.listenAddr;
         app.updateListenAddressWarning();
-        app.toast('已取消开放远程访问');
+        app.toast(t('config.lan_cancelled'));
         return false;
       }
     }
@@ -287,21 +290,21 @@ export function registerConfigSave() {
         },
         body: JSON.stringify(newCfg)
       });
-      await app.requireOK(res, '配置保存失败');
+      await app.requireOK(res, t('config.save_failed'));
       const d = await res.json();
       app.replaceCurrentConfig(d.config);
       const runtimeWarning = d.runtimeError || d.hotkeyError;
       if (runtimeWarning) {
-        app.toast('设置已保存，但' + runtimeWarning, 'err');
+        app.toast(t('config.saved_with_warning', { warning: runtimeWarning }), 'err');
       } else {
-        app.toast('设置已保存');
+        app.toast(t('config.saved'));
       }
       if (addrChanged) {
         app.showRestartConfirm();
       }
       return true;
     } catch (e) {
-      app.toast('保存失败：' + (e.message || e), 'err');
+      app.toast(t('config.save_failed_with', { message: e.message || e }), 'err');
       return false;
     }
   };
@@ -325,7 +328,7 @@ export function registerConfigSave() {
   });
   app.RESTART_CANCEL.addEventListener('click', () => {
     app.hideRestartConfirm();
-    app.toast('监听地址将在下次重启后生效');
+    app.toast(t('config.restart_deferred'));
   });
   app.RESTART_CONFIRM_BTN.addEventListener('click', async () => {
     app.hideRestartConfirm();
@@ -339,7 +342,7 @@ export function registerConfigSave() {
       });
       if (!res.ok) {
         app.RESTART_OVERLAY.classList.add('hidden');
-        app.toast('重启请求失败，请手动重启应用', 'err');
+        app.toast(t('config.restart_request_failed'), 'err');
         return;
       }
     } catch (_) {
@@ -356,7 +359,7 @@ export function registerConfigSave() {
       if (attempts > maxAttempts) {
         clearInterval(interval);
         app.RESTART_OVERLAY.classList.add('hidden');
-        app.toast('重启超时，新页面可能已在新标签页打开', 'err');
+        app.toast(t('config.restart_timeout'), 'err');
         return;
       }
       try {

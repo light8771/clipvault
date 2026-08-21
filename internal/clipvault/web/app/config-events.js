@@ -1,4 +1,7 @@
 import { app } from "./app-context.js";
+
+const t = window.clipvaultI18n.t;
+
 export function registerConfigEvents() {
   app.setupAutoSave = function setupAutoSave() {
     const settingsEl = document.getElementById('viewSettings');
@@ -77,7 +80,7 @@ export function registerConfigEvents() {
     });
     navOpacityFollow?.addEventListener('change', () => {
       if (navOpacityControl) navOpacityControl.disabled = navOpacityFollow.checked;
-      if (navOpacityOutput) navOpacityOutput.value = navOpacityFollow.checked ? '跟随' : `${navOpacityControl?.value || 100}%`;
+      if (navOpacityOutput) navOpacityOutput.value = navOpacityFollow.checked ? t('appearance.follow') : `${navOpacityControl?.value || 100}%`;
       app.applyTheme(app.themeFromForm());
     });
     const navBlurControl = document.getElementById('cfg-navBlur');
@@ -90,8 +93,8 @@ export function registerConfigEvents() {
       document.getElementById(id)?.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
     });
     // 首页设置搜索框不是配置项，输入不得触发自动保存。
-    const isExcluded = t => t === listenAddrEl || t === timeZoneEl
-      || t?.id === 'settingsSearch' || t?.type === 'file';
+    const isExcluded = target => target === listenAddrEl || target === timeZoneEl
+      || target?.id === 'settingsSearch' || target?.type === 'file';
     settingsEl.addEventListener('input', e => {
       if (isExcluded(e.target)) return;
       app.scheduleConfigSave(800);
@@ -144,7 +147,7 @@ export function registerConfigEvents() {
       diagnosticsButton.disabled = true;
       try {
         const ok = await app.authedDownload('/api/v1/diagnostics', 'clipvault-diagnostics.zip');
-        if (ok) app.toast('运行日志已导出');
+        if (ok) app.toast(t('maintenance.logs_exported'));
       } finally {
         app.diagnosticsExportInFlight = false;
         diagnosticsButton.disabled = false;
@@ -157,7 +160,7 @@ export function registerConfigEvents() {
         const missing = app.validateDirBackupConfig();
         if (missing.length) {
           e.preventDefault();
-          app.toast('启用目录备份前请先完善配置：' + missing.join('、'), 'err');
+          app.toast(t('backup.complete_config_first', { items: missing.join('、') }), 'err');
         }
       });
     }
@@ -168,7 +171,7 @@ export function registerConfigEvents() {
         const missing = app.validateEmailBackupConfig();
         if (missing.length) {
           e.preventDefault();
-          app.toast('启用邮件备份前请先完善配置：' + missing.join('、'), 'err');
+          app.toast(t('backup.complete_config_first', { items: missing.join('、') }), 'err');
         }
       });
     }
@@ -194,12 +197,12 @@ export function registerConfigEvents() {
     const pwd = document.getElementById('cfg-dirBackupPwd')?.value || '';
     const clearChecked = document.getElementById('cfg-dirBackupPwdClear')?.checked || false;
     const hasExistingPwd = app.currentCfg?.backup?.dirBackup?.password === '__set__';
-    if (interval < 1 || interval > 720) missing.push('备份间隔');
-    if (!dir) missing.push('目标目录');
+    if (interval < 1 || interval > 720) missing.push(t('backup.missing_interval'));
+    if (!dir) missing.push(t('backup.missing_target_dir'));
     // 目录备份仅支持加密导出（json/xlsx 为 zip 加密打包），任何格式都需要加密密码。
     // 有新输入用新密码；无新输入且勾选清除则为空；无新输入未勾选则依赖已存密码
     const effectivePwd = pwd || (clearChecked ? '' : hasExistingPwd ? '__set__' : '');
-    if (!effectivePwd) missing.push('加密密码（目录备份仅支持加密导出）');
+    if (!effectivePwd) missing.push(t('backup.missing_encryption_pwd'));
     return missing;
   };
   app.validateEmailBackupConfig = function validateEmailBackupConfig() {
@@ -221,25 +224,25 @@ export function registerConfigEvents() {
     const eb = app.currentCfg?.backup?.emailBackup || {};
     const hasExistingSmtpPass = eb.smtpPass === '__set__';
     const hasExistingPwd = eb.password === '__set__';
-    if (interval < 1 || interval > 720) missing.push('备份间隔');
-    if (!host) missing.push('SMTP 服务器');
-    if (port <= 0 || port > 65535) missing.push('SMTP 端口');
+    if (interval < 1 || interval > 720) missing.push(t('backup.missing_interval'));
+    if (!host) missing.push(t('backup.missing_smtp_host'));
+    if (port <= 0 || port > 65535) missing.push(t('backup.missing_smtp_port'));
     const effectiveSmtpPass = pass || (user && hasExistingSmtpPass ? '__set__' : '');
     if (Boolean(user) !== Boolean(effectiveSmtpPass)) {
-      missing.push('SMTP 用户名和密码需同时填写');
+      missing.push(t('backup.missing_smtp_user_pass_pair'));
     }
     if (user && !document.getElementById('cfg-emailBackupSMTPUser')?.validity.valid) {
-      missing.push('SMTP 用户名必须为邮箱');
+      missing.push(t('backup.missing_smtp_user_email'));
     }
-    if (!from || !document.getElementById('cfg-emailBackupFrom')?.validity.valid) missing.push('发件人邮箱');
-    if (!to || !document.getElementById('cfg-emailBackupTo')?.validity.valid) missing.push('收件人邮箱');
-    if (!subject.trim() || /[\r\n]/.test(subject) || Array.from(subject).length > 200) missing.push('邮件标题');
-    if (Array.from(body).length > 5000) missing.push('邮件正文');
-    if (!['plain', 'card', 'accent'].includes(style)) missing.push('邮件样式');
-    if (!/^#[0-9A-Fa-f]{6}$/.test(accentColor)) missing.push('邮件主色');
+    if (!from || !document.getElementById('cfg-emailBackupFrom')?.validity.valid) missing.push(t('backup.missing_from'));
+    if (!to || !document.getElementById('cfg-emailBackupTo')?.validity.valid) missing.push(t('backup.missing_to'));
+    if (!subject.trim() || /[\r\n]/.test(subject) || Array.from(subject).length > 200) missing.push(t('backup.missing_subject'));
+    if (Array.from(body).length > 5000) missing.push(t('backup.missing_body'));
+    if (!['plain', 'card', 'accent'].includes(style)) missing.push(t('backup.missing_style'));
+    if (!/^#[0-9A-Fa-f]{6}$/.test(accentColor)) missing.push(t('backup.missing_accent_color'));
     // 邮件备份仅支持加密导出（json/xlsx 为 zip 加密打包），任何格式都需要加密密码
     const effectivePwd = pwd || (clearChecked ? '' : hasExistingPwd ? '__set__' : '');
-    if (!effectivePwd) missing.push('加密密码（邮件备份仅支持加密导出）');
+    if (!effectivePwd) missing.push(t('backup.missing_encryption_pwd'));
     return missing;
   };
 }

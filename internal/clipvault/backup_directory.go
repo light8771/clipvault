@@ -23,7 +23,7 @@ func (bs *BackupService) doDirBackup(cfg Config, trigger string, forceFull bool)
 	}
 	db := cfg.Backup.DirBackup
 	if msg := validateDirBackupEnabled(db); msg != "" {
-		return fmt.Errorf("目录备份配置不完整: %s", msg)
+		return fmt.Errorf("%s: %s", templateT("backup.incomplete_dir_prefix", nil), msg)
 	}
 	bs.markDirRunning(trigger)
 	fail := func(now time.Time, scope ExportScope, autoFallback bool, file string, err error) error {
@@ -44,13 +44,13 @@ func (bs *BackupService) doDirBackup(cfg Config, trigger string, forceFull bool)
 	now := time.Now()
 	format := db.Format
 	if format != "json" && format != "xlsx" && format != "cvexport" {
-		return fail(now, scope, autoFallback, "", fmt.Errorf("不支持的备份格式: %s", format))
+		return fail(now, scope, autoFallback, "", fmt.Errorf("%s: %s", templateT("backup.err_unsupported_format", nil), format))
 	}
 	// 无数据可备份时跳过：增量没有新记录、或全量时库为空，
 	// 都不产生空备份文件，水位线保持不动。
 	total, err := bs.store.CountInScope(context.Background(), scope)
 	if err != nil {
-		return fail(now, scope, autoFallback, "", fmt.Errorf("统计备份数据失败: %w", err))
+		return fail(now, scope, autoFallback, "", fmt.Errorf("%s: %w", templateT("backup.err_stats", nil), err))
 	}
 	if total == 0 {
 		wm, _ := bs.store.GetBackupWatermark(context.Background(), "dir")
@@ -69,7 +69,7 @@ func (bs *BackupService) doDirBackup(cfg Config, trigger string, forceFull bool)
 	wm, wmErr := updateBackupWatermark(bs.store, "dir", scope, exportedMaxID)
 	if wmErr != nil {
 		bs.logger.Error("dir_backup_watermark_failed", wmErr, map[string]any{"mode": scope.Mode})
-		return fail(now, scope, autoFallback, fullPath, fmt.Errorf("备份文件已生成，但更新备份进度失败: %w", wmErr))
+		return fail(now, scope, autoFallback, fullPath, fmt.Errorf("%s: %w", templateT("backup.err_progress_after_file", nil), wmErr))
 	}
 	bs.setDirStatus(makeBackupStatus(now, true, scope, autoFallback, wm, "", fullPath, trigger))
 	bs.recordBackupHistory("dir", trigger, scope.Mode, true, nil, db.Dir, format, 1, total)
@@ -81,11 +81,11 @@ func (bs *BackupService) doDirBackup(cfg Config, trigger string, forceFull bool)
 // 文件统一使用 .cvexport 加密容器扩展名（json/xlsx 会先打进 zip 再整体加密）。
 func (bs *BackupService) writeBackupFileStream(dir string, now time.Time, format, password string, scope ExportScope) (string, int64, int64, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", 0, 0, fmt.Errorf("创建目录失败: %w", err)
+		return "", 0, 0, fmt.Errorf("%s: %w", templateT("backup.err_mkdir", nil), err)
 	}
 	file, err := os.CreateTemp(dir, fmt.Sprintf("clipvault-backup-%s-*.cvexport", now.Format("20060102-150405")))
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("创建备份文件失败: %w", err)
+		return "", 0, 0, fmt.Errorf("%s: %w", templateT("backup.err_create_file", nil), err)
 	}
 	path := file.Name()
 	success := false
@@ -100,14 +100,14 @@ func (bs *BackupService) writeBackupFileStream(dir string, now time.Time, format
 		return "", 0, 0, err
 	}
 	if err := file.Sync(); err != nil {
-		return "", 0, 0, fmt.Errorf("同步文件失败: %w", err)
+		return "", 0, 0, fmt.Errorf("%s: %w", templateT("backup.err_sync", nil), err)
 	}
 	info, err := file.Stat()
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("读取备份文件信息失败: %w", err)
+		return "", 0, 0, fmt.Errorf("%s: %w", templateT("backup.err_stat", nil), err)
 	}
 	if err := file.Close(); err != nil {
-		return "", 0, 0, fmt.Errorf("关闭文件失败: %w", err)
+		return "", 0, 0, fmt.Errorf("%s: %w", templateT("backup.err_close", nil), err)
 	}
 	success = true
 	return path, info.Size(), maxID, nil
@@ -122,7 +122,7 @@ func (bs *BackupService) writeBackupFileStream(dir string, now time.Time, format
 // 返回最后一条记录的 id（无数据时为 0），供写水印使用。
 func (bs *BackupService) exportBackupTo(dst io.Writer, format, password string, scope ExportScope) (int64, error) {
 	if password == "" {
-		return 0, errors.New("备份必须设置加密密码（仅支持加密导出）")
+		return 0, errors.New(templateT("backup.err_password_required", nil))
 	}
 	var maxID int64
 	err := WriteCVExport(dst, password, func(plain io.Writer) error {
@@ -140,7 +140,7 @@ func (bs *BackupService) exportBackupTo(dst io.Writer, format, password string, 
 			entry, err := zw.Create(name)
 			if err != nil {
 				_ = zw.Close()
-				return fmt.Errorf("创建 zip 条目失败: %w", err)
+				return fmt.Errorf("%s: %w", templateT("backup.err_zip_entry", nil), err)
 			}
 			var streamErr error
 			if format == "xlsx" {
@@ -153,15 +153,15 @@ func (bs *BackupService) exportBackupTo(dst io.Writer, format, password string, 
 				return streamErr
 			}
 			if err := zw.Close(); err != nil {
-				return fmt.Errorf("写入 zip 失败: %w", err)
+				return fmt.Errorf("%s: %w", templateT("backup.err_zip_write", nil), err)
 			}
 			return nil
 		default:
-			return fmt.Errorf("不支持的备份格式: %s", format)
+			return fmt.Errorf("%s: %s", templateT("backup.err_unsupported_format", nil), format)
 		}
 	})
 	if err != nil {
-		return 0, fmt.Errorf("加密失败: %w", err)
+		return 0, fmt.Errorf("%s: %w", templateT("backup.err_encrypt", nil), err)
 	}
 	return maxID, nil
 }

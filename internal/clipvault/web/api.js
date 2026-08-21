@@ -1,6 +1,8 @@
 const nativeFetch = window.fetch.bind(window);
 let csrfTokenPromise = null;
 
+const t = window.clipvaultI18n.t;
+
 export class APIError extends Error {
   constructor(code, message, status) {
     super(message);
@@ -28,17 +30,17 @@ export function unwrapAPIEnvelope(envelope) {
     return { ok: false, code: envelope.error.code, error: envelope.error.message };
   }
   if (Object.prototype.hasOwnProperty.call(envelope || {}, 'data')) return envelope.data;
-  throw new APIError('invalid_response', '服务响应不符合当前 API 协议', 500);
+  throw new APIError('invalid_response', t('apijs.invalid_response'), 500);
 }
 
-export async function readAPIError(response, fallback = '请求失败') {
+export async function readAPIError(response, fallback) {
   let payload = {};
   try {
     payload = unwrapAPIEnvelope(await response.clone().json());
   } catch (_) {}
   return {
     code: payload?.code || 'request_failed',
-    message: payload?.error || fallback,
+    message: payload?.error || fallback || t('apijs.request_failed'),
     status: response.status,
   };
 }
@@ -47,16 +49,16 @@ export async function requestWithSecondaryAuth(send, authenticate, onExpired, op
   const fresh = options.fresh === true;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!await authenticate(fresh || attempt > 0)) {
-      throw new APIError('secondary_cancelled', '已取消二次验证', 403);
+      throw new APIError('secondary_cancelled', t('apijs.secondary_cancelled'), 403);
     }
     const response = await send();
     if (response.status !== 403) return response;
-    const failure = await readAPIError(response, '需要二次认证');
+    const failure = await readAPIError(response, t('apijs.secondary_required'));
     const expired = failure.code === 'secondary_required' || (fresh && failure.code === 'fresh_secondary_required');
     if (!expired) return response;
     onExpired();
   }
-  throw new APIError('secondary_required', '需要二次认证', 403);
+  throw new APIError('secondary_required', t('apijs.secondary_required'), 403);
 }
 
 function decorateJSON(response) {

@@ -1,5 +1,7 @@
 import { app } from './app-context.js';
 
+const t = window.clipvaultI18n.t;
+
 export function registerHistoryNavigation() {
   app.GROUP_CHIP = document.getElementById('groupChip');
   document.getElementById('kindFilters').addEventListener('click', async event => {
@@ -14,7 +16,7 @@ export function registerHistoryNavigation() {
     if (kind === '__sensitive__') {
       const authorized = await app.requestSecondaryAuth();
       if (!authorized) {
-        app.toast('需要二次验证才能查看敏感数据', 'err');
+        app.toast(t('history.sensitive_auth_required'), 'err');
         return;
       }
     }

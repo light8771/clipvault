@@ -38,7 +38,7 @@ const (
 )
 
 // errItemContentUnavailable 表示记录没有可恢复的内容（event-only 记录）。
-var errItemContentUnavailable = errors.New("该记录没有可用内容")
+var errItemContentUnavailable = errors.New(templateT("swindow.no_content", nil))
 
 // restoreItemToClipboard 把一条历史记录写回 Windows 剪贴板。
 // 返回写入后的剪贴板序列号，调用方应把它推进运行时的抑制水位，

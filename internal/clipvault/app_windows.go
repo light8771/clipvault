@@ -170,6 +170,16 @@ func Run(env Environment) error {
 	recorder := NewRecorder(cfgMgr, store, state, logger, env.ImagesDirectory())
 	backup := NewBackupService(cfgMgr, store, logger, licenseMgr)
 	defer backup.Stop()
+	// 多语言服务：官方词条已由 OpenStore 幂等 Seed；这里构建运行时缓存、
+	// 注册模板函数（{{T}}）并让任何配置路径的语言变更都驱动服务与原生 UI。
+	i18nSvc, err := NewI18nService(store, cfgMgr, logger)
+	if err != nil {
+		logger.Error("i18n_service_init_failed", err, nil)
+		return fmt.Errorf("init i18n service: %w", err)
+	}
+	SetTemplateI18nService(i18nSvc)
+	defer SetTemplateI18nService(nil)
+
 	// 外部只读访问（HTTP 数据接口 + MCP）共享同一个读取服务：
 	// 敏感可见性、限流口径与查询语义在共享服务内统一强制。
 	readSvc := NewExternalReadService(store, env)
@@ -195,6 +205,7 @@ func Run(env Environment) error {
 	searchServer := NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 	searchServer.SetDataAPIService(dataAPI)
 	searchServer.SetMCPService(mcpSvc)
+	searchServer.SetI18nService(i18nSvc)
 	searchURL, err := searchServer.Start()
 	if err != nil {
 		logger.Error("search_server_start_failed", err, nil)
@@ -205,7 +216,7 @@ func Run(env Environment) error {
 		defer cancel()
 		_ = searchServer.Close(ctx)
 	}()
-	fmt.Printf("Web 界面（搜索+设置）: %s\n", searchURL)
+	fmt.Printf("Web UI (search+settings): %s\n", searchURL)
 
 	// 首次启动门禁存在时，发布记录页地址供当前门禁页自动跳转。
 	// 不再额外打开浏览器，避免成功后出现两个相同的记录页。
@@ -215,6 +226,7 @@ func Run(env Environment) error {
 
 	backup.Start()
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, store, searchURL, licenseMgr)
+	runtime.SetI18nService(i18nSvc)
 
 	// 配置变更时重新注册全局快捷键
 	cfgMgr.OnChange(func(newCfg Config) error {
@@ -255,6 +267,8 @@ func Run(env Environment) error {
 			// 创建新的 search server
 			searchServer = NewSearchServer(cfgMgr, store, state, logger, env, backup, licenseMgr)
 			searchServer.SetDataAPIService(dataAPI)
+			searchServer.SetMCPService(mcpSvc)
+			searchServer.SetI18nService(i18nSvc)
 			searchURL, err = searchServer.Start()
 			if err != nil {
 				logger.Error("restart_search_failed", err, nil)
@@ -262,7 +276,7 @@ func Run(env Environment) error {
 			}
 			runtime.SetSearchURL(searchURL)
 			logger.Info("restart_done", map[string]any{"searchURL": searchURL})
-			fmt.Printf("Web 界面已重启: %s\n", searchURL)
+			fmt.Printf("Web UI restarted: %s\n", searchURL)
 			shellExecute("open", searchURL, "")
 		}
 	}
@@ -276,7 +290,7 @@ func runStartupGate(store *Store, env Environment, mode startupGateMode, logger 
 	}
 	safeURL := strings.SplitN(url, "#", 2)[0]
 	logger.Info("startup_gate_started", map[string]any{"mode": mode, "url": safeURL})
-	fmt.Printf("安全设置页面: %s\n", url)
+	fmt.Printf("Security setup page: %s\n", url)
 	openBrowser(url)
 	<-gate.Done()
 	if !gate.Success() {

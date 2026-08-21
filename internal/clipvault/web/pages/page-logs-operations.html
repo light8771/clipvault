@@ -2,21 +2,21 @@
 
     <div class="settings-main">
       <header class="sd-head">
-        <h1 class="sd-title">操作记录</h1>
-        <p class="sd-desc">系统设置的修改历史，包含每个配置项修改前后的值。最多保留最近 1000 次修改，清空记录需要二次验证。</p>
+        <h1 class="sd-title">{{T "app.title.logs_operations"}}</h1>
+        <p class="sd-desc">{{T "logs.operations_desc"}}</p>
       </header>
 
       <section class="ssec" id="s-oplog">
         <div class="ssec-fields">
           <div class="log-toolbar">
-            <span class="log-total" id="oplogTotal">正在读取…</span>
-            <button type="button" class="btn-export" data-action="clear-config-changes">清空记录</button>
+            <span class="log-total" id="oplogTotal">{{T "common.loading"}}</span>
+            <button type="button" class="btn-export" data-action="clear-config-changes">{{T "logs.clear"}}</button>
           </div>
           <div class="log-list" id="oplogList"></div>
           <div class="log-pager hidden" id="oplogPager">
-            <button type="button" class="log-page-btn" id="oplogPrev" data-action="oplog-prev">上一页</button>
-            <span class="log-page-info" id="oplogPageInfo">第 1 页</span>
-            <button type="button" class="log-page-btn" id="oplogNext" data-action="oplog-next">下一页</button>
+            <button type="button" class="log-page-btn" id="oplogPrev" data-action="oplog-prev">{{T "history.prev_page"}}</button>
+            <span class="log-page-info" id="oplogPageInfo">{{T "logs.page_info"}}</span>
+            <button type="button" class="log-page-btn" id="oplogNext" data-action="oplog-next">{{T "history.next_page"}}</button>
           </div>
         </div>
       </section>

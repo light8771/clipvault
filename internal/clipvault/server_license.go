@@ -31,12 +31,12 @@ func (s *SearchServer) handleLicenseStatus(w http.ResponseWriter, r *http.Reques
 
 func (s *SearchServer) handleLicenseMachine(w http.ResponseWriter, r *http.Request) {
 	if s.license == nil {
-		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", "授权管理器不可用", nil)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", s.i18nT("api.error.license_unavailable", nil), nil)
 		return
 	}
 	ctx := s.license.Context()
 	if ctx.MachineID == "" {
-		s.writeAPIError(w, http.StatusServiceUnavailable, "machine_id_unavailable", "无法获取机器标识", nil)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "machine_id_unavailable", s.i18nT("api.error.machine_id_unavailable", nil), nil)
 		return
 	}
 	s.writeJSON(w, map[string]any{"machineId": ctx.MachineID, "machineCode": ctx.MachineCode})
@@ -44,14 +44,14 @@ func (s *SearchServer) handleLicenseMachine(w http.ResponseWriter, r *http.Reque
 
 func (s *SearchServer) handleLicenseActivate(w http.ResponseWriter, r *http.Request) {
 	if s.license == nil {
-		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", "授权管理器不可用", nil)
+		s.writeAPIError(w, http.StatusServiceUnavailable, "license_unavailable", s.i18nT("api.error.license_unavailable", nil), nil)
 		return
 	}
 	var req struct {
 		Token string `json:"token"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil || strings.TrimSpace(req.Token) == "" {
-		s.writeAPIError(w, http.StatusBadRequest, "license_bad_format", "激活码格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "license_bad_format", s.i18nT("api.error.license_bad_format", nil), err)
 		return
 	}
 	ctx, err := s.license.Activate(req.Token)
@@ -71,17 +71,17 @@ func (s *SearchServer) handleLicenseActivate(w http.ResponseWriter, r *http.Requ
 func licenseErrorMessage(code string) string {
 	switch code {
 	case "license_bad_format":
-		return "激活码格式错误"
+		return templateT("api.error.license_bad_format", nil)
 	case "license_bad_signature":
-		return "激活码签名无效"
+		return templateT("api.error.license_bad_signature", nil)
 	case "license_machine_mismatch":
-		return "激活码不适用于当前设备"
+		return templateT("api.error.license_machine_mismatch", nil)
 	case "license_unsupported":
-		return "激活码版本或签发方不受支持"
+		return templateT("api.error.license_unsupported", nil)
 	case "license_machine_unavailable":
-		return "无法获取当前设备标识"
+		return templateT("api.error.machine_id_unavailable", nil)
 	default:
-		return "激活码保存失败"
+		return templateT("api.error.license_save_failed", nil)
 	}
 }
 

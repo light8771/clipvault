@@ -127,18 +127,18 @@ func (rs *RecoveryServer) secureHTTP(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
 		if !hostMatchesLoopbackPort(r.Host, rs.port) {
-			writeStandaloneError(w, http.StatusForbidden, "invalid_host", "请求主机无效")
+			writeStandaloneError(w, http.StatusForbidden, "invalid_host", "invalid host")
 			return
 		}
 		if isMutationMethod(r.Method) {
 			if !originMatchesRequest(r.Header.Get("Origin"), r.Host, rs.port) {
-				writeStandaloneError(w, http.StatusForbidden, "invalid_origin", "请求来源无效")
+				writeStandaloneError(w, http.StatusForbidden, "invalid_origin", "invalid origin")
 				return
 			}
 			capability := r.Header.Get("X-ClipVault-Recovery-Token")
 			csrf := r.Header.Get(csrfHeaderName)
 			if subtle.ConstantTimeCompare([]byte(capability), []byte(rs.token)) != 1 || subtle.ConstantTimeCompare([]byte(csrf), []byte(rs.token)) != 1 {
-				writeStandaloneError(w, http.StatusForbidden, "recovery_authorization_failed", "恢复授权验证失败")
+				writeStandaloneError(w, http.StatusForbidden, "recovery_authorization_failed", "recovery authorization failed")
 				return
 			}
 		}
@@ -234,17 +234,17 @@ func (rs *RecoveryServer) handleRecover(w http.ResponseWriter, r *http.Request) 
 		Password string `json:"password"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil {
-		writeRecoveryJSON(w, false, "请求格式无效")
+		writeRecoveryJSON(w, false, "invalid_request")
 		return
 	}
 	rs.opMu.Lock()
 	defer rs.opMu.Unlock()
 	if rs.complete {
-		writeRecoveryJSON(w, false, "恢复操作已完成")
+		writeRecoveryJSON(w, false, "already_completed")
 		return
 	}
 	if err := RecoverWithPassword(rs.dataDir, req.Password); err != nil {
-		writeRecoveryJSON(w, false, "恢复失败：密码不正确，或恢复文件已经损坏")
+		writeRecoveryJSON(w, false, "recover_failed")
 		return
 	}
 	rs.complete = true
@@ -257,17 +257,17 @@ func (rs *RecoveryServer) handleNew(w http.ResponseWriter, r *http.Request) {
 		Confirmation string `json:"confirmation"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 8<<10); err != nil || strings.TrimSpace(req.Confirmation) != "CREATE NEW" {
-		writeRecoveryJSON(w, false, "确认文字不匹配")
+		writeRecoveryJSON(w, false, "confirmation_mismatch")
 		return
 	}
 	rs.opMu.Lock()
 	defer rs.opMu.Unlock()
 	if rs.complete {
-		writeRecoveryJSON(w, false, "恢复操作已完成")
+		writeRecoveryJSON(w, false, "already_completed")
 		return
 	}
 	if err := CreateNewDatabase(rs.dataDir); err != nil {
-		writeRecoveryJSON(w, false, "创建新数据库失败，原数据未被覆盖")
+		writeRecoveryJSON(w, false, "create_failed")
 		return
 	}
 	rs.complete = true

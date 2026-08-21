@@ -1,6 +1,8 @@
 import { app } from './app-context.js';
 import { armConfirm } from './confirm-arm.js';
 
+const t = window.clipvaultI18n.t;
+
 // MCP 设置页「服务配置 / 能力与接入 / 访问令牌」子特性；
 // 「访问记录」在 mcp-audit.js（按模块行数上限拆分）。
 
@@ -21,7 +23,7 @@ export function registerMCP() {
       app.mcpStatus = d;
       renderStatus(d);
     } catch (_) {
-      el('mcpStatusText').textContent = '读取失败';
+      el('mcpStatusText').textContent = t('logs.load_failed');
     }
   };
 
@@ -30,15 +32,15 @@ export function registerMCP() {
     el('mcpEnabled').checked = enabled;
     const statusText = el('mcpStatusText');
     if (!enabled) {
-      statusText.textContent = '未启用';
+      statusText.textContent = t('channel.status_disabled');
     } else if (d.running) {
-      statusText.textContent = '运行中';
+      statusText.textContent = t('channel.status_running');
     } else {
-      statusText.textContent = d.bindError ? '启动失败：' + d.bindError : '已停止';
+      statusText.textContent = d.bindError ? t('channel.status_bind_failed', { error: d.bindError }) : t('channel.status_stopped');
     }
     el('mcpStatusHint').textContent = d.activated
-      ? '授权已激活，MCP 服务可用'
-      : '未激活：MCP 仅对已激活用户开放';
+      ? t('mcp.status_activated')
+      : t('mcp.status_not_activated');
     el('mcpUrlRow').classList.toggle('hidden', !(enabled && d.running && d.url));
     el('mcpUrlText').value = d.url || '';
     applyListenAddrToForm(d.listenAddr || '127.0.0.1:17840');
@@ -50,14 +52,14 @@ export function registerMCP() {
     if (!capabilities) return;
     const tools = capabilities.tools || [];
     el('mcpToolList').textContent = tools.length
-      ? tools.join('、')
-      : '未注册任何工具';
+      ? tools.join(', ')
+      : t('mcp.no_tools');
     const templates = capabilities.resourceTemplates || [];
     const statics = capabilities.staticResources || [];
     const resources = templates.concat(statics);
     el('mcpResourceList').textContent = resources.length
-      ? resources.join('、')
-      : '未注册任何资源';
+      ? resources.join(', ')
+      : t('mcp.no_resources');
   }
 
   function applyListenAddrToForm(addr) {
@@ -80,7 +82,7 @@ export function registerMCP() {
     if (scope === 'lan') host = '0.0.0.0';
     if (scope === 'custom') host = (el('mcpCustomAddr').value || '').trim();
     if (!host) {
-      app.toast('请填写指定监听地址', 'err');
+      app.toast(t('channel.need_custom_addr'), 'err');
       return null;
     }
     return host + ':' + port;
@@ -105,24 +107,24 @@ export function registerMCP() {
           listenAddr
         })
       });
-      await app.requireOK(res, '保存失败');
+      await app.requireOK(res, t('common.save_failed'));
       const d = await res.json();
       app.mcpStatus = { ...(app.mcpStatus || {}), ...d };
       renderStatus(app.mcpStatus);
       if (d.runtimeError) {
-        app.toast('设置已保存，但 MCP 启动失败：' + d.runtimeError, 'err');
+        app.toast(t('channel.save_bind_failed', { error: d.runtimeError }), 'err');
       } else {
-        app.toast(enabled ? 'MCP 服务已启用' : 'MCP 服务已关闭');
+        app.toast(enabled ? t('mcp.enabled_toast') : t('mcp.disabled_toast'));
       }
     } catch (e) {
-      app.toast('保存失败：' + (e.message || e), 'err');
+      app.toast(t('config.save_failed_with', { message: e.message || e }), 'err');
     }
   };
 
   app.mcpCopyURL = async function mcpCopyURL() {
     const url = el('mcpUrlText').value;
     if (!url) return;
-    await copyText(url, 'MCP 端点已复制');
+    await copyText(url, t('mcp.url_copied'));
   };
 
   /* ── 接入示例 ───────────────────────────────────── */
@@ -149,14 +151,14 @@ export function registerMCP() {
 
   app.mcpCopyExample = async function mcpCopyExample() {
     await copyText(JSON.stringify({
-      mcpServers: { clipvault: { url: mcpBaseURL(), headers: { Authorization: 'Bearer cv_你的MCP令牌' } } }
-    }, null, 2), '接入 JSON 已复制');
+      mcpServers: { clipvault: { url: mcpBaseURL(), headers: { Authorization: 'Bearer ' + t('mcp.example_token') } } }
+    }, null, 2), t('mcp.example_copied'));
   };
 
   app.mcpCopyConfig = async function mcpCopyConfig(button) {
-    await copyText(el('mcpConfigExample').textContent, '已复制');
+    await copyText(el('mcpConfigExample').textContent, t('common.copied'));
     const label = button.textContent;
-    button.textContent = '已复制';
+    button.textContent = t('common.copied');
     setTimeout(() => { button.textContent = label; }, 1200);
   };
 
@@ -164,9 +166,9 @@ export function registerMCP() {
   app.mcpCopyCheatsheet = async function mcpCopyCheatsheet(button) {
     const pre = el('mcpCheatsheet');
     if (!pre) return;
-    await copyText(pre.textContent, '已复制');
+    await copyText(pre.textContent, t('common.copied'));
     const label = button.textContent;
-    button.textContent = '已复制';
+    button.textContent = t('common.copied');
     setTimeout(() => { button.textContent = label; }, 1200);
   };
 
@@ -182,29 +184,29 @@ export function registerMCP() {
       // 审计筛选栏的令牌下拉随之刷新（mcp-audit.js 提供）。
       if (app.renderMCPTokenFilter) app.renderMCPTokenFilter();
     } catch (_) {
-      list.innerHTML = '<p class="dapi-empty">无法读取令牌列表，请查看本地日志</p>';
+      list.innerHTML = '<p class="dapi-empty">' + t('channel.tokens_load_failed') + '</p>';
     }
   };
 
   function renderTokens(tokens) {
     const list = el('mcpTokenList');
     if (!tokens.length) {
-      list.innerHTML = '<p class="dapi-empty">暂无令牌，点击「生成 Token」创建</p>';
+      list.innerHTML = '<p class="dapi-empty">' + t('channel.tokens_empty') + '</p>';
       return;
     }
     list.innerHTML = tokens.map(token => {
-      const stateLabel = { active: '有效', expired: '已过期', revoked: '已撤销' }[token.state] || token.state;
-      const expiry = token.expiresAt ? '有效至 ' + app.formatLogTime(token.expiresAt) : '永不过期';
-      const lastUsed = token.lastUsedAt ? '最后访问 ' + app.formatLogTime(token.lastUsedAt) : '从未使用';
+      const stateLabel = t('channel.token_state_' + token.state);
+      const expiry = token.expiresAt ? t('channel.token_valid_until', { time: app.formatLogTime(token.expiresAt) }) : t('mcp.expiry_never');
+      const lastUsed = token.lastUsedAt ? t('channel.token_last_used', { time: app.formatLogTime(token.lastUsedAt) }) : t('channel.token_never_used');
       const sensitive = token.allowSensitive
-        ? '<span class="dapi-tag warn" title="此 Token 可读取敏感记录">可读敏感数据</span>'
-        : '<span class="dapi-tag" title="敏感记录对此 Token 不可见">仅普通数据</span>';
+        ? '<span class="dapi-tag warn" title="' + t('channel.sensitive_on_tip') + '">' + t('channel.sensitive_on') + '</span>'
+        : '<span class="dapi-tag" title="' + t('channel.sensitive_off_tip') + '">' + t('channel.sensitive_off') + '</span>';
       const inactive = token.state !== 'active';
       const actions = !inactive
         ? '<div class="dapi-actions">' +
-          '<button type="button" class="dapi-btn' + (token.allowSensitive ? '' : ' primary') + '" data-action="mcp-token-sensitive" data-id="' + token.id + '" data-allow="' + (token.allowSensitive ? 'false' : 'true') + '">' + (token.allowSensitive ? '禁止敏感数据' : '允许敏感数据') + '</button>' +
-          '<button type="button" class="dapi-btn" data-action="mcp-token-regenerate" data-id="' + token.id + '">重新生成</button>' +
-          '<button type="button" class="dapi-btn danger" data-action="mcp-token-revoke" data-id="' + token.id + '">撤销</button>' +
+          '<button type="button" class="dapi-btn' + (token.allowSensitive ? '' : ' primary') + '" data-action="mcp-token-sensitive" data-id="' + token.id + '" data-allow="' + (token.allowSensitive ? 'false' : 'true') + '">' + (token.allowSensitive ? t('channel.sensitive_disable') : t('channel.sensitive_enable')) + '</button>' +
+          '<button type="button" class="dapi-btn" data-action="mcp-token-regenerate" data-id="' + token.id + '">' + t('channel.regenerate') + '</button>' +
+          '<button type="button" class="dapi-btn danger" data-action="mcp-token-revoke" data-id="' + token.id + '">' + t('channel.revoke') + '</button>' +
           '</div>'
         : '';
       return '<div class="dapi-card' + (inactive ? ' is-inactive' : '') + '">' +
@@ -231,7 +233,7 @@ export function registerMCP() {
   app.mcpTokenCreate = async function mcpTokenCreate() {
     const name = (el('mcpTokenName').value || '').trim();
     if (!name) {
-      app.toast('请填写令牌名称', 'err');
+      app.toast(t('channel.need_token_name'), 'err');
       return;
     }
     try {
@@ -243,20 +245,20 @@ export function registerMCP() {
           expiresIn: el('mcpTokenExpiry').value
         })
       });
-      await app.requireOK(res, '创建失败');
+      await app.requireOK(res, t('channel.create_failed'));
       const d = await res.json();
       el('mcpTokenName').value = '';
       showNewToken(d.token);
-      app.toast('Token 已创建');
+      app.toast(t('channel.token_created'));
       await app.loadMCPTokens();
     } catch (e) {
-      app.toast('创建失败：' + (e.message || e), 'err');
+      app.toast(t('channel.create_failed_with', { message: e.message || e }), 'err');
     }
   };
 
   app.mcpTokenCopy = async function mcpTokenCopy() {
     if (!app.mcpNewToken) return;
-    await copyText(app.mcpNewToken, 'Token 已复制');
+    await copyText(app.mcpNewToken, t('channel.token_copied'));
   };
 
   app.mcpTokenDismiss = function mcpTokenDismiss() {
@@ -274,42 +276,42 @@ export function registerMCP() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: button.dataset.id, allowSensitive: target })
       });
-      await app.requireOK(res, '修改失败');
-      app.toast(target ? '该 Token 现可读取敏感数据' : '该 Token 已限制为仅普通数据');
+      await app.requireOK(res, t('channel.update_failed'));
+      app.toast(target ? t('channel.sensitive_enabled_toast') : t('channel.sensitive_disabled_toast'));
       await app.loadMCPTokens();
     };
     if (target) {
-      armConfirm(button, '再次点击确认允许敏感数据', apply);
+      armConfirm(button, t('channel.confirm_sensitive_on'), apply);
     } else {
-      apply().catch(e => app.toast('修改失败：' + (e.message || e), 'err'));
+      apply().catch(e => app.toast(t('channel.update_failed_with', { message: e.message || e }), 'err'));
     }
   };
 
   // 撤销是破坏性操作：第一次点击进入确认态，3 秒内再次点击才执行。
   app.mcpTokenRevoke = function mcpTokenRevoke(button) {
-    armConfirm(button, '再次点击确认撤销', async () => {
+    armConfirm(button, t('channel.confirm_revoke'), async () => {
       const res = await app.protectedFetch('/api/v1/mcp/tokens/revoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: button.dataset.id })
       });
-      await app.requireOK(res, '撤销失败');
-      app.toast('Token 已撤销');
+      await app.requireOK(res, t('channel.revoke_failed'));
+      app.toast(t('channel.token_revoked'));
       await app.loadMCPTokens();
     });
   };
 
   app.mcpTokenRegenerate = function mcpTokenRegenerate(button) {
-    armConfirm(button, '再次点击确认重新生成', async () => {
+    armConfirm(button, t('channel.confirm_regenerate'), async () => {
       const res = await app.protectedFetch('/api/v1/mcp/tokens/regenerate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: button.dataset.id })
       });
-      await app.requireOK(res, '重新生成失败');
+      await app.requireOK(res, t('channel.regenerate_failed'));
       const d = await res.json();
       showNewToken(d.token);
-      app.toast('已签发新 Token，旧 Token 已撤销');
+      app.toast(t('channel.token_regenerated'));
       await app.loadMCPTokens();
     });
   };
@@ -319,7 +321,7 @@ export function registerMCP() {
       await navigator.clipboard.writeText(text);
       app.toast(message);
     } catch (_) {
-      app.toast('复制失败，请手动复制', 'err');
+      app.toast(t('common.copy_manual'), 'err');
     }
   }
 

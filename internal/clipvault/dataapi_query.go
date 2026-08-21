@@ -471,5 +471,5 @@ func capAuditBody(body string) string {
 	if len(runes) <= dataAPIAuditBodyMax {
 		return body
 	}
-	return string(runes[:dataAPIAuditBodyMax]) + "…（已截断）"
+	return string(runes[:dataAPIAuditBodyMax]) + "…(truncated)"
 }

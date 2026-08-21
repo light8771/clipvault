@@ -11,6 +11,10 @@ import (
 
 // diffConfigChanges 比较两份配置，返回逐配置项的新旧值变化（已脱敏、已格式化）。
 // 用于操作记录；不区分修改来源，只描述最终持久化的差异。
+//
+// Label 与受控状态值（开启/关闭/已设置等）一律写入 i18n key
+// （config_field.* / config_value.* 前缀），由前端展示时翻译——操作记录
+// 是持久化数据，写入时翻译会让历史记录随语言切换而混杂。
 func diffConfigChanges(oldCfg, newCfg Config) []ConfigChange {
 	oldJSON, err := json.Marshal(oldCfg)
 	if err != nil {
@@ -31,6 +35,18 @@ func diffConfigChanges(oldCfg, newCfg Config) []ConfigChange {
 
 // 一次保存最多记录的变更项数，防止异常大体量 diff 撑爆单条日志。
 const maxConfigChangesPerSave = 50
+
+// 受控状态值的词条 key 前缀：前端渲染 old/new 时按该前缀判定是否翻译。
+const (
+	configValuePrefix      = "config_value."
+	configValueNotSet      = "config_value.not_set"
+	configValueSet         = "config_value.set"
+	configValueUpdated     = "config_value.updated"
+	configValueEmpty       = "config_value.empty"
+	configValueEmptyString = "config_value.empty_string"
+	configValueOn          = "config_value.on"
+	configValueOff         = "config_value.off"
+)
 
 func walkConfigDiff(path string, oldVal, newVal any, changes *[]ConfigChange) {
 	if len(*changes) >= maxConfigChangesPerSave {
@@ -58,7 +74,7 @@ func walkConfigDiff(path string, oldVal, newVal any, changes *[]ConfigChange) {
 	if configDiffMaskedPaths[path] {
 		oldMasked, newMasked := maskSecretState(oldVal), maskSecretState(newVal)
 		if oldMasked == newMasked {
-			newMasked = "已更新"
+			newMasked = configValueUpdated
 		}
 		*changes = append(*changes, ConfigChange{Path: path, Label: label, Old: oldMasked, New: newMasked})
 		return
@@ -93,9 +109,9 @@ func configDiffEqual(a, b any) bool {
 
 func maskSecretState(value any) string {
 	if text, ok := value.(string); !ok || text == "" {
-		return "未设置"
+		return configValueNotSet
 	}
-	return "已设置"
+	return configValueSet
 }
 
 const maxConfigDiffValueRunes = 80
@@ -104,12 +120,12 @@ func formatConfigDiffValue(value any) string {
 	var text string
 	switch v := value.(type) {
 	case nil:
-		text = "空"
+		text = configValueEmpty
 	case bool:
 		if v {
-			text = "开启"
+			text = configValueOn
 		} else {
-			text = "关闭"
+			text = configValueOff
 		}
 	case float64:
 		if v == float64(int64(v)) {
@@ -120,7 +136,7 @@ func formatConfigDiffValue(value any) string {
 	case string:
 		text = v
 		if text == "" {
-			text = "（空）"
+			text = configValueEmptyString
 		}
 	default:
 		data, err := json.Marshal(v)
@@ -158,99 +174,100 @@ var configDiffMaskedPaths = map[string]bool{
 	"backup.emailBackup.password":    true,
 }
 
-// configFieldLabels 把点分配置路径映射为界面展示用的中文名称；
-// 未收录的路径回退为路径本身。
+// configFieldLabels 把点分配置路径映射为操作记录展示用的词条 key
+// （config_field.*，双语词条见 i18n_seed_config.go）；未收录的路径回退
+// 为路径本身（新增字段未登记词条时仍有可读的兜底）。
 var configFieldLabels = map[string]string{
-	"maxTextChars":                        "单条文本最大长度",
-	"maxFileDropPaths":                    "文件拖放最大路径数",
-	"recordSourceInfo":                    "记录来源应用",
-	"source.showExe":                      "显示来源应用标签",
-	"source.exeAliases":                   "来源应用别名",
-	"source.exeWhitelist":                 "来源应用白名单",
-	"brand.title":                         "站点标题",
-	"background.fit":                      "背景填充方式",
-	"background.opacity":                  "背景不透明度",
-	"background.overlay":                  "背景遮罩浓度",
-	"background.blur":                     "背景模糊",
-	"background.brightness":               "背景亮度",
-	"background.contrast":                 "背景对比度",
-	"background.saturation":               "背景饱和度",
-	"background.scale":                    "背景缩放",
-	"background.positionX":                "背景水平位置",
-	"background.positionY":                "背景垂直位置",
-	"theme.preset":                        "皮肤",
-	"theme.mode":                          "显示模式",
-	"theme.primary":                       "主题主色",
-	"theme.accent":                        "主题强调色",
-	"theme.fontScale":                     "字体大小",
-	"theme.surfaceOpacity":                "界面不透明度",
-	"theme.layout":                        "历史页布局",
-	"theme.previewLines":                  "内容预览行数",
-	"theme.navOpacity":                    "导航栏不透明度",
-	"theme.navBlur":                       "导航栏背景模糊",
-	"theme.navBorder":                     "导航栏分隔线",
-	"theme.navSticky":                     "导航栏固定",
-	"search.listenAddr":                   "Web 监听地址",
-	"search.timeZone":                     "日期筛选时区",
-	"dataApi.enabled":                     "数据接口开关",
-	"dataApi.listenAddr":                  "数据接口监听地址",
-	"mcp.enabled":                         "MCP 开关",
-	"mcp.listenAddr":                      "MCP 监听地址",
-	"sensitive.customPatterns":            "敏感内容过滤规则",
-	"autostart.enabled":                   "开机自启",
-	"autostart.appName":                   "自启应用名",
-	"notifications.pauseResume":           "暂停/恢复通知",
-	"notifications.pauseTitle":            "暂停通知标题",
-	"notifications.pauseBody":             "暂停通知内容",
-	"notifications.resumeTitle":           "恢复通知标题",
-	"notifications.resumeBody":            "恢复通知内容",
-	"security.lockPasswordHash":           "锁屏密码",
-	"security.secondaryPasswordHash":      "二次验证密码",
-	"security.lockSessionTimeout":         "锁屏会话超时",
-	"security.secondaryAuthTimeout":       "二次认证缓存时长",
-	"hotkey.enabled":                      "录制暂停快捷键",
-	"hotkey.modifiers":                    "录制快捷键修饰键",
-	"hotkey.key":                          "录制快捷键按键",
-	"searchHotkey.enabled":                "搜索弹窗快捷键",
-	"searchHotkey.modifiers":              "搜索快捷键修饰键",
-	"searchHotkey.key":                    "搜索快捷键按键",
-	"image.enabled":                       "图片捕获",
-	"image.maxBytes":                      "图片最大字节数",
-	"popup.hideDuplicates":                "弹窗过滤重复记录",
-	"popup.hideUnavailable":               "弹窗过滤无内容记录",
-	"popup.keyOpen":                       "弹窗快捷键-打开",
-	"popup.keyRestore":                    "弹窗快捷键-恢复",
-	"popup.keyPaste":                      "弹窗快捷键-粘贴",
-	"backup.dirBackup.enabled":            "目录定时备份",
-	"backup.dirBackup.runOnStartup":       "目录备份-启动时执行",
-	"backup.dirBackup.interval":           "目录备份-间隔(小时)",
-	"backup.dirBackup.dir":                "目录备份-目标目录",
-	"backup.dirBackup.format":             "目录备份-内容格式",
-	"backup.dirBackup.password":           "目录备份-加密密码",
-	"backup.dirBackup.scope.mode":         "目录备份-范围模式",
-	"backup.dirBackup.scope.from":         "目录备份-范围起始",
-	"backup.dirBackup.scope.to":           "目录备份-范围结束",
-	"backup.dirBackup.fullFallbackDays":   "目录备份-全量兜底周期(天)",
-	"backup.emailBackup.enabled":          "邮件定时备份",
-	"backup.emailBackup.runOnStartup":     "邮件备份-启动时执行",
-	"backup.emailBackup.interval":         "邮件备份-间隔(小时)",
-	"backup.emailBackup.smtpHost":         "邮件备份-SMTP 服务器",
-	"backup.emailBackup.smtpPort":         "邮件备份-SMTP 端口",
-	"backup.emailBackup.smtpUser":         "邮件备份-SMTP 用户名",
-	"backup.emailBackup.smtpPass":         "邮件备份-SMTP 密码",
-	"backup.emailBackup.from":             "邮件备份-发件人",
-	"backup.emailBackup.to":               "邮件备份-收件人",
-	"backup.emailBackup.format":           "邮件备份-内容格式",
-	"backup.emailBackup.password":         "邮件备份-加密密码",
-	"backup.emailBackup.subject":          "邮件备份-主题",
-	"backup.emailBackup.body":             "邮件备份-正文",
-	"backup.emailBackup.style":            "邮件备份-样式",
-	"backup.emailBackup.accentColor":      "邮件备份-强调色",
-	"backup.emailBackup.scope.mode":       "邮件备份-范围模式",
-	"backup.emailBackup.scope.from":       "邮件备份-范围起始",
-	"backup.emailBackup.scope.to":         "邮件备份-范围结束",
-	"backup.emailBackup.maxPartSize":      "邮件备份-单封附件阈值",
-	"backup.emailBackup.fullFallbackDays": "邮件备份-全量兜底周期(天)",
+	"maxTextChars":                        "config_field.max_text_chars",
+	"maxFileDropPaths":                    "config_field.max_file_drop_paths",
+	"recordSourceInfo":                    "config_field.record_source_info",
+	"source.showExe":                      "config_field.show_exe",
+	"source.exeAliases":                   "config_field.exe_aliases",
+	"source.exeWhitelist":                 "config_field.exe_whitelist",
+	"brand.title":                         "config_field.brand_title",
+	"background.fit":                      "config_field.bg_fit",
+	"background.opacity":                  "config_field.bg_opacity",
+	"background.overlay":                  "config_field.bg_overlay",
+	"background.blur":                     "config_field.bg_blur",
+	"background.brightness":               "config_field.bg_brightness",
+	"background.contrast":                 "config_field.bg_contrast",
+	"background.saturation":               "config_field.bg_saturation",
+	"background.scale":                    "config_field.bg_scale",
+	"background.positionX":                "config_field.bg_position_x",
+	"background.positionY":                "config_field.bg_position_y",
+	"theme.preset":                        "config_field.theme_preset",
+	"theme.mode":                          "config_field.theme_mode",
+	"theme.primary":                       "config_field.theme_primary",
+	"theme.accent":                        "config_field.theme_accent",
+	"theme.fontScale":                     "config_field.theme_font_scale",
+	"theme.surfaceOpacity":                "config_field.theme_surface_opacity",
+	"theme.layout":                        "config_field.theme_layout",
+	"theme.previewLines":                  "config_field.theme_preview_lines",
+	"theme.navOpacity":                    "config_field.theme_nav_opacity",
+	"theme.navBlur":                       "config_field.theme_nav_blur",
+	"theme.navBorder":                     "config_field.theme_nav_border",
+	"theme.navSticky":                     "config_field.theme_nav_sticky",
+	"search.listenAddr":                   "config_field.web_listen_addr",
+	"search.timeZone":                     "config_field.filter_timezone",
+	"dataApi.enabled":                     "config_field.data_api_enabled",
+	"dataApi.listenAddr":                  "config_field.data_api_listen_addr",
+	"mcp.enabled":                         "config_field.mcp_enabled",
+	"mcp.listenAddr":                      "config_field.mcp_listen_addr",
+	"sensitive.customPatterns":            "config_field.sensitive_patterns",
+	"autostart.enabled":                   "config_field.autostart_enabled",
+	"autostart.appName":                   "config_field.autostart_app_name",
+	"notifications.pauseResume":           "config_field.notify_pause_resume",
+	"notifications.pauseTitle":            "config_field.notify_pause_title",
+	"notifications.pauseBody":             "config_field.notify_pause_body",
+	"notifications.resumeTitle":           "config_field.notify_resume_title",
+	"notifications.resumeBody":            "config_field.notify_resume_body",
+	"security.lockPasswordHash":           "config_field.lock_password",
+	"security.secondaryPasswordHash":      "config_field.secondary_password",
+	"security.lockSessionTimeout":         "config_field.lock_session_timeout",
+	"security.secondaryAuthTimeout":       "config_field.secondary_auth_timeout",
+	"hotkey.enabled":                      "config_field.hotkey_enabled",
+	"hotkey.modifiers":                    "config_field.hotkey_modifiers",
+	"hotkey.key":                          "config_field.hotkey_key",
+	"searchHotkey.enabled":                "config_field.search_hotkey_enabled",
+	"searchHotkey.modifiers":              "config_field.search_hotkey_modifiers",
+	"searchHotkey.key":                    "config_field.search_hotkey_key",
+	"image.enabled":                       "config_field.image_enabled",
+	"image.maxBytes":                      "config_field.image_max_bytes",
+	"popup.hideDuplicates":                "config_field.popup_hide_duplicates",
+	"popup.hideUnavailable":               "config_field.popup_hide_unavailable",
+	"popup.keyOpen":                       "config_field.popup_key_open",
+	"popup.keyRestore":                    "config_field.popup_key_restore",
+	"popup.keyPaste":                      "config_field.popup_key_paste",
+	"backup.dirBackup.enabled":            "config_field.dir_backup_enabled",
+	"backup.dirBackup.runOnStartup":       "config_field.dir_backup_run_on_startup",
+	"backup.dirBackup.interval":           "config_field.dir_backup_interval",
+	"backup.dirBackup.dir":                "config_field.dir_backup_dir",
+	"backup.dirBackup.format":             "config_field.dir_backup_format",
+	"backup.dirBackup.password":           "config_field.dir_backup_password",
+	"backup.dirBackup.scope.mode":         "config_field.dir_backup_scope_mode",
+	"backup.dirBackup.scope.from":         "config_field.dir_backup_scope_from",
+	"backup.dirBackup.scope.to":           "config_field.dir_backup_scope_to",
+	"backup.dirBackup.fullFallbackDays":   "config_field.dir_backup_fallback_days",
+	"backup.emailBackup.enabled":          "config_field.email_backup_enabled",
+	"backup.emailBackup.runOnStartup":     "config_field.email_backup_run_on_startup",
+	"backup.emailBackup.interval":         "config_field.email_backup_interval",
+	"backup.emailBackup.smtpHost":         "config_field.email_backup_smtp_host",
+	"backup.emailBackup.smtpPort":         "config_field.email_backup_smtp_port",
+	"backup.emailBackup.smtpUser":         "config_field.email_backup_smtp_user",
+	"backup.emailBackup.smtpPass":         "config_field.email_backup_smtp_pass",
+	"backup.emailBackup.from":             "config_field.email_backup_from",
+	"backup.emailBackup.to":               "config_field.email_backup_to",
+	"backup.emailBackup.format":           "config_field.email_backup_format",
+	"backup.emailBackup.password":         "config_field.email_backup_password",
+	"backup.emailBackup.subject":          "config_field.email_backup_subject",
+	"backup.emailBackup.body":             "config_field.email_backup_body",
+	"backup.emailBackup.style":            "config_field.email_backup_style",
+	"backup.emailBackup.accentColor":      "config_field.email_backup_accent_color",
+	"backup.emailBackup.scope.mode":       "config_field.email_backup_scope_mode",
+	"backup.emailBackup.scope.from":       "config_field.email_backup_scope_from",
+	"backup.emailBackup.scope.to":         "config_field.email_backup_scope_to",
+	"backup.emailBackup.maxPartSize":      "config_field.email_backup_max_part_size",
+	"backup.emailBackup.fullFallbackDays": "config_field.email_backup_fallback_days",
 }
 
 func configFieldLabel(path string) string {

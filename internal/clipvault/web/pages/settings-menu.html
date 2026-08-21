@@ -1,18 +1,22 @@
   <!-- ── 管理视图：左侧菜单 + 右侧内容 ── -->
   <main id="viewSettings" class="settings-app"{{if .RequireSecondary}} data-require-secondary="1"{{end}}>
     <aside class="app-menu">
-      <nav class="amenu" aria-label="管理菜单">
+      <nav class="amenu" aria-label="{{T "menu.label"}}">
         <a class="amenu-item{{if eq .Menu "settings"}} active{{end}}" href="/settings"{{if eq .Menu "settings"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-          <span>系统设置</span>
+          <span>{{T "menu.settings"}}</span>
+        </a>
+        <a class="amenu-item{{if eq .Menu "language"}} active{{end}}" href="/settings/language"{{if eq .Menu "language"}} aria-current="page"{{end}}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"/></svg>
+          <span>{{T "menu.language"}}</span>
         </a>
         <a class="amenu-item{{if eq .Menu "groups"}} active{{end}}" href="/groups"{{if eq .Menu "groups"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>
-          <span>分组管理</span>
+          <span>{{T "menu.groups"}}</span>
         </a>
         <a class="amenu-item{{if eq .Menu "data-api"}} active{{end}}" href="/data-api"{{if eq .Menu "data-api"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          <span>数据接口</span>
+          <span>{{T "menu.data_api"}}</span>
         </a>
         <a class="amenu-item{{if eq .Menu "mcp"}} active{{end}}" href="/mcp"{{if eq .Menu "mcp"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="2"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4"/></svg>
@@ -20,18 +24,18 @@
         </a>
         <a class="amenu-item{{if eq .Menu "license"}} active{{end}}" href="/license"{{if eq .Menu "license"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
-          <span>软件授权</span>
+          <span>{{T "menu.license"}}</span>
         </a>
         <a class="amenu-item{{if eq .Menu "maintenance"}} active{{end}}" href="/maintenance"{{if eq .Menu "maintenance"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4L14 13l-3-3 3.7-3.7z"/></svg>
-          <span>运行维护</span>
+          <span>{{T "menu.maintenance"}}</span>
         </a>
         <a class="amenu-item{{if eq .Menu "logs-operations"}} active{{end}}" href="/logs/operations"{{if eq .Menu "logs-operations"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h6M9 17h4"/></svg>
-          <span>操作记录</span>
+          <span>{{T "menu.logs_operations"}}</span>
         </a>
         <a class="amenu-item{{if eq .Menu "logs-searches"}} active{{end}}" href="/logs/searches"{{if eq .Menu "logs-searches"}} aria-current="page"{{end}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <span>搜索记录</span>
+          <span>{{T "menu.logs_searches"}}</span>
         </a>
       </nav>

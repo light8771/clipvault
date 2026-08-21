@@ -19,28 +19,28 @@ func (s *SearchServer) handleStorageRelocate(w http.ResponseWriter, r *http.Requ
 		DataDir string `json:"dataDir"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 4<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_storage_request", "数据目录请求无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_storage_request", s.i18nT("api.error.invalid_storage_request", nil), err)
 		return
 	}
 	if err := ScheduleDataDirectoryMove(s.env, req.DataDir); err != nil {
 
-		s.writeAPIError(w, http.StatusBadRequest, "relocate_failed", "数据目录迁移失败："+err.Error(), err)
+		s.writeAPIError(w, http.StatusBadRequest, "relocate_failed", s.i18nT("storage.relocate_failed_with", map[string]any{"detail": err.Error()}), err)
 		return
 	}
 	s.logger.Info("storage_relocation_scheduled", nil)
-	s.writeJSON(w, map[string]any{"ok": true, "message": "数据目录迁移已准备完成，请退出应用后重新启动"})
+	s.writeJSON(w, map[string]any{"ok": true, "message": s.i18nT("storage.relocate_ready", nil)})
 }
 
 // handleStorageOpen opens the current data directory in the system file explorer.
 func (s *SearchServer) handleStorageOpen(w http.ResponseWriter, r *http.Request) {
 	dir := strings.TrimSpace(s.env.DataDir)
 	if dir == "" {
-		s.writeError(w, fmt.Errorf("数据目录不可用"))
+		s.writeError(w, fmt.Errorf("%s", s.i18nT("storage.unavailable", nil)))
 		return
 	}
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		s.writeError(w, fmt.Errorf("数据目录不存在或不可访问: %s", dir))
+		s.writeError(w, fmt.Errorf("%s: %s", s.i18nT("storage.dir_inaccessible", nil), dir))
 		return
 	}
 	if err := openDirectory(dir); err != nil {

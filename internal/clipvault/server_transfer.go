@@ -22,7 +22,7 @@ const (
 func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) {
 
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
-		s.writeAPIError(w, http.StatusPaymentRequired, "license_required", "导出为付费功能，激活后可导出全部数据", nil)
+		s.writeAPIError(w, http.StatusPaymentRequired, "license_required", s.i18nT("transfer.paywall_full", nil), nil)
 		return
 	}
 	format := r.URL.Query().Get("format")
@@ -36,12 +36,12 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 	}
 	if sinceID := r.URL.Query().Get("sinceId"); sinceID != "" {
 		if scope.Mode != "incremental" {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_since_id", "sinceId 仅适用于 incremental 模式", nil)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_since_id", s.i18nT("api.error.sinceid_incremental_only", nil), nil)
 			return
 		}
 		id, err := strconv.ParseInt(sinceID, 10, 64)
 		if err != nil || id <= 0 {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_since_id", "sinceId 必须是正整数", err)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_since_id", s.i18nT("api.error.sinceid_invalid", nil), err)
 			return
 		}
 		scope.SinceID = id
@@ -51,15 +51,15 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 	var err error
 	scope, err = normalizeExportRange(scope, s.configuredTimeZone())
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", "导出范围无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", s.i18nT("api.error.invalid_export_scope", nil), err)
 		return
 	}
 	if err := validateExportScope(scope); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", "导出范围无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_export_scope", s.i18nT("api.error.invalid_export_scope", nil), err)
 		return
 	}
 	if err := setExportWriteDeadline(w, time.Now()); err != nil {
-		s.writeAPIError(w, http.StatusInternalServerError, "export_deadline_failed", "无法为大型导出设置传输期限", err)
+		s.writeAPIError(w, http.StatusInternalServerError, "export_deadline_failed", s.i18nT("api.error.export_deadline_failed", nil), err)
 		return
 	}
 
@@ -99,19 +99,19 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		s.logger.Info("data_exported", map[string]any{"format": "json", "mode": scope.Mode})
 	case "cvexport":
 		if r.Method != http.MethodPost {
-			s.writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "cvexport 导出需要 POST 请求", nil)
+			s.writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", s.i18nT("api.error.cvexport_post_only", nil), nil)
 			return
 		}
 		var req struct {
 			Password string `json:"password"`
 		}
 		if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-			s.writeAPIError(w, http.StatusBadRequest, "invalid_request", "无效的请求", nil)
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_request", s.i18nT("api.error.invalid_request", nil), nil)
 			return
 		}
 		password := req.Password
 		if password == "" {
-			s.writeAPIError(w, http.StatusBadRequest, "password_required", "cvexport 格式需要加密密码", nil)
+			s.writeAPIError(w, http.StatusBadRequest, "password_required", s.i18nT("api.error.password_required", nil), nil)
 			return
 		}
 		file, err := os.CreateTemp("", "clipvault-export-*.cvexport")
@@ -136,7 +136,7 @@ func (s *SearchServer) handleExportData(w http.ResponseWriter, r *http.Request) 
 		}
 		s.logger.Info("data_exported", map[string]any{"format": "cvexport", "mode": scope.Mode, "maxID": maxID})
 	default:
-		s.writeAPIError(w, http.StatusBadRequest, "unsupported_format", "不支持的导出格式", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "unsupported_format", s.i18nT("api.error.unsupported_export_format", nil), nil)
 	}
 }
 
@@ -383,5 +383,5 @@ func spoolImportBody(w http.ResponseWriter, r *http.Request, maxBytes int64) (*o
 
 func (s *SearchServer) writeImportError(w http.ResponseWriter, err error) {
 
-	s.writeAPIError(w, http.StatusBadRequest, "import_error", "导入失败，请检查文件格式、密码或数据完整性", err)
+	s.writeAPIError(w, http.StatusBadRequest, "import_error", s.i18nT("api.error.import_failed_generic", nil), err)
 }

@@ -3,15 +3,15 @@
     <!-- 系统设置首页：分组总览 -->
     <div class="settings-main">
       <header class="sh-head">
-        <h1 class="sh-title">系统设置</h1>
-        <p class="sh-desc">管理 ClipVault 的外观、记录行为、安全与数据。所有修改自动保存，立即生效。</p>
+        <h1 class="sh-title">{{T "settings_home.title"}}</h1>
+        <p class="sh-desc">{{T "settings_home.desc"}}</p>
         <div class="sh-search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="search" id="settingsSearch" class="sh-search-input" placeholder="搜索设置项或分组…" autocomplete="off" aria-label="搜索设置">
+          <input type="search" id="settingsSearch" class="sh-search-input" placeholder='{{T "settings_home.search_placeholder"}}' autocomplete="off" aria-label='{{T "settings_home.search_label"}}'>
         </div>
       </header>
 
-      <div class="sh-results hidden" id="settingsSearchResults" role="listbox" aria-label="搜索结果"></div>
+      <div class="sh-results hidden" id="settingsSearchResults" role="listbox" aria-label='{{T "settings_home.search_results"}}'></div>
 
       <div class="sgroup-grid" id="sgroupGrid">
         <a class="sgroup-card" href="/settings/appearance">
@@ -19,9 +19,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-1.5a1.5 1.5 0 0 0 0 3H18a2 2 0 0 1 2 2c0 1.1-.9 2-2 2h-6z"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">外观与通知</span>
-            <span class="sgroup-desc">皮肤、显示模式、字体、背景媒体与系统通知</span>
-            <span class="sgroup-keys">皮肤 · 深色模式 · 字体大小 · 站点品牌 · 背景 · 通知</span>
+            <span class="sgroup-name">{{T "app.title.appearance"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.appearance_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.appearance_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>
@@ -31,9 +31,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">录制与快捷键</span>
-            <span class="sgroup-desc">记录行为、来源应用、快捷键、图片捕获与搜索弹窗</span>
-            <span class="sgroup-keys">记录限制 · 来源应用 · 快捷键 · 图片捕获 · 搜索弹窗</span>
+            <span class="sgroup-name">{{T "app.title.general"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.general_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.general_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>
@@ -43,9 +43,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">安全与隐私</span>
-            <span class="sgroup-desc">锁屏密码、二次验证与敏感内容过滤</span>
-            <span class="sgroup-keys">锁屏密码 · 二次密码 · 恢复密码 · 敏感过滤</span>
+            <span class="sgroup-name">{{T "app.title.security"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.security_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.security_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>
@@ -55,9 +55,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">存储与数据</span>
-            <span class="sgroup-desc">数据目录、隔离数据库与历史清理</span>
-            <span class="sgroup-keys">数据目录 · 迁移 · 隔离数据库 · 历史清理</span>
+            <span class="sgroup-name">{{T "app.title.storage"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.storage_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.storage_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>
@@ -67,9 +67,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">定时备份</span>
-            <span class="sgroup-desc">定时备份到目录或发送到邮箱</span>
-            <span class="sgroup-keys">目录备份 · 邮件备份 · 加密 · 增量</span>
+            <span class="sgroup-name">{{T "app.title.backup"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.backup_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.backup_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>
@@ -79,9 +79,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">导入导出</span>
-            <span class="sgroup-desc">导出剪贴板数据，或从导出文件恢复</span>
-            <span class="sgroup-keys">JSON · Excel · 加密导出 · 数据恢复</span>
+            <span class="sgroup-name">{{T "app.title.transfer"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.transfer_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.transfer_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>
@@ -91,9 +91,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
           </span>
           <span class="sgroup-main">
-            <span class="sgroup-name">网络与服务</span>
-            <span class="sgroup-desc">Web 监听地址与时区</span>
-            <span class="sgroup-keys">监听地址 · 时区</span>
+            <span class="sgroup-name">{{T "app.title.service"}}</span>
+            <span class="sgroup-desc">{{T "settings_home.service_desc"}}</span>
+            <span class="sgroup-keys">{{T "settings_home.service_keys"}}</span>
           </span>
           <svg class="sgroup-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
         </a>

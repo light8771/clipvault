@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerSettingsStorage() {
   const smtpUser = document.getElementById('cfg-emailBackupSMTPUser');
   const smtpCredentialUser = document.getElementById('cfg-emailBackupSMTPCredentialUser');
@@ -20,7 +23,7 @@ export function registerSettingsStorage() {
       }
     } catch (_) {
       if (request === app.configRequestSequence && revision === app.configRevision && !app.hasPendingConfigSave()) {
-        app.toast('加载配置失败', 'err');
+        app.toast(t('config.load_failed'), 'err');
       }
     }
     if (request !== app.configRequestSequence) return;
@@ -43,18 +46,18 @@ export function registerSettingsStorage() {
       currentDir.title = status.dataDir || '';
       if (openBtn) openBtn.disabled = !status.dataDir;
       if (status.movable && !status.pending && !app.storageRelocationScheduled) {
-        hint.textContent = '数据目录迁移会保留数据库、密钥和应用数据；运行日志保留在原位置。目标目录必须预先创建、为空且可读写。';
+        hint.textContent = t('storage.relocate_available');
         button.disabled = false;
       } else if (status.movable) {
-        hint.textContent = '数据目录迁移已准备完成，请退出应用后重新启动。';
+        hint.textContent = t('storage.relocate_pending');
         button.disabled = true;
       } else {
-        hint.textContent = status.reason || '当前运行模式不支持修改数据目录。';
+        hint.textContent = status.reason || t('storage.relocate_unsupported');
         button.disabled = true;
       }
     } catch (_) {
       if (request !== app.storageStatusRequestSequence || app.storageRelocationInFlight) return;
-      hint.textContent = '无法读取存储状态。';
+      hint.textContent = t('storage.status_unavailable');
       button.disabled = true;
       if (openBtn) openBtn.disabled = true;
     }
@@ -69,12 +72,12 @@ export function registerSettingsStorage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        app.toast(data.error || '无法打开数据目录', 'err');
+        app.toast(data.error || t('storage.open_failed'), 'err');
         return;
       }
-      app.toast('已在文件资源管理器中打开');
+      app.toast(t('storage.opened'));
     } catch (_) {
-      app.toast('无法打开数据目录', 'err');
+      app.toast(t('storage.open_failed'), 'err');
     } finally {
       btn.disabled = false;
     }
@@ -86,28 +89,28 @@ export function registerSettingsStorage() {
       <div class="modal-overlay" id="migrateOverlay">
         <div class="modal-box secondary-box migrate-modal" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">迁移数据目录</span>
-            <button class="modal-close" type="button" data-action="close-migrate" aria-label="关闭数据目录迁移">
+            <span class="modal-title">${t('storage.migrate_title')}</span>
+            <button class="modal-close" type="button" data-action="close-migrate" aria-label="${t('storage.migrate_close_label')}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
             <div class="migrate-notes">
-              <p>迁移将复制数据库、密钥和应用数据到新目录；运行日志保留在原位置。目标目录必须由你提前创建、为空且具备读写权限。迁移计划提交后，请从托盘退出应用并重新启动，程序才会在启动时迁移现有数据。</p>
+              <p>${t('storage.migrate_note')}</p>
             </div>
             <div class="migrate-field">
-              <label class="migrate-label">当前数据目录</label>
+              <label class="migrate-label">${t('storage.current_dir')}</label>
               <code class="migrate-dir" id="migrateOldDir"></code>
             </div>
             <div class="migrate-field">
-              <label class="migrate-label" for="migrateNewDir">新数据目录</label>
-              <input type="text" id="migrateNewDir" class="field-input" autocomplete="off" placeholder="例如 D:\\ClipVaultData">
+              <label class="migrate-label" for="migrateNewDir">${t('storage.migrate_new_dir')}</label>
+              <input type="text" id="migrateNewDir" class="field-input" autocomplete="off" placeholder="${t('storage.migrate_new_dir_placeholder')}">
             </div>
             <div class="migrate-progress hidden" id="migrateProgress"></div>
             <p class="lock-err hidden" id="migrateErr"></p>
             <div class="migrate-actions">
-              <button type="button" class="btn-export" id="migrateCancelBtn">取消</button>
-              <button type="button" class="lock-btn" id="migrateExecBtn">执行迁移</button>
+              <button type="button" class="btn-export" id="migrateCancelBtn">${t('common.cancel')}</button>
+              <button type="button" class="lock-btn" id="migrateExecBtn">${t('storage.migrate_exec')}</button>
             </div>
           </div>
         </div>
@@ -131,11 +134,11 @@ export function registerSettingsStorage() {
     app.closeMigrateDialog = modal.close;
     cancelBtn.addEventListener('click', app.closeMigrateDialog);
     const steps = [{
-      label: '验证目标目录'
+      label: t('storage.migrate_step_validate')
     }, {
-      label: '提交迁移计划'
+      label: t('storage.migrate_step_submit')
     }, {
-      label: '完成'
+      label: t('storage.migrate_step_done')
     }];
     function renderProgress(states) {
       progressEl.classList.remove('hidden');
@@ -154,7 +157,7 @@ export function registerSettingsStorage() {
       const target = newDirInput.value.trim();
       errEl.classList.add('hidden');
       if (!target) {
-        errEl.textContent = '请输入已创建的新数据目录';
+        errEl.textContent = t('storage.migrate_need_dir');
         errEl.classList.remove('hidden');
         return;
       }
@@ -181,15 +184,15 @@ export function registerSettingsStorage() {
             dataDir: target
           })
         });
-        await app.requireOK(res, '数据目录迁移准备失败');
+        await app.requireOK(res, t('storage.migrate_prepare_failed'));
         completed = true;
         states[1] = 'done';
         states[2] = 'active';
         renderProgress(states);
         states[2] = 'done';
         renderProgress(states);
-        progressEl.insertAdjacentHTML('beforeend', '<div class="migrate-success">\u2713 迁移计划已提交。请从托盘退出应用并重新启动，程序将在启动时迁移数据。</div>');
-        execBtn.textContent = '关闭';
+        progressEl.insertAdjacentHTML('beforeend', '<div class="migrate-success">\u2713 ' + t('storage.migrate_submitted') + '</div>');
+        execBtn.textContent = t('common.close');
         execBtn.disabled = false;
         cancelBtn.style.display = 'none';
         app.storageRelocationScheduled = true;
@@ -197,7 +200,7 @@ export function registerSettingsStorage() {
       } catch (e) {
         states[1] = 'error';
         renderProgress(states);
-        errEl.textContent = '迁移准备失败：' + (e.message || e);
+        errEl.textContent = t('storage.migrate_failed_with', { message: e.message || e });
         errEl.classList.remove('hidden');
         execBtn.disabled = false;
         newDirInput.disabled = false;

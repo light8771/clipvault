@@ -662,7 +662,8 @@ func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
 	}
 	result = httptest.NewRecorder()
 	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
-	if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "SMTP 用户名必须为邮箱") {
+	// 无 i18n 服务时消息回退 key 原文；断言错误码即可覆盖语义。
+	if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "invalid_backup_config") {
 		t.Fatalf("invalid SMTP username status = %d, body=%s", result.Code, result.Body.String())
 	}
 }

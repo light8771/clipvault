@@ -8,6 +8,7 @@ if(docEl.dataset.pLightHover)docEl.style.setProperty('--theme-primary-light-hove
 if(docEl.dataset.pDark)docEl.style.setProperty('--theme-primary-dark',docEl.dataset.pDark);
 if(docEl.dataset.pDarkHover)docEl.style.setProperty('--theme-primary-dark-hover',docEl.dataset.pDarkHover);
 if(docEl.dataset.themeMode==='light'||docEl.dataset.themeMode==='dark')docEl.dataset.theme=docEl.dataset.themeMode;
+const t=(key,params)=>window.clipvaultI18n.t(key,params);
 const root=document.querySelector('.main');
 const mode=root.dataset.mode,isSetup=mode==='set_credentials';
 const $=id=>document.getElementById(id);
@@ -24,28 +25,28 @@ async function establishStartupSession(){
   try{
     const res=await fetch('/api/v1/startup/session',{method:'POST',headers:{'X-ClipVault-Startup-Token':startupToken}});
     startupSessionReady=res.ok;
-    if(!res.ok)errBox.textContent='安全设置链接已失效，请重启 ClipVault 后重试';
+    if(!res.ok)errBox.textContent=t('startup.link_expired');
   }catch(_){
     startupSessionReady=false;
-    errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';
+    errBox.textContent=t('startup.connect_failed');
   }
   validate();
 }
 
-document.querySelectorAll('.eye').forEach(btn=>{btn.addEventListener('click',()=>{const input=$(btn.dataset.target);const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'隐藏':'显示';});});
+document.querySelectorAll('.eye').forEach(btn=>{btn.addEventListener('click',()=>{const input=$(btn.dataset.target);const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?t('startup.hide'):t('startup.show');});});
 
 function setMsg(key,ok,text){const el=msgs[key];if(!el)return;el.textContent=text||'';el.className='msg'+(text?(ok?' ok':' err'):'');}
 function mark(key,bad){const el=els[key];if(el)el.classList.toggle('bad',bad);}
 function checkPassword(key,min,maxBytes){
   const v=els[key].value;
   if(!v){setMsg(key,false,'');mark(key,false);return false;}
-  if(edgeWhitespace.test(v)){setMsg(key,false,'首尾不能有空白字符');mark(key,true);return false;}
+  if(edgeWhitespace.test(v)){setMsg(key,false,t('startup.no_edge_whitespace'));mark(key,true);return false;}
   const runeCount=Array.from(v).length;
-  if(runeCount<min){setMsg(key,false,'至少 '+min+' 个字符，还差 '+(min-runeCount)+' 个');mark(key,true);return false;}
-  if(utf8Encoder.encode(v).length>maxBytes){setMsg(key,false,'密码过长');mark(key,true);return false;}
-  setMsg(key,true,'✓ 长度达标');mark(key,false);return true;
+  if(runeCount<min){setMsg(key,false,t('startup.need_more_chars',{need:min,remaining:min-runeCount}));mark(key,true);return false;}
+  if(utf8Encoder.encode(v).length>maxBytes){setMsg(key,false,t('startup.password_too_long'));mark(key,true);return false;}
+  setMsg(key,true,t('startup.length_ok'));mark(key,false);return true;
 }
-function checkPair(a,b){const va=els[a].value,vb=els[b].value;if(!vb){setMsg(b,false,'');mark(b,false);return false;}if(va!==vb){setMsg(b,false,'两次输入不一致');mark(b,true);return false;}setMsg(b,true,'✓ 一致');mark(b,false);return true;}
+function checkPair(a,b){const va=els[a].value,vb=els[b].value;if(!vb){setMsg(b,false,'');mark(b,false);return false;}if(va!==vb){setMsg(b,false,t('startup.mismatch'));mark(b,true);return false;}setMsg(b,true,t('startup.match_ok'));mark(b,false);return true;}
 // 可选密码（锁屏）：留空 = 明确跳过；填写则按与必填密码相同的规则校验。
 function checkOptionalPassword(key,min,maxBytes){
   if(!els[key].value){setMsg(key,false,'');mark(key,false);return true;}
@@ -53,7 +54,7 @@ function checkOptionalPassword(key,min,maxBytes){
 }
 function checkOptionalPair(a,b){
   if(!els[a].value&&!els[b].value){setMsg(b,false,'');mark(b,false);return true;}
-  if(!els[b].value){setMsg(b,false,'请再输入一次以确认');mark(b,true);return false;}
+  if(!els[b].value){setMsg(b,false,t('startup.reenter_to_confirm'));mark(b,true);return false;}
   return checkPair(a,b);
 }
 
@@ -92,11 +93,11 @@ async function submitCredentials(e){
   try{
     const res=await fetch('/api/v1/startup/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:els.password.value,confirm:els.confirm?els.confirm.value:'',secondaryPassword:els.secondaryPassword?els.secondaryPassword.value:'',secondaryConfirm:els.secondaryConfirm?els.secondaryConfirm.value:'',lockPassword:els.lockPassword?els.lockPassword.value:'',lockConfirm:els.lockConfirm?els.lockConfirm.value:''})});
     let data={};try{data=await res.json();}catch(_){data={};}
-    if(!res.ok){errBox.textContent=res.status===403?'安全会话已失效，请刷新页面后重试':(data.error?.message||'本地服务请求失败');submit.disabled=false;return;}
+    if(!res.ok){errBox.textContent=res.status===403?t('startup.session_expired'):(data.error?.message||t('startup.local_request_failed'));submit.disabled=false;return;}
     const card=document.querySelector('.main');
-    card.innerHTML='<div class="shell"><div class="done-panel"><h1>设置完成</h1><p class="desc">正在打开记录页面...</p><div class="warn"><p class="warn-title">如未自动跳转</p><p class="warn-copy">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p></div></div></div>';
-    let polled=0;const poll=async()=>{try{const r=await fetch('/api/v1/startup/status');const d=await r.json();if(d.data?.ready&&d.data.recordURL){location.href=d.data.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<div class="shell"><div class="done-panel"><h1>设置完成</h1><p class="desc">记录页面未自动打开。</p><div class="warn"><p class="warn-title">手动继续</p><p class="warn-copy">请点击任务栏右下角 ClipVault 图标 → 右键 → 搜索历史 / 设置</p></div></div></div>';return;}setTimeout(poll,500);};poll();
-  }catch(_){errBox.textContent='无法连接本地服务，请确认 ClipVault 仍在运行';submit.disabled=false;}
+    card.innerHTML='<div class="shell"><div class="done-panel"><h1>'+t('startup.done_title')+'</h1><p class="desc">'+t('startup.opening')+'</p><div class="warn"><p class="warn-title">'+t('startup.manual_title')+'</p><p class="warn-copy">'+t('startup.manual_copy')+'</p></div></div></div>';
+    let polled=0;const poll=async()=>{try{const r=await fetch('/api/v1/startup/status');const d=await r.json();if(d.data?.ready&&d.data.recordURL){location.href=d.data.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<div class="shell"><div class="done-panel"><h1>'+t('startup.done_title')+'</h1><p class="desc">'+t('startup.not_opened')+'</p><div class="warn"><p class="warn-title">'+t('startup.manual_continue')+'</p><p class="warn-copy">'+t('startup.manual_copy')+'</p></div></div></div>';return;}setTimeout(poll,500);};poll();
+  }catch(_){errBox.textContent=t('startup.connect_failed');submit.disabled=false;}
 }
 document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',submitCredentials));
 submit.addEventListener('click',submitCredentials);

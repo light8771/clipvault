@@ -12,12 +12,12 @@ import (
 func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, offset, sourceExeNames, err := parseSearchParameters(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_search_parameters", "搜索参数无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_search_parameters", s.i18nT("api.error.invalid_search_parameters", nil), err)
 		return
 	}
 	groupID, err := parseOptionalPositiveInt64(r.URL.Query().Get("group_id"), "group_id")
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "分组 id 无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", s.i18nT("api.error.invalid_group_id", nil), err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
@@ -27,14 +27,14 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	starredOnly, err := parseOptionalFlag(r.URL.Query().Get("starred"), "starred")
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", "收藏筛选参数无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", s.i18nT("api.error.invalid_starred_filter", nil), err)
 		return
 	}
 	dateFrom := r.URL.Query().Get("date_from")
 	dateTo := r.URL.Query().Get("date_to")
 	createdFromMS, createdBeforeMS, err := localDateFilterBounds(dateFrom, dateTo, s.configuredTimeZone())
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "日期范围无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", s.i18nT("api.error.invalid_date_range", nil), err)
 		return
 	}
 	hasContentOracleFilter := query != "" || kind != "" || starredOnly || dateFrom != "" || dateTo != "" || groupID != 0 || len(sourceExeNames) != 0
@@ -75,7 +75,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 			// （ID、时间、类型、收藏、敏感标志）。其余元数据——来源应用、
 			// 窗口、路径、字数、哈希、重复标记——全部清除：它们是
 			// 旁信道（例如"来自密码管理器的 24 字符记录"本身即泄露）。
-			items[i].Text = "【敏感内容，点击查看】"
+			items[i].Text = s.i18nT("api.error.sensitive_placeholder", nil)
 			items[i].MetaJSON = ""
 			items[i].SHA256 = ""
 			items[i].Format = ""
@@ -101,30 +101,31 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, resp)
 }
 
-// searchHistoryFilters 把搜索条件汇总为「中文标签 → 值」的展示用 map，
-// 与搜索历史记录一起落库，页面渲染时原样展示。
+// searchHistoryFilters 把搜索条件汇总为「标签 key → 值 key/原始值」的
+// 展示用 map，与搜索历史记录一起落库。key 是 shlog.filter.* 词条 key，
+// 由前端展示时翻译——与操作记录同理由：持久化数据不落语言相关文案。
 func searchHistoryFilters(kind string, starredOnly bool, groupID int64, dateFrom, dateTo string, sourceExeNames []string) map[string]string {
 	filters := map[string]string{}
 	switch kind {
 	case "text":
-		filters["类型"] = "文本"
+		filters["shlog.filter.kind"] = "history.kind_text"
 	case "image":
-		filters["类型"] = "图片"
+		filters["shlog.filter.kind"] = "history.kind_image"
 	case "":
 	default:
-		filters["类型"] = kind
+		filters["shlog.filter.kind"] = kind
 	}
 	if starredOnly {
-		filters["收藏"] = "仅收藏"
+		filters["shlog.filter.starred"] = "shlog.filter.starred_only"
 	}
 	if groupID != 0 {
-		filters["分组"] = strconv.FormatInt(groupID, 10)
+		filters["shlog.filter.group"] = strconv.FormatInt(groupID, 10)
 	}
 	if dateFrom != "" || dateTo != "" {
-		filters["日期"] = dateFrom + " ~ " + dateTo
+		filters["shlog.filter.date"] = dateFrom + " ~ " + dateTo
 	}
 	if len(sourceExeNames) > 0 {
-		filters["来源应用"] = strings.Join(sourceExeNames, ", ")
+		filters["shlog.filter.source_apps"] = strings.Join(sourceExeNames, ", ")
 	}
 	return filters
 }
@@ -221,23 +222,23 @@ func parseOptionalFlag(raw, name string) (bool, error) {
 func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Request) {
 	limit, offset, sourceExeNames, err := parseSearchParameters(r)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_search_parameters", "搜索参数无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_search_parameters", s.i18nT("api.error.invalid_search_parameters", nil), err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
 	groupID, err := parseOptionalPositiveInt64(r.URL.Query().Get("group_id"), "group_id")
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", "分组 id 无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_group_id", s.i18nT("api.error.invalid_group_id", nil), err)
 		return
 	}
 	starredOnly, err := parseOptionalFlag(r.URL.Query().Get("starred"), "starred")
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", "收藏筛选参数无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", s.i18nT("api.error.invalid_starred_filter", nil), err)
 		return
 	}
 	createdFromMS, createdBeforeMS, err := localDateFilterBounds(r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"), s.configuredTimeZone())
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", "日期范围无效", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", s.i18nT("api.error.invalid_date_range", nil), err)
 		return
 	}
 	opts := SearchOptions{
@@ -270,7 +271,7 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	item, err := s.store.GetByID(r.Context(), id)
@@ -279,7 +280,7 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !item.Sensitive {
-		s.writeAPIError(w, http.StatusBadRequest, "not_sensitive", "该记录不是敏感内容", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "not_sensitive", s.i18nT("api.error.not_sensitive", nil), nil)
 		return
 	}
 
@@ -291,7 +292,7 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 		}
 		if pos >= FreeTierVisibleLimit {
 			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
-				"未激活仅可查看最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该记录不在可查看范围内", nil)
+				s.i18nT("api.error.free_window_read", map[string]any{"n": FreeTierVisibleLimit}), nil)
 			return
 		}
 	}
@@ -302,7 +303,7 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 id", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
 	item, err := s.store.GetByID(r.Context(), id)
@@ -321,7 +322,7 @@ func (s *SearchServer) handleItemPosition(w http.ResponseWriter, r *http.Request
 
 	if s.license != nil && !s.license.CanUsePaidFeatures() && pos >= FreeTierVisibleLimit {
 		s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
-			"未激活仅可查看最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该记录不在可查看范围内", nil)
+			s.i18nT("api.error.free_window_read", map[string]any{"n": FreeTierVisibleLimit}), nil)
 		return
 	}
 	s.writeJSON(w, map[string]any{"position": pos})
@@ -340,7 +341,7 @@ func (s *SearchServer) enforceFreeWindow(w http.ResponseWriter, r *http.Request,
 		}
 		if pos >= FreeTierVisibleLimit {
 			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside",
-				"未激活仅可操作最近 "+strconv.Itoa(FreeTierVisibleLimit)+" 条记录，该记录不在可操作范围内", nil)
+				s.i18nT("api.error.free_window_write", map[string]any{"n": FreeTierVisibleLimit}), nil)
 			return true
 		}
 	}

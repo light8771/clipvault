@@ -100,28 +100,28 @@ func applyPendingDataDirectoryMove(controlDir string) (string, error) {
 
 func cancelDataDirectoryMove(pendingPath, reason string) (string, error) {
 	if err := os.Remove(pendingPath); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("取消数据目录迁移失败: %w", err)
+		return "", fmt.Errorf("%s: %w", templateT("storage.err_cancel_move", nil), err)
 	}
-	return "数据目录迁移已取消：" + reason, nil
+	return templateT("storage.move_cancelled", map[string]any{"reason": reason}), nil
 }
 
 func finalizeDataDirectoryMove(sourceDir, targetDir, controlDir, pendingPath string) (string, error) {
 	if err := removeMovedData(sourceDir, controlDir); err != nil {
-		return fmt.Sprintf("数据目录已迁移，但清理原目录失败: %v", err), nil
+		return templateT("storage.move_ok_cleanup_failed", map[string]any{"error": err.Error()}), nil
 	}
 	return completeDataDirectoryMove(targetDir, controlDir, pendingPath, "")
 }
 
 func completeDataDirectoryMove(targetDir, controlDir, pendingPath, warning string) (string, error) {
 	if err := os.Remove(pendingPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Sprintf("数据目录已迁移，但清理迁移任务失败: %v", err), nil
+		return templateT("storage.move_ok_task_cleanup_failed", map[string]any{"error": err.Error()}), nil
 	}
 	locationData, err := json.Marshal(storageLocation{DataDir: targetDir})
 	if err != nil {
-		return "", fmt.Errorf("编码数据目录配置失败: %w", err)
+		return "", fmt.Errorf("%s: %w", templateT("storage.err_encode_config", nil), err)
 	}
 	if _, err := atomicWriteStorageControlFile(filepath.Join(controlDir, storageLocationFile), locationData); err != nil {
-		return fmt.Sprintf("数据目录已迁移，但清理迁移状态失败: %v", err), nil
+		return templateT("storage.move_ok_state_cleanup_failed", map[string]any{"error": err.Error()}), nil
 	}
 	return warning, nil
 }

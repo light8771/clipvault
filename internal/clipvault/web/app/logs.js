@@ -1,5 +1,7 @@
 import { app } from './app-context.js';
 
+const t = window.clipvaultI18n.t;
+
 const LOG_PAGE_SIZE = 20;
 
 export function registerLogs() {
@@ -25,32 +27,38 @@ export function registerLogs() {
       state.total = d.total || 0;
       renderConfigChangeLog(d.entries || []);
     } catch (_) {
-      document.getElementById('oplogTotal').textContent = '读取失败';
-      list.innerHTML = '<p class="log-empty">无法读取操作记录，请查看本地日志</p>';
+      document.getElementById('oplogTotal').textContent = t('logs.load_failed');
+      list.innerHTML = '<p class="log-empty">' + t('logs.oplog_read_failed') + '</p>';
     }
   };
 
   function renderConfigChangeLog(entries) {
     const list = document.getElementById('oplogList');
     const state = app.oplogState;
-    document.getElementById('oplogTotal').textContent = '共 ' + state.total + ' 次修改';
+    document.getElementById('oplogTotal').textContent = t('logs.oplog_total', { count: state.total });
     if (!entries.length) {
-      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? '本页没有记录' : '暂无设置修改记录') + '</p>';
+      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? t('logs.page_empty') : t('logs.oplog_empty')) + '</p>';
     } else {
       list.innerHTML = entries.map(entry => {
-        const changes = (entry.changes || []).map(change =>
-          '<li class="log-change">' +
-          '<span class="log-label">' + app.esc(change.label || change.path) + '</span>' +
+        // 操作记录持久化的是词条 key（config_field.* / config_value.*），
+        // 展示时翻译；历史遗留的明文（旧库或未登记路径的回退）原样展示。
+        const changes = (entry.changes || []).map(change => {
+          const label = change.label || change.path;
+          const isFieldKey = label.startsWith('config_field.');
+          const renderValue = value =>
+            typeof value === 'string' && value.startsWith('config_value.') ? t(value) : value;
+          return '<li class="log-change">' +
+          '<span class="log-label">' + app.esc(isFieldKey ? t(label) : label) + '</span>' +
           '<span class="log-values">' +
-          '<code class="log-old">' + app.esc(change.old) + '</code>' +
+          '<code class="log-old">' + app.esc(renderValue(change.old)) + '</code>' +
           '<span class="log-arrow">→</span>' +
-          '<code class="log-new">' + app.esc(change.new) + '</code>' +
-          '</span></li>'
-        ).join('');
+          '<code class="log-new">' + app.esc(renderValue(change.new)) + '</code>' +
+          '</span></li>';
+        }).join('');
         return '<div class="log-entry">' +
           '<div class="log-entry-head">' +
           '<span class="log-time">' + app.esc(app.formatLogTime(entry.changedAt)) + '</span>' +
-          '<span class="log-count">' + (entry.changes || []).length + ' 项修改</span>' +
+          '<span class="log-count">' + t('logs.change_count', { count: (entry.changes || []).length }) + '</span>' +
           '</div>' +
           '<ul class="log-changes">' + changes + '</ul>' +
           '</div>';
@@ -69,8 +77,8 @@ export function registerLogs() {
 
   app.clearConfigChangeLog = function clearConfigChangeLog(button) {
     armClearButton(button, async () => {
-      await app.requireOK(await app.protectedFetch('/api/v1/logs/config-changes', { method: 'DELETE' }), '清空失败');
-      app.toast('操作记录已清空');
+      await app.requireOK(await app.protectedFetch('/api/v1/logs/config-changes', { method: 'DELETE' }), t('logs.clear_failed'));
+      app.toast(t('logs.oplog_cleared'));
       app.oplogState.page = 0;
       await app.loadConfigChangeLog();
     });
@@ -87,29 +95,37 @@ export function registerLogs() {
       state.total = d.total || 0;
       renderSearchHistory(d.entries || []);
     } catch (_) {
-      document.getElementById('shlogTotal').textContent = '读取失败';
-      list.innerHTML = '<p class="log-empty">无法读取搜索记录，请查看本地日志</p>';
+      document.getElementById('shlogTotal').textContent = t('logs.load_failed');
+      list.innerHTML = '<p class="log-empty">' + t('logs.shlog_read_failed') + '</p>';
     }
   };
 
   function renderSearchHistory(entries) {
     const list = document.getElementById('shlogList');
     const state = app.shlogState;
-    document.getElementById('shlogTotal').textContent = '共 ' + state.total + ' 条搜索记录';
+    document.getElementById('shlogTotal').textContent = t('logs.shlog_total', { count: state.total });
     if (!entries.length) {
-      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? '本页没有记录' : '暂无搜索记录') + '</p>';
+      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? t('logs.page_empty') : t('logs.shlog_empty')) + '</p>';
     } else {
       list.innerHTML = entries.map(entry => {
+        // filters 持久化为「词条 key → 词条 key 或原始值」，展示时翻译
+        // （shlog.filter.* 为标签 key，值为词条 key 或普通文本如分组 ID）。
         const filters = Object.entries(entry.filters || {})
-          .map(([key, value]) => '<span class="log-chip">' + app.esc(key) + '：' + app.esc(value) + '</span>')
+          .map(([key, value]) => {
+            const label = key.startsWith('shlog.filter.') ? t(key) : key;
+            const display = typeof value === 'string' && (value.indexOf('.') > 0) && !/^\d+$/.test(value)
+              ? t(value)
+              : value;
+            return '<span class="log-chip">' + app.esc(label) + '：' + app.esc(display) + '</span>';
+          })
           .join('');
         return '<div class="log-entry">' +
           '<div class="log-entry-head">' +
           '<span class="log-time">' + app.esc(app.formatLogTime(entry.searchedAt)) + '</span>' +
-          '<span class="log-count">' + entry.resultCount + ' 条结果</span>' +
+          '<span class="log-count">' + t('logs.result_count', { count: entry.resultCount }) + '</span>' +
           '</div>' +
           '<div class="log-search-main">' +
-          '<a class="log-query" href="/?q=' + encodeURIComponent(entry.query) + '" title="在历史页重新搜索">' + app.esc(entry.query) + '</a>' +
+          '<a class="log-query" href="/?q=' + encodeURIComponent(entry.query) + '" title="' + t('logs.research') + '">' + app.esc(entry.query) + '</a>' +
           (filters ? '<div class="log-chips">' + filters + '</div>' : '') +
           '</div>' +
           '</div>';
@@ -128,8 +144,8 @@ export function registerLogs() {
 
   app.clearSearchHistory = function clearSearchHistory(button) {
     armClearButton(button, async () => {
-      await app.requireOK(await app.protectedFetch('/api/v1/logs/searches', { method: 'DELETE' }), '清空失败');
-      app.toast('搜索记录已清空');
+      await app.requireOK(await app.protectedFetch('/api/v1/logs/searches', { method: 'DELETE' }), t('logs.clear_failed'));
+      app.toast(t('logs.shlog_cleared'));
       app.shlogState.page = 0;
       await app.loadSearchHistory();
     });
@@ -142,7 +158,7 @@ export function registerLogs() {
     if (!pager) return;
     const pages = Math.max(1, Math.ceil(state.total / LOG_PAGE_SIZE));
     pager.classList.toggle('hidden', state.total <= LOG_PAGE_SIZE);
-    document.getElementById(prefix + 'PageInfo').textContent = '第 ' + (state.page + 1) + ' / ' + pages + ' 页';
+    document.getElementById(prefix + 'PageInfo').textContent = t('logs.page_of', { page: state.page + 1, pages: pages });
     document.getElementById(prefix + 'Prev').disabled = state.page <= 0;
     document.getElementById(prefix + 'Next').disabled = (state.page + 1) * LOG_PAGE_SIZE >= state.total;
   }
@@ -152,12 +168,12 @@ export function registerLogs() {
     if (button.dataset.armed === '1') {
       button.dataset.armed = '';
       button.textContent = button.dataset.label;
-      void run().catch(err => app.toast(err && err.message ? err.message : '清空失败', 'err'));
+      void run().catch(err => app.toast(err && err.message ? err.message : t('logs.clear_failed'), 'err'));
       return;
     }
     button.dataset.armed = '1';
     button.dataset.label = button.textContent;
-    button.textContent = '再次点击确认清空';
+    button.textContent = t('logs.confirm_clear');
     setTimeout(() => {
       if (button.dataset.armed === '1') {
         button.dataset.armed = '';

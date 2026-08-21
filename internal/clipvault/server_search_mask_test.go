@@ -28,11 +28,19 @@ func newMaskTestServer(t *testing.T, store *Store) (*SearchServer, *AuthManager,
 	if err != nil {
 		t.Fatal(err)
 	}
+	// i18n 服务注册到全局模板指针：服务端占位文案按当前语言渲染。
+	i18nSvc, err := NewI18nService(store, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := templateI18nService.Swap(i18nSvc)
+	t.Cleanup(func() { templateI18nService.Store(prev) })
 	server := &SearchServer{
 		store:  store,
 		cfgMgr: &ConfigManager{cfg: cfg, store: store},
 		auth:   auth,
 		logger: logger,
+		i18n:   i18nSvc,
 	}
 	return server, auth, session
 }
@@ -104,6 +112,7 @@ func TestSearchMasksSensitiveMetadata(t *testing.T) {
 			continue
 		}
 		masked++
+		// 默认 zh-CN 环境下占位文本即中文词条值。
 		if it.Text != "【敏感内容，点击查看】" {
 			t.Fatalf("masked text = %q", it.Text)
 		}

@@ -108,7 +108,7 @@ func (s *SearchServer) handleMCPTokenCreate(w http.ResponseWriter, r *http.Reque
 		ExpiresIn string `json:"expiresIn"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn, TokenChannelMCP, false)
@@ -163,15 +163,31 @@ func (s *SearchServer) handleMCPAuditExport(w http.ResponseWriter, r *http.Reque
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	writer := csv.NewWriter(&buf)
-	_ = writer.Write([]string{"时间(UTC)", "令牌", "来源IP", "操作", "资源URI", "记录ID", "返回条数", "耗时(ms)", "状态码", "错误码", "请求摘要", "敏感访问"})
+	// 表头与布尔值按当前语言生成（导出物给用户阅读，不是机器契约）。
+	_ = writer.Write([]string{
+		s.i18nT("audit_csv.time_utc", nil),
+		s.i18nT("audit_csv.token", nil),
+		s.i18nT("audit_csv.source_ip", nil),
+		s.i18nT("audit_csv.operation", nil),
+		s.i18nT("audit_csv.resource_uri", nil),
+		s.i18nT("audit_csv.record_id", nil),
+		s.i18nT("audit_csv.item_count", nil),
+		s.i18nT("audit_csv.duration_ms", nil),
+		s.i18nT("audit_csv.status_code", nil),
+		s.i18nT("audit_csv.error_code", nil),
+		s.i18nT("audit_csv.request_summary", nil),
+		s.i18nT("audit_csv.sensitive_access", nil),
+	})
+	noText := s.i18nT("audit_csv.no", nil)
+	yesText := s.i18nT("audit_csv.yes", nil)
 	for _, event := range events {
 		itemID := ""
 		if event.ItemID > 0 {
 			itemID = strconv.FormatInt(event.ItemID, 10)
 		}
-		sensitive := "否"
+		sensitive := noText
 		if event.SensitiveAccessed {
-			sensitive = "是"
+			sensitive = yesText
 		}
 		_ = writer.Write([]string{
 			event.Timestamp.UTC().Format("2006-01-02 15:04:05"),

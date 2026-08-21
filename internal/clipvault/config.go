@@ -35,6 +35,15 @@ type Config struct {
 	// 共享 ExternalReadService、令牌与审计模型；令牌按 channel 隔离
 	// （HTTP Token 不能调用 MCP，反之亦然）。
 	MCP ExternalServiceConfig `json:"mcp"`
+	// UI 界面偏好（当前语言等）。
+	UI UIConfig `json:"ui"`
+}
+
+// UIConfig 是界面偏好配置。Language 取 "auto"（跟随系统 UI 语言）或
+// i18n_languages 表中某个已启用语言的 code；存在性在 I18nService 层校验
+// （config 纯函数不依赖数据库）。
+type UIConfig struct {
+	Language string `json:"language"`
 }
 
 // ExternalServiceConfig 是外部只读服务（数据接口 / MCP）的运行配置：
@@ -77,7 +86,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	top, err := requiredJSONObject(data, "config",
 		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
 		"brand", "background", "theme", "search", "sensitive", "autostart",
-		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi", "mcp")
+		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi", "mcp", "ui")
 	if err != nil {
 		return err
 	}
@@ -98,6 +107,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
 		{"dataApi", []string{"enabled", "listenAddr"}},
 		{"mcp", []string{"enabled", "listenAddr"}},
+		{"ui", []string{"language"}},
 	}
 	for _, object := range objects {
 		if _, err := requiredJSONObject(top[object.field], "config."+object.field, object.required...); err != nil {

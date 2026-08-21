@@ -137,10 +137,10 @@ func ResetRecoveryPassword(dataDir string, dbKey []byte, newPassword string) err
 
 func validateRecoveryPassword(password string) error {
 	if strings.TrimSpace(password) != password || utf8.RuneCountInString(password) < minRecoveryPasswordRunes {
-		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("恢复密码至少需要 %d 个字符，且首尾不能有空格", minRecoveryPasswordRunes)}
+		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("%s", templateT("api.error.recovery_rule", map[string]any{"n": minRecoveryPasswordRunes}))}
 	}
 	if len(password) > maxRecoveryPasswordBytes {
-		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("恢复密码过长")}
+		return &RecoveryPasswordError{Code: "weak_password", Err: fmt.Errorf("%s", templateT("startup_page.err_recovery_too_long", nil))}
 	}
 	return nil
 }

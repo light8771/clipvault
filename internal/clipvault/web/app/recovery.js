@@ -1,5 +1,8 @@
 import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
 export function registerRecovery() {
   app.recoveryState = {
     hasRecovery: false,
@@ -22,7 +25,7 @@ export function registerRecovery() {
     const status = document.getElementById('recoveryPwdStatus');
     const changeBtn = document.getElementById('recoveryPwdChangeBtn');
     const resetBtn = document.getElementById('recoveryPwdResetBtn');
-    if (status) status.textContent = app.recoveryState.hasRecovery ? '已设置（必需）' : '状态异常';
+    if (status) status.textContent = app.recoveryState.hasRecovery ? t('recovery.pwd_set') : t('recovery.pwd_status_error');
     if (changeBtn) changeBtn.classList.toggle('hidden', !app.recoveryState.hasRecovery);
     if (resetBtn) resetBtn.classList.toggle('hidden', !app.recoveryState.hasRecovery);
   };
@@ -35,8 +38,8 @@ export function registerRecovery() {
   };
   app.formatIsolatedTime = function formatIsolatedTime(value) {
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '时间未知';
-    return date.toLocaleString('zh-CN', {
+    if (Number.isNaN(date.getTime())) return t('recovery.time_unknown');
+    return date.toLocaleString(window.clipvaultI18n.locale(), {
       hour12: false
     });
   };
@@ -46,16 +49,16 @@ export function registerRecovery() {
     const pending = document.getElementById('isolatedDatabasePending');
     if (!list || !count || !pending) return;
     const databases = app.recoveryState.isolatedDatabases;
-    count.textContent = databases.length + ' 份';
+    count.textContent = t('recovery.count', { count: databases.length });
     list.replaceChildren();
     if (app.recoveryState.pendingSwitchId) {
       pending.replaceChildren();
       const pendingText = document.createElement('span');
-      pendingText.textContent = '数据库切换已准备完成。请从托盘退出 ClipVault，再重新打开；不要直接关闭这个浏览器页面代替退出应用。';
+      pendingText.textContent = t('recovery.switch_pending');
       const cancelButton = document.createElement('button');
       cancelButton.type = 'button';
       cancelButton.className = 'btn-export';
-      cancelButton.textContent = '取消切换';
+      cancelButton.textContent = t('recovery.cancel_switch');
       cancelButton.addEventListener('click', app.cancelIsolatedDatabaseSwitch);
       pending.append(pendingText, cancelButton);
       pending.classList.remove('hidden');
@@ -66,7 +69,7 @@ export function registerRecovery() {
     if (!databases.length) {
       const empty = document.createElement('p');
       empty.className = 'isolated-empty';
-      empty.textContent = '没有隔离的旧数据库。';
+      empty.textContent = t('recovery.empty');
       list.appendChild(empty);
       return;
     }
@@ -80,14 +83,14 @@ export function registerRecovery() {
       title.textContent = app.formatIsolatedTime(database.isolatedAt);
       const meta = document.createElement('div');
       meta.className = 'isolated-item-meta';
-      meta.textContent = app.formatIsolatedSize(database.sizeBytes) + (database.canSwitch ? ' · 可验证恢复' : ' · 缺少恢复文件，无法切换');
+      meta.textContent = app.formatIsolatedSize(database.sizeBytes) + (database.canSwitch ? ' · ' + t('recovery.can_switch') : ' · ' + t('recovery.cannot_switch'));
       main.append(title, meta);
       const actions = document.createElement('div');
       actions.className = 'isolated-item-actions';
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn-export';
-      button.textContent = app.recoveryState.pendingSwitchId === database.id ? '等待重启' : '切换查看';
+      button.textContent = app.recoveryState.pendingSwitchId === database.id ? t('recovery.waiting_restart') : t('recovery.switch_view');
       button.disabled = !database.canSwitch || Boolean(app.recoveryState.pendingSwitchId);
       button.addEventListener('click', () => app.showIsolatedDatabaseDialog(database.id));
       actions.appendChild(button);
@@ -104,14 +107,14 @@ export function registerRecovery() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        app.toast(data.error || '无法取消数据库切换', 'err');
+        app.toast(data.error || t('recovery.cancel_failed'), 'err');
         return;
       }
       app.recoveryState.pendingSwitchId = '';
       app.renderIsolatedDatabases();
-      app.toast('数据库切换已取消');
+      app.toast(t('recovery.cancelled'));
     } catch (_) {
-      app.toast('无法取消数据库切换', 'err');
+      app.toast(t('recovery.cancel_failed'), 'err');
     }
   };
   app.showIsolatedDatabaseDialog = function (id) {
@@ -121,19 +124,19 @@ export function registerRecovery() {
       <div class="modal-overlay" id="isolatedDatabaseOverlay">
         <div class="modal-box secondary-box isolated-database-modal" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">切换到旧数据库</span>
-            <button class="modal-close" type="button" data-action="close-isolated-database" aria-label="关闭">
+            <span class="modal-title">${t('recovery.switch_title')}</span>
+            <button class="modal-close" type="button" data-action="close-isolated-database" aria-label="${t('common.close')}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
             <div class="migrate-notes">
-              <p>验证成功后，本次切换会在下次完整启动时执行。当前数据库不会被覆盖，而是作为另一份隔离数据保留，之后可用它自己的恢复密码切回。</p>
+              <p>${t('recovery.switch_note')}</p>
             </div>
             <form id="isolatedDatabaseForm" class="lock-form">
-              <label class="migrate-label" for="isolatedDatabasePassword">这份旧数据库的数据恢复密码</label>
-              <input type="password" id="isolatedDatabasePassword" class="lock-input" placeholder="输入旧数据库的恢复密码" autocomplete="current-password">
-              <button type="submit" class="lock-btn" id="isolatedDatabaseSubmit">验证并准备切换</button>
+              <label class="migrate-label" for="isolatedDatabasePassword">${t('recovery.password_label')}</label>
+              <input type="password" id="isolatedDatabasePassword" class="lock-input" placeholder="${t('recovery.password_placeholder')}" autocomplete="current-password">
+              <button type="submit" class="lock-btn" id="isolatedDatabaseSubmit">${t('recovery.verify_and_prepare')}</button>
             </form>
             <p class="lock-err hidden" id="isolatedDatabaseError"></p>
           </div>
@@ -152,13 +155,13 @@ export function registerRecovery() {
       event.preventDefault();
       error.classList.add('hidden');
       if (!input.value) {
-        error.textContent = '请输入这份旧数据库的数据恢复密码';
+        error.textContent = t('recovery.enter_password');
         error.classList.remove('hidden');
         input.focus();
         return;
       }
       submit.disabled = true;
-      submit.textContent = '正在验证...';
+      submit.textContent = t('recovery.verifying');
       try {
         const res = await app.protectedFetch('/api/v1/recovery/isolated-switch', {
           method: 'POST',
@@ -175,34 +178,34 @@ export function registerRecovery() {
         const data = await res.json().catch(() => ({}));
         input.value = '';
         if (!res.ok || !data.ok) {
-          error.textContent = data.error || '无法准备数据库切换';
+          error.textContent = data.error || t('recovery.prepare_failed');
           error.classList.remove('hidden');
           return;
         }
         app.recoveryState.pendingSwitchId = database.id;
         app.closeIsolatedDatabaseDialog();
         app.renderIsolatedDatabases();
-        app.toast('切换已准备，请退出 ClipVault 后重新打开');
+        app.toast(t('recovery.prepared'));
       } catch (_) {
-        error.textContent = '无法连接本机服务，请稍后重试';
+        error.textContent = t('recovery.connect_failed');
         error.classList.remove('hidden');
       } finally {
         submit.disabled = false;
-        submit.textContent = '验证并准备切换';
+        submit.textContent = t('recovery.verify_and_prepare');
       }
     });
   };
   app.showRecoveryDialog = function (action) {
     const isChange = action === 'change';
     const isReset = action === 'reset';
-    const title = '数据恢复密码' + (isReset ? '重置' : '修改');
-    const oldLabel = isChange ? '当前恢复密码' : null;
+    const title = isReset ? t('recovery.reset_title') : t('recovery.change_title');
+    const oldLabel = isChange ? t('recovery.current_password') : null;
     const html = `
       <div class="modal-overlay" id="recDialogOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
             <span class="modal-title">${title}</span>
-            <button class="modal-close" type="button" data-action="close-recovery" aria-label="关闭恢复密码对话框">
+            <button class="modal-close" type="button" data-action="close-recovery" aria-label="${t('recovery.close_label')}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
@@ -210,9 +213,9 @@ export function registerRecovery() {
             <form id="recDialogForm" class="lock-form">
               <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
               ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
-              <input type="password" id="recDlgNew" class="lock-input" placeholder="新恢复密码" autocomplete="new-password">
-              <input type="password" id="recDlgConfirm" class="lock-input" placeholder="确认新恢复密码" autocomplete="new-password">
-              <button type="submit" class="lock-btn">确定</button>
+              <input type="password" id="recDlgNew" class="lock-input" placeholder="${t('recovery.new_password')}" autocomplete="new-password">
+              <input type="password" id="recDlgConfirm" class="lock-input" placeholder="${t('recovery.confirm_password')}" autocomplete="new-password">
+              <button type="submit" class="lock-btn">${t('common.confirm')}</button>
             </form>
             <p class="lock-err hidden" id="recDlgErr"></p>
           </div>
@@ -238,7 +241,7 @@ export function registerRecovery() {
       const confirmPwd = confirmInput.value;
       errEl.classList.add('hidden');
       if (newPwd !== confirmPwd) {
-        errEl.textContent = '两次输入的密码不一致';
+        errEl.textContent = t('recovery.password_mismatch');
         errEl.classList.remove('hidden');
         return;
       }
@@ -262,15 +265,15 @@ export function registerRecovery() {
         const d = await res.json();
         if (d.ok) {
           app.closeRecDialog();
-          app.toast('数据恢复密码已' + (isReset ? '重置' : '修改'));
+          app.toast(isReset ? t('recovery.reset_done') : t('recovery.change_done'));
           app.recoveryState.hasRecovery = true;
           app.updateRecoveryPwdUI();
         } else {
-          errEl.textContent = d.error || '操作失败';
+          errEl.textContent = d.error || t('common.action_failed');
           errEl.classList.remove('hidden');
         }
       } catch (_) {
-        errEl.textContent = '网络错误';
+        errEl.textContent = t('common.network_error');
         errEl.classList.remove('hidden');
       }
     });

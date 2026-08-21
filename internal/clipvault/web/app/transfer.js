@@ -1,22 +1,24 @@
 import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
+
+const t = window.clipvaultI18n.t;
+
+// 弹窗关闭按钮 SVG（三个对话框共用）。
+const closeSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
 export function registerTransfer() {
   app.authedDownload = async function authedDownload(baseUrl, fallbackFilename, requestInit) {
     try {
       const res = await app.protectedFetch(baseUrl, requestInit);
       if (res.status === 402) {
         // 付费墙：未激活
-        try {
-          const d = await res.json();
-          app.toast(d.error || '导出为付费功能，请先激活', 'err');
-        } catch (_) {
-          app.toast('导出为付费功能，请先激活', 'err');
-        }
+        const d = await res.json().catch(() => ({}));
+        app.toast(d.error || t('transfer.paywall'), 'err');
         app.openLicenseSettings();
         return false;
       }
       if (!res.ok) {
-        app.toast('导出失败: ' + res.status, 'err');
+        app.toast(t('transfer.export_failed_status', { status: res.status }), 'err');
         return false;
       }
       const blob = await res.blob();
@@ -32,7 +34,7 @@ export function registerTransfer() {
       URL.revokeObjectURL(a.href);
       return true;
     } catch (_) {
-      app.toast('导出失败: 网络错误', 'err');
+      app.toast(t('transfer.export_network_error'), 'err');
       return false;
     }
   };
@@ -42,22 +44,20 @@ export function registerTransfer() {
       <div class="modal-overlay" id="exportScopeOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">选择导出范围</span>
-            <button class="modal-close" type="button" data-action="close-export-scope" aria-label="关闭导出范围">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            <span class="modal-title">${t('transfer.scope_title')}</span>
+            <button class="modal-close" type="button" data-action="close-export-scope" aria-label="${t('transfer.scope_close_label')}">${closeSvg}</button>
           </div>
           <div class="modal-body u-inline-16">
             <div class="u-inline-22">
-              <label class="u-inline-23"><input type="radio" name="exportScopeMode" value="full" checked> 全部记录</label>
-              <label class="u-inline-24"><input type="radio" name="exportScopeMode" value="range"> 按日期范围</label>
+              <label class="u-inline-23"><input type="radio" name="exportScopeMode" value="full" checked> ${t('transfer.scope_all')}</label>
+              <label class="u-inline-24"><input type="radio" name="exportScopeMode" value="range"> ${t('transfer.scope_range')}</label>
             </div>
             <div id="exportRangeFields" class="hidden u-inline-22">
               <input type="date" id="exportFrom" class="lock-input u-inline-25">
-              <span class="u-inline-26">至</span>
+              <span class="u-inline-26">${t('transfer.range_sep')}</span>
               <input type="date" id="exportTo" class="lock-input u-inline-27">
             </div>
-            <button class="lock-btn" data-action="confirm-export-scope">开始导出</button>
+            <button class="lock-btn" data-action="confirm-export-scope">${t('transfer.start_export')}</button>
           </div>
         </div>
       </div>
@@ -80,7 +80,7 @@ export function registerTransfer() {
         const from = document.getElementById('exportFrom').value;
         const to = document.getElementById('exportTo').value;
         if (!from || !to) {
-          app.toast('请选择起止日期', 'err');
+          app.toast(t('transfer.need_date_range'), 'err');
           return;
         }
         params = '&mode=range&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
@@ -91,27 +91,27 @@ export function registerTransfer() {
   };
   app.doExport = async function (type) {
     if (!app.licenseState.licensed) {
-      app.toast('导出为付费功能，激活后可导出全部数据', 'err');
+      app.toast(t('transfer.paywall_full'), 'err');
       app.openLicenseSettings();
       return;
     }
     const fmt = type === 'data-xlsx' ? 'xlsx' : 'json';
     const fallback = 'clipvault-data.' + fmt;
-    const label = '剪切板记录（' + (type === 'data-xlsx' ? 'Excel' : 'JSON') + '）';
+    const label = t(type === 'data-xlsx' ? 'transfer.export_label_xlsx' : 'transfer.export_label_json');
     if (fmt === 'xlsx') {
-      if (!window.confirm('即将导出明文 Excel 数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
+      if (!window.confirm(t('transfer.plain_confirm_xlsx'))) return;
       app.showExportScopeDialog(function (scopeParams) {
         const baseUrl = '/api/v1/transfer/export?format=xlsx' + scopeParams;
         app.authedDownload(baseUrl, fallback).then(ok => {
-          if (ok) app.toast('已导出 ' + label);
+          if (ok) app.toast(t('transfer.exported_with', { label: label }));
         });
       });
     } else {
-      if (!window.confirm('即将导出明文剪贴板数据。任何能访问导出文件的人都可以查看其中内容。是否继续？')) return;
+      if (!window.confirm(t('transfer.plain_confirm'))) return;
       app.showExportScopeDialog(function (scopeParams) {
         const baseUrl = '/api/v1/transfer/export?format=json' + scopeParams;
         app.authedDownload(baseUrl, fallback).then(ok => {
-          if (ok) app.toast('已导出 ' + label);
+          if (ok) app.toast(t('transfer.exported_with', { label: label }));
         });
       });
     }
@@ -120,7 +120,7 @@ export function registerTransfer() {
   // ── Encrypted export (.cvexport) ─────────────────────────────
   app.doExportCvexport = function () {
     if (!app.licenseState.licensed) {
-      app.toast('导出为付费功能，激活后可导出全部数据', 'err');
+      app.toast(t('transfer.paywall_full'), 'err');
       app.openLicenseSettings();
       return;
     }
@@ -128,28 +128,26 @@ export function registerTransfer() {
       <div class="modal-overlay" id="cvexportOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">加密导出</span>
-            <button class="modal-close" type="button" data-action="close-encrypted-export" aria-label="关闭加密导出">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            <span class="modal-title">${t('transfer.export_encrypted_btn')}</span>
+            <button class="modal-close" type="button" data-action="close-encrypted-export" aria-label="${t('transfer.encrypted_close_label')}">${closeSvg}</button>
           </div>
           <div class="modal-body u-inline-16">
             <p class="u-inline-28">
-              输入密码加密导出文件。导入时需要相同的密码才能解密。
+              ${t('transfer.encrypted_note')}
             </p>
             <div class="u-inline-22">
-              <label class="u-inline-23"><input type="radio" name="cvexportScopeMode" value="full" checked> 全部记录</label>
-              <label class="u-inline-24"><input type="radio" name="cvexportScopeMode" value="range"> 按日期范围</label>
+              <label class="u-inline-23"><input type="radio" name="cvexportScopeMode" value="full" checked> ${t('transfer.scope_all')}</label>
+              <label class="u-inline-24"><input type="radio" name="cvexportScopeMode" value="range"> ${t('transfer.scope_range')}</label>
             </div>
             <div id="cvexportRangeFields" class="hidden u-inline-22">
               <input type="date" id="cvexportFrom" class="lock-input u-inline-25">
-              <span>至</span>
+              <span>${t('transfer.range_sep')}</span>
               <input type="date" id="cvexportTo" class="lock-input u-inline-27">
             </div>
             <form id="cvexportForm" class="lock-form">
-              <input type="password" id="cvexportPwd" class="lock-input" placeholder="加密密码" autocomplete="new-password">
-              <input type="password" id="cvexportConfirm" class="lock-input" placeholder="确认密码" autocomplete="new-password">
-              <button type="submit" class="lock-btn">加密导出</button>
+              <input type="password" id="cvexportPwd" class="lock-input" placeholder="${t('backup.encryption_password')}" autocomplete="new-password">
+              <input type="password" id="cvexportConfirm" class="lock-input" placeholder="${t('auth.pwd_confirm')}" autocomplete="new-password">
+              <button type="submit" class="lock-btn">${t('transfer.export_encrypted_btn')}</button>
             </form>
             <p class="lock-err hidden" id="cvexportErr"></p>
           </div>
@@ -177,12 +175,12 @@ export function registerTransfer() {
       const confirm = confirmInput.value;
       errEl.classList.add('hidden');
       if (!pwd) {
-        errEl.textContent = '密码不能为空';
+        errEl.textContent = t('transfer.pwd_required');
         errEl.classList.remove('hidden');
         return;
       }
       if (pwd !== confirm) {
-        errEl.textContent = '两次输入的密码不一致';
+        errEl.textContent = t('auth.pwd_mismatch');
         errEl.classList.remove('hidden');
         return;
       }
@@ -192,7 +190,7 @@ export function registerTransfer() {
         const from = document.getElementById('cvexportFrom').value;
         const to = document.getElementById('cvexportTo').value;
         if (!from || !to) {
-          errEl.textContent = '请选择起止日期';
+          errEl.textContent = t('transfer.need_date_range');
           errEl.classList.remove('hidden');
           return;
         }
@@ -210,7 +208,7 @@ export function registerTransfer() {
       pwdInput.value = '';
       confirmInput.value = '';
       app.closeCvexportDialog();
-      if (ok) app.toast('已加密导出');
+      if (ok) app.toast(t('transfer.encrypted_done'));
     });
   };
 
@@ -220,19 +218,17 @@ export function registerTransfer() {
       <div class="modal-overlay" id="importOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">导入数据</span>
-            <button class="modal-close" type="button" data-action="close-import" aria-label="关闭导入">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            <span class="modal-title">${t('transfer.import_data_title')}</span>
+            <button class="modal-close" type="button" data-action="close-import" aria-label="${t('transfer.import_close_label')}">${closeSvg}</button>
           </div>
           <div class="modal-body u-inline-16">
             <p class="u-inline-29">
-              选择 JSON、Excel 或加密 .cvexport 文件导入。导入为追加模式：不会清空现有数据，也不做去重，重复导入同一文件会产生重复记录。加密文件需输入密码。提示：Excel 文件较大时解析慢且占内存，大数据量建议用 JSON 或加密 .cvexport 格式。
+              ${t('transfer.import_note')}
             </p>
             <form id="importForm" class="lock-form">
               <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" class="u-inline-30">
-              <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="解密密码（仅 .cvexport 需要）" autocomplete="off">
-              <button class="lock-btn" type="submit">开始导入</button>
+              <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="${t('transfer.import_pwd_placeholder')}" autocomplete="off">
+              <button class="lock-btn" type="submit">${t('transfer.start_import')}</button>
             </form>
             <p class="lock-err hidden u-inline-32" id="importErr"></p>
           </div>
@@ -257,7 +253,7 @@ export function registerTransfer() {
     const errEl = document.getElementById('importErr');
     errEl.classList.add('hidden');
     if (!fileInput.files || !fileInput.files[0]) {
-      errEl.textContent = '请选择文件';
+      errEl.textContent = t('transfer.need_file');
       errEl.classList.remove('hidden');
       return;
     }
@@ -270,21 +266,19 @@ export function registerTransfer() {
     };
     const format = formats[extension];
     if (!format) {
-      errEl.textContent = '仅支持 JSON、Excel 或 .cvexport 文件';
+      errEl.textContent = t('transfer.unsupported_format');
       errEl.classList.remove('hidden');
       return;
     }
     const isCvexport = format === 'cvexport';
     const pwd = pwdInput.value;
     if (isCvexport && !pwd) {
-      errEl.textContent = '加密文件需要输入密码';
+      errEl.textContent = t('transfer.encrypted_needs_pwd');
       errEl.classList.remove('hidden');
       return;
     }
     try {
-      const headers = {
-        'X-ClipVault-Import-Format': format
-      };
+      const headers = { 'X-ClipVault-Import-Format': format };
       if (pwd) headers['X-ClipVault-Import-Password'] = pwd;
       const res = await app.protectedFetch('/api/v1/transfer/import', {
         method: 'POST',
@@ -296,24 +290,24 @@ export function registerTransfer() {
         app.closeImportDialog();
         app.notifyImportSuccess(d);
       } else {
-        errEl.textContent = d.error || '导入失败';
+        errEl.textContent = d.error || t('transfer.import_failed');
         errEl.classList.remove('hidden');
       }
     } catch (e) {
-      errEl.textContent = '网络错误: ' + e.message;
+      errEl.textContent = t('common.network_error') + ': ' + e.message;
       errEl.classList.remove('hidden');
     }
   };
   app.notifyImportSuccess = function notifyImportSuccess(data) {
     if (data.runtimeError) {
-      app.toast('导入成功，但部分运行时设置需重启后生效：' + data.runtimeError, 'err');
+      app.toast(t('transfer.import_ok_runtime', { error: data.runtimeError }), 'err');
       return;
     }
     if (data.hotkeyError) {
-      app.toast('导入成功，' + data.hotkeyError, 'err');
+      app.toast(t('transfer.import_ok_with', { error: data.hotkeyError }), 'err');
       return;
     }
-    app.toast('导入成功');
+    app.toast(t('transfer.import_ok'));
   };
   app.readImportResponse = async function readImportResponse(res) {
     try {
@@ -321,7 +315,7 @@ export function registerTransfer() {
     } catch (_) {}
     return {
       ok: false,
-      error: `\u5bfc\u5165\u8bf7\u6c42\u5931\u8d25 (${res.status})`
+      error: t('transfer.import_request_failed', { status: res.status })
     };
   };
   // 手动备份触发：服务端异步执行，这里只处理"是否成功启动"。
@@ -334,72 +328,89 @@ export function registerTransfer() {
         method: 'POST'
       });
     } catch (e) {
-      app.toast('网络错误: ' + e.message, 'err');
+      app.toast(t('common.network_error') + ': ' + e.message, 'err');
       return;
     }
     let d = {};
     try {
       d = await res.json();
     } catch (_) {
-      app.toast('操作失败 (HTTP ' + res.status + ')', 'err');
+      app.toast(t('transfer.action_failed_status', { status: res.status }), 'err');
       return;
     }
     if (res.ok && d.ok) {
-      app.toast(d.started ? startedMsg : (startedMsg || '操作成功'));
+      app.toast(d.started ? startedMsg : (startedMsg || t('transfer.action_ok')));
       app.loadBackupStatus();
       return;
     }
-    const message = d.code === 'license_required' ? '需要先激活 ClipVault 才能使用备份功能' : d.error || ('操作失败 (HTTP ' + res.status + ')');
+    const message = d.code === 'license_required' ? t('transfer.backup_needs_license') : d.error || t('transfer.action_failed_status', { status: res.status });
     app.toast(message, 'err');
   };
   app.doBackupDirNow = function () {
-    app.backupAction('/api/v1/backup/directory', '目录备份已开始，状态会自动刷新');
+    app.backupAction('/api/v1/backup/directory', t('transfer.dir_backup_started'));
   };
   app.doBackupDirFullNow = function () {
-    if (!window.confirm('本次将备份全部记录（而不是仅备份新增部分）。完成后，增量备份将以本次为起点继续。是否继续？')) return;
-    app.backupAction('/api/v1/backup/directory?forceFull=1', '目录全量备份已开始，状态会自动刷新');
+    if (!window.confirm(t('transfer.force_full_confirm'))) return;
+    app.backupAction('/api/v1/backup/directory?forceFull=1', t('transfer.dir_full_backup_started'));
   };
   app.doBackupEmailNow = function () {
-    app.backupAction('/api/v1/backup/email', '邮件备份已开始，状态会自动刷新');
+    app.backupAction('/api/v1/backup/email', t('transfer.email_backup_started'));
   };
   app.doBackupEmailFullNow = function () {
-    if (!window.confirm('本次将备份全部记录（而不是仅备份新增部分）。完成后，增量备份将以本次为起点继续。是否继续？')) return;
-    app.backupAction('/api/v1/backup/email?forceFull=1', '邮件全量备份已开始，状态会自动刷新');
+    if (!window.confirm(t('transfer.force_full_confirm'))) return;
+    app.backupAction('/api/v1/backup/email?forceFull=1', t('transfer.email_full_backup_started'));
   };
   app.doBackupEmailTest = function () {
-    app.backupAction('/api/v1/backup/email-test', '测试邮件已发送');
+    app.backupAction('/api/v1/backup/email-test', t('transfer.test_email_sent'));
   };
+  // localizeBackupError 翻译备份 runner 写入的错误文本：整体词条 key 直接
+  // 翻译；「key: 原始详情」形态翻译前缀；纯文本（历史数据/原始错误）原样。
+  function localizeBackupError(raw) {
+    if (typeof raw !== 'string' || !raw) return raw;
+    if (/^[a-z0-9_.]+$/.test(raw)) return t(raw);
+    const colonIdx = raw.indexOf(': ');
+    if (colonIdx > 0 && /^[a-z0-9_.]+$/.test(raw.slice(0, colonIdx))) {
+      return t(raw.slice(0, colonIdx)) + raw.slice(colonIdx);
+    }
+    return raw;
+  }
+
   app.formatBackupStatus = function formatBackupStatus(s) {
     if (!s) return '';
-    const triggerLabel = { scheduled: '定时', startup: '启动', manual: '手动' }[s.trigger] || '';
+    const triggerKey = { scheduled: 'transfer.trigger_scheduled', startup: 'transfer.trigger_startup', manual: 'transfer.trigger_manual' }[s.trigger];
+    const triggerLabel = triggerKey ? t(triggerKey) : '';
     if (s.running) {
-      return '🔄 备份进行中（' + (triggerLabel || '未知触发') + '）…';
+      return '🔄 ' + t('transfer.status_running', { trigger: triggerLabel || t('transfer.trigger_unknown') });
     }
     if (!s.lastTime || s.lastTime === '0001-01-01T00:00:00Z') return '';
-    const time = new Date(s.lastTime).toLocaleString('zh-CN');
-    const via = triggerLabel ? triggerLabel + '触发 · ' : '';
+    const time = new Date(s.lastTime).toLocaleString(window.clipvaultI18n.locale());
+    const via = triggerLabel ? triggerLabel + t('transfer.trigger_suffix') + ' · ' : '';
     if (!s.lastOK) {
-      return '❌ 失败 · ' + via + time + ' · ' + (s.lastError || '未知错误');
+      // lastError 是 key/前缀拼接文本（备份 runner 无 UI 上下文，写入 key，
+      // 展示时翻译：整体命中词条则整体替换，否则按「前缀 key: 详情」拆分翻译）。
+      const rawError = s.lastError || t('transfer.unknown_error');
+      const localizedError = localizeBackupError(rawError);
+      return '❌ ' + t('transfer.status_failed', { via: via, time: time, error: localizedError });
     }
     if (s.skipped) {
-      return '⏭ 无新数据，已跳过 · ' + via + time;
+      return '⏭ ' + t('transfer.status_skipped', { via: via, time: time });
     }
     let modeLabel;
     if (s.actualMode === 'incremental') {
-      modeLabel = '增量';
+      modeLabel = t('backup.scope_incremental');
     } else if (s.actualMode === 'range') {
-      modeLabel = '时间范围';
+      modeLabel = t('transfer.mode_range');
     } else {
-      modeLabel = s.autoFallback ? '全量（自动兜底）' : '全量';
+      modeLabel = s.autoFallback ? t('transfer.mode_full_fallback') : t('backup.scope_full');
     }
     let detail = '';
     if (s.actualMode === 'incremental') {
       if (s.fullFallbackDays > 0 && s.nextFullDue) {
-        detail = ' · 下次自动全量：' + new Date(s.nextFullDue).toLocaleString('zh-CN');
+        detail = ' · ' + t('transfer.next_full_due', { time: new Date(s.nextFullDue).toLocaleString(window.clipvaultI18n.locale()) });
       } else if (s.fullFallbackDays > 0) {
-        detail = ' · 尚未全量，下次将先执行全量';
+        detail = ' · ' + t('transfer.next_full_first');
       } else {
-        detail = ' · 未启用全量兜底，建议定期手动全量';
+        detail = ' · ' + t('transfer.no_fallback_hint');
       }
     }
     const icon = s.autoFallback ? '⚠️' : '✅';
@@ -429,14 +440,14 @@ export function registerTransfer() {
   };
   // 通用备份历史（目录/邮件共用），含成功、失败与跳过记录。
   app.showBackupHistory = async function (kind) {
-    const label = kind === 'dir' ? '目录' : '邮件';
+    const label = t(kind === 'dir' ? 'transfer.dir_label' : 'transfer.email_label');
     try {
       const res = await app.protectedFetch('/api/v1/backup/history?kind=' + encodeURIComponent(kind));
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
       app.renderBackupHistory(kind, data.history || []);
     } catch (e) {
-      app.toast('读取' + label + '备份历史失败：' + (e.message || e), 'err');
+      app.toast(t('transfer.history_load_failed', { label: label, message: e.message || e }), 'err');
     }
   };
   app.showEmailBackupHistory = function () {
@@ -444,39 +455,39 @@ export function registerTransfer() {
   };
   app.renderBackupHistory = function renderBackupHistory(kind, history) {
     document.getElementById('backupHistoryOverlay')?.remove();
-    const label = kind === 'dir' ? '目录' : '邮件';
-    const triggerLabel = { scheduled: '定时', startup: '启动', manual: '手动' };
-    const modeLabel = { full: '全量', incremental: '增量', range: '时间范围', skipped: '无新数据·跳过' };
-    const formatLabel = { cvexport: '加密 cvexport', json: 'JSON', xlsx: 'Excel' };
+    const label = t(kind === 'dir' ? 'transfer.dir_label' : 'transfer.email_label');
+    const triggerMap = { scheduled: 'transfer.trigger_scheduled', startup: 'transfer.trigger_startup', manual: 'transfer.trigger_manual' };
+    const modeMap = { full: 'backup.scope_full', incremental: 'backup.scope_incremental', range: 'transfer.mode_range', skipped: 'transfer.mode_skipped' };
+    const formatLabel = { cvexport: 'cvexport', json: 'JSON', xlsx: 'Excel' };
     const rows = history.map(record => {
-      const time = new Date(record.createdAt).toLocaleString('zh-CN');
-      const trigger = triggerLabel[record.trigger] || record.trigger || '-';
+      const time = new Date(record.createdAt).toLocaleString(window.clipvaultI18n.locale());
+      const trigger = triggerMap[record.trigger] ? t(triggerMap[record.trigger]) : record.trigger || '-';
       let result;
       if (record.ok) {
-        const mode = modeLabel[record.mode] || record.mode || '-';
-        const parts = record.parts > 1 ? record.parts + ' 片 · ' : '';
-        const items = record.mode === 'skipped' ? '' : parts + (record.items || 0) + ' 条';
+        const mode = modeMap[record.mode] ? t(modeMap[record.mode]) : record.mode || '-';
+        const parts = record.parts > 1 ? t('transfer.parts_count', { count: record.parts }) + ' · ' : '';
+        const items = record.mode === 'skipped' ? '' : parts + t('transfer.item_count_simple', { count: record.items || 0 });
         result = '✅ ' + mode + (items ? ' · ' + items : '');
       } else {
-        result = '❌ ' + (record.error || '失败');
+        result = '❌ ' + (record.error || t('transfer.failed_short'));
       }
       const format = formatLabel[record.format] || record.format || '-';
       const target = record.mode === 'skipped' ? '' : (record.target || '');
       return `<tr><td>${app.esc(time)}</td><td>${app.esc(trigger)}</td><td>${app.esc(result)}</td><td>${app.esc(format)}</td><td title="${app.esc(record.target || '')}">${app.esc(target)}</td></tr>`;
     }).join('');
-    const content = rows || '<tr><td colspan="5" class="backup-history-empty">暂无' + label + '备份记录</td></tr>';
+    const content = rows || '<tr><td colspan="5" class="backup-history-empty">' + t('transfer.history_empty', { label: label }) + '</td></tr>';
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'backupHistoryOverlay';
     overlay.innerHTML = `
       <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="backupHistoryTitle" data-modal-panel>
         <div class="modal-head">
-          <span class="modal-title" id="backupHistoryTitle">${label}备份历史</span>
-          <button class="modal-close" type="button" aria-label="关闭">&times;</button>
+          <span class="modal-title" id="backupHistoryTitle">${label}${t('transfer.history_title_suffix')}</span>
+          <button class="modal-close" type="button" aria-label="${t('common.close')}">&times;</button>
         </div>
         <div class="modal-body backup-history-body">
           <table class="backup-history-table">
-            <thead><tr><th>时间</th><th>触发</th><th>结果</th><th>格式</th><th>目标</th></tr></thead>
+            <thead><tr><th>${t('mcp.col_time')}</th><th>${t('transfer.trigger_col')}</th><th>${t('mcp.col_result')}</th><th>${t('transfer.format_col')}</th><th>${t('transfer.target_col')}</th></tr></thead>
             <tbody>${content}</tbody>
           </table>
         </div>

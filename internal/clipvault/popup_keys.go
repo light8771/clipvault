@@ -76,10 +76,10 @@ func validatePopupKeys(popup SearchPopupConfig) error {
 	for _, b := range bindings {
 		mods, ok := parsePopupKeyBinding(b.value)
 		if !ok {
-			return fmt.Errorf("%s 无效：仅支持 [Ctrl+][Shift+][Alt+]Enter 形式", b.name)
+			return fmt.Errorf("%s: %s", templateT("popup.err_key_invalid", nil), b.name)
 		}
 		if other, dup := seen[mods]; dup {
-			return fmt.Errorf("%s 与 %s 快捷键冲突", b.name, other)
+			return fmt.Errorf("%s", templateT("popup.err_key_conflict", map[string]any{"a": b.name, "b": other}))
 		}
 		seen[mods] = b.name
 	}

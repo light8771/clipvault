@@ -91,7 +91,7 @@ func (sw *searchWindow) drawSearchButton(lParam uintptr) bool {
 	}
 	item := (*searchDrawItem)(pointerFromWin32(lParam))
 	brush := sw.accentBrush
-	labelText := "搜索"
+	labelText := templateT("swindow.search", nil)
 	textColor := uintptr(searchColorBackground)
 	switch item.ctlID {
 	case 2003:

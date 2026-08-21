@@ -1,13 +1,16 @@
-// 设置分组目录：首页搜索与分组页地址共用。
+// 设置分组目录：首页搜索与分组页地址共用。文案复用官方词条，
+// 与设置首页卡片的展示保持一致。
+const t = window.clipvaultI18n.t;
+
 const SETTINGS_GROUPS = [
-  { id: 'appearance', title: '外观与通知', desc: '皮肤、显示模式、字体、背景媒体与系统通知' },
-  { id: 'general', title: '录制与快捷键', desc: '记录行为、来源应用、快捷键、图片捕获与搜索弹窗' },
-  { id: 'security', title: '安全与隐私', desc: '锁屏密码、二次验证与敏感内容过滤' },
-  { id: 'storage', title: '存储与数据', desc: '数据目录、隔离数据库与历史清理' },
-  { id: 'backup', title: '定时备份', desc: '定时备份到目录或发送到邮箱' },
-  { id: 'transfer', title: '导入导出', desc: '导出剪贴板数据，或从导出文件恢复' },
-  { id: 'service', title: '网络与服务', desc: 'Web 监听地址与时区' }
-];
+  { id: 'appearance', titleKey: 'app.title.appearance', descKey: 'settings_home.appearance_desc' },
+  { id: 'general', titleKey: 'app.title.general', descKey: 'settings_home.general_desc' },
+  { id: 'security', titleKey: 'app.title.security', descKey: 'settings_home.security_desc' },
+  { id: 'storage', titleKey: 'app.title.storage', descKey: 'settings_home.storage_desc' },
+  { id: 'backup', titleKey: 'app.title.backup', descKey: 'settings_home.backup_desc' },
+  { id: 'transfer', titleKey: 'app.title.transfer', descKey: 'settings_home.transfer_desc' },
+  { id: 'service', titleKey: 'app.title.service', descKey: 'settings_home.service_desc' }
+].map(group => ({ ...group, title: t(group.titleKey), desc: t(group.descKey) }));
 
 export function registerSettingsNavigation() {
   registerHomeSearch();
@@ -81,7 +84,7 @@ function registerHomeSearch() {
         parts.push(
           '<a class="sres-item" href="/settings/' + g.id + '">' +
           '<span class="sres-label">' + escapeText(g.title) + '</span>' +
-          '<span class="sres-path">设置分组</span></a>'
+          '<span class="sres-path">' + escapeText(t('settings_home.group_path')) + '</span></a>'
         );
       });
     const items = await buildIndex();
@@ -94,7 +97,7 @@ function registerHomeSearch() {
       );
     });
     if (!parts.length) {
-      parts.push('<p class="sres-empty">没有匹配「' + escapeText(input.value.trim()) + '」的设置。</p>');
+      parts.push('<p class="sres-empty">' + escapeText(t('settings_home.no_match', { query: input.value.trim() })) + '</p>');
     }
     results.innerHTML = parts.join('');
     results.classList.remove('hidden');

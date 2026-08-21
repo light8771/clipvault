@@ -1,6 +1,6 @@
 package duckdb
 
-const SchemaVersion = "7"
+const SchemaVersion = "8"
 
 // SchemaIdentity pins the exact supported schema shape. A database must match
 // both the version and this identity; every other shape is rejected.
@@ -8,7 +8,10 @@ const SchemaVersion = "7"
 // v7（外部只读 + MCP）：api_tokens 带 channel（http|mcp 通道隔离）与
 // allow_sensitive（敏感数据按 Token 显式授权，默认 false）；api_audit_log
 // 带 channel、resource_uri、sensitive_accessed 与请求摘要/请求体审计列。
-const SchemaIdentity = "clipvault.duckdb.v7.external-read-mcp"
+//
+// v8（多语言 i18n）：新增 i18n_keys（官方语言 Schema）、i18n_languages
+// （官方与用户自定义语言）、i18n_translations（各语言对每个 Key 的译文）。
+const SchemaIdentity = "clipvault.duckdb.v8.i18n"
 
 var SchemaStatements = []string{
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
@@ -69,4 +72,48 @@ var SchemaStatements = []string{
 	// sensitive_accessed 仅在实际返回敏感行/内容时为 true。
 	`CREATE TABLE api_audit_log (id BIGINT PRIMARY KEY DEFAULT nextval('seq_api_audit_log'), ts BIGINT NOT NULL, token_id BIGINT NOT NULL DEFAULT 0, token_name VARCHAR NOT NULL DEFAULT '', remote_ip VARCHAR NOT NULL DEFAULT '', method VARCHAR NOT NULL DEFAULT '', endpoint VARCHAR NOT NULL DEFAULT '', operation VARCHAR NOT NULL DEFAULT '', item_id BIGINT NOT NULL DEFAULT 0, item_count BIGINT NOT NULL DEFAULT 0, duration_ms BIGINT NOT NULL DEFAULT 0, status_code BIGINT NOT NULL DEFAULT 0, error_code VARCHAR NOT NULL DEFAULT '', request_summary VARCHAR NOT NULL DEFAULT '', request_body VARCHAR NOT NULL DEFAULT '', channel VARCHAR NOT NULL DEFAULT 'http', resource_uri VARCHAR NOT NULL DEFAULT '', sensitive_accessed BOOLEAN NOT NULL DEFAULT false)`,
 	`CREATE INDEX idx_api_audit_log_ts ON api_audit_log(ts DESC)`,
+	// ── i18n 多语言 ────────────────────────────────────────────────────────────
+	// i18n_keys 是官方语言 Schema：模块分类、完成度统计、source_version 版本化
+	// （"最近新增"筛选）、is_active 退役（不物理删除，保留历史译文与回滚余地）。
+	`CREATE SEQUENCE seq_i18n_keys START 1`,
+	`CREATE TABLE i18n_keys (
+		id BIGINT PRIMARY KEY DEFAULT nextval('seq_i18n_keys'),
+		translation_key VARCHAR NOT NULL,
+		module VARCHAR NOT NULL,
+		description VARCHAR NOT NULL DEFAULT '',
+		source_version INTEGER NOT NULL DEFAULT 1,
+		is_active BOOLEAN NOT NULL DEFAULT true,
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`,
+	`CREATE UNIQUE INDEX idx_i18n_keys_key ON i18n_keys(translation_key)`,
+	`CREATE INDEX idx_i18n_keys_module ON i18n_keys(module)`,
+	// i18n_languages 定义系统有哪些语言：官方（is_builtin，只读保护在 Service
+	// 层与 Store 层双重强制）与用户自定义；base_language_code 限定官方两种
+	// （Service 层校验），fallback 环在构造上不可能出现。
+	`CREATE SEQUENCE seq_i18n_languages START 1`,
+	`CREATE TABLE i18n_languages (
+		id BIGINT PRIMARY KEY DEFAULT nextval('seq_i18n_languages'),
+		code VARCHAR NOT NULL,
+		name VARCHAR NOT NULL,
+		native_name VARCHAR NOT NULL DEFAULT '',
+		base_language_code VARCHAR NOT NULL DEFAULT 'en-US',
+		is_builtin BOOLEAN NOT NULL DEFAULT false,
+		is_enabled BOOLEAN NOT NULL DEFAULT true,
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`,
+	`CREATE UNIQUE INDEX idx_i18n_languages_code ON i18n_languages(code)`,
+	// i18n_translations 存某语言对某 Key 的译文。空翻译语义 = 删除该行
+	// （运行时自然进入 fallback），因此 translation_value 恒非空。
+	`CREATE SEQUENCE seq_i18n_translations START 1`,
+	`CREATE TABLE i18n_translations (
+		id BIGINT PRIMARY KEY DEFAULT nextval('seq_i18n_translations'),
+		language_code VARCHAR NOT NULL,
+		translation_key VARCHAR NOT NULL,
+		translation_value VARCHAR NOT NULL,
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`,
+	`CREATE UNIQUE INDEX idx_i18n_translations_lang_key ON i18n_translations(language_code, translation_key)`,
 }

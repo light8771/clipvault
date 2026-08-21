@@ -129,16 +129,18 @@ func TestDiffConfigChanges(t *testing.T) {
 	for _, c := range changes {
 		byPath[c.Path] = c
 	}
-	if c, ok := byPath["theme.mode"]; !ok || c.Label != "显示模式" || c.New != "dark" {
+	// 操作记录持久化词条 key（config_field.* / config_value.*），
+	// 由前端展示时翻译。
+	if c, ok := byPath["theme.mode"]; !ok || c.Label != "config_field.theme_mode" || c.New != "dark" {
 		t.Fatalf("theme.mode change missing or wrong: %+v", c)
 	}
-	if c, ok := byPath["maxTextChars"]; !ok || c.Label != "单条文本最大长度" {
+	if c, ok := byPath["maxTextChars"]; !ok || c.Label != "config_field.max_text_chars" {
 		t.Fatalf("maxTextChars change missing or wrong: %+v", c)
 	}
-	if c, ok := byPath["autostart.enabled"]; !ok || c.Old != "关闭" || c.New != "开启" {
+	if c, ok := byPath["autostart.enabled"]; !ok || c.Old != "config_value.off" || c.New != "config_value.on" {
 		t.Fatalf("autostart.enabled bool formatting wrong: %+v", c)
 	}
-	if c, ok := byPath["backup.dirBackup.password"]; !ok || c.Old != "未设置" || c.New != "已设置" {
+	if c, ok := byPath["backup.dirBackup.password"]; !ok || c.Old != "config_value.not_set" || c.New != "config_value.set" {
 		t.Fatalf("password change must be masked: %+v", c)
 	}
 	if _, ok := byPath["brand.logoVersion"]; ok {

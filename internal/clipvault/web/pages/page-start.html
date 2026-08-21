@@ -1,17 +1,20 @@
 <!doctype html>
-<html lang="zh-CN" data-page-title="{{.Title}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}}{{if eq .HistoryLayout "sidebar"}} data-history-layout="sidebar"{{end}}>
+<html lang="{{.Lang}}" data-page-title="{{.Title}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}}{{if eq .HistoryLayout "sidebar"}} data-history-layout="sidebar"{{end}}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{.Title}} · ClipVault</title>
   <link id="brandFavicon" rel="icon" href="/favicon.ico">
   <script src="/theme-mode.js"></script>
+  <script src="/i18n-dict.js"></script>
+  <script src="/i18n.js"></script>
   <link rel="stylesheet" href="/tokens.css">
   {{if eq .Name "history"}}
   <link rel="stylesheet" href="/history.css">
   <link rel="stylesheet" href="/source-apps.css">
   {{else}}
   <link rel="stylesheet" href="/settings.css">
+  <link rel="stylesheet" href="/language.css">
   <link rel="stylesheet" href="/settings-data-api.css">
   <link rel="stylesheet" href="/logs.css">
   <link rel="stylesheet" href="/source-apps.css">
@@ -51,11 +54,11 @@
       <div class="nav-center">
         <a class="nav-tab{{if eq .Name "history"}} active{{end}}" id="tabHistory" href="/"{{if eq .Name "history"}} aria-current="page"{{end}}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
-          历史
+          {{T "nav.history"}}
         </a>
         <a class="nav-tab{{if eq .Name "settings"}} active{{end}}" id="tabSettings" href="/settings"{{if eq .Name "settings"}} aria-current="page"{{end}}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-          设置
+          {{T "nav.settings"}}
         </a>
       </div>
       {{if eq .Name "history"}}<div class="nav-right">
@@ -64,13 +67,13 @@
           <svg class="tog-icon" id="togIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/>
           </svg>
-          <span id="togTx">暂停</span>
+          <span id="togTx">{{T "nav.pause"}}</span>
         </button>
       </div>{{end}}
     </div>
   </nav>
 
   <div class="license-banner hidden" id="licenseBanner" role="status">
-    <span>免费版运行中：剪贴板内容会照常完整保存，当前可浏览和检索的历史记录条数有限。激活后解锁完整历史记录，以及导出与备份功能。</span>
-    <button type="button" data-action="open-license-settings">立即激活</button>
+    <span>{{T "nav.free_tier_banner"}}</span>
+    <button type="button" data-action="open-license-settings">{{T "nav.activate_now"}}</button>
   </div>

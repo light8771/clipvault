@@ -108,7 +108,7 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	size, copyErr := io.Copy(temp, r.Body)
 	closeErr := temp.Close()
 	if copyErr != nil || closeErr != nil || size == 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_media", "无效的背景媒体", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_media", s.i18nT("api.error.invalid_media", nil), nil)
 		return
 	}
 	contentType, err := detectBackgroundFileType(tempPath)
@@ -117,11 +117,11 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 		return
 	}
 	if contentType == "" {
-		s.writeAPIError(w, http.StatusBadRequest, "unsupported_media", "不支持的背景媒体格式", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "unsupported_media", s.i18nT("api.error.unsupported_media", nil), nil)
 		return
 	}
 	if !strings.HasPrefix(contentType, "video/") && size > maxBackgroundImageBytes {
-		s.writeAPIError(w, http.StatusRequestEntityTooLarge, "media_too_large", "背景图片不能超过 10 MB", nil)
+		s.writeAPIError(w, http.StatusRequestEntityTooLarge, "media_too_large", s.i18nT("appearance.background_too_large", nil), nil)
 		return
 	}
 	s.assetMu.Lock()
@@ -154,7 +154,7 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
 	data, err := io.ReadAll(r.Body)
 	if err != nil || len(data) == 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_image", "无效的图片", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_image", s.i18nT("api.error.invalid_image", nil), nil)
 		return
 	}
 	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
@@ -162,7 +162,7 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 		contentType = "image/x-icon"
 	}
 	if !isBrandContentType(contentType, kind) || !isValidBrandImage(data, contentType) {
-		s.writeAPIError(w, http.StatusBadRequest, "unsupported_image", "不支持的图片格式", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "unsupported_image", s.i18nT("api.error.unsupported_image", nil), nil)
 		return
 	}
 	s.assetMu.Lock()

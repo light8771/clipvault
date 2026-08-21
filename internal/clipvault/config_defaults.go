@@ -54,11 +54,14 @@ func DefaultConfig() Config {
 			AppName: "ClipVault",
 		},
 		Notifications: NotificationConfig{
+			// 标题默认空 = 品牌名 "ClipVault"；正文默认空 = 运行时取
+			// i18n 词条（notification.paused.body / notification.resumed.body），
+			// 用户显式填写的内容原样使用。
 			PauseResume: true,
-			PauseTitle:  "ClipVault",
-			PauseBody:   "剪贴板录制已暂停",
-			ResumeTitle: "ClipVault",
-			ResumeBody:  "剪贴板录制已恢复",
+			PauseTitle:  "",
+			PauseBody:   "",
+			ResumeTitle: "",
+			ResumeBody:  "",
 		},
 		Security: SecurityConfig{
 			LockPasswordHash:      "",
@@ -114,6 +117,9 @@ func DefaultConfig() Config {
 		MCP: ExternalServiceConfig{
 			Enabled:    false,
 			ListenAddr: "127.0.0.1:17840",
+		},
+		UI: UIConfig{
+			Language: I18nAuto,
 		},
 	}
 }

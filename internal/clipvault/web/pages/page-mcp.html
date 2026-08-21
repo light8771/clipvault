@@ -1,16 +1,16 @@
       <div class="amenu-sub">
-        <div class="amenu-sub-title">MCP</div>
-        <a class="amenu-anchor" href="#s-mcp-service">服务设置</a>
-        <a class="amenu-anchor" href="#s-mcp-connect">接入配置</a>
-        <a class="amenu-anchor" href="#s-mcp-tokens">访问令牌</a>
-        <a class="amenu-anchor" href="#s-mcp-audit">访问记录</a>
+        <div class="amenu-sub-title">{{T "app.title.mcp"}}</div>
+        <a class="amenu-anchor" href="#s-mcp-service">{{T "mcp.service_settings"}}</a>
+        <a class="amenu-anchor" href="#s-mcp-connect">{{T "mcp.connect"}}</a>
+        <a class="amenu-anchor" href="#s-mcp-tokens">{{T "mcp.tokens"}}</a>
+        <a class="amenu-anchor" href="#s-mcp-audit">{{T "mcp.audit"}}</a>
       </div>
     </aside>
 
     <div class="settings-main" id="mcpPage">
       <header class="sd-head">
-        <h1 class="sd-title">MCP</h1>
-        <p class="sd-desc">Model Context Protocol 服务：供 AI / MCP 宿主通过只读 Tools 与 Resources 访问 ClipVault 数据。与数据接口共享读取语义与审计，令牌按通道隔离。仅对已激活用户开放。</p>
+        <h1 class="sd-title">{{T "app.title.mcp"}}</h1>
+        <p class="sd-desc">{{T "mcp.desc"}}</p>
       </header>
 
       <section class="ssec" id="s-mcp-service">
@@ -19,71 +19,71 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="2"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">服务设置</h2>
-            <p class="ssec-desc">启用与监听地址，保存后立即生效</p>
+            <h2 class="ssec-title">{{T "mcp.service_settings"}}</h2>
+            <p class="ssec-desc">{{T "mcp.service_settings_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">运行状态</span>
-              <p class="field-hint" id="mcpStatusHint">服务当前状态</p>
+              <span class="field-label">{{T "mcp.status"}}</span>
+              <p class="field-hint" id="mcpStatusHint">{{T "mcp.status_hint"}}</p>
             </div>
-            <span class="field-label" id="mcpStatusText">读取中…</span>
+            <span class="field-label" id="mcpStatusText">{{T "common.loading"}}</span>
           </div>
           <div class="field-row" id="mcpUrlRow">
             <div class="field-info">
-              <span class="field-label">MCP 端点</span>
-              <p class="field-hint">Streamable HTTP 端点，填入 MCP 客户端的 URL 配置即可</p>
+              <span class="field-label">{{T "mcp.endpoint"}}</span>
+              <p class="field-hint">{{T "mcp.endpoint_hint"}}</p>
             </div>
             <input type="text" id="mcpUrlText" class="field-input u-inline-10" readonly value="">
-            <button class="btn-export" type="button" data-action="mcp-copy-url">复制</button>
+            <button class="btn-export" type="button" data-action="mcp-copy-url">{{T "common.copy"}}</button>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="mcpEnabled">启用 MCP 服务</label>
-              <p class="field-hint">关闭后监听端口立即释放；MCP 失败或过载不影响剪贴板录制与主界面</p>
+              <label class="field-label" for="mcpEnabled">{{T "mcp.enable"}}</label>
+              <p class="field-hint">{{T "mcp.enable_hint"}}</p>
             </div>
             <label class="ar-toggle">
               <input type="checkbox" id="mcpEnabled">
-              <span>启用</span>
+              <span>{{T "common.enabled_short"}}</span>
             </label>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">监听范围</span>
-              <p class="field-hint">仅本机只允许 127.0.0.1；局域网监听 0.0.0.0；指定地址可绑定到具体网卡 IP</p>
+              <span class="field-label">{{T "mcp.scope"}}</span>
+              <p class="field-hint">{{T "mcp.scope_hint"}}</p>
             </div>
             <div>
-              <label><input type="radio" name="mcpScope" value="local" checked> 仅本机</label>
-              <label><input type="radio" name="mcpScope" value="lan"> 局域网</label>
-              <label><input type="radio" name="mcpScope" value="custom"> 指定地址</label>
+              <label><input type="radio" name="mcpScope" value="local" checked> {{T "mcp.scope_local"}}</label>
+              <label><input type="radio" name="mcpScope" value="lan"> {{T "mcp.scope_lan"}}</label>
+              <label><input type="radio" name="mcpScope" value="custom"> {{T "mcp.scope_custom"}}</label>
             </div>
           </div>
           <div class="field-row hidden" id="mcpCustomAddrRow">
             <div class="field-info">
-              <label class="field-label" for="mcpCustomAddr">指定监听地址</label>
-              <p class="field-hint">本机网卡 IP，例如 192.168.1.10</p>
+              <label class="field-label" for="mcpCustomAddr">{{T "mcp.custom_addr"}}</label>
+              <p class="field-hint">{{T "mcp.custom_addr_hint"}}</p>
             </div>
             <input type="text" id="mcpCustomAddr" class="field-input u-inline-7" placeholder="192.168.1.10">
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="mcpPort">端口</label>
-              <p class="field-hint">端口范围 1024–65535，默认 17840；不能与 Web 界面或数据接口端口相同</p>
+              <label class="field-label" for="mcpPort">{{T "mcp.port"}}</label>
+              <p class="field-hint">{{T "mcp.port_hint"}}</p>
             </div>
             <input type="text" id="mcpPort" class="field-input u-inline-7" placeholder="17840">
           </div>
           <div class="listen-security-warning hidden" id="mcpLanWarning" role="alert">
-            <strong>明文 HTTP 提示</strong>
-            <span>MCP 使用 HTTP，建议仅在可信本机或局域网中使用，请勿直接暴露到公网。持有有效 Token 的客户端可以读取其权限范围内的 ClipVault 数据。</span>
+            <strong>{{T "mcp.lan_warning_title"}}</strong>
+            <span>{{T "mcp.lan_warning_text"}}</span>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">保存设置</span>
-              <p class="field-hint">保存后立即应用，无需重启应用</p>
+              <span class="field-label">{{T "mcp.save_settings"}}</span>
+              <p class="field-hint">{{T "mcp.save_settings_hint"}}</p>
             </div>
-            <button class="btn-export" type="button" data-action="mcp-save">保存</button>
+            <button class="btn-export" type="button" data-action="mcp-save">{{T "common.save"}}</button>
           </div>
         </div>
       </section>
@@ -94,64 +94,43 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">能力与接入</h2>
-            <p class="ssec-desc">服务端可发现的 Tools / Resources 与客户端接入配置示例</p>
+            <h2 class="ssec-title">{{T "mcp.capabilities"}}</h2>
+            <p class="ssec-desc">{{T "mcp.capabilities_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">工具（Tools，只读）</span>
-              <p class="field-hint" id="mcpToolList">读取中…</p>
+              <span class="field-label">{{T "mcp.tools"}}</span>
+              <p class="field-hint" id="mcpToolList">{{T "common.loading"}}</p>
             </div>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">资源（Resources）</span>
-              <p class="field-hint" id="mcpResourceList">读取中…</p>
+              <span class="field-label">{{T "mcp.resources"}}</span>
+              <p class="field-hint" id="mcpResourceList">{{T "common.loading"}}</p>
             </div>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">客户端接入示例</span>
-              <p class="field-hint">把 URL 换成上方端点、Token 换成下方生成的 MCP 令牌</p>
+              <span class="field-label">{{T "mcp.client_example"}}</span>
+              <p class="field-hint">{{T "mcp.client_example_hint"}}</p>
             </div>
-            <button class="btn-export" type="button" data-action="mcp-copy-example">复制 JSON 示例</button>
+            <button class="btn-export" type="button" data-action="mcp-copy-example">{{T "mcp.copy_json_example"}}</button>
           </div>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
-              <span class="dapi-doc-lang">MCP 客户端配置</span>
-              <button class="dapi-copy" type="button" data-action="mcp-copy-config">复制</button>
+              <span class="dapi-doc-lang">{{T "mcp.client_config_title"}}</span>
+              <button class="dapi-copy" type="button" data-action="mcp-copy-config">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="mcpConfigExample">{
-  "mcpServers": {
-    "clipvault": {
-      "url": "{MCP_URL}",
-      "headers": {
-        "Authorization": "Bearer cv_你的MCP令牌"
-      }
-    }
-  }
-}</pre>
+            <pre class="dapi-doc-pre" id="mcpConfigExample">{{T "mcp.config_example"}}</pre>
           </div>
           <div class="dapi-doc-block">
             <div class="dapi-doc-block-head">
-              <span class="dapi-doc-lang">工具调用速览（易错点）</span>
-              <button class="dapi-copy" type="button" data-action="mcp-copy-cheatsheet">复制</button>
+              <span class="dapi-doc-lang">{{T "mcp.cheatsheet_title"}}</span>
+              <button class="dapi-copy" type="button" data-action="mcp-copy-cheatsheet">{{T "common.copy"}}</button>
             </div>
-            <pre class="dapi-doc-pre" id="mcpCheatsheet">// ① id / ids 是十进制字符串，不要传数字（传整数会被校验拒绝：want "string"）
-get_clipboard_item    { "id": "42" }
-get_clipboard_items   { "ids": ["1", "2", "42"] }          // 最多 100 个，顺序保持
-
-// ② kind 是字符串数组；sourceApp / groupId 是单个字符串（两者类型不同）
-search_clipboard      { "kind": ["image", "text"], "sourceApp": "chrome.exe", "groupId": "7" }
-
-// ③ 可选过滤：query / from / to（RFC3339）/ starred / sensitive / limit（默认 50，最大 500）
-search_clipboard      { "query": "docker", "from": "2026-08-01T00:00:00+08:00", "limit": 20 }
-
-// ④ 错误约定：业务失败以 isError=true + 文本消息返回（如 "not found"、
-//    "invalid request: ..."），不是 JSON-RPC error；参数校验失败同理。
-//    工具与输入 Schema 可通过 tools/list 获取，其中含各参数类型与枚举值。</pre>
+            <pre class="dapi-doc-pre" id="mcpCheatsheet">{{T "mcp.cheatsheet"}}</pre>
           </div>
         </div>
       </section>
@@ -162,51 +141,51 @@ search_clipboard      { "query": "docker", "from": "2026-08-01T00:00:00+08:00", 
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M17 4l3 3M15 6l3 3"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">访问令牌</h2>
-            <p class="ssec-desc">MCP 令牌只能调用 MCP 服务；数据接口令牌在这里不可用。Token 只在创建时完整显示一次，请立即复制保存</p>
+            <h2 class="ssec-title">{{T "mcp.tokens"}}</h2>
+            <p class="ssec-desc">{{T "mcp.tokens_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="mcpTokenName">新令牌名称</label>
-              <p class="field-hint">用于标识使用方，例如「Codex」「Claude Desktop」</p>
+              <label class="field-label" for="mcpTokenName">{{T "mcp.token_name"}}</label>
+              <p class="field-hint">{{T "mcp.token_name_hint"}}</p>
             </div>
             <input type="text" id="mcpTokenName" class="field-input u-inline-7" placeholder="Codex" maxlength="60">
           </div>
           <div class="field-row">
             <div class="field-info">
-              <label class="field-label" for="mcpTokenExpiry">有效期</label>
-              <p class="field-hint">到期后 Token 自动失效；推荐 30 天或 90 天</p>
+              <label class="field-label" for="mcpTokenExpiry">{{T "mcp.token_expiry"}}</label>
+              <p class="field-hint">{{T "mcp.token_expiry_hint"}}</p>
             </div>
             <select id="mcpTokenExpiry" class="field-input u-inline-10">
-              <option value="1d">1 天</option>
-              <option value="7d">7 天</option>
-              <option value="30d" selected>30 天</option>
-              <option value="90d">90 天</option>
-              <option value="1y">1 年</option>
-              <option value="never">永不过期</option>
+              <option value="1d">{{T "mcp.expiry_1d"}}</option>
+              <option value="7d">{{T "mcp.expiry_7d"}}</option>
+              <option value="30d" selected>{{T "mcp.expiry_30d"}}</option>
+              <option value="90d">{{T "mcp.expiry_90d"}}</option>
+              <option value="1y">{{T "mcp.expiry_1y"}}</option>
+              <option value="never">{{T "mcp.expiry_never"}}</option>
             </select>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">敏感数据授权</span>
-              <p class="field-hint">新令牌默认只能读取普通数据；创建后可在令牌列表中单独开启敏感授权。开启时敏感记录对此令牌可见，关闭时完全不可见（与不存在无异）</p>
+              <span class="field-label">{{T "mcp.sensitive_grant"}}</span>
+              <p class="field-hint">{{T "mcp.sensitive_grant_hint"}}</p>
             </div>
           </div>
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">创建令牌</span>
-              <p class="field-hint">创建与重新生成需要二次验证，且需要已激活的授权</p>
+              <span class="field-label">{{T "mcp.create_token"}}</span>
+              <p class="field-hint">{{T "mcp.create_token_hint"}}</p>
             </div>
-            <button class="btn-export" type="button" data-action="mcp-token-create">生成 Token</button>
+            <button class="btn-export" type="button" data-action="mcp-token-create">{{T "mcp.generate_token"}}</button>
           </div>
           <div class="dapi-token-banner hidden" id="mcpNewTokenBox" role="status">
-            <span class="dapi-token-banner-title">请立即复制此 Token（只显示一次）</span>
+            <span class="dapi-token-banner-title">{{T "mcp.token_banner_title"}}</span>
             <code class="dapi-token-value" id="mcpNewTokenValue"></code>
             <div class="dapi-token-banner-actions">
-              <button class="dapi-btn" type="button" data-action="mcp-token-copy">复制 Token</button>
-              <button class="dapi-btn" type="button" data-action="mcp-token-dismiss">我已保存</button>
+              <button class="dapi-btn" type="button" data-action="mcp-token-copy">{{T "mcp.copy_token"}}</button>
+              <button class="dapi-btn" type="button" data-action="mcp-token-dismiss">{{T "mcp.token_saved"}}</button>
             </div>
           </div>
           <div class="dapi-list" id="mcpTokenList"></div>
@@ -219,79 +198,79 @@ search_clipboard      { "query": "docker", "from": "2026-08-01T00:00:00+08:00", 
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h6M9 17h4"/></svg>
           </div>
           <div>
-            <h2 class="ssec-title">访问记录</h2>
-            <p class="ssec-desc">MCP 调用审计：哪个令牌、调了哪个工具或资源、返回多少、耗时多久。数据接口的审计在「数据接口」页查看。最多保留最近 1000 条</p>
+            <h2 class="ssec-title">{{T "mcp.audit"}}</h2>
+            <p class="ssec-desc">{{T "mcp.audit_desc"}}</p>
           </div>
         </div>
         <div class="ssec-fields">
           <div class="dapi-stats">
-            <div class="dapi-stat"><span class="dapi-stat-value" id="mcpStatTotal">–</span><span class="dapi-stat-label">总请求</span></div>
-            <div class="dapi-stat is-ok"><span class="dapi-stat-value" id="mcpStatSuccess">–</span><span class="dapi-stat-label">成功</span></div>
-            <div class="dapi-stat is-err"><span class="dapi-stat-value" id="mcpStatError">–</span><span class="dapi-stat-label">失败</span></div>
-            <div class="dapi-stat"><span class="dapi-stat-value" id="mcpStatAvg">–</span><span class="dapi-stat-label">平均耗时</span></div>
-            <div class="dapi-stat"><span class="dapi-stat-value" id="mcpStat24h">–</span><span class="dapi-stat-label">近 24 小时</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="mcpStatTotal">–</span><span class="dapi-stat-label">{{T "mcp.stat_total"}}</span></div>
+            <div class="dapi-stat is-ok"><span class="dapi-stat-value" id="mcpStatSuccess">–</span><span class="dapi-stat-label">{{T "mcp.stat_success"}}</span></div>
+            <div class="dapi-stat is-err"><span class="dapi-stat-value" id="mcpStatError">–</span><span class="dapi-stat-label">{{T "mcp.stat_error"}}</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="mcpStatAvg">–</span><span class="dapi-stat-label">{{T "mcp.stat_avg"}}</span></div>
+            <div class="dapi-stat"><span class="dapi-stat-value" id="mcpStat24h">–</span><span class="dapi-stat-label">{{T "mcp.stat_24h"}}</span></div>
           </div>
           <div class="dapi-filter-bar">
-            <select id="mcpFilterOp" class="dapi-filter-select" aria-label="按操作筛选">
-              <option value="">全部操作</option>
-              <option value="tool:search_clipboard">搜索</option>
-              <option value="tool:get_clipboard_item">取单条</option>
-              <option value="tool:get_clipboard_items">批量获取</option>
-              <option value="tool:get_clipboard_content">取内容</option>
-              <option value="tool:count_clipboard_items">计数</option>
-              <option value="tool:get_clipboard_stats">统计</option>
-              <option value="tool:list_clipboard_groups">分组</option>
-              <option value="auth">认证失败</option>
+            <select id="mcpFilterOp" class="dapi-filter-select" aria-label='{{T "mcp.filter_op_label"}}'>
+              <option value="">{{T "mcp.filter_all_ops"}}</option>
+              <option value="tool:search_clipboard">{{T "mcp.op_search"}}</option>
+              <option value="tool:get_clipboard_item">{{T "mcp.op_get_item"}}</option>
+              <option value="tool:get_clipboard_items">{{T "mcp.op_get_items"}}</option>
+              <option value="tool:get_clipboard_content">{{T "mcp.op_get_content"}}</option>
+              <option value="tool:count_clipboard_items">{{T "mcp.op_count"}}</option>
+              <option value="tool:get_clipboard_stats">{{T "mcp.op_stats"}}</option>
+              <option value="tool:list_clipboard_groups">{{T "mcp.op_groups"}}</option>
+              <option value="auth">{{T "mcp.op_auth_failed"}}</option>
             </select>
-            <select id="mcpFilterResult" class="dapi-filter-select" aria-label="按结果筛选">
-              <option value="">全部结果</option>
-              <option value="success">仅成功</option>
-              <option value="error">仅失败</option>
+            <select id="mcpFilterResult" class="dapi-filter-select" aria-label='{{T "mcp.filter_result_label"}}'>
+              <option value="">{{T "mcp.filter_all_results"}}</option>
+              <option value="success">{{T "mcp.filter_success_only"}}</option>
+              <option value="error">{{T "mcp.filter_error_only"}}</option>
             </select>
-            <select id="mcpFilterToken" class="dapi-filter-select" aria-label="按令牌筛选">
-              <option value="">全部令牌</option>
+            <select id="mcpFilterToken" class="dapi-filter-select" aria-label='{{T "mcp.filter_token_label"}}'>
+              <option value="">{{T "mcp.filter_all_tokens"}}</option>
             </select>
-            <input type="text" id="mcpFilterQuery" class="dapi-filter-input" placeholder="搜索令牌 / IP / 资源 / 错误码" maxlength="80">
-            <button type="button" class="dapi-btn" data-action="mcp-audit-apply">筛选</button>
-            <button type="button" class="dapi-btn" data-action="mcp-audit-reset">重置</button>
+            <input type="text" id="mcpFilterQuery" class="dapi-filter-input" placeholder='{{T "mcp.filter_search_placeholder"}}' maxlength="80">
+            <button type="button" class="dapi-btn" data-action="mcp-audit-apply">{{T "mcp.filter_apply"}}</button>
+            <button type="button" class="dapi-btn" data-action="mcp-audit-reset">{{T "mcp.filter_reset"}}</button>
           </div>
           <div class="log-toolbar">
-            <span class="log-total" id="mcpAuditTotal">正在读取…</span>
+            <span class="log-total" id="mcpAuditTotal">{{T "common.loading"}}</span>
             <span class="dapi-toolbar-btns">
-              <button type="button" class="log-page-btn" data-action="mcp-audit-refresh">刷新</button>
-              <button type="button" class="log-page-btn" data-action="mcp-audit-export">导出 CSV</button>
-              <button type="button" class="btn-export" data-action="mcp-audit-clear">清空记录</button>
+              <button type="button" class="log-page-btn" data-action="mcp-audit-refresh">{{T "mcp.refresh"}}</button>
+              <button type="button" class="log-page-btn" data-action="mcp-audit-export">{{T "mcp.export_csv"}}</button>
+              <button type="button" class="btn-export" data-action="mcp-audit-clear">{{T "logs.clear"}}</button>
             </span>
           </div>
           <div class="dapi-audit-wrap">
             <table class="dapi-audit-table">
               <thead>
                 <tr>
-                  <th class="col-time">时间</th>
-                  <th class="col-token">令牌</th>
-                  <th class="col-op">操作 / 资源</th>
-                  <th class="col-summary">敏感</th>
-                  <th class="col-result">结果</th>
-                  <th class="col-ms">耗时</th>
-                  <th class="col-ip">来源 IP</th>
+                  <th class="col-time">{{T "mcp.col_time"}}</th>
+                  <th class="col-token">{{T "mcp.col_token"}}</th>
+                  <th class="col-op">{{T "mcp.col_op"}}</th>
+                  <th class="col-summary">{{T "mcp.col_sensitive"}}</th>
+                  <th class="col-result">{{T "mcp.col_result"}}</th>
+                  <th class="col-ms">{{T "mcp.col_ms"}}</th>
+                  <th class="col-ip">{{T "mcp.col_ip"}}</th>
                 </tr>
               </thead>
               <tbody id="mcpAuditList"></tbody>
             </table>
           </div>
           <div class="log-pager hidden" id="mcpAuditPager">
-            <label class="dapi-page-size">每页
-              <select id="mcpAuditPageSize" aria-label="每页条数">
+            <label class="dapi-page-size">{{T "mcp.per_page_prefix"}}
+              <select id="mcpAuditPageSize" aria-label='{{T "mcp.per_page_label"}}'>
                 <option value="20" selected>20</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
-              </select> 条
+              </select> {{T "mcp.per_page_suffix"}}
             </label>
-            <button type="button" class="log-page-btn" id="mcpAuditFirst" data-action="mcp-audit-first" title="首页">«</button>
-            <button type="button" class="log-page-btn" id="mcpAuditPrev" data-action="mcp-audit-prev">上一页</button>
+            <button type="button" class="log-page-btn" id="mcpAuditFirst" data-action="mcp-audit-first" title='{{T "mcp.first_page"}}'>«</button>
+            <button type="button" class="log-page-btn" id="mcpAuditPrev" data-action="mcp-audit-prev">{{T "history.prev_page"}}</button>
             <span class="dapi-page-btns" id="mcpAuditPageBtns"></span>
-            <button type="button" class="log-page-btn" id="mcpAuditNext" data-action="mcp-audit-next">下一页</button>
-            <button type="button" class="log-page-btn" id="mcpAuditLast" data-action="mcp-audit-last" title="末页">»</button>
+            <button type="button" class="log-page-btn" id="mcpAuditNext" data-action="mcp-audit-next">{{T "history.next_page"}}</button>
+            <button type="button" class="log-page-btn" id="mcpAuditLast" data-action="mcp-audit-last" title='{{T "mcp.last_page"}}'>»</button>
           </div>
         </div>
       </section>

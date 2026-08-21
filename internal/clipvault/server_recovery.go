@@ -27,7 +27,7 @@ func (s *SearchServer) handleRecoveryStatus(w http.ResponseWriter, r *http.Reque
 func (s *SearchServer) handleIsolatedDatabaseSwitch(w http.ResponseWriter, r *http.Request) {
 	fresh, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
 	if !fresh {
-		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", "切换数据库需要重新输入二次密码", nil)
+		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", s.i18nT("api.error.switch_needs_secondary", nil), nil)
 		return
 	}
 	var req struct {
@@ -35,18 +35,18 @@ func (s *SearchServer) handleIsolatedDatabaseSwitch(w http.ResponseWriter, r *ht
 		Password string `json:"password"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	if err := ScheduleIsolatedDatabaseSwitch(s.env.DataDir, strings.TrimSpace(req.ID), req.Password); err != nil {
 		s.logger.Error("isolated_database_switch_failed", err, nil)
 		switch {
 		case errors.Is(err, ErrIsolatedDatabaseNotFound):
-			s.writeAPIError(w, http.StatusNotFound, "isolated_database_not_found", "这份隔离数据已不存在，请刷新列表", err)
+			s.writeAPIError(w, http.StatusNotFound, "isolated_database_not_found", s.i18nT("api.error.isolated_gone", nil), err)
 		case errors.Is(err, ErrIsolatedDatabasePending):
-			s.writeAPIError(w, http.StatusConflict, "isolated_database_switch_pending", "已有数据库切换任务等待应用重启", err)
+			s.writeAPIError(w, http.StatusConflict, "isolated_database_switch_pending", s.i18nT("api.error.switch_pending", nil), err)
 		case errors.Is(err, ErrIsolatedDatabaseUnavailable):
-			s.writeAPIError(w, http.StatusBadRequest, "isolated_database_unavailable", "恢复密码不正确，或这份隔离数据已损坏", err)
+			s.writeAPIError(w, http.StatusBadRequest, "isolated_database_unavailable", s.i18nT("api.error.isolated_verify_failed", nil), err)
 		default:
 			s.writeInternalError(w, err)
 		}
@@ -55,14 +55,14 @@ func (s *SearchServer) handleIsolatedDatabaseSwitch(w http.ResponseWriter, r *ht
 	s.logger.Info("isolated_database_switch_scheduled", map[string]any{"isolationId": strings.TrimSpace(req.ID)})
 	s.writeJSON(w, map[string]any{
 		"ok":      true,
-		"message": "切换任务已准备完成，请退出 ClipVault 并重新打开",
+		"message": s.i18nT("api.error.switch_ready", nil),
 	})
 }
 
 func (s *SearchServer) handleIsolatedDatabaseSwitchCancel(w http.ResponseWriter, r *http.Request) {
 	fresh, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
 	if !fresh {
-		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", "取消数据库切换需要重新输入二次密码", nil)
+		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", s.i18nT("api.error.cancel_switch_needs_secondary", nil), nil)
 		return
 	}
 	if err := CancelIsolatedDatabaseSwitch(s.env.DataDir); err != nil {
@@ -80,7 +80,7 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 		NewPassword string `json:"newPassword"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	s.recoveryMu.Lock()
@@ -89,14 +89,14 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 		s.logger.Error("recovery_change_failed", err, nil)
 		var rpe *RecoveryPasswordError
 		if errors.As(err, &rpe) {
-			message := "修改恢复密码失败"
+			message := s.i18nT("api.error.recovery_change_failed", nil)
 			switch rpe.Code {
 			case "wrong_password":
-				message = "当前恢复密码不正确"
+				message = s.i18nT("api.error.wrong_recovery_password", nil)
 			case "not_set":
-				message = "尚未设置恢复密码"
+				message = s.i18nT("api.error.recovery_not_set", nil)
 			case "weak_password":
-				message = "新恢复密码至少需要 12 个字符，且首尾不能有空格"
+				message = s.i18nT("api.error.recovery_rule", map[string]any{"n": 12})
 			}
 			s.writeAPIError(w, http.StatusBadRequest, "recovery_change_failed", message, err)
 		} else {
@@ -111,14 +111,14 @@ func (s *SearchServer) handleRecoveryChange(w http.ResponseWriter, r *http.Reque
 func (s *SearchServer) handleRecoveryReset(w http.ResponseWriter, r *http.Request) {
 	fresh, _ := r.Context().Value(freshSecondaryContextKey{}).(bool)
 	if !fresh {
-		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", "重置恢复密码需要重新输入二次密码", nil)
+		s.writeAPIError(w, http.StatusForbidden, "fresh_secondary_required", s.i18nT("api.error.recovery_reset_needs_secondary", nil), nil)
 		return
 	}
 	var req struct {
 		Password string `json:"password"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	s.recoveryMu.Lock()
@@ -127,7 +127,7 @@ func (s *SearchServer) handleRecoveryReset(w http.ResponseWriter, r *http.Reques
 		s.logger.Error("recovery_reset_failed", err, nil)
 		var rpe *RecoveryPasswordError
 		if errors.As(err, &rpe) && rpe.Code == "weak_password" {
-			s.writeAPIError(w, http.StatusBadRequest, "recovery_reset_failed", "重置恢复密码失败：请使用至少 12 个字符且首尾无空格", err)
+			s.writeAPIError(w, http.StatusBadRequest, "recovery_reset_failed", s.i18nT("api.error.recovery_reset_rule", map[string]any{"n": 12}), err)
 		} else {
 			s.writeInternalError(w, err)
 		}

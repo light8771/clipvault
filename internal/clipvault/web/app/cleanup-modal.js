@@ -1,5 +1,7 @@
 import { app } from "./app-context.js";
 
+const t = window.clipvaultI18n.t;
+
 // 清理历史弹窗（设置页「清理」区块）：精确范围清理（preview/delete 与后端共用条件）。
 // 全部 / 时间范围（秒级）两种模式，可选保留收藏。
 export function registerCleanupModal() {
@@ -26,12 +28,12 @@ export function registerCleanupModal() {
     const body = app.cleanupPayload();
     if (!body) {
       app.cleanupMatched = 0;
-      app.CLEANUP_PREVIEW.textContent = '请选择完整的起止时间';
+      app.CLEANUP_PREVIEW.textContent = t('cleanup.select_range');
       app.CLEANUP_CONFIRM.disabled = true;
       return;
     }
     app.CLEANUP_CONFIRM.disabled = true;
-    app.CLEANUP_PREVIEW.textContent = '计算中...';
+    app.CLEANUP_PREVIEW.textContent = t('common.loading');
     try {
       const res = await app.protectedFetch('/api/v1/items/cleanup-preview', {
         method: 'POST',
@@ -39,15 +41,17 @@ export function registerCleanupModal() {
         body: JSON.stringify(body)
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || '预览失败');
+      if (!res.ok) throw new Error(d.error || t('cleanup.preview_failed'));
       app.cleanupMatched = d.matched || 0;
-      app.CLEANUP_PREVIEW.textContent = '将删除 ' + app.cleanupMatched + ' 条记录' + (body.preserveStarred ? '（收藏保留）' : '');
+      app.CLEANUP_PREVIEW.textContent = body.preserveStarred
+        ? t('cleanup.preview_count_keep_starred', { count: app.cleanupMatched })
+        : t('cleanup.preview_count', { count: app.cleanupMatched });
       app.CLEANUP_CONFIRM.disabled = app.cleanupMatched === 0;
     } catch (e) {
       if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
-        app.CLEANUP_PREVIEW.textContent = '需要二次验证';
+        app.CLEANUP_PREVIEW.textContent = t('security.secondary_required');
       } else {
-        app.CLEANUP_PREVIEW.textContent = e.message || '预览失败';
+        app.CLEANUP_PREVIEW.textContent = e.message || t('cleanup.preview_failed');
       }
     }
   };
@@ -64,7 +68,7 @@ export function registerCleanupModal() {
     const body = app.cleanupPayload();
     if (!body) return;
     app.CLEANUP_CONFIRM.disabled = true;
-    app.CLEANUP_CONFIRM.textContent = '删除中...';
+    app.CLEANUP_CONFIRM.textContent = t('cleanup.deleting');
     try {
       const res = await app.protectedFetch('/api/v1/items/cleanup', {
         method: 'POST',
@@ -72,8 +76,8 @@ export function registerCleanupModal() {
         body: JSON.stringify(body)
       });
       const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || '清理失败');
-      app.toast('已删除 ' + d.deleted + ' 条记录');
+      if (!res.ok || !d.ok) throw new Error(d.error || t('cleanup.failed'));
+      app.toast(t('cleanup.deleted', { count: d.deleted }));
       app.closeCleanupModal();
       if (typeof app.search === 'function') {
         app.currentPage = 0;
@@ -81,12 +85,12 @@ export function registerCleanupModal() {
       }
     } catch (e) {
       if (e && (e.code === 'secondary_required' || e.code === 'secondary_cancelled')) {
-        app.toast('需要二次验证才能清理记录', 'err');
+        app.toast(t('cleanup.secondary_required'), 'err');
       } else {
-        app.toast(e.message || '清理失败', 'err');
+        app.toast(e.message || t('cleanup.failed'), 'err');
       }
     } finally {
-      app.CLEANUP_CONFIRM.textContent = '删除';
+      app.CLEANUP_CONFIRM.textContent = t('common.delete');
       app.CLEANUP_CONFIRM.disabled = false;
     }
   };

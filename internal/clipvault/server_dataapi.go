@@ -54,12 +54,12 @@ func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *htt
 		ListenAddr string `json:"listenAddr"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	host, port, err := validateListenAddr(req.ListenAddr)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", "监听地址无效: "+err.Error(), err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_listen_addr", s.i18nT("api.error.invalid_listen_addr", map[string]any{"detail": err.Error()}), err)
 		return
 	}
 	cfg := s.cfgMgr.Get()
@@ -69,12 +69,12 @@ func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *htt
 	// 启用或变更地址前探测端口可用性，避免保存后绑定失败才被发现。
 	if req.Enabled && (enabling || addrChanged) {
 		if err := listenAddrAvailable(host, port); err != nil {
-			s.writeAPIError(w, http.StatusBadRequest, "listen_addr_unavailable", "监听地址 "+req.ListenAddr+" 当前不可用（端口可能被其他程序占用），请更换端口", err)
+			s.writeAPIError(w, http.StatusBadRequest, "listen_addr_unavailable", s.i18nT("api.error.listen_addr_unavailable", map[string]any{"addr": req.ListenAddr}), err)
 			return
 		}
 	}
 	if req.Enabled && FreeTierRestriction(s.env) {
-		s.writeAPIError(w, http.StatusForbidden, "activation_required", feature+"仅对已激活用户开放", nil)
+		s.writeAPIError(w, http.StatusForbidden, "activation_required", s.i18nT("api.error.feature_activation_required", map[string]any{"feature": feature}), nil)
 		return
 	}
 	curCfg := cfg
@@ -110,7 +110,7 @@ func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *htt
 
 // handleDataAPIConfig 更新数据接口配置（立即生效，无需重启）。
 func (s *SearchServer) handleDataAPIConfig(w http.ResponseWriter, r *http.Request) {
-	s.updateExternalServiceConfig(w, r, "数据接口", "data_api_runtime_apply_failed",
+	s.updateExternalServiceConfig(w, r, s.i18nT("app.title.data_api", nil), "data_api_runtime_apply_failed",
 		func(c *Config) *ExternalServiceConfig { return &c.DataAPI },
 		func() (externalServiceStatus, bool) {
 			if s.dataAPI == nil {
@@ -171,21 +171,21 @@ type dataAPITokenCreated struct {
 // 授权敏感数据（安全默认），重新生成则保持原值。
 func (s *SearchServer) createAPIToken(w http.ResponseWriter, r *http.Request, name, expiryPreset, channel string, allowSensitive bool) *dataAPITokenCreated {
 	if FreeTierRestriction(s.env) {
-		s.writeAPIError(w, http.StatusForbidden, "activation_required", "令牌创建仅对已激活用户开放", nil)
+		s.writeAPIError(w, http.StatusForbidden, "activation_required", s.i18nT("api.error.token_create_activation_required", nil), nil)
 		return nil
 	}
 	if !validTokenChannel(channel) {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_channel", "无效的令牌通道", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_channel", s.i18nT("api.error.invalid_channel", nil), nil)
 		return nil
 	}
 	name, err := validateAPITokenName(name)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_name", "Token 名称不能为空", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_name", s.i18nT("api.error.token_name_empty", nil), err)
 		return nil
 	}
 	expiresAtMS, err := apiTokenExpiryMS(expiryPreset, time.Now().UTC())
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_expiry", "无效的有效期", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_expiry", s.i18nT("api.error.invalid_expiry", nil), err)
 		return nil
 	}
 	raw, hash, err := generateAPIToken()
@@ -217,7 +217,7 @@ func (s *SearchServer) handleDataAPITokenCreate(w http.ResponseWriter, r *http.R
 		ExpiresIn string `json:"expiresIn"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn, TokenChannelHTTP, false)
@@ -235,12 +235,12 @@ func (s *SearchServer) parseTokenIDRequest(w http.ResponseWriter, r *http.Reques
 		ID string `json:"id"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return 0
 	}
 	id, err := strconv.ParseInt(req.ID, 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 Token ID", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_token_id", nil), nil)
 		return 0
 	}
 	return id
@@ -253,17 +253,17 @@ func (s *SearchServer) setTokenSensitive(w http.ResponseWriter, r *http.Request,
 		AllowSensitive bool   `json:"allowSensitive"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("api.error.invalid_json", nil), err)
 		return
 	}
 	id, err := strconv.ParseInt(req.ID, 10, 64)
 	if err != nil || id <= 0 {
-		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", "无效的 Token ID", nil)
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_token_id", nil), nil)
 		return
 	}
 	if err := s.store.SetAPITokenSensitive(r.Context(), id, channel, req.AllowSensitive); err != nil {
 		if errors.Is(err, errAPITokenNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在或已失效", nil)
+			s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.token_not_found_inactive", nil), nil)
 			return
 		}
 		s.writeError(w, err)
@@ -285,7 +285,7 @@ func (s *SearchServer) handleDataAPITokenSensitive(w http.ResponseWriter, r *htt
 // 不是复活已废止的 Token——与敏感授权端点的失效语义一致。
 func (s *SearchServer) regenerateToken(w http.ResponseWriter, r *http.Request, channel, logEvent string) {
 	if FreeTierRestriction(s.env) {
-		s.writeAPIError(w, http.StatusForbidden, "activation_required", "令牌重新生成仅对已激活用户开放", nil)
+		s.writeAPIError(w, http.StatusForbidden, "activation_required", s.i18nT("api.error.token_regen_activation_required", nil), nil)
 		return
 	}
 	id := s.parseTokenIDRequest(w, r)
@@ -295,25 +295,25 @@ func (s *SearchServer) regenerateToken(w http.ResponseWriter, r *http.Request, c
 	old, err := s.store.GetAPITokenByID(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, errAPITokenNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
+			s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.token_not_found", nil), nil)
 			return
 		}
 		s.writeError(w, err)
 		return
 	}
 	if old.Channel != channel {
-		s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
+		s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.token_not_found", nil), nil)
 		return
 	}
 	if old.RevokedAt != nil || (old.ExpiresAt != nil && time.Now().After(*old.ExpiresAt)) {
-		s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在或已失效", nil)
+		s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.token_not_found_inactive", nil), nil)
 		return
 	}
 	// 有效期语义：保持原来的总时长（从签发时刻重新计算）；永不过期保持不变。
 	preset := tokenExpiryPreset(old.CreatedAt, old.ExpiresAt)
 	if err := s.store.RevokeAPIToken(r.Context(), id, channel); err != nil {
 		if errors.Is(err, errAPITokenNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
+			s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.token_not_found", nil), nil)
 			return
 		}
 		s.writeError(w, err)
@@ -342,7 +342,7 @@ func (s *SearchServer) revokeToken(w http.ResponseWriter, r *http.Request, chann
 	}
 	if err := s.store.RevokeAPIToken(r.Context(), id, channel); err != nil {
 		if errors.Is(err, errAPITokenNotFound) {
-			s.writeAPIError(w, http.StatusNotFound, "not_found", "Token 不存在", nil)
+			s.writeAPIError(w, http.StatusNotFound, "not_found", s.i18nT("api.error.token_not_found", nil), nil)
 			return
 		}
 		s.writeError(w, err)
@@ -432,15 +432,35 @@ func (s *SearchServer) handleDataAPIAuditExport(w http.ResponseWriter, r *http.R
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	writer := csv.NewWriter(&buf)
-	_ = writer.Write([]string{"时间(UTC)", "通道", "令牌", "来源IP", "方法", "端点", "操作", "资源URI", "记录ID", "返回条数", "耗时(ms)", "状态码", "错误码", "请求摘要", "请求体", "敏感访问"})
+	// 表头与布尔值按当前语言生成（导出物给用户阅读，不是机器契约）。
+	_ = writer.Write([]string{
+		s.i18nT("audit_csv.time_utc", nil),
+		s.i18nT("audit_csv.channel", nil),
+		s.i18nT("audit_csv.token", nil),
+		s.i18nT("audit_csv.source_ip", nil),
+		s.i18nT("audit_csv.method", nil),
+		s.i18nT("audit_csv.endpoint", nil),
+		s.i18nT("audit_csv.operation", nil),
+		s.i18nT("audit_csv.resource_uri", nil),
+		s.i18nT("audit_csv.record_id", nil),
+		s.i18nT("audit_csv.item_count", nil),
+		s.i18nT("audit_csv.duration_ms", nil),
+		s.i18nT("audit_csv.status_code", nil),
+		s.i18nT("audit_csv.error_code", nil),
+		s.i18nT("audit_csv.request_summary", nil),
+		s.i18nT("audit_csv.request_body", nil),
+		s.i18nT("audit_csv.sensitive_access", nil),
+	})
+	noText := s.i18nT("audit_csv.no", nil)
+	yesText := s.i18nT("audit_csv.yes", nil)
 	for _, event := range events {
 		itemID := ""
 		if event.ItemID > 0 {
 			itemID = strconv.FormatInt(event.ItemID, 10)
 		}
-		sensitive := "否"
+		sensitive := noText
 		if event.SensitiveAccessed {
-			sensitive = "是"
+			sensitive = yesText
 		}
 		_ = writer.Write([]string{
 			event.Timestamp.UTC().Format("2006-01-02 15:04:05"),
