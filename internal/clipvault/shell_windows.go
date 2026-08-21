@@ -18,8 +18,6 @@ var (
 	procILFree                     = modShell32.NewProc("ILFree")
 	procILClone                    = modShell32.NewProc("ILClone")
 	procILRemoveLastID             = modShell32.NewProc("ILRemoveLastID")
-	procILIsEqual                  = modShell32.NewProc("ILIsEqual")
-	procILGetNext                  = modShell32.NewProc("ILGetNext")
 	procILGetSize                  = modShell32.NewProc("ILGetSize")
 	procCoInitialize               = modOle32.NewProc("CoInitialize")
 	procCoUninitialize             = modOle32.NewProc("CoUninitialize")

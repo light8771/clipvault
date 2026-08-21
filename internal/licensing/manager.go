@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/subtle"
 	"errors"
-	"path/filepath"
 	"sync"
 )
 
@@ -37,10 +36,6 @@ type Manager struct {
 	machineFn   func() (string, error)
 	context     Context
 	listeners   []func(Context)
-}
-
-func DefaultReceiptPath(localAppData string) string {
-	return filepath.Join(localAppData, "ClipVault", "license", "clipvault.lic")
 }
 
 func NewManager(receiptPath string, trustedKeys map[string]ed25519.PublicKey) *Manager {

@@ -32,7 +32,7 @@ type ExportSettings struct {
 	Sensitive SensitiveConfig `json:"sensitive"`
 }
 
-// UnmarshalJSON requires every portable settings field in the v3 contract.
+// UnmarshalJSON requires every portable settings field in the export contract.
 // A missing sensitive rule set must not silently clear the destination rules.
 func (settings *ExportSettings) UnmarshalJSON(data []byte) error {
 	type exportSettings ExportSettings

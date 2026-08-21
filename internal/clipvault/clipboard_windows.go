@@ -46,13 +46,6 @@ func clipboardSequenceNumber() uint32 {
 	return uint32(seq)
 }
 
-// ReadClipboardSnapshot 读取当前剪贴板内容（诊断/调试入口）。
-// 录制链路使用 readClipboardEventForSequence。
-func ReadClipboardSnapshot(cfg Config) (*ClipboardSnapshot, error) {
-	snapshot, _, err := readClipboardEventForSequence(cfg, 0)
-	return snapshot, err
-}
-
 // readClipboardEventForSequence 读取一次剪贴板事件。
 //
 // 返回值语义（事件优先）：

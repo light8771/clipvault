@@ -29,11 +29,6 @@ const (
 	idHotkeyToggle    = 1000
 	idHotkeySearch    = 1001
 
-	modAlt     = 0x0001
-	modControl = 0x0002
-	modShift   = 0x0004
-	modWin     = 0x0008
-
 	nimAdd        = 0x00000000
 	nimModify     = 0x00000001
 	nimDelete     = 0x00000002

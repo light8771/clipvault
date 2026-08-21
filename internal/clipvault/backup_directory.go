@@ -165,33 +165,3 @@ func (bs *BackupService) exportBackupTo(dst io.Writer, format, password string, 
 	}
 	return maxID, nil
 }
-
-func writeBackupFile(dir string, now time.Time, ext string, data []byte) (string, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("创建目录失败: %w", err)
-	}
-	file, err := os.CreateTemp(dir, fmt.Sprintf("clipvault-backup-%s-*.%s", now.Format("20060102-150405"), ext))
-	if err != nil {
-		return "", fmt.Errorf("创建备份文件失败: %w", err)
-	}
-	path := file.Name()
-	success := false
-	defer func() {
-		if !success {
-			_ = os.Remove(path)
-		}
-	}()
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return "", fmt.Errorf("写入文件失败: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return "", fmt.Errorf("同步文件失败: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("关闭文件失败: %w", err)
-	}
-	success = true
-	return path, nil
-}

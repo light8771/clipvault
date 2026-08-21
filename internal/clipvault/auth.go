@@ -77,10 +77,6 @@ func verifyPasswordHash(encoded, password string) bool {
 	return security.VerifyPassword(encoded, password)
 }
 
-func parsePasswordHash(encoded string) (salt, expected []byte, err error) {
-	return security.ParsePasswordHash(encoded)
-}
-
 func validateStoredPasswordHash(encoded string) error {
 	if encoded == "" {
 		return nil

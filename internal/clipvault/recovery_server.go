@@ -84,9 +84,6 @@ func (rs *RecoveryServer) Start() (string, error) {
 	return rs.url, nil
 }
 
-// URL returns the recovery server URL.
-func (rs *RecoveryServer) URL() string { return rs.url }
-
 // Done returns a channel that is closed when recovery succeeds.
 func (rs *RecoveryServer) Done() <-chan struct{} { return rs.done }
 

@@ -38,8 +38,6 @@ type mcpError struct {
 	Message string
 }
 
-func (e *mcpError) Error() string { return e.Code + ": " + e.Message }
-
 func newMCPError(status int, code, message string) *mcpError {
 	return &mcpError{Status: status, Code: code, Message: message}
 }

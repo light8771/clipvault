@@ -235,10 +235,6 @@ func (s *SearchServer) Start() (string, error) {
 	return s.url, nil
 }
 
-func (s *SearchServer) URL() string {
-	return s.url
-}
-
 func (s *SearchServer) Close(ctx context.Context) error {
 
 	if s.auth != nil {

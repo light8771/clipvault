@@ -1217,7 +1217,7 @@ func TestLocalDateBoundsUseConfiguredTimeZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// schema v3：边界以 Unix 毫秒表示（2026-08-06T16:00:00Z / 2026-08-07T16:00:00Z）。
+	// 边界以 Unix 毫秒表示（2026-08-06T16:00:00Z / 2026-08-07T16:00:00Z）。
 	wantFrom := time.Date(2026, 8, 6, 16, 0, 0, 0, time.UTC).UnixMilli()
 	wantBefore := time.Date(2026, 8, 7, 16, 0, 0, 0, time.UTC).UnixMilli()
 	if from != wantFrom || before != wantBefore {

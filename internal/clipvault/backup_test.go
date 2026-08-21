@@ -372,14 +372,21 @@ func TestBackupReloadPreventsStaleTimerRearm(t *testing.T) {
 	}
 }
 
-func TestWriteBackupFileUsesUniqueNames(t *testing.T) {
-	dir := t.TempDir()
-	now := time.Unix(0, 0)
-	first, err := writeBackupFile(dir, now, "json", []byte("first"))
+func TestWriteBackupFileStreamUsesUniqueNames(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := writeBackupFile(dir, now, "json", []byte("second"))
+	defer store.Close()
+	bs := &BackupService{store: store}
+	dir := t.TempDir()
+	now := time.Unix(0, 0)
+	scope := ExportScope{Mode: "full"}
+	first, _, _, err := bs.writeBackupFileStream(dir, now, "json", "backup-password", scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, _, err := bs.writeBackupFileStream(dir, now, "json", "backup-password", scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,10 +396,13 @@ func TestWriteBackupFileUsesUniqueNames(t *testing.T) {
 	if !strings.HasPrefix(first, dir) || !strings.HasPrefix(second, dir) {
 		t.Fatalf("backup files were not written inside the target directory: %q %q", first, second)
 	}
-	if data, err := os.ReadFile(first); err != nil || string(data) != "first" {
+	if !strings.HasSuffix(first, ".cvexport") || !strings.HasSuffix(second, ".cvexport") {
+		t.Fatalf("backup files must use the encrypted container extension: %q %q", first, second)
+	}
+	if data, err := os.ReadFile(first); err != nil || !IsCVExport(data) {
 		t.Fatalf("first backup file = %q, err=%v", data, err)
 	}
-	if data, err := os.ReadFile(second); err != nil || string(data) != "second" {
+	if data, err := os.ReadFile(second); err != nil || !IsCVExport(data) {
 		t.Fatalf("second backup file = %q, err=%v", data, err)
 	}
 }
