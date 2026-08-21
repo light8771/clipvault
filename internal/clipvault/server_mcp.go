@@ -104,14 +104,14 @@ func (s *SearchServer) handleMCPTokens(w http.ResponseWriter, r *http.Request) {
 // 敏感授权初始值为关闭（安全默认），创建后可在令牌列表中单独调整。
 func (s *SearchServer) handleMCPTokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name   string `json:"name"`
-		Expiry string `json:"expiry"`
+		Name      string `json:"name"`
+		ExpiresIn string `json:"expiresIn"`
 	}
 	if err := decodeJSONRequest(w, r, &req, 64<<10); err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", "请求格式错误", err)
 		return
 	}
-	created := s.createAPIToken(w, r, req.Name, req.Expiry, TokenChannelMCP, false)
+	created := s.createAPIToken(w, r, req.Name, req.ExpiresIn, TokenChannelMCP, false)
 	if created == nil {
 		return
 	}

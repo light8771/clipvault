@@ -240,7 +240,7 @@ export function registerMCP() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
-          expiry: el('mcpTokenExpiry').value
+          expiresIn: el('mcpTokenExpiry').value
         })
       });
       await app.requireOK(res, '创建失败');

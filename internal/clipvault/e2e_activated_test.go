@@ -366,7 +366,7 @@ func TestActivatedExternalServiceE2E(t *testing.T) {
 	}
 
 	// ── 7. 跨通道隔离：MCP 令牌不能被 HTTP 端点撤销/调整。 ───────────
-	resp = mutate(http.MethodPost, "/api/v1/mcp/tokens", `{"name": "e2e-mcp", "expiry": "never"}`)
+	resp = mutate(http.MethodPost, "/api/v1/mcp/tokens", `{"name": "e2e-mcp", "expiresIn": "never"}`)
 	body = readBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("mcp token create = %d %s", resp.StatusCode, body)
