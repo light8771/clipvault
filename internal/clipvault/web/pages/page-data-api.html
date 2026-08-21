@@ -404,7 +404,7 @@ print(r.json())</pre>
           <table class="dapi-doc-table">
             <tbody>
               <tr><td><code>createdAt</code></td><td><code>gte</code> <code>gt</code> <code>lte</code> <code>lt</code>，值为 RFC3339 时间字符串（如 <code>2026-08-19T00:00:00+08:00</code>）</td></tr>
-              <tr><td><code>kind</code></td><td><code>eq</code> <code>neq</code> <code>in</code>；取值：<code>text</code> / <code>image</code> / <code>files</code> / <code>office</code> / <code>archive</code> / <code>video</code></td></tr>
+              <tr><td><code>kind</code></td><td><code>eq</code> <code>neq</code> <code>in</code>；取值：<code>text</code> / <code>image</code> / <code>files</code> / <code>office</code> / <code>archive</code> / <code>video</code> / <code>other</code>（事件已记录但内容不可用/未分类）</td></tr>
               <tr><td><code>id</code></td><td><code>eq</code> <code>neq</code> <code>in</code> <code>gt</code> <code>gte</code> <code>lt</code> <code>lte</code>，值为整数或整数数组</td></tr>
               <tr><td><code>sourceApp</code> / <code>sourceWindow</code></td><td><code>eq</code> <code>neq</code> <code>in</code> <code>contains</code> <code>startsWith</code> <code>endsWith</code>（不区分大小写）</td></tr>
               <tr><td><code>text</code></td><td><code>contains</code> <code>eq</code> <code>neq</code>（contains 不区分大小写）</td></tr>

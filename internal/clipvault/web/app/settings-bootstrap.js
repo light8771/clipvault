@@ -94,6 +94,7 @@ registerActions({
   'mcp-copy-url': () => app.mcpCopyURL(),
   'mcp-copy-example': () => app.mcpCopyExample(),
   'mcp-copy-config': element => app.mcpCopyConfig(element),
+  'mcp-copy-cheatsheet': element => app.mcpCopyCheatsheet(element),
   'mcp-token-create': () => app.mcpTokenCreate(),
   'mcp-token-copy': () => app.mcpTokenCopy(),
   'mcp-token-dismiss': () => app.mcpTokenDismiss(),

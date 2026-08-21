@@ -160,6 +160,16 @@ export function registerMCP() {
     setTimeout(() => { button.textContent = label; }, 1200);
   };
 
+  // 工具调用速览：内容为静态文案，直接取 pre 文本复制。
+  app.mcpCopyCheatsheet = async function mcpCopyCheatsheet(button) {
+    const pre = el('mcpCheatsheet');
+    if (!pre) return;
+    await copyText(pre.textContent, '已复制');
+    const label = button.textContent;
+    button.textContent = '已复制';
+    setTimeout(() => { button.textContent = label; }, 1200);
+  };
+
   /* ── 访问令牌 ───────────────────────────────────── */
 
   app.loadMCPTokens = async function loadMCPTokens() {

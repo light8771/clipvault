@@ -58,19 +58,19 @@ func registerMCPTools(server *mcp.Server, tc mcpToolContext) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        mcpToolGetItem,
-		Description: "Get one clipboard record by numeric id, including full metadata and complete text. Unknown or unauthorized ids behave as not found.",
+		Description: "Get one clipboard record by its id (a decimal string, e.g. \"42\"; never send a JSON number), including full metadata and complete text. Unknown or unauthorized ids behave as not found.",
 		InputSchema: mcpIDInputSchema(),
 	}, tc.getItem)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        mcpToolGetItems,
-		Description: "Get multiple clipboard records by numeric ids (at most 100). Output preserves the request order; unknown or unauthorized ids are silently omitted.",
+		Description: "Get multiple clipboard records by their ids (an array of decimal strings, e.g. [\"42\", \"43\"]; at most 100). Output preserves the request order; unknown or unauthorized ids are silently omitted.",
 		InputSchema: mcpIDsInputSchema(),
 	}, tc.getItems)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        mcpToolGetContent,
-		Description: "Get the content of one clipboard record: text content for text items, image data (PNG) for captured images. File-path records have no servable content. Unknown or unauthorized ids behave as not found.",
+		Description: "Get the content of one clipboard record by its id (a decimal string, e.g. \"42\"; never send a JSON number): text content for text items, image data (PNG) for captured images. File-path records have no servable content. Unknown or unauthorized ids behave as not found.",
 		InputSchema: mcpIDInputSchema(),
 	}, tc.getContent)
 
@@ -171,15 +171,16 @@ func numPtr(v float64) *float64 { return &v }
 func intPtr(v int) *int         { return &v }
 
 // mcpFilterProperties 是 search/count 共用的过滤参数 Schema。
+// kind 的 enum 与 validExternalKind 白名单保持一致（schema 层提前拦截非法值）。
 func mcpFilterProperties() map[string]*jsonschema.Schema {
 	return map[string]*jsonschema.Schema{
 		"query":        {Type: "string", Description: "Substring to match against item text", Default: json.RawMessage(`""`)},
-		"kind":         {Type: "array", Items: &jsonschema.Schema{Type: "string"}, Description: "Content kinds to include (text, image, video, archive, office, files, other)"},
-		"sourceApp":    {Type: "string", Description: "Exact source application name (case-insensitive), e.g. chrome.exe", Default: json.RawMessage(`""`)},
+		"kind":         {Type: "array", Items: &jsonschema.Schema{Type: "string", Enum: []any{"text", "image", "video", "archive", "office", "files", "other"}}, Description: `Content kinds to include, as an array of strings (e.g. ["image"]); one or more of: text, image, video, archive, office, files, other`},
+		"sourceApp":    {Type: "string", Description: `Exact source application name, a single string (case-insensitive), e.g. "chrome.exe"`, Default: json.RawMessage(`""`)},
 		"sourceWindow": {Type: "string", Description: "Substring to match against the source window title", Default: json.RawMessage(`""`)},
 		"starred":      {Types: []string{"boolean", "null"}, Description: "Filter by starred flag"},
 		"sensitive":    {Types: []string{"boolean", "null"}, Description: "Filter by sensitive flag; sensitive=true requires token authorization"},
-		"groupId":      {Type: "string", Description: "Only items belonging to this group id", Default: json.RawMessage(`""`)},
+		"groupId":      {Type: "string", Description: `Only items belonging to this group id, a decimal string (e.g. "7")`, Default: json.RawMessage(`""`)},
 		"from":         {Type: "string", Format: "date-time", Description: "RFC3339 lower bound on createdAt"},
 		"to":           {Type: "string", Format: "date-time", Description: "RFC3339 upper bound on createdAt"},
 	}
@@ -208,7 +209,7 @@ func mcpIDInputSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type: "object",
 		Properties: map[string]*jsonschema.Schema{
-			"id": {Type: "string", Pattern: `^[1-9][0-9]*$`},
+			"id": {Type: "string", Pattern: `^[1-9][0-9]*$`, Description: `Item id as a decimal string (e.g. "42"); a JSON number will be rejected`},
 		},
 		Required:             []string{"id"},
 		AdditionalProperties: falseSchema(),
@@ -221,7 +222,7 @@ func mcpIDsInputSchema() *jsonschema.Schema {
 		Properties: map[string]*jsonschema.Schema{
 			"ids": {
 				Type:     "array",
-				Items:    &jsonschema.Schema{Type: "string", Pattern: `^[1-9][0-9]*$`},
+				Items:    &jsonschema.Schema{Type: "string", Pattern: `^[1-9][0-9]*$`, Description: `Item id as a decimal string (e.g. "42"); a JSON number will be rejected`},
 				MinItems: intPtr(1),
 				MaxItems: intPtr(mcpMaxBatchIDs),
 			},

@@ -134,6 +134,25 @@
   }
 }</pre>
           </div>
+          <div class="dapi-doc-block">
+            <div class="dapi-doc-block-head">
+              <span class="dapi-doc-lang">工具调用速览（易错点）</span>
+              <button class="dapi-copy" type="button" data-action="mcp-copy-cheatsheet">复制</button>
+            </div>
+            <pre class="dapi-doc-pre" id="mcpCheatsheet">// ① id / ids 是十进制字符串，不要传数字（传整数会被校验拒绝：want "string"）
+get_clipboard_item    { "id": "42" }
+get_clipboard_items   { "ids": ["1", "2", "42"] }          // 最多 100 个，顺序保持
+
+// ② kind 是字符串数组；sourceApp / groupId 是单个字符串（两者类型不同）
+search_clipboard      { "kind": ["image", "text"], "sourceApp": "chrome.exe", "groupId": "7" }
+
+// ③ 可选过滤：query / from / to（RFC3339）/ starred / sensitive / limit（默认 50，最大 500）
+search_clipboard      { "query": "docker", "from": "2026-08-01T00:00:00+08:00", "limit": 20 }
+
+// ④ 错误约定：业务失败以 isError=true + 文本消息返回（如 "not found"、
+//    "invalid request: ..."），不是 JSON-RPC error；参数校验失败同理。
+//    工具与输入 Schema 可通过 tools/list 获取，其中含各参数类型与枚举值。</pre>
+          </div>
         </div>
       </section>
 
