@@ -61,7 +61,12 @@ export function registerHistoryActions() {
       art.style.transform = 'translateX(12px)';
       setTimeout(() => art.remove(), 200);
       app.items.delete(id);
-      app.BADGE.textContent = app.items.size;
+      // 同步递减计数并复用 updatePagination 统一刷新「N 条结果」、badge
+      // （badge 有 license 全量转化逻辑，不能手工赋值为当前页 items.size）
+      // 与分页按钮状态，避免删除后刷新前计数滞后。
+      app.totalCount = Math.max(0, app.totalCount - 1);
+      app.fullTotalCount = Math.max(0, app.fullTotalCount - 1);
+      app.updatePagination();
       app.toast('已删除');
     } catch (_) {
       app.toast('删除失败', 'err');
