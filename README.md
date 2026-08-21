@@ -16,13 +16,15 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **恢复密码**：首次启动必须设置（至少 12 个字符），用于备份数据库密钥；DPAPI 失效时（换电脑、重装系统）可恢复数据
 - **锁屏密码 & 二次密码**：锁屏密码可选；二次密码首次启动必须设置且只能修改。两者均为 8–1024 个字符且首尾不能有空格
 - **加密导出包**：支持 `.cvexport` 加密格式，用密码加密导出数据，安全传输或备份
-- **定时备份**：目录备份支持 JSON、Excel 或加密 `.cvexport`；**邮件备份仅支持加密导出**——附件恒为 `.cvexport` 加密容器，JSON/Excel 会先打进 zip 再整体加密，任何格式都必须设置加密密码；SMTP 强制 TLS
+- **定时备份**：目录与邮件备份**仅支持加密导出**——备份文件恒为 `.cvexport` 加密容器（JSON/Excel 内容格式先打进 zip 再整体加密），任何格式都必须设置加密密码；SMTP 强制 TLS
 - **精确历史清理**：支持全部清理或按秒级时间范围清理，删除前可预览命中条数，预览与删除严格共用同一条件；可选保留收藏记录
 - **分组管理**：自定义分组对剪贴板记录分类，支持嵌套
 - **便携模式**：exe 同目录放置 `portable.flag` 普通文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`；便携模式写入 exe 同目录
 - **诊断日志**：可导出最近 7 天、最多 8 MiB 的脱敏日志与运行环境信息，用于问题排查；不包含数据库、配置、密钥或剪贴板内容
 - **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用。未激活（免费版）可浏览/检索最近 100 条记录——所有读取入口先圈定最新 100 条原始记录再过滤，不向更早记录补数量
+- **数据接口（Data API）**：可选启用的外部只读查询 API，独立监听 + Bearer Token 认证；白名单 DSL 查询、批量获取、内容下载；敏感数据按令牌显式授权（默认不可见），全量审计留痕
+- **MCP 只读服务**：可选启用 Model Context Protocol 服务（Streamable HTTP + Bearer Token），7 个只读工具 + 6 个资源，供 AI 客户端检索剪贴板历史；与数据接口共享令牌治理与审计
 
 ### Web 界面（搜索 + 设置）
 
@@ -39,7 +41,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 日期范围筛选 | 按设置中的系统/IANA 时区选择起止日期过滤历史记录（结束日包含全天） |
 | 事件状态展示 | 重复事件标注「重复」；无内容事件展示原因（已被覆盖/不支持的格式/超长未保存/读取失败） |
 | 剪贴板图片 | 托管图片内联缩略图，点击查看大图 |
-| 分页 | 每页 50/100/200 条可选，显示当前页范围与总数 |
+| 分页 | 每页 20/50/100/200/500 条可选（10–500 可自定义），显示当前页范围与总数 |
 | 相对时间 | 显示「3 分钟前」，悬浮可看完整时间 |
 | 一键复制 | 点击「复制」按钮，内容写入系统剪贴板并弹出 Toast 提示 |
 | 弹窗查看 | 长文本点击「查看」按钮弹出全文预览，支持弹窗内复制，`Esc` 关闭 |
@@ -58,6 +60,8 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 基本 | 最大文字长度（0 = 不限）、最大文件路径数（0 = 不限）、来源应用采集与展示 |
 | 图片与弹窗 | 剪贴板图片捕获开关与单张大小上限；弹窗「过滤重复」「过滤无内容」默认开关；弹窗三个动作的快捷键（[Ctrl+][Shift+][Alt+]Enter，三者不能相同） |
 | 服务 | Web 监听地址、日期筛选时区；管理服务始终启动，避免配置死路 |
+| 数据接口 | 启用/停用外部数据 API、监听地址；令牌创建/重生成/撤销/敏感授权（需二次认证）、审计查询与 CSV 导出、清空 |
+| MCP 服务 | 启用/停用 MCP 只读服务、监听地址；令牌管理与数据接口一致；工具/资源能力清单展示、接入 JSON 示例复制、审计查询与 CSV 导出 |
 | 存储与诊断 | 查看并迁移数据库、密钥和应用数据（目标必须由用户提前创建、为空且可读写；诊断日志保留原位置）；导出最近 7 天、最多 8 MiB 的脱敏诊断日志 |
 | 安全 | 锁屏密码、二次密码、数据恢复密码（必需，可修改；忘记旧密码时需刚刚完成二次认证后重置）、锁屏会话超时、二次认证缓存时长 |
 | 授权 | 查看授权状态与机器码、复制购买信息、粘贴激活码并即时激活 |
@@ -255,13 +259,30 @@ New-Item -ItemType File "portable.flag"
 |------|------|------|------|
 | `GET /` | GET | — | 搜索与设置页面 |
 | `POST /api/v1/session/login` | POST | — | 锁屏密码登录 |
+| `POST /api/v1/session/logout` | POST | 锁屏 + CSRF | 销毁当前会话 |
+| `GET /api/v1/session` | GET | 锁屏 | 查询当前认证状态 |
 | `POST /api/v1/session/secondary` | POST | 锁屏（若已设置） | 二次密码验证 |
 | `GET /api/v1/session/csrf` | GET | — | 获取本机页面的 CSRF token |
+| `POST /api/v1/session/password` | POST | 锁屏 + CSRF | 设置、修改或删除锁屏密码，以及修改二次密码 |
+| `GET /api/v1/appearance` | GET | — | 认证前可读的公开视觉设置（主题与品牌外观引导） |
+| `PUT/DELETE /api/v1/appearance/logo` | PUT/DELETE | 二次 + CSRF | 上传/重置品牌 Logo |
+| `PUT/DELETE /api/v1/appearance/favicon` | PUT/DELETE | 二次 + CSRF | 上传/重置站点图标 |
+| `PUT/DELETE /api/v1/appearance/background` | PUT/DELETE | 二次 + CSRF | 上传/重置背景媒体 |
+| `POST /api/v1/system/restart` | POST | 锁屏 + CSRF | 触发应用重启 |
+| `GET /api/v1/system/info` | GET | 锁屏 | 设置页运行信息（版本、运行时长、记录总数、数据库体积、数据目录、录制状态） |
 | `GET /api/v1/license` | GET | 锁屏 | 查询授权状态 |
 | `GET /api/v1/license/machine` | GET | 锁屏 | 获取当前完整机器码 |
 | `POST /api/v1/license/activation` | POST | 锁屏 + CSRF | 离线激活 |
 | `GET /api/v1/items` | GET | 锁屏 | 搜索历史 |
+| `GET /api/v1/items/sources` | GET | 锁屏 | 来源程序统计（免费版只统计可见窗口） |
+| `GET /api/v1/items/position?id=N` | GET | 锁屏 | 定位记录在时间线中的位置（免费版只统计可见窗口） |
+| `GET /api/v1/items/sensitive` | GET | 二次 | 仅搜索敏感记录（复用搜索筛选参数） |
+| `GET /api/v1/items/sensitive/item?id=N` | GET | 二次 | 读取单条敏感记录明文 |
 | `GET /api/v1/items/image?id=N` | GET | 锁屏；敏感条目另需二次 | 内联返回托管剪贴板图片（PNG） |
+| `GET /api/v1/files/check` | GET | 锁屏；敏感路径另需二次 | 检查记录的文件是否存在并返回元数据 |
+| `GET /api/v1/files/content` | GET | 锁屏；敏感路径另需二次 | 内联查看或下载记录的文件 |
+| `GET /api/v1/files/hash` | GET | 锁屏；敏感路径另需二次 | 按需计算并返回文件的 MD5 与 SHA-256 |
+| `POST /api/v1/files/open-directory` | POST | 锁屏 + CSRF；敏感路径另需二次 | 在资源管理器中打开文件所在目录 |
 | `GET /api/v1/runtime` | GET | 锁屏 | 返回运行状态 |
 | `POST /api/v1/runtime/pause` | POST | 锁屏 + CSRF | 暂停/恢复 |
 | `DELETE /api/v1/items?id=N` | DELETE | 锁屏；敏感条目另需二次 | 删除指定记录 |
@@ -274,8 +295,10 @@ New-Item -ItemType File "portable.flag"
 | `DELETE /api/v1/items/group?item_id=N&group_id=N` | DELETE | 锁屏 + CSRF；敏感条目另需二次 | 将指定记录移出分组 |
 | `GET /api/v1/config` | GET | 锁屏 | 获取配置 |
 | `PUT /api/v1/config` | PUT | 二次 + CSRF | 保存配置 |
+| `GET /api/v1/config/sensitive-rules` | GET | 二次 | 读取真实敏感过滤规则 |
 | `GET /api/v1/storage` | GET | 锁屏 | 查看当前数据目录与是否允许迁移 |
 | `POST /api/v1/storage/relocation` | POST | 二次 + CSRF | 校验并登记数据目录迁移，退出并重新启动后执行 |
+| `POST /api/v1/storage/open` | POST | 锁屏 + CSRF | 在资源管理器中打开当前数据目录 |
 | `GET /api/v1/diagnostics` | GET | 二次 | 导出最近 7 天的脱敏诊断日志 ZIP |
 | `GET /api/v1/transfer/export?format=json` | GET | 二次 | 导出记录（json/xlsx，支持 full/range/incremental） |
 | `POST /api/v1/transfer/export?format=cvexport` | POST | 二次 + CSRF | 加密导出，密码放在 JSON 请求体 |
@@ -283,6 +306,8 @@ New-Item -ItemType File "portable.flag"
 | `GET /api/v1/recovery` | GET | 二次 | 查询恢复密码状态 |
 | `POST /api/v1/recovery/password` | POST | 二次 + CSRF | 修改恢复密码 |
 | `POST /api/v1/recovery/reset` | POST | 刚刚完成的二次认证 + CSRF | 忘记旧恢复密码时原子重置 |
+| `POST /api/v1/recovery/isolated-switch` | POST | 刚刚完成的二次认证 + CSRF | 登记切换到隔离数据库（退出后下次启动生效） |
+| `DELETE /api/v1/recovery/isolated-switch` | DELETE | 刚刚完成的二次认证 + CSRF | 取消待执行的数据库切换 |
 | `GET /api/v1/backup` | GET | 锁屏 | 查看备份配置与最近状态 |
 | `GET /api/v1/backup/history?kind=dir\|email` | GET | 二次 | 只读查看指定通道最近 100 条备份历史（成功/失败/跳过） |
 | `POST /api/v1/backup/directory` | POST | 二次 + CSRF | 异步启动一次目录备份（`?forceFull=1` 强制全量） |
@@ -293,6 +318,8 @@ New-Item -ItemType File "portable.flag"
 | `DELETE /api/v1/logs/config-changes` | DELETE | 二次 + CSRF | 清空设置修改记录 |
 | `GET /api/v1/logs/searches` | GET | 锁屏 | 分页查看剪贴板搜索历史（最多保留 1000 条） |
 | `DELETE /api/v1/logs/searches` | DELETE | 二次 + CSRF | 清空搜索历史 |
+
+数据接口与 MCP 服务的管理端点（`/api/v1/data-api/*` 与 `/api/v1/mcp/*`，各 10 条）见下方「数据接口」与「MCP 只读服务」章节。
 
 导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules` 五个工作表；`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存记录、事件状态（重复/无内容及原因）、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
@@ -314,9 +341,108 @@ New-Item -ItemType File "portable.flag"
 
 `/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v5，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
 
-## 配置说明
+## 数据接口（Data API）
 
-配置存储在 DuckDB schema v5 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+可选启用的**外部只读数据 API**，独立于 Web 界面单独监听（默认 `127.0.0.1:17839`，默认关闭；启用与令牌管理在 Web 设置页「数据接口」分区，配置立即生效无需重启）。所有数据端点要求 `Authorization: Bearer <token>` 认证，令牌通过 Web 设置页创建，`cv_` 前缀，明文只在创建时显示一次，数据库只保存 SHA-256 哈希。
+
+### 外部端点（独立监听地址）
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/health` | GET | 健康检查（无需令牌） |
+| `/api/v1/metadata` | GET | 数据集元数据 |
+| `/api/v1/query` | POST | 结构化查询：`filter` / `orderBy` / `limit` / `cursor` 游标分页 / `groupBy` / `aggregate` |
+| `/api/v1/items/{id}` | GET | 按 ID 获取单条记录 |
+| `/api/v1/items/batch-get` | POST | 批量获取（最多 100 个 ID） |
+| `/api/v1/items/{id}/content` | GET | 获取记录内容（文本或托管 PNG） |
+
+查询 DSL 为白名单严格校验的子集：过滤字段仅 `id`、`createdAt`、`kind`、`text`、`sourceApp`、`sourceWindow`、`starred`、`sensitive`、`groupId`；`groupBy` 仅 `sourceApp` / `kind` / `starred` / `sensitive`。SQL 全参数化，格式错误的请求返回 400，不静默退化。
+
+### 管理端点（主 Web 服务 `/api/v1/data-api/*`）
+
+| 接口 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/api/v1/data-api` | GET | 锁屏 | 服务状态：启用、监听地址、运行状态、URL、令牌数量 |
+| `/api/v1/data-api/config` | PUT | 二次 + CSRF | 更新服务配置（立即生效） |
+| `/api/v1/data-api/tokens` | GET | 锁屏 | 令牌列表（不含明文） |
+| `/api/v1/data-api/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 可选过期时长；明文只返回一次） |
+| `/api/v1/data-api/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（不继承敏感授权） |
+| `/api/v1/data-api/tokens/revoke` | POST | 二次 + CSRF | 撤销令牌 |
+| `/api/v1/data-api/tokens/sensitive` | POST | 二次 + CSRF | 调整令牌敏感数据授权（需重新二次认证） |
+| `/api/v1/data-api/audit` | GET | 锁屏 | 分页查询审计（支持按操作/令牌过滤） |
+| `/api/v1/data-api/audit/export` | GET | 锁屏 | 按当前过滤条件导出全部审计为 CSV（UTF-8 BOM） |
+| `/api/v1/data-api/audit` | DELETE | 二次 + CSRF | 清空审计 |
+
+### 敏感数据隔离
+
+- 新令牌默认 `allowSensitive=false`：敏感记录被 SQL 下推过滤，**与不存在记录不可区分**（同样不出现或 404）
+- 调整 `allowSensitive` 与重新生成令牌均需要重新完成二次认证；重新生成不继承敏感授权
+- 每次请求写入审计（`api_audit_log`，保留 1000 条）：通道、令牌、来源 IP、方法、端点、操作、资源 URI、返回条数、耗时、状态码、请求摘要、是否访问敏感数据
+
+## MCP 只读服务
+
+可选启用的 **Model Context Protocol 只读服务**（Streamable HTTP，端点 `/mcp`，默认 `127.0.0.1:17840`，默认关闭；启用与令牌管理在 Web 设置页「MCP 服务」分区，配置立即生效无需重启）。认证与数据接口一致：`Authorization: Bearer <token>`，且令牌通道必须为 `mcp`（与 HTTP 数据接口通道隔离，跨通道使用返回 401）。
+
+AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
+
+```json
+{
+  "mcpServers": {
+    "clipvault": {
+      "url": "http://127.0.0.1:17840/mcp",
+      "headers": {
+        "Authorization": "Bearer cv_你的MCP令牌"
+      }
+    }
+  }
+}
+```
+
+### 工具（7 个，全部只读）
+
+| 工具 | 说明 |
+|------|------|
+| `search_clipboard` | 按关键词、时间范围、来源应用搜索历史记录 |
+| `get_clipboard_item` | 按 ID 获取单条记录完整元数据（ID 为十进制字符串） |
+| `get_clipboard_items` | 批量获取（≤100，保持请求顺序，未授权 ID 静默省略） |
+| `get_clipboard_content` | 获取记录内容：文本或托管 PNG 图片 |
+| `count_clipboard_items` | 按过滤条件计数 |
+| `get_clipboard_stats` | 结构化统计（总量、字节、按类型、按来源应用、时间趋势） |
+| `list_clipboard_groups` | 分组列表（含可见条数） |
+
+### 资源（6 个）
+
+| 资源 URI | 说明 |
+|----------|------|
+| `clipvault://items/{id}` | 单条记录元数据 |
+| `clipvault://items/{id}/content` | 记录内容 |
+| `clipvault://recent` | 最近 50 条 |
+| `clipvault://starred` | 最近收藏 50 条 |
+| `clipvault://groups/{id}` | 分组详情 |
+| `clipvault://groups/{id}/items` | 分组内最近 50 条 |
+
+### 治理与审计
+
+与数据接口 HTTP 治理口径一致：并发上限、查询超时、批量上限、内容大小上限与速率限制共享同一组参数（过载时低优先级请求先被拒绝）。敏感可见性规则相同：未授权令牌下敏感条目与不存在条目不可区分（`-32002 Resource not found`）。工具与资源调用均写审计（操作为 `tool:<name>` / `resource:<uri>`，含敏感访问标记），管理端点与数据接口对称：
+
+| 接口 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/api/v1/mcp` | GET | 锁屏 | 服务状态与能力清单（工具/资源模板） |
+| `/api/v1/mcp/config` | PUT | 二次 + CSRF | 更新服务配置（立即生效） |
+| `/api/v1/mcp/tokens` | GET | 锁屏 | 令牌列表（不含明文） |
+| `/api/v1/mcp/tokens` | POST | 二次 + CSRF | 创建令牌（`expiry` 可选过期时间） |
+| `/api/v1/mcp/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（不继承敏感授权） |
+| `/api/v1/mcp/tokens/revoke` | POST | 二次 + CSRF | 撤销令牌 |
+| `/api/v1/mcp/tokens/sensitive` | POST | 二次 + CSRF | 调整令牌敏感数据授权（需重新二次认证） |
+| `/api/v1/mcp/audit` | GET | 锁屏 | 分页查询审计（支持按操作/令牌过滤） |
+| `/api/v1/mcp/audit/export` | GET | 锁屏 | 按当前过滤条件导出全部审计为 CSV（UTF-8 BOM） |
+| `/api/v1/mcp/audit` | DELETE | 二次 + CSRF | 清空审计 |
+
+> 两项服务默认仅监听回环地址。监听地址不能与 Web 服务或彼此冲突（保存时校验）；开放局域网监听前请先设置锁屏密码并确认令牌敏感授权范围。
+
+
+
+配置存储在 DuckDB schema v7 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {
@@ -356,7 +482,8 @@ New-Item -ItemType File "portable.flag"
       "interval": 24,
       "dir": "",
       "format": "cvexport",
-      "password": ""
+      "password": "",
+      "scope": { "mode": "full" }
     },
     "emailBackup": {
       "enabled": false,
@@ -370,12 +497,21 @@ New-Item -ItemType File "portable.flag"
       "to": "",
       "format": "cvexport",
       "password": "",
+      "scope": { "mode": "full" },
       "subject": "ClipVault 备份 - {time}",
       "body": "已生成 {format} 备份文件：{filename}",
       "style": "card",
       "accentColor": "#16A34A",
       "maxPartSize": 20971520
     }
+  },
+  "dataApi": {
+    "enabled": false,
+    "listenAddr": "127.0.0.1:17839"
+  },
+  "mcp": {
+    "enabled": false,
+    "listenAddr": "127.0.0.1:17840"
   }
 }
 ```
@@ -400,10 +536,10 @@ New-Item -ItemType File "portable.flag"
 | `backup.dirBackup.runOnStartup` | 应用服务启动后是否自动执行一次目录备份 |
 | `backup.dirBackup.interval` | 目录备份间隔（小时） |
 | `backup.dirBackup.dir` | 备份文件保存目录 |
-| `backup.dirBackup.format` | 备份格式：`json`（明文）/ `xlsx`（明文 Excel）/ `cvexport`（加密） |
-| `backup.dirBackup.password` | cvexport 格式的加密密码 |
-| `backup.dirBackup.scope` | 备份范围：`full` / `incremental`（含 `sinceId`）/ `range`（含 `from`/`to`） |
-| `backup.dirBackup.fullFallbackDays` | 增量备份时，距上次全量超过该天数自动做一次全量兜底（0–365，0=不自动兜底），防止已删除记录永远无法找回 |
+| `backup.dirBackup.format` | 备份内容格式：`json` / `xlsx` / `cvexport`。**备份文件恒为 `.cvexport` 加密容器**：json/xlsx 的明文内容先打进 zip 再整体加密，任何格式都必须设置加密密码 |
+| `backup.dirBackup.password` | 备份加密密码（**任何格式都必填**，仅支持加密导出） |
+| `backup.dirBackup.scope` | 备份范围对象 `{mode, from, to, sinceId}`：`mode` 为 `full` / `incremental`（配 `sinceId`）/ `range`（配 `from`/`to`，半开区间 `[from,to)`，按 `search.timeZone` 解析） |
+| `backup.dirBackup.fullFallbackDays` | 增量备份时，距上次全量超过该天数自动做一次全量兜底（0–365，默认 7，0=不自动兜底），防止已删除记录永远无法找回 |
 | `backup.emailBackup.enabled` | 是否启用定时邮件备份 |
 | `backup.emailBackup.runOnStartup` | 应用服务启动后是否自动执行一次邮件备份 |
 | `backup.emailBackup.interval` | 邮件备份间隔（小时） |
@@ -420,8 +556,12 @@ New-Item -ItemType File "portable.flag"
 | `backup.emailBackup.style` | 邮件样式：`plain` / `card` / `accent` |
 | `backup.emailBackup.accentColor` | 邮件主色，格式为 `#RRGGBB` |
 | `backup.emailBackup.maxPartSize` | 每封邮件的预计 MIME 体积上限（1–50 MiB）；备份会按完整记录自适应分成多封，单条记录仍超限时明确报错 |
-| `backup.emailBackup.scope` | 备份范围：`full` / `incremental`（含 `sinceId`）/ `range`（含 `from`/`to`） |
-| `backup.emailBackup.fullFallbackDays` | 增量备份时，距上次全量超过该天数自动做一次全量兜底（0–365，0=不自动兜底） |
+| `backup.emailBackup.scope` | 备份范围对象（结构与 `dirBackup.scope` 相同）：`full` / `incremental`（配 `sinceId`）/ `range`（配 `from`/`to`） |
+| `backup.emailBackup.fullFallbackDays` | 增量备份时，距上次全量超过该天数自动做一次全量兜底（0–365，默认 7，0=不自动兜底） |
+| `dataApi.enabled` | 是否启用外部数据接口（默认关闭） |
+| `dataApi.listenAddr` | 数据接口监听地址（默认 `127.0.0.1:17839`）；不能与 Web 或 MCP 监听地址冲突，配置立即生效无需重启 |
+| `mcp.enabled` | 是否启用 MCP 只读服务（默认关闭） |
+| `mcp.listenAddr` | MCP 服务监听地址（默认 `127.0.0.1:17840`）；不能与 Web 或数据接口监听地址冲突，配置立即生效无需重启 |
 
 邮件备份使用加密连接：端口 `465` 使用 TLS，其他端口必须支持 STARTTLS，应用拒绝明文 SMTP。邮件标题和正文只接受纯文本模板，支持 `{time}`、`{filename}`、`{format}`，服务端会转义 HTML 并生成受控样式。备份历史（`backup_history` 表）记录目录/邮件两通道的每次执行——成功、失败、跳过都留痕，含触发方式（定时/启动/手动）、范围模式、条数与错误；测试邮件不写入，历史没有删除接口。邮件分片发送时每成功一片即推进备份进度，中途失败的剩余数据会在下次备份时自动续发。Web 管理服务是配置和恢复的唯一交互入口，无法启动时应用会明确退出，不会进入无法再启用的后台状态。
 
@@ -442,7 +582,7 @@ clipboard_ext/
 ├── internal/clipvault/         # 核心逻辑（适配层）
 │   ├── domain/                 # 业务模型唯一定义（记录/分组/搜索/清理、事件状态常量）
 │   ├── application/            # 运行时状态等应用层
-│   ├── storage/duckdb/         # schema v5（BIGINT Unix 毫秒 + 事件状态列）
+│   ├── storage/duckdb/         # schema v7（BIGINT Unix 毫秒 + 事件状态列 + 外部只读令牌/审计表）
 │   ├── transfer/               # 导入导出范围契约（export v5）
 │   ├── backup/                 # 增量备份策略（纯逻辑）
 │   ├── security/               # 密码散列与 DPAPI
@@ -468,7 +608,14 @@ clipboard_ext/
 │   ├── recovery_password.go    # 恢复密码管理（设置/修改/安全重置/验证/强度检查）
 │   ├── recovery_server.go      # DPAPI 失效时的恢复 HTTP 服务
 │   ├── recorder.go             # 事件优先录制状态机（绝不丢事件）
-│   ├── search_server.go        # HTTP 服务器（API + 嵌入式前端）
+│   ├── server.go               # HTTP 服务器（API 路由 + 嵌入式前端）
+│   ├── server_dataapi.go       # 数据接口管理端点（状态/配置/令牌/审计）
+│   ├── dataapi_service.go      # 外部数据 API 独立监听服务（Bearer Token + 治理）
+│   ├── dataapi_query.go        # 查询 DSL 白名单校验与 SQL 计划
+│   ├── server_mcp.go           # MCP 管理端点
+│   ├── mcp_service.go          # MCP Streamable HTTP 服务（/mcp 端点）
+│   ├── mcp_tools.go            # MCP 7 个只读工具
+│   ├── mcp_resources.go        # MCP 6 个只读资源
 │   ├── search_window_windows.go     # 桌面快速搜索弹窗（Win32）
 │   ├── shell_windows.go        # Shell 操作（打开目录等）
 │   ├── state.go                # 运行时状态（暂停/恢复）

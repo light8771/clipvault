@@ -14,7 +14,7 @@
   CGO is unavailable. In other environments without a C compiler, `go build`/`go test` will fail with
   "build constraints exclude all Go files in .../duckdb-go-bindings/lib/windows-amd64".
 - To verify Go syntax without building: `gofmt -e <file.go>` (prints formatted code if syntax is valid).
-- To verify JS syntax: `node --check internal/clipvault/web/script.js`
+- To verify JS syntax (run from repo root): `Get-ChildItem -Recurse internal/clipvault/web -Filter *.js | ForEach-Object { node --check $_.FullName }`
 - CSS/HTML have no build step; verify by serving `internal/clipvault/web/` and loading in a browser.
 
 ## Frontend Appearance System
