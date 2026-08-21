@@ -47,7 +47,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 弹窗查看 | 长文本点击「查看」按钮弹出全文预览，支持弹窗内复制，`Esc` 关闭 |
 | 手动敏感标记 | 点击盾牌按钮标记/取消敏感；取消标记需二次验证 |
 | 删除单条 | 点击「删除」按钮，卡片滑出动画后移除；敏感条目需要二次验证 |
-| 清理历史 | 顶栏「清除」按钮打开清理弹窗：全部或秒级时间范围，实时预览命中条数，可选保留收藏；需二次密码验证 |
+| 清理历史 | 「设置 → 存储与数据 → 历史清理」区块的「清理历史…」按钮打开清理弹窗：全部或秒级时间范围，实时预览命中条数，可选保留收藏；需二次密码验证 |
 | 暂停/恢复 | 顶栏按钮一键切换录制状态 |
 | 自动刷新 | 勾选后每 3 秒拉取最新记录 |
 | 键盘快捷键 | `Ctrl+K` 聚焦搜索框，`Esc` 清空并失焦 / 关闭弹窗 |
@@ -166,6 +166,20 @@ go run ./cmd/license-keygen issue `
 ```
 
 输出的 `CV1.xxx.yyy` 激活码粘到对方客户端「设置 → 授权」分区激活即可。
+
+### 隔离 UI 预览（isolated-preview）
+
+`cmd/isolated-preview` 在随机临时目录中启动一份完整的 Web UI（数据接口、MCP、备份服务全部接线），不触碰本机真实数据，适合 UI / E2E 调试：
+
+```powershell
+# 127.0.0.1:18795 起服务，Ctrl+C 退出并自动删除临时目录
+go run ./cmd/isolated-preview
+
+# 自动化测试推荐：到期自动优雅退出，defer 清理正常执行
+go run ./cmd/isolated-preview -lifetime 10m
+```
+
+> **勿用 `taskkill /F` 强杀**：强杀走 TerminateProcess，跳过 Go 的 defer 清理，会在 `%TEMP%` 残留 `clipvault-ui-preview-*` 数据目录。工具下次启动时会自动清扫修改时间超过 1 小时的残留目录，但测试脚本仍应优先使用 `-lifetime` 或 Ctrl+C 优雅退出。
 
 ### 手动构建
 
@@ -358,6 +372,21 @@ New-Item -ItemType File "portable.flag"
 
 查询 DSL 为白名单严格校验的子集：过滤字段仅 `id`、`createdAt`、`kind`、`text`、`sourceApp`、`sourceWindow`、`starred`、`sensitive`、`groupId`；`groupBy` 仅 `sourceApp` / `kind` / `starred` / `sensitive`。SQL 全参数化，格式错误的请求返回 400，不静默退化。
 
+请求体示例（`resource` 必填，`filter` 为「字段 → 操作符 → 值」对象结构；字符串字段支持 `eq`/`neq`/`contains`/`startsWith`/`endsWith`/`in`，时间字段支持 `gte`/`gt`/`lte`/`lt`，值为 RFC 3339 时刻）：
+
+```json
+{
+  "resource": "clipboardItems",
+  "filter": { "text": { "contains": "ClipVault" }, "createdAt": { "gte": "2026-08-01T00:00:00Z" } },
+  "orderBy": "createdAt",
+  "order": "desc",
+  "limit": 50,
+  "cursor": ""
+}
+```
+
+**注意**：数据接口是独立契约，响应为裸对象（**无主 Web API 的 `data` 包装**）：列表查询返回 `{"items":[...],"nextCursor":"...","hasMore":true}`，聚合查询返回 `{"rows":[...]}`；错误统一返回 `{"error":"...","message":"..."}`。
+
 ### 管理端点（主 Web 服务 `/api/v1/data-api/*`）
 
 | 接口 | 方法 | 认证 | 说明 |
@@ -365,7 +394,7 @@ New-Item -ItemType File "portable.flag"
 | `/api/v1/data-api` | GET | 锁屏 | 服务状态：启用、监听地址、运行状态、URL、令牌数量 |
 | `/api/v1/data-api/config` | PUT | 二次 + CSRF | 更新服务配置（立即生效） |
 | `/api/v1/data-api/tokens` | GET | 锁屏 | 令牌列表（不含明文） |
-| `/api/v1/data-api/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 可选过期时长；明文只返回一次） |
+| `/api/v1/data-api/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 必填：`1d`/`7d`/`30d`/`90d`/`1y`/`never`；空值或不支持的值拒绝，防止疏忽时静默签出永不过期令牌；明文只返回一次） |
 | `/api/v1/data-api/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（不继承敏感授权） |
 | `/api/v1/data-api/tokens/revoke` | POST | 二次 + CSRF | 撤销令牌 |
 | `/api/v1/data-api/tokens/sensitive` | POST | 二次 + CSRF | 调整令牌敏感数据授权（需重新二次认证） |
@@ -430,7 +459,7 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
 | `/api/v1/mcp` | GET | 锁屏 | 服务状态与能力清单（工具/资源模板） |
 | `/api/v1/mcp/config` | PUT | 二次 + CSRF | 更新服务配置（立即生效） |
 | `/api/v1/mcp/tokens` | GET | 锁屏 | 令牌列表（不含明文） |
-| `/api/v1/mcp/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 可选过期时长，与数据接口一致） |
+| `/api/v1/mcp/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 必填，取值与数据接口一致：`1d`/`7d`/`30d`/`90d`/`1y`/`never`；空值或不支持的值拒绝） |
 | `/api/v1/mcp/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（不继承敏感授权） |
 | `/api/v1/mcp/tokens/revoke` | POST | 二次 + CSRF | 撤销令牌 |
 | `/api/v1/mcp/tokens/sensitive` | POST | 二次 + CSRF | 调整令牌敏感数据授权（需重新二次认证） |
