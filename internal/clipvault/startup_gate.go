@@ -455,50 +455,53 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <html lang="zh-CN" data-theme-mode="{{.ThemeMode}}" data-p-light="{{.PrimaryLight}}" data-p-light-hover="{{.PrimaryLightHover}}" data-p-dark="{{.PrimaryDark}}" data-p-dark-hover="{{.PrimaryDarkHover}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}}</title><link rel="stylesheet" href="/startup.css"></head><body><main class="main" data-mode="{{.Mode}}" data-min-recovery-runes="{{.MinRecoveryRunes}}" data-max-recovery-bytes="{{.MaxRecoveryBytes}}" data-min-secondary-runes="{{.MinSecondaryRunes}}" data-max-secondary-bytes="{{.MaxSecondaryBytes}}">
 <div class="shell">
-<aside class="intro">
+<div class="intro">
+<div class="head">
+<div class="head-text">
 <p class="brand"><span class="brand-mark" aria-hidden="true">CV</span>ClipVault</p>
 <h1>{{.Title}}</h1>
 <p class="desc">{{.Description}}</p>
+</div>
 {{if eq .Mode "set_credentials"}}
 <ol class="steps">
-<li class="is-current" id="step-recovery"><span class="step-name">设置恢复密码</span><span class="step-sub">数据库丢失时的最后保障</span></li>
-<li id="step-secondary"><span class="step-name">设置二次密码</span><span class="step-sub">敏感操作的二次确认</span></li>
-<li id="step-lock"><span class="step-name">设置锁屏密码</span><span class="step-sub">打开界面时的门，可留空跳过</span></li>
-<li id="step-finish"><span class="step-name">开始使用</span><span class="step-sub">完成后自动打开记录页</span></li>
+<li class="is-current" id="step-recovery"><span>恢复密码</span></li>
+<li id="step-secondary"><span>二次密码</span></li>
+<li id="step-lock"><span>锁屏密码</span></li>
+<li id="step-finish"><span>完成</span></li>
 </ol>
 {{end}}
-<div class="safe-note">
-<p class="safe-title">本地安全</p>
-<p class="safe-copy">密码仅保存在本机，不会上传或同步。此页面通过一次性本地链接打开，完成后立即失效。</p>
 </div>
-</aside>
+</div>
 <section class="panel">
 {{if eq .Mode "set_credentials"}}
 <form id="recovery-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
 <div class="section">
-<h2 class="section-title">恢复密码</h2>
-<p class="section-hint">用于重装系统、迁移电脑或 Windows 密钥失效时恢复数据库，请离线妥善保存。</p>
+<div class="section-info"><h2 class="section-title">恢复密码</h2><p class="section-hint">用于重装系统、迁移电脑或 Windows 密钥失效时恢复数据库，请离线妥善保存。</p></div>
+<div class="section-fields">
 <div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="new-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
 <div class="field"><label for="confirm">确认恢复密码</label><div class="wrap"><input id="confirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="confirm">显示</button></div><div class="msg" id="msg-confirm"></div></div>
+</div>
 </div>
 </form>
 <form id="secondary-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 二次密码" autocomplete="username" hidden>
 <div class="section">
-<h2 class="section-title">二次密码</h2>
-<p class="section-hint">用于查看或操作敏感数据时的二次确认，可与恢复密码不同。</p>
+<div class="section-info"><h2 class="section-title">二次密码</h2><p class="section-hint">用于查看或操作敏感数据时的二次确认，可与恢复密码不同。</p></div>
+<div class="section-fields">
 <div class="field"><label for="secondaryPassword">二次密码</label><div class="wrap"><input id="secondaryPassword" name="password" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryPassword">显示</button></div><div class="msg" id="msg-secondaryPassword"></div></div>
 <div class="field"><label for="secondaryConfirm">确认二次密码</label><div class="wrap"><input id="secondaryConfirm" name="password-confirmation" type="password" autocomplete="new-password" required><button type="button" class="eye" data-target="secondaryConfirm">显示</button></div><div class="msg" id="msg-secondaryConfirm"></div></div>
+</div>
 </div>
 </form>
 <form id="lock-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 锁屏密码" autocomplete="username" hidden>
 <div class="section">
-<h2 class="section-title">锁屏密码（可选）</h2>
-<p class="section-hint">打开 ClipVault 界面时要求输入。留空跳过——跳过后本机任何程序都能直接查看你的剪贴板历史，建议设置。</p>
+<div class="section-info"><h2 class="section-title">锁屏密码（可选）</h2><p class="section-hint">打开 ClipVault 界面时要求输入。留空跳过——跳过后本机任何程序都能直接查看你的剪贴板历史，建议设置。</p></div>
+<div class="section-fields">
 <div class="field"><label for="lockPassword">锁屏密码</label><div class="wrap"><input id="lockPassword" name="password" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockPassword">显示</button></div><div class="msg" id="msg-lockPassword"></div></div>
 <div class="field"><label for="lockConfirm">确认锁屏密码</label><div class="wrap"><input id="lockConfirm" name="password-confirmation" type="password" autocomplete="new-password"><button type="button" class="eye" data-target="lockConfirm">显示</button></div><div class="msg" id="msg-lockConfirm"></div></div>
+</div>
 </div>
 </form>
 <div class="warn"><p class="warn-title">请务必离线保存恢复密码</p><p class="warn-copy">如果 Windows 密钥和恢复密码同时丢失，数据库将无法恢复。</p></div>
@@ -506,9 +509,10 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Parse(`<!do
 <form id="recovery-form" class="credential-form" novalidate>
 <input type="text" name="username" value="ClipVault 恢复密码" autocomplete="username" hidden>
 <div class="section">
-<h2 class="section-title">验证恢复密码</h2>
-<p class="section-hint">输入首次启动时设置的恢复密码，验证通过后自动恢复最近一次有效配置。</p>
-<div class="field"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
+<div class="section-info"><h2 class="section-title">验证恢复密码</h2><p class="section-hint">输入首次启动时设置的恢复密码，验证通过后自动恢复最近一次有效配置。</p></div>
+<div class="section-fields is-single">
+<div class="field is-full"><label for="password">恢复密码</label><div class="wrap"><input id="password" name="password" type="password" autocomplete="current-password" required autofocus><button type="button" class="eye" data-target="password">显示</button></div><div class="msg" id="msg-password"></div></div>
+</div>
 </div>
 </form>
 {{end}}

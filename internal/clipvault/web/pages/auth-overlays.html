@@ -3,14 +3,22 @@
     <div class="lock-box" role="dialog" aria-modal="true" aria-labelledby="lockTitle">
       <div class="lock-main">
         <div class="lock-brand">
-          <div class="lock-icon">
-            <img id="lockBrandLogo" class="hidden" alt="">
-            <svg id="lockDefaultLogo" width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <div class="lock-brand-mark">
+            <div class="lock-icon">
+              <img id="lockBrandLogo" class="hidden" alt="">
+              <svg id="lockDefaultLogo" width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+          </div>
+          <div class="lock-brand-text">
+            <div class="lock-brand-name">ClipVault</div>
+            <div class="lock-brand-slogan">私密 · 安全 · 可控</div>
           </div>
         </div>
         <div class="lock-panel">
-          <h2 class="lock-title" id="lockTitle">ClipVault 锁屏</h2>
-          <p class="lock-desc">请输入锁屏密码以访问 Web 界面</p>
+          <div class="lock-panel-head">
+            <h2 class="lock-title" id="lockTitle">ClipVault 锁屏</h2>
+            <p class="lock-desc">输入锁屏密码以访问 Web 界面，继续使用剪贴板历史与设置。</p>
+          </div>
           <form id="lockForm" class="lock-form">
             <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
             <div class="lock-field">
