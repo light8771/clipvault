@@ -68,16 +68,26 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
 		for i := range items {
-			if items[i].Sensitive {
-				items[i].Text = "【敏感内容，点击查看】"
-
-				items[i].MetaJSON = ""
-				items[i].SHA256 = ""
-				items[i].Format = ""
-				items[i].ByteLen = 0
-				items[i].SourceWindowTitle = ""
-				items[i].SourceExePath = ""
+			if !items[i].Sensitive {
+				continue
 			}
+			// 未过二次认证时，敏感条目只保留渲染占位卡片所必需的字段
+			// （ID、时间、类型、收藏、敏感标志）。其余元数据——来源应用、
+			// 窗口、路径、字数、哈希、重复标记——全部清除：它们是
+			// 旁信道（例如"来自密码管理器的 24 字符记录"本身即泄露）。
+			items[i].Text = "【敏感内容，点击查看】"
+			items[i].MetaJSON = ""
+			items[i].SHA256 = ""
+			items[i].Format = ""
+			items[i].ByteLen = 0
+			items[i].CharLen = 0
+			items[i].SourceExeName = ""
+			items[i].SourceExePath = ""
+			items[i].SourceWindowTitle = ""
+			items[i].SourceMethod = ""
+			items[i].IsDuplicate = false
+			items[i].UnavailableReason = ""
+			items[i].ContentAvailable = true
 		}
 	}
 	resp["items"] = items

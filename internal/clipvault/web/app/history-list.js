@@ -62,9 +62,9 @@ export function registerHistoryList() {
       let bodyHTML, charText, showView;
       let viewAction = 'view-item';
       if (it.sensitive && !app.authState.secondaryAuthed) {
-        // 敏感内容未通过二次认证时显示遮蔽占位
+        // 敏感内容未通过二次认证时显示遮蔽占位；字数与来源元数据一并遮蔽（旁信道）
         bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>敏感内容已隐藏，点击查看按钮查看明文</pre>`;
-        charText = it.charLen >= 1000 ? (it.charLen / 1000).toFixed(1) + 'k 字' : it.charLen + ' 字';
+        charText = '已隐藏';
         showView = true;
       } else if (it.contentAvailable === false) {
         // 事件优先：事件已落库但内容不可用（被覆盖/格式不支持/超限等）
