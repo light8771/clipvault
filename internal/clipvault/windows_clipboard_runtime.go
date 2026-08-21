@@ -13,6 +13,12 @@ import (
 // store.Save 把整个进程退出流程无限期阻塞住。
 const clipWorkerDrainTimeout = 5 * time.Second
 
+// clipQueueHighWater 是事件队列的高水位告警阈值。队列按设计无界且
+// 绝不丢弃事件；正常周转毫秒级，唯一的长停滞源是导入等持有唯一 DB
+// 连接的长事务。积压本身不构成故障（事件在消费恢复后回放），水位
+// 告警只用于让"异常积压"在日志里可见。
+const clipQueueHighWater = 10000
+
 // clipQueue 是无界 FIFO 事件队列（事件优先：绝不丢弃任何剪贴板事件）。
 // 生产端只在消息循环线程调用 push；消费端是唯一的 worker goroutine。
 // 事件在内存中排队等 worker 收敛，不用「满 → 丢最旧」换背压。
@@ -29,18 +35,22 @@ func newClipQueue() *clipQueue {
 	return &clipQueue{signal: make(chan struct{}, 1), done: make(chan struct{})}
 }
 
-func (q *clipQueue) push(ev clipEvent) {
+// push 是队列唯一写入口，返回写入后的当前深度（含本次事件），
+// 供调用方做高水位监控。
+func (q *clipQueue) push(ev clipEvent) int {
 	q.mu.Lock()
 	if q.closed {
 		q.mu.Unlock()
-		return
+		return 0
 	}
 	q.events = append(q.events, ev)
+	depth := len(q.events)
 	q.mu.Unlock()
 	select {
 	case q.signal <- struct{}{}:
 	default:
 	}
+	return depth
 }
 
 func (q *clipQueue) pop() (clipEvent, bool) {
@@ -122,7 +132,25 @@ func (r *WindowsRuntime) notifyClipboardUpdate(source SourceInfo) {
 	if ev.sequence == 0 {
 		ev.source = SourceInfo{}
 	}
-	q.push(ev)
+	r.warnQueueDepth(q.push(ev))
+}
+
+// warnQueueDepth 记录事件队列的高水位告警（倍增去抖：10000、20000、40000…），
+// 水位回落到阈值一半以下时复位去抖状态。只在消息循环线程调用。
+func (r *WindowsRuntime) warnQueueDepth(depth int) {
+	if depth < clipQueueHighWater/2 {
+		r.clipWarnedDepth = 0
+		return
+	}
+	if depth < clipQueueHighWater || depth < r.clipWarnedDepth*2 {
+		return
+	}
+	r.clipWarnedDepth = depth
+	r.logger.Warn("clipboard_queue_high_water", map[string]any{
+		"depth":     depth,
+		"threshold": clipQueueHighWater,
+		"hint":      "剪贴板事件积压（消费端可能被导入等长事务阻塞）；事件不会丢失，消费恢复后按序回放",
+	})
 }
 
 // stopClipWorker 请求 worker 退出并等待其真正结束，避免 goroutine 泄漏。

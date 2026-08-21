@@ -130,6 +130,9 @@ type WindowsRuntime struct {
 	clipQueue     *clipQueue
 	clipDone      chan struct{}
 	clipCloseOnce sync.Once
+	// clipWarnedDepth 是队列高水位告警的去抖水位（上次告警时的深度），
+	// 只在消息循环线程读写；回落到阈值一半以下时复位，重新完整告警。
+	clipWarnedDepth int
 
 	// suppressUntilSeq 是内部恢复（搜索弹窗写回剪贴板）的序列抑制水位：
 	// sequence <= 水位的事件视为应用自身写回，不进入录制队列。
