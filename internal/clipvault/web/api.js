@@ -1,7 +1,8 @@
 const nativeFetch = window.fetch.bind(window);
 let csrfTokenPromise = null;
 
-const t = window.clipvaultI18n.t;
+// 惰性读取：避免模块加载期解引用 window.clipvaultI18n（非浏览器宿主 import 即崩）。
+const t = (key, params) => window.clipvaultI18n.t(key, params);
 
 export class APIError extends Error {
   constructor(code, message, status) {

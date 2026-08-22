@@ -36,3 +36,5 @@
 .u-inline-35 { width:auto;padding:8px 20px;background:var(--danger) }
 .credential-form { margin:0 }
 .credential-username { position:absolute;width:1px;height:1px;padding:0;border:0;clip-path:inset(50%);overflow:hidden;white-space:nowrap }
+/* 屏幕阅读器专用：视觉隐藏但可被辅助技术朗读（对齐 .credential-username 的裁剪模式）。 */
+.sr-only { position:absolute;width:1px;height:1px;padding:0;border:0;clip-path:inset(50%);overflow:hidden;white-space:nowrap }

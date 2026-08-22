@@ -181,6 +181,9 @@ var i18nSeedCore = []BuiltinTranslation{
 
 	// ── api 后端消息 ──────────────────────────────────────────────────
 	{Key: "api.error.not_found", Module: "api", Description: "资源不存在", ZhCN: "资源不存在", EnUS: "Resource not found"},
+	{Key: "api.error.invalid_host", Module: "api", Description: "访问地址校验失败", ZhCN: "访问地址无效", EnUS: "Invalid host"},
+	{Key: "api.error.invalid_origin", Module: "api", Description: "跨源请求校验失败", ZhCN: "请求来源无效", EnUS: "Invalid origin"},
+	{Key: "api.error.csrf_invalid", Module: "api", Description: "CSRF 校验失败", ZhCN: "安全校验失败，请刷新页面后重试", EnUS: "Security check failed. Refresh the page and retry."},
 	{Key: "api.error.method_not_allowed", Module: "api", Description: "请求方法不允许", ZhCN: "请求方法不允许", EnUS: "Method not allowed"},
 	{Key: "api.error.internal", Module: "api", Description: "内部错误", ZhCN: "操作失败，请查看日志", EnUS: "Operation failed. Check the logs for details."},
 	{Key: "api.error.item_not_found", Module: "api", Description: "记录不存在", ZhCN: "记录不存在", EnUS: "Record not found"},

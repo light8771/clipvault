@@ -364,7 +364,7 @@ export function registerHistoryActions() {
           if (app.IMAGE_EXTS.includes(ext)) {
             const thumb = document.getElementById('fthumb-' + itemId + '-' + idx);
             if (thumb && ext !== 'svg') {
-              thumb.innerHTML = '<img loading="lazy" data-action="file-view" data-item-id="' + itemId + '" data-file-index="' + idx + '">';
+              thumb.innerHTML = '<img loading="lazy" alt="' + app.esc(d.name || p) + '" data-action="file-view" data-item-id="' + itemId + '" data-file-index="' + idx + '">';
               app.loadFileImage(thumb.querySelector('img'), itemId, idx);
             }
           }

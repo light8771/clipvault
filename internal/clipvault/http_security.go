@@ -166,7 +166,7 @@ func (s *SearchServer) secureHTTP(next http.Handler, listenHost string, port int
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
 		if !hostAllowedForListen(r.Host, listenHost, port) {
-			writeHTTPSecurityError(w, r, "invalid_host", "invalid host")
+			writeHTTPSecurityError(w, r, "invalid_host", s.i18nT("api.error.invalid_host", nil))
 			return
 		}
 		if isMutationMethod(r.Method) {
@@ -175,13 +175,13 @@ func (s *SearchServer) secureHTTP(next http.Handler, listenHost string, port int
 				scheme = "https"
 			}
 			if !originMatchesEndpoint(r.Header.Get("Origin"), scheme, r.Host) {
-				writeHTTPSecurityError(w, r, "invalid_origin", "invalid origin")
+				writeHTTPSecurityError(w, r, "invalid_origin", s.i18nT("api.error.invalid_origin", nil))
 				return
 			}
 			provided := r.Header.Get(csrfHeaderName)
 			if subtle.ConstantTimeCompare([]byte(provided), []byte(s.csrfToken)) != 1 {
 				w.Header().Set("X-ClipVault-CSRF-Invalid", "1")
-				writeHTTPSecurityError(w, r, "csrf_invalid", "CSRF validation failed")
+				writeHTTPSecurityError(w, r, "csrf_invalid", s.i18nT("api.error.csrf_invalid", nil))
 				return
 			}
 		}
