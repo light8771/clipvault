@@ -148,3 +148,77 @@ func TestRequestUsesHTTPSOnlyForTLSConnections(t *testing.T) {
 		t.Fatal("TLS request was not treated as HTTPS")
 	}
 }
+
+// TestSecureHTTPSecurityErrorsAreTranslated 断言三处安全错误消息经 i18n
+// 服务返回当前语言译文（zh-CN），而非硬编码英文或裸 Key——防止回退链断裂。
+func TestSecureHTTPSecurityErrorsAreTranslated(t *testing.T) {
+	server, _ := newI18nHTTPTestServer(t, false)
+	server.csrfToken = "test-token"
+	h := server.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), "127.0.0.1", 15678)
+
+	tests := []struct {
+		name string
+		req  func() *http.Request
+		code string
+		want string
+	}{
+		{
+			name: "invalid host",
+			req: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "http://attacker.example/api/v1/session", nil)
+				r.Host = "attacker.example"
+				return r
+			},
+			code: "invalid_host",
+			want: "访问地址无效",
+		},
+		{
+			name: "invalid origin",
+			req: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:15678/api/v1/config", nil)
+				r.Host = "127.0.0.1:15678"
+				r.Header.Set("Origin", "http://evil.example.com")
+				return r
+			},
+			code: "invalid_origin",
+			want: "请求来源无效",
+		},
+		{
+			name: "csrf invalid",
+			req: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:15678/api/v1/config", nil)
+				r.Host = "127.0.0.1:15678"
+				r.Header.Set("Origin", "http://127.0.0.1:15678")
+				return r
+			},
+			code: "csrf_invalid",
+			want: "安全校验失败，请刷新页面后重试",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, tt.req())
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("got %d, want %d", w.Code, http.StatusForbidden)
+			}
+			var envelope struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode %q: %v", w.Body.String(), err)
+			}
+			if envelope.Error.Code != tt.code {
+				t.Fatalf("code=%q, want %q", envelope.Error.Code, tt.code)
+			}
+			if envelope.Error.Message != tt.want {
+				t.Fatalf("message=%q, want %q", envelope.Error.Message, tt.want)
+			}
+		})
+	}
+}
