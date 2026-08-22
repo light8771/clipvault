@@ -912,17 +912,33 @@ func TestStartupGateCapabilityURLCompletesWithSessionCookie(t *testing.T) {
 	if strings.Count(html, `<form `) != 3 || strings.Count(html, `autocomplete="username"`) != 3 {
 		t.Fatalf("startup credential forms are not separated or lack usernames")
 	}
+	// startup.js 的 t() 依赖 window.clipvaultI18n：i18n-dict.js 注入数据、
+	// i18n.js 定义实现，三者必须齐全且按此顺序加载，缺失即整页校验崩溃。
+	for _, script := range []string{`<script src="/i18n-dict.js"></script>`, `<script src="/i18n.js"></script>`, `<script src="/startup.js" defer></script>`} {
+		if !strings.Contains(html, script) {
+			t.Fatalf("startup page is missing i18n script wiring: %s", script)
+		}
+	}
 	for path, contentType := range map[string]string{
-		"startup.css": "text/css; charset=utf-8",
-		"startup.js":  "application/javascript; charset=utf-8",
+		"startup.css":  "text/css; charset=utf-8",
+		"startup.js":   "application/javascript; charset=utf-8",
+		"i18n.js":      "application/javascript; charset=utf-8",
+		"i18n-dict.js": "application/javascript; charset=utf-8",
 	} {
 		response, err := client.Get(safeURL + path)
 		if err != nil {
 			t.Fatalf("get %s: %v", path, err)
 		}
+		body, err := io.ReadAll(response.Body)
 		_ = response.Body.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
 		if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != contentType {
 			t.Fatalf("%s status=%d contentType=%q", path, response.StatusCode, response.Header.Get("Content-Type"))
+		}
+		if path == "i18n-dict.js" && !strings.HasPrefix(string(body), "window.__clipvaultI18n = ") {
+			t.Fatalf("i18n-dict.js does not assign window.__clipvaultI18n: %s", string(body))
 		}
 	}
 	for _, path := range []string{"api/status", "api/session", "api/complete"} {

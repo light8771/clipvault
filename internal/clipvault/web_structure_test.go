@@ -74,7 +74,7 @@ func TestSecurityPagesRequireExternalScriptsAndStyles(t *testing.T) {
 }
 
 func TestSecurityPageAssetsAreEmbedded(t *testing.T) {
-	for _, name := range []string{"web/startup.css", "web/startup.js", "web/recovery.css", "web/recovery.js"} {
+	for _, name := range []string{"web/startup.css", "web/startup.js", "web/recovery.css", "web/recovery.js", "web/i18n.js"} {
 		data, err := fs.ReadFile(webFS, name)
 		if err != nil {
 			t.Errorf("read %s: %v", name, err)

@@ -185,6 +185,8 @@ func (g *StartupGate) Start() (string, error) {
 	mux.HandleFunc("GET /{$}", g.handleIndex)
 	mux.HandleFunc("GET /startup.css", g.handleAsset)
 	mux.HandleFunc("GET /startup.js", g.handleAsset)
+	mux.HandleFunc("GET /i18n.js", g.handleAsset)
+	mux.HandleFunc("GET /i18n-dict.js", g.handleI18nDictJS)
 	mux.HandleFunc("GET /api/v1/startup/status", g.handleStatus)
 	mux.HandleFunc("POST /api/v1/startup/session", g.handleSession)
 	mux.HandleFunc("POST /api/v1/startup/credentials", g.handleComplete)
@@ -334,10 +336,35 @@ func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
 
 func (g *StartupGate) handleAsset(w http.ResponseWriter, r *http.Request) {
 	contentType := "text/css; charset=utf-8"
-	if r.URL.Path == "/startup.js" {
+	if r.URL.Path == "/startup.js" || r.URL.Path == "/i18n.js" {
 		contentType = "application/javascript; charset=utf-8"
 	}
 	serveEmbeddedWebFile(w, "web"+r.URL.Path, contentType)
+}
+
+// handleI18nDictJS 门禁页前端字典：与主服务 handleI18nDictJS 同构，但直接
+// 读门禁期内独立构建的 i18n 服务（g.i18n）。startup.js 的 t() 依赖
+// window.clipvaultI18n，缺失该资源时整页校验逻辑会崩溃。i18n 构建失败
+// 的异常场景输出空字典，前端 t() 回退 key 原文。
+func (g *StartupGate) handleI18nDictJS(w http.ResponseWriter, _ *http.Request) {
+	lang := I18nChinese
+	dict := map[string]string{}
+	if g.i18n != nil {
+		lang = g.i18n.CurrentLanguage()
+		if effective := g.i18n.EffectiveDictionary(); effective != nil {
+			dict = effective
+		}
+	}
+	payload, err := json.Marshal(map[string]any{"lang": lang, "dict": dict})
+	if err != nil {
+		http.Error(w, "i18n dictionary encode failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write([]byte("window.__clipvaultI18n = "))
+	_, _ = w.Write(payload)
+	_, _ = w.Write([]byte(";\n"))
 }
 
 func (g *StartupGate) handleComplete(w http.ResponseWriter, r *http.Request) {
@@ -557,4 +584,4 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Funcs(templ
 </div>
 </section>
 </div>
-</main><script src="/startup.js" defer></script></body></html>`))
+</main><script src="/i18n-dict.js"></script><script src="/i18n.js"></script><script src="/startup.js" defer></script></body></html>`))

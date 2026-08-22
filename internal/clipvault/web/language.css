@@ -55,6 +55,26 @@
 .lang-new-error { margin-top: 8px; font-size: 12px; color: var(--danger); }
 .lang-new-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 
+/* 新建语言入口按钮（虚线添加样式，与 btn-add-group / btn-add-pattern 同款） */
+.lang-btn-new {
+  height: 32px;
+  padding: 0 14px;
+  border: 1.5px dashed var(--card-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--sub);
+  font: 500 13px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: border-color .15s, color .15s;
+  align-self: flex-start;
+}
+.lang-btn-new:hover { border-color: var(--p); color: var(--p); }
+.lang-btn-new:focus-visible { outline: none; border-color: var(--p); box-shadow: 0 0 0 3px var(--p-dim); }
+
 /* 按钮基础（若 components.css 未覆盖） */
 .lang-row-actions .btn, .lang-new-actions .btn, .lang-editor .btn {
   padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--card-border);
@@ -68,7 +88,27 @@
 .btn.lang-btn-danger:hover { background: var(--danger-dim); border-color: var(--danger); }
 
 /* ── 编辑视图 ── */
-.lang-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.lang-editor-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+/* 返回语言列表按钮（编辑视图头部，次级按钮样式） */
+.lang-btn-back {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--card-rgba);
+  color: var(--sub);
+  font: 500 13px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color .15s, color .15s;
+}
+.lang-btn-back:hover { border-color: var(--p); color: var(--p); }
+.lang-btn-back:focus-visible { outline: none; border-color: var(--p); box-shadow: 0 0 0 3px var(--p-dim); }
 .lang-editor-toolbar {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
   position: sticky; top: 0; z-index: 3;

@@ -69,6 +69,34 @@ export function registerLanguageEditor() {
       languageNames[lang.code] = (lang.name + (lang.nativeName && lang.nativeName !== lang.name ? ' / ' + lang.nativeName : ''));
     }
 
+    // 基准语言下拉：仅官方语言（zh-CN / en-US，受 Service 层校验约束）。
+    elNewBase.textContent = '';
+    // 默认选中：当前语言若为官方语言，预填该语言；否则默认 zh-CN。
+    let baseDefault = 'zh-CN';
+    for (const lang of languages) {
+      if (lang.isBuiltin && lang.code === configured) {
+        baseDefault = lang.code;
+        break;
+      }
+    }
+    let baseSelected = false;
+    for (const lang of languages) {
+      if (!lang.isBuiltin) continue;
+      const option = document.createElement('option');
+      option.value = lang.code;
+      option.textContent = (lang.nativeName || lang.name) + ' · ' + lang.code;
+      if (lang.code === baseDefault) {
+        option.selected = true;
+        baseSelected = true;
+      }
+      elNewBase.appendChild(option);
+    }
+    // 兜底：若一个 builtin 选项都没出现（极不可能），取消选中即可，
+    // 此时前端验证会拦截，避免后端返回 400。
+    if (!baseSelected) {
+      elNewBase.value = '';
+    }
+
     // 官方 / 自定义分区。
     elBuiltinList.textContent = '';
     elCustomList.textContent = '';

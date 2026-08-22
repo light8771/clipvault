@@ -8,7 +8,8 @@ if(docEl.dataset.pLightHover)docEl.style.setProperty('--theme-primary-light-hove
 if(docEl.dataset.pDark)docEl.style.setProperty('--theme-primary-dark',docEl.dataset.pDark);
 if(docEl.dataset.pDarkHover)docEl.style.setProperty('--theme-primary-dark-hover',docEl.dataset.pDarkHover);
 if(docEl.dataset.themeMode==='light'||docEl.dataset.themeMode==='dark')docEl.dataset.theme=docEl.dataset.themeMode;
-const t=(key,params)=>window.clipvaultI18n.t(key,params);
+// i18n 资源异常缺失时回退 key 原文，避免 validate() 整体崩溃导致提交按钮永久禁用。
+const t=(key,params)=>window.clipvaultI18n?window.clipvaultI18n.t(key,params):key;
 const root=document.querySelector('.main');
 const mode=root.dataset.mode,isSetup=mode==='set_credentials';
 const $=id=>document.getElementById(id);
