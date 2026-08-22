@@ -90,6 +90,14 @@ func main() {
 		panic(err)
 	}
 	defer logger.Close()
+	// 多语言服务：词条已由 OpenStore 幂等 seed；此处构建运行时缓存并注册
+	// 模板函数（{{T}}）与前端字典（/i18n-dict.js），对齐 app_windows.go。
+	i18nSvc, err := clipvault.NewI18nService(store, manager, logger)
+	if err != nil {
+		panic(err)
+	}
+	clipvault.SetTemplateI18nService(i18nSvc)
+	defer clipvault.SetTemplateI18nService(nil)
 	license := licensing.NewManager(filepath.Join(*dataDir, "license", "clipvault.lic"), licensing.BuiltinTrustedKeys())
 	license.Load()
 	// 外部只读服务（HTTP 数据接口 + MCP）共享读取服务；随配置变更即时启停。
@@ -113,6 +121,7 @@ func main() {
 	server := clipvault.NewSearchServer(manager, store, clipvault.NewRuntimeState(false), logger, env, backup, license)
 	server.SetDataAPIService(dataAPI)
 	server.SetMCPService(mcpSvc)
+	server.SetI18nService(i18nSvc)
 	url, err := server.Start()
 	if err != nil {
 		panic(err)

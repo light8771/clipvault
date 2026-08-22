@@ -28,7 +28,7 @@ test('data-api page keeps its contract and drops the sensitive default switch', 
 test('settings menu exposes an independent MCP entry beside the data API entry', () => {
   const menu = read('pages/settings-menu.html');
   assert.ok(menu.includes('href="/data-api"'), '数据接口 menu entry must remain');
-  assert.ok(menu.includes('数据接口'), '数据接口 label must remain');
+  assert.ok(menu.includes('{{T "menu.data_api"}}'), '数据接口 label must remain (i18n template)');
   assert.ok(menu.includes('href="/mcp"'), 'MCP menu entry must exist');
   assert.ok(menu.includes('eq .Menu "mcp"'), 'MCP menu highlight key must exist');
 });

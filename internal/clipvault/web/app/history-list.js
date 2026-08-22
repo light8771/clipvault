@@ -303,9 +303,9 @@ export function registerHistoryList() {
         }
       });
       document.addEventListener('click', e => {
-        if (pop.hidden) return;
-        if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) closePop();
+        if (!pop.hidden && !pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) closePop();
       });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) closePop(); });
       // sheet 模式点遮罩关闭（遮罩在 pop 内部，上面的外部点击判断不会命中）
       pop.querySelector('.src-exe-mask')?.addEventListener('click', closePop);
     }

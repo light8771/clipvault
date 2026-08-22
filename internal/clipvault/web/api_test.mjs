@@ -9,6 +9,8 @@ globalThis.window = {
     return response;
   },
   location: { origin: 'http://127.0.0.1:15678' },
+  // 对齐浏览器环境：i18n.js 在模块加载前已初始化 window.clipvaultI18n。
+  clipvaultI18n: { t: key => key, locale: () => 'zh-CN', localeNumber: value => String(value) },
 };
 
 const { apiFetch, readAPIError, requestWithSecondaryAuth, unwrapAPIEnvelope } = await import('./api.js');
