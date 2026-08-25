@@ -202,6 +202,8 @@ var configFieldLabels = map[string]string{
 	"theme.fontScale":                     "config_field.theme_font_scale",
 	"theme.surfaceOpacity":                "config_field.theme_surface_opacity",
 	"theme.layout":                        "config_field.theme_layout",
+	"theme.historyColumns":                "config_field.theme_history_columns",
+	"theme.historyForceColumns":           "config_field.theme_history_force_columns",
 	"theme.previewLines":                  "config_field.theme_preview_lines",
 	"theme.navOpacity":                    "config_field.theme_nav_opacity",
 	"theme.navBlur":                       "config_field.theme_nav_blur",

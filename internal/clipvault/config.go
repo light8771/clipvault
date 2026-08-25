@@ -96,7 +96,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	}{
 		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
 		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
-		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"}},
+		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "historyColumns", "historyForceColumns", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"}},
 		{"search", []string{"listenAddr", "timeZone"}},
 		{"autostart", []string{"enabled", "appName"}},
 		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
@@ -228,6 +228,11 @@ type ThemeConfig struct {
 	SurfaceOpacity int    `json:"surfaceOpacity"`
 	// Layout 控制历史页排布："vertical"（默认，上下流式）或 "sidebar"（左右，笔记式）。
 	Layout string `json:"layout"`
+	// HistoryColumns 控制历史列表列数："auto"（按可用宽度自适应 1-4 列）或 "1"-"4"。
+	HistoryColumns string `json:"historyColumns"`
+	// HistoryForceColumns 为 true 时实际列数严格等于 HistoryColumns，
+	// 不再随窗口宽度自动升降列（空间不足时压缩卡片）；仅对 "1"-"4" 有效。
+	HistoryForceColumns bool `json:"historyForceColumns"`
 	// PreviewLines 限制历史卡片文本预览行数（1-20），0 表示不限制。
 	PreviewLines int `json:"previewLines"`
 	// NavOpacity 为导航栏背景不透明度（0-100），-1 表示跟随 SurfaceOpacity。

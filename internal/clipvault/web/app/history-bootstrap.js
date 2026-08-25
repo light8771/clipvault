@@ -12,6 +12,7 @@ import { registerHistoryList } from './history-list.js';
 import { registerAppearanceTheme } from './appearance-theme.js';
 import { registerAppearanceBackground } from './appearance-background.js';
 import { registerAppearanceLoader } from './appearance-loader.js';
+import { registerHistoryLayout } from './history-layout.js';
 import { registerGroups } from './groups.js';
 import { registerHistoryLifecycle } from './history-lifecycle.js';
 
@@ -43,5 +44,6 @@ registerHistoryList();
 registerAppearanceTheme();
 registerAppearanceBackground();
 registerAppearanceLoader();
+registerHistoryLayout();
 registerGroups();
 registerHistoryLifecycle();

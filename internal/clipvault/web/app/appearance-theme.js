@@ -192,6 +192,8 @@ export function registerAppearanceTheme() {
     } else {
       delete root.dataset.historyLayout;
     }
+    // 历史列表列数：容量计算 + 内容区宽度联动（仅历史页注册，见 history-layout.js）
+    app.applyHistoryLayout?.(normalized);
     root.style.setProperty('--tx', colors.tx);
     root.style.setProperty('--sub', colors.sub);
     root.style.setProperty('--muted', colors.muted);

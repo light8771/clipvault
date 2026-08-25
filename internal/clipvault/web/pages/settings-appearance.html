@@ -155,6 +155,26 @@
           </div>
           <div class="field-row">
             <div class="field-info">
+              <label class="field-label" for="cfg-historyColumns">{{T "appearance.history_columns"}}</label>
+              <p class="field-hint">{{T "appearance.history_columns_hint"}}</p>
+            </div>
+            <select id="cfg-historyColumns" class="field-input theme-mode-select">
+              <option value="auto">{{T "appearance.columns_auto"}}</option>
+              <option value="1">{{T "appearance.columns_1"}}</option>
+              <option value="2">{{T "appearance.columns_2"}}</option>
+              <option value="3">{{T "appearance.columns_3"}}</option>
+              <option value="4">{{T "appearance.columns_4"}}</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyForceColumns">{{T "appearance.force_columns"}}</label>
+              <p class="field-hint">{{T "appearance.force_columns_hint"}}</p>
+            </div>
+            <label class="ar-toggle"><input type="checkbox" id="cfg-historyForceColumns"><span>{{T "common.enabled_short"}}</span></label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
               <label class="field-label" for="cfg-previewLines">{{T "appearance.preview_lines"}}</label>
               <p class="field-hint">{{T "appearance.preview_lines_hint"}}</p>
             </div>

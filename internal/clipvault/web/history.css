@@ -195,7 +195,31 @@
 }
 
 /* ── List ──────────────────────────────────────────────────── */
-.list { display: flex; flex-direction: column; gap: 10px; }
+/* 列数由 --history-columns 驱动（applyHistoryLayout 运行时写入）：
+   JS 就绪前按窗口宽度回退为 1 / 2 列，与历史行为一致。
+   minmax(0, 1fr) 防止卡片内容把 Grid 轨道撑开。 */
+.list {
+  display: grid;
+  grid-template-columns: repeat(var(--history-columns, 1), minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .list { grid-template-columns: repeat(var(--history-columns, 2), minmax(0, 1fr)); }
+}
+/* loading / empty 状态跨全部列 */
+.list > .loading,
+.list > .empty { grid-column: 1 / -1; }
+
+/* 内容区最大宽度随实际列数联动（applyHistoryLayout 写入 --history-main-max）；
+   JS 就绪前按窗口宽度回退，与历史行为一致（880 / 1120 / 1400px）。 */
+#viewHistory { max-width: var(--history-main-max, 880px); }
+@media (min-width: 1100px) {
+  #viewHistory { max-width: var(--history-main-max, 1120px); }
+}
+@media (min-width: 1440px) {
+  #viewHistory { max-width: var(--history-main-max, 1400px); }
+}
 
 /* ── Card ──────────────────────────────────────────────────── */
 article {
@@ -278,10 +302,12 @@ mark {
 }
 
 /* Card footer — meta + actions bar */
+/* 允许换行：多列窄卡片下 meta 与按钮组整体掉行，而不是被裁剪 */
 .card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 7px 14px 8px;
   border-top: 1px solid var(--card-border);
@@ -401,7 +427,7 @@ article[data-sensitive="1"] {
 .msource {
   font: 12.5px ui-monospace, Consolas, monospace;
   color: var(--muted);
-  max-width: 180px;
+  max-width: min(180px, 100%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -410,11 +436,13 @@ article[data-sensitive="1"] {
 }
 
 /* Actions group */
+/* 允许按钮换行：强制多列时列宽可能小于按钮组总宽，换行优于裁剪 */
 .card-acts {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
-  flex-shrink: 0;
+  flex-shrink: 1;
 }
 
 .ab {
@@ -521,7 +549,7 @@ article[data-starred="1"]:hover {
    导致右侧搜索/结果/分页被撑散。 */
 @media (min-width: 769px) {
   html[data-history-layout="sidebar"] #viewHistory {
-    max-width: 1280px;
+    max-width: var(--history-main-max, 1280px);
   }
   html[data-history-layout="sidebar"] #viewHistory::after {
     content: '';
@@ -676,7 +704,7 @@ pre.event-only {
   font-style: italic;
 }
 .managed-image img {
-  max-width: 220px;
+  max-width: min(220px, 100%);
   max-height: 140px;
   border-radius: 6px;
   border: 1px solid var(--card-border);

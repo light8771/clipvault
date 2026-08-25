@@ -92,6 +92,22 @@ export function registerConfigEvents() {
     ['cfg-navBorder', 'cfg-navSticky', 'cfg-historyLayout'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
     });
+    // 列表列数：切换 auto/固定列数时同步「强制固定列数」开关的可用状态
+    const historyColumnsSelect = document.getElementById('cfg-historyColumns');
+    const historyForceToggle = document.getElementById('cfg-historyForceColumns');
+    if (historyColumnsSelect && historyForceToggle) {
+      const syncForceState = () => {
+        const isAuto = historyColumnsSelect.value === 'auto';
+        historyForceToggle.disabled = isAuto;
+        if (isAuto) historyForceToggle.checked = false;
+      };
+      syncForceState();
+      historyColumnsSelect.addEventListener('change', () => {
+        syncForceState();
+        app.applyTheme(app.themeFromForm());
+      });
+      historyForceToggle.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
+    }
     // 首页设置搜索框不是配置项，输入不得触发自动保存。
     const isExcluded = target => target === listenAddrEl || target === timeZoneEl
       || target?.id === 'settingsSearch' || target?.type === 'file';

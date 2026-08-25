@@ -22,6 +22,8 @@ export function registerAppearanceForm() {
       fontScale: Number(document.getElementById('cfg-themeFontScale')?.value) || 100,
       surfaceOpacity: Number(document.getElementById('cfg-themeSurfaceOpacity')?.value),
       layout: document.getElementById('cfg-historyLayout')?.value || current.layout || 'vertical',
+      historyColumns: document.getElementById('cfg-historyColumns')?.value || current.historyColumns || 'auto',
+      historyForceColumns: document.getElementById('cfg-historyForceColumns')?.checked ?? (current.historyForceColumns === true),
       previewLines: Number.isFinite(previewLinesRaw) ? Math.max(0, Math.min(20, previewLinesRaw)) : (current.previewLines ?? 2),
       navOpacity: navFollow && !navFollow.checked
         ? (Number.isFinite(navOpacityRaw) ? Math.max(0, Math.min(100, navOpacityRaw)) : 100)
@@ -60,6 +62,15 @@ export function registerAppearanceForm() {
     // 布局与导航栏
     const layoutEl = document.getElementById('cfg-historyLayout');
     if (layoutEl) layoutEl.value = value.layout === 'sidebar' ? 'sidebar' : 'vertical';
+    // 列表列数：非法值回退 auto；auto 时强制固定开关禁用且不勾选
+    const historyColumnsEl = document.getElementById('cfg-historyColumns');
+    const historyColumns = ['1', '2', '3', '4'].includes(value.historyColumns) ? value.historyColumns : 'auto';
+    if (historyColumnsEl) historyColumnsEl.value = historyColumns;
+    const historyForceEl = document.getElementById('cfg-historyForceColumns');
+    if (historyForceEl) {
+      historyForceEl.checked = historyColumns !== 'auto' && value.historyForceColumns === true;
+      historyForceEl.disabled = historyColumns === 'auto';
+    }
     const previewLinesEl = document.getElementById('cfg-previewLines');
     const previewLinesRaw = Number(value.previewLines);
     if (previewLinesEl) previewLinesEl.value = Number.isFinite(previewLinesRaw) ? Math.max(0, Math.min(20, previewLinesRaw)) : 2;

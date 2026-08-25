@@ -36,6 +36,8 @@ var i18nSeedConfig = []BuiltinTranslation{
 	{Key: "config_field.theme_font_scale", Module: "config", Description: "字体大小", ZhCN: "字体大小", EnUS: "Font size"},
 	{Key: "config_field.theme_surface_opacity", Module: "config", Description: "界面不透明度", ZhCN: "界面不透明度", EnUS: "Surface opacity"},
 	{Key: "config_field.theme_layout", Module: "config", Description: "历史页布局", ZhCN: "历史页布局", EnUS: "History layout"},
+	{Key: "config_field.theme_history_columns", Module: "config", Description: "历史列表列数", ZhCN: "历史列表列数", EnUS: "History list columns"},
+	{Key: "config_field.theme_history_force_columns", Module: "config", Description: "强制固定列数", ZhCN: "强制固定列数", EnUS: "Force fixed columns"},
 	{Key: "config_field.theme_preview_lines", Module: "config", Description: "内容预览行数", ZhCN: "内容预览行数", EnUS: "Preview lines"},
 	{Key: "config_field.theme_nav_opacity", Module: "config", Description: "导航栏不透明度", ZhCN: "导航栏不透明度", EnUS: "Navbar opacity"},
 	{Key: "config_field.theme_nav_blur", Module: "config", Description: "导航栏背景模糊", ZhCN: "导航栏背景模糊", EnUS: "Navbar blur"},

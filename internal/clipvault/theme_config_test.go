@@ -76,7 +76,8 @@ func TestNormalizeTheme(t *testing.T) {
 	}
 
 	cfg.Theme = ThemeConfig{Preset: "mint", Mode: "light", SurfaceOpacity: 100,
-		Layout: "diagonal", PreviewLines: 99, NavOpacity: 140, NavBlur: 99}
+		Layout: "diagonal", PreviewLines: 99, NavOpacity: 140, NavBlur: 99,
+		HistoryColumns: "6", HistoryForceColumns: true}
 	normalizeConfig(&cfg)
 	if cfg.Theme.Layout != "vertical" {
 		t.Fatalf("invalid layout did not fall back to default: %#v", cfg.Theme)
@@ -84,9 +85,31 @@ func TestNormalizeTheme(t *testing.T) {
 	if cfg.Theme.PreviewLines != 20 || cfg.Theme.NavOpacity != 100 || cfg.Theme.NavBlur != 32 {
 		t.Fatalf("new theme fields were not clamped: %#v", cfg.Theme)
 	}
+	if cfg.Theme.HistoryColumns != "auto" {
+		t.Fatalf("invalid history columns did not fall back to auto: %#v", cfg.Theme)
+	}
+	if cfg.Theme.HistoryForceColumns {
+		t.Fatalf("force columns must be false when columns fall back to auto: %#v", cfg.Theme)
+	}
+
+	// auto + force = 无效组合：normalize 后 force 必须为 false，不得报错（spec §2.2）
+	cfg.Theme.HistoryColumns = "auto"
+	cfg.Theme.HistoryForceColumns = true
+	normalizeConfig(&cfg)
+	if cfg.Theme.HistoryForceColumns {
+		t.Fatalf("force columns must be cleared in auto mode: %#v", cfg.Theme)
+	}
+
+	// 合法固定列数 + force 原样保留
+	cfg.Theme.HistoryColumns = "3"
+	cfg.Theme.HistoryForceColumns = true
+	normalizeConfig(&cfg)
+	if cfg.Theme.HistoryColumns != "3" || !cfg.Theme.HistoryForceColumns {
+		t.Fatalf("valid forced columns were altered by normalize: %#v", cfg.Theme)
+	}
 }
 
-// theme 的全部字段（含 layout/previewLines/navOpacity/navBlur/navBorder/navSticky）都是
+// theme 的全部字段（含 layout/historyColumns/historyForceColumns/previewLines 等）都是
 // 严格配置契约的一部分：缺失任意一个都视为配置损坏，绝不静默回退。
 func TestThemeConfigRequiresAllFields(t *testing.T) {
 	data, err := json.Marshal(DefaultConfig())
@@ -102,7 +125,7 @@ func TestThemeConfigRequiresAllFields(t *testing.T) {
 		t.Fatalf("theme missing in marshaled config: %#v", asMap)
 	}
 	for _, key := range []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity",
-		"layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"} {
+		"layout", "historyColumns", "historyForceColumns", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"} {
 		value, present := themeMap[key]
 		if !present {
 			t.Fatalf("default config JSON missing theme.%s", key)
@@ -129,17 +152,19 @@ func TestThemeConfigPersists(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.Theme = ThemeConfig{
-		Preset:         "custom",
-		Mode:           "light",
-		Primary:        "#2563EB",
-		Accent:         "#F59E0B",
-		FontScale:      135,
-		SurfaceOpacity: 72,
-		Layout:         "sidebar",
-		PreviewLines:   5,
-		NavOpacity:     40,
-		NavBlur:        8,
-		NavBorder:      false,
+		Preset:              "custom",
+		Mode:                "light",
+		Primary:             "#2563EB",
+		Accent:              "#F59E0B",
+		FontScale:           135,
+		SurfaceOpacity:      72,
+		Layout:              "sidebar",
+		HistoryColumns:      "3",
+		HistoryForceColumns: true,
+		PreviewLines:        5,
+		NavOpacity:          40,
+		NavBlur:             8,
+		NavBorder:           false,
 	}
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -167,7 +192,7 @@ func TestThemeConfigManagerUpdate(t *testing.T) {
 	}
 
 	want := ThemeConfig{Preset: "custom", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 135, SurfaceOpacity: 72,
-		Layout: "sidebar", PreviewLines: 3, NavOpacity: 55, NavBlur: 24, NavBorder: false}
+		Layout: "sidebar", HistoryColumns: "4", HistoryForceColumns: true, PreviewLines: 3, NavOpacity: 55, NavBlur: 24, NavBorder: false}
 	var notified ThemeConfig
 	manager.OnChange(func(cfg Config) error {
 		notified = cfg.Theme

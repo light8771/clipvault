@@ -325,16 +325,6 @@ pre.modal-pre::after {
   main {
     max-width: 1120px;
   }
-  .list {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    align-items: start;
-  }
-  /* loading / empty state spans both columns */
-  .list > .loading,
-  .list > .empty {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (min-width: 1440px) {

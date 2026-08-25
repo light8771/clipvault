@@ -220,6 +220,15 @@ func normalizeTheme(theme *ThemeConfig, def ThemeConfig) {
 	default:
 		theme.Layout = def.Layout
 	}
+	switch theme.HistoryColumns {
+	case "auto", "1", "2", "3", "4":
+	default:
+		theme.HistoryColumns = def.HistoryColumns
+	}
+	// auto 模式由系统按可用宽度自适应列数，强制固定语义不适用。
+	if theme.HistoryColumns == "auto" {
+		theme.HistoryForceColumns = false
+	}
 	theme.PreviewLines = clampInt(theme.PreviewLines, 0, 20)
 	theme.NavOpacity = clampInt(theme.NavOpacity, -1, 100)
 	theme.NavBlur = clampInt(theme.NavBlur, 0, 32)
