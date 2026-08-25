@@ -109,9 +109,8 @@ func TestNormalizeTheme(t *testing.T) {
 	}
 }
 
-// theme 的全部字段（含 layout/historyColumns/historyForceColumns/previewLines 等）都是
-// 严格配置契约的一部分：缺失任意一个都视为配置损坏，绝不静默回退。
-func TestThemeConfigRequiresAllFields(t *testing.T) {
+// 已有 theme 字段仍属于严格配置契约；只有后来新增、明确允许升级默认的字段例外。
+func TestThemeConfigRequiresStableFields(t *testing.T) {
 	data, err := json.Marshal(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +124,7 @@ func TestThemeConfigRequiresAllFields(t *testing.T) {
 		t.Fatalf("theme missing in marshaled config: %#v", asMap)
 	}
 	for _, key := range []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity",
-		"layout", "historyColumns", "historyForceColumns", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"} {
+		"layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"} {
 		value, present := themeMap[key]
 		if !present {
 			t.Fatalf("default config JSON missing theme.%s", key)
@@ -140,6 +139,35 @@ func TestThemeConfigRequiresAllFields(t *testing.T) {
 			t.Fatalf("config without theme.%s must be rejected as corrupt", key)
 		}
 		themeMap[key] = value
+	}
+}
+
+func TestThemeConfigDefaultsHistoryColumnsForUpgrade(t *testing.T) {
+	data, err := json.Marshal(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(data, &asMap); err != nil {
+		t.Fatal(err)
+	}
+	themeMap := asMap["theme"].(map[string]any)
+	delete(themeMap, "historyColumns")
+	delete(themeMap, "historyForceColumns")
+	legacyData, err := json.Marshal(asMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg Config
+	if err := cfg.UnmarshalJSON(legacyData); err != nil {
+		t.Fatalf("legacy theme config rejected: %v", err)
+	}
+	defaults := DefaultConfig().Theme
+	if cfg.Theme.HistoryColumns != defaults.HistoryColumns || cfg.Theme.HistoryForceColumns != defaults.HistoryForceColumns {
+		t.Fatalf("history column defaults = %q/%t, want %q/%t",
+			cfg.Theme.HistoryColumns, cfg.Theme.HistoryForceColumns,
+			defaults.HistoryColumns, defaults.HistoryForceColumns)
 	}
 }
 

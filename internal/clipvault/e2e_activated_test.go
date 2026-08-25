@@ -142,6 +142,15 @@ func TestActivatedExternalServiceE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	localeCfg := cfgMgr.Get()
+	localeCfg.UI.Language = I18nChinese
+	if err := cfgMgr.Update(localeCfg); err != nil {
+		t.Fatal(err)
+	}
+	i18nSvc, err := NewI18nService(store, cfgMgr, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// 种子数据：一条普通 + 一条敏感剪贴板记录。
 	if err := store.Save(ctx, ClipboardItem{
@@ -186,6 +195,7 @@ func TestActivatedExternalServiceE2E(t *testing.T) {
 	}
 	server := NewSearchServer(cfgMgr, store, NewRuntimeState(false), logger, env, nil, nil)
 	server.SetDataAPIService(dataAPI)
+	server.SetI18nService(i18nSvc)
 
 	// 预置监听地址（未启用数据接口）。
 	dapiPort := e2eFreePort(t)

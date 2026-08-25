@@ -49,7 +49,7 @@ function outerAvailableWidth(main) {
   ) {
     width -= 270;
   }
-  const styles = window.getComputedStyle(main);
+  const styles = getComputedStyle(main);
   width -= (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
   return width;
 }

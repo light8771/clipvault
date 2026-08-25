@@ -6,7 +6,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"clipboard_ext/internal/clipvault"
@@ -24,7 +26,10 @@ func main() {
 	}
 	defer store.Close()
 
-	imgPath := os.Args[2] // 托管图片记录指向的真实 PNG（存在即可，前端内联展示）
+	imgPath, err := installManagedImage(dataDir, os.Args[2])
+	if err != nil {
+		panic(err)
+	}
 
 	now := time.Now().UTC().UnixMilli()
 	day := int64(24 * 3600 * 1000)
@@ -46,8 +51,8 @@ func main() {
 			SourceExeName: "explorer.exe", SourceExePath: `C:\Windows\explorer.exe`, SourceWindowTitle: "文件资源管理器", SourceMethod: "foreground"},
 		{CapturedAtMS: now - 420_000, Kind: "other", Format: "CLIPVAULT_EVENT_ONLY", UnavailableReason: "text_limit_exceeded",
 			SourceExeName: "notepad.exe", SourceExePath: `C:\Windows\System32\notepad.exe`, SourceWindowTitle: "记事本", SourceMethod: "foreground"},
-		// 图片（托管 PNG，路径指向真实文件）
-		{CapturedAtMS: now - 480_000, Kind: "image", Format: "CLIPVAULT_IMAGE_FILE", MetaJSON: fmt.Sprintf(`{"imagePath":%q}`, imgPath),
+		// 图片（托管 PNG，路径格式与真实 recorder 产物保持一致）
+		{CapturedAtMS: now - 480_000, Kind: "image", Format: "CLIPVAULT_IMAGE_FILE", Text: imgPath, MetaJSON: fmt.Sprintf(`{"imagePath":%q}`, imgPath),
 			SourceExeName: "Snipaste.exe", SourceExePath: `C:\Program Files\Snipaste\Snipaste.exe`, SourceWindowTitle: "Snipaste", SourceMethod: "foreground"},
 		// 文件拖放：普通文件 / Office / 压缩包
 		{CapturedAtMS: now - 540_000, Kind: "files", Format: "CF_HDROP", MetaJSON: `{"paths":["C:\\Users\\test\\Downloads\\report.pdf"]}`,
@@ -73,4 +78,38 @@ func main() {
 		}
 	}
 	fmt.Printf("injected %d items into %s\n", len(items), dataDir)
+}
+
+func installManagedImage(dataDir, sourcePath string) (string, error) {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("open source image: %w", err)
+	}
+	defer source.Close()
+
+	info, err := source.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat source image: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("source image is a directory: %s", sourcePath)
+	}
+
+	relativePath := filepath.Join("images", "e2e", "managed.png")
+	destinationPath := filepath.Join(dataDir, relativePath)
+	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o700); err != nil {
+		return "", fmt.Errorf("create managed image directory: %w", err)
+	}
+	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create managed image: %w", err)
+	}
+	if _, err := io.Copy(destination, source); err != nil {
+		destination.Close()
+		return "", fmt.Errorf("copy managed image: %w", err)
+	}
+	if err := destination.Close(); err != nil {
+		return "", fmt.Errorf("close managed image: %w", err)
+	}
+	return filepath.ToSlash(relativePath), nil
 }

@@ -73,13 +73,13 @@ type SearchPopupConfig struct {
 	KeyPaste   string `json:"keyPaste"`   // 恢复并粘贴到之前窗口，默认 Ctrl+Enter
 }
 
-// UnmarshalJSON enforces the complete current configuration contract. This
-// project uses fresh databases during development, so a missing field is
-// corruption rather than an older shape to be defaulted. In particular,
-// missing security fields must never turn password protection off silently.
+// UnmarshalJSON enforces the complete security-sensitive configuration
+// contract. Newly introduced, non-security appearance fields may be defaulted
+// explicitly for upgrade compatibility; missing security fields must never
+// turn password protection off silently.
 func (cfg *Config) UnmarshalJSON(data []byte) error {
 	type configWire Config
-	var decoded configWire
+	decoded := configWire(DefaultConfig())
 	if err := decodeStrictJSON(data, &decoded); err != nil {
 		return err
 	}
@@ -96,7 +96,10 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	}{
 		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
 		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
-		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "historyColumns", "historyForceColumns", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"}},
+		// historyColumns/historyForceColumns were added after persisted configs
+		// already existed. Their absence is upgraded to DefaultConfig values;
+		// every older theme field remains part of the strict contract.
+		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"}},
 		{"search", []string{"listenAddr", "timeZone"}},
 		{"autostart", []string{"enabled", "appName"}},
 		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
