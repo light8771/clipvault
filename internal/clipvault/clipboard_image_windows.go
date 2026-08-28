@@ -66,6 +66,7 @@ func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
 			return newImageSnapshot(raw, "PNG"), true, nil
 		}
 	}
+	var lastErr error
 	for _, format := range []uint32{cfDIBV5, cfDIB} {
 		if !isClipboardFormatAvailable(format) {
 			continue
@@ -79,7 +80,9 @@ func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
 		}
 		pngBytes, err := dibToPNG(raw)
 		if err != nil {
-			// DIB 解析失败时继续尝试下一个格式，全部失败才报错。
+			// DIB 解析失败时继续尝试下一个图片格式，全部失败后返回
+			// 最后一个结构化错误，不能把损坏数据误记为 unsupported。
+			lastErr = &clipboardOperationError{stage: clipboardReadStageDecode, format: clipboardFormatName(format), err: err}
 			continue
 		}
 		if len(pngBytes) > maxBytes {
@@ -89,12 +92,17 @@ func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
 	}
 	if isClipboardFormatAvailable(cfBitmap) {
 		pngBytes, err := bitmapHandleToPNG()
-		if err == nil && len(pngBytes) > 0 {
+		if err != nil {
+			lastErr = err
+		} else if len(pngBytes) > 0 {
 			if len(pngBytes) > maxBytes {
 				return nil, true, errImageTooLarge
 			}
 			return newImageSnapshot(pngBytes, "CF_BITMAP"), true, nil
 		}
+	}
+	if lastErr != nil {
+		return nil, true, lastErr
 	}
 	return nil, false, nil
 }
@@ -230,9 +238,12 @@ type bitmapHeader struct {
 
 // bitmapHandleToPNG 读取 CF_BITMAP（HBITMAP）并转码为 PNG（32bpp top-down DIB）。
 func bitmapHandleToPNG() ([]byte, error) {
-	handle, _, _ := procGetClipboardData.Call(cfBitmap)
+	handle, _, err := procGetClipboardData.Call(cfBitmap)
 	if handle == 0 {
-		return nil, errors.New("GetClipboardData(CF_BITMAP) failed")
+		if err == syscall.Errno(0) {
+			err = errClipboardDataUnavailable
+		}
+		return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: "CF_BITMAP", err: err}
 	}
 	var bm bitmapHeader
 	ok, _, _ := procGetObjectW.Call(handle, unsafe.Sizeof(bm), uintptr(unsafe.Pointer(&bm)))

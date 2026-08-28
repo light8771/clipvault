@@ -41,10 +41,15 @@ var diagnosticEvents = diagnosticStringSet(
 	"autostart_sync_failed",
 	"autostart_toggled",
 	"clipboard_listener_failed",
+	"clipboard_event_save_failed",
+	"clipboard_event_saved",
+	"clipboard_image_save_failed",
+	"clipboard_queue_high_water",
 	"clipboard_read_failed",
 	"clipboard_save_failed",
 	"clipboard_saved",
 	"clipboard_skipped",
+	"clip_worker_drain_timeout",
 	"config_load_failed",
 	"config_save_failed",
 	"config_updated",
@@ -118,11 +123,40 @@ var diagnosticEvents = diagnosticStringSet(
 
 var diagnosticStringFieldValues = map[string]map[string]struct{}{
 	"action": diagnosticStringSet("set", "change", "remove"),
-	"format": diagnosticStringSet("CF_HDROP", "CF_UNICODETEXT", "cvexport", "json", "xlsx"),
-	"kind":   diagnosticStringSet("archive", "files", "image", "office", "text", "video"),
-	"mode":   diagnosticStringSet("first_install", "normal", "recovery_needed", "state_corrupt"),
-	"reason": diagnosticStringSet("max_text_chars", "search_server_disabled", "store_or_url_missing"),
+	"format": diagnosticStringSet(
+		"CF_BITMAP",
+		"CF_DIB",
+		"CF_DIBV5",
+		"CF_HDROP",
+		"CF_UNICODETEXT",
+		"CLIPVAULT_EVENT_ONLY",
+		"CLIPVAULT_IMAGE_FILE",
+		"PNG",
+		"cvexport",
+		"json",
+		"unknown",
+		"xlsx",
+	),
+	"kind": diagnosticStringSet("archive", "files", "image", "office", "other", "text", "video"),
+	"mode": diagnosticStringSet("first_install", "normal", "recovery_needed", "state_corrupt"),
+	"reason": diagnosticStringSet(
+		"image_limit_exceeded",
+		"read_failed",
+		"search_server_disabled",
+		"store_or_url_missing",
+		"superseded_before_read",
+		"text_limit_exceeded",
+		"unsupported_format",
+	),
 	"source": diagnosticStringSet("hotkey", "tray"),
+	"stage": diagnosticStringSet(
+		"close",
+		"decode",
+		"enumerate",
+		"get_data",
+		"lock_data",
+		"open",
+	),
 	"status": diagnosticStringSet(
 		"corrupt",
 		"invalid",
@@ -151,19 +185,40 @@ var diagnosticEventStringFieldValues = map[string]map[string]map[string]struct{}
 var diagnosticIntegerFields = []string{
 	"byteLen",
 	"charLen",
+	"attempt",
+	"clipboardOpenerPid",
+	"clipboardOwnerPid",
+	"closeWin32Error",
 	"deleted",
+	"depth",
+	"durationMs",
+	"expectedSequence",
 	"id",
 	"key",
 	"modifiers",
+	"openAttempts",
 	"parentId",
 	"pid",
+	"sourcePid",
+	"sequenceAfterOpen",
+	"sequenceAfterRead",
+	"sequenceBeforeOpen",
 	"size",
+	"threadIdAfter",
+	"threadIdBefore",
+	"threshold",
 	"total",
+	"win32Error",
+}
+
+var diagnosticIntegerArrayFields = []string{
+	"formatIds",
 }
 
 var diagnosticBooleanFields = []string{
 	"enabled",
 	"enforced",
+	"isDuplicate",
 	"paused",
 	"sensitive",
 }
@@ -379,6 +434,11 @@ func sanitizeDiagnosticLogEntry(fields map[string]json.RawMessage) (map[string]a
 			sanitized[field] = value
 		}
 	}
+	for _, field := range diagnosticIntegerArrayFields {
+		if value, ok := diagnosticNonNegativeIntegerArray(fields[field], 64); ok {
+			sanitized[field] = value
+		}
+	}
 	for _, field := range diagnosticBooleanFields {
 		if value, ok := diagnosticBoolean(fields[field]); ok {
 			sanitized[field] = value
@@ -428,6 +488,25 @@ func diagnosticNonNegativeInteger(raw json.RawMessage) (int64, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+func diagnosticNonNegativeIntegerArray(raw json.RawMessage, maxItems int) ([]int64, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil || len(values) == 0 || len(values) > maxItems {
+		return nil, false
+	}
+	result := make([]int64, 0, len(values))
+	for _, rawValue := range values {
+		value, ok := diagnosticNonNegativeInteger(rawValue)
+		if !ok || value > int64(^uint32(0)) {
+			return nil, false
+		}
+		result = append(result, value)
+	}
+	return result, true
 }
 
 func diagnosticBoolean(raw json.RawMessage) (bool, bool) {

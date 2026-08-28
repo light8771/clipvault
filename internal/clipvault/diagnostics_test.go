@@ -61,6 +61,44 @@ func TestRedactDiagnosticLogRejectsTypedBypasses(t *testing.T) {
 	}
 }
 
+func TestRedactDiagnosticLogKeepsStructuredClipboardFailure(t *testing.T) {
+	input := []byte(`{"ts":"2026-08-28T11:26:02+08:00","level":"error","event":"clipboard_read_failed","stage":"get_data","format":"CF_DIBV5","formatIds":[13,17,49153],"attempt":2,"openAttempts":1,"threadIdBefore":42,"threadIdAfter":42,"expectedSequence":100,"sequenceBeforeOpen":100,"sequenceAfterOpen":100,"sequenceAfterRead":100,"clipboardOwnerPid":88,"clipboardOpenerPid":99,"durationMs":318,"win32Error":1418,"closeWin32Error":1418,"sourcePid":99,"sourceExeName":"private.exe","formats":["private format"],"error":"C:\\Users\\Alice\\secret"}`)
+	output := string(redactDiagnosticLog(input))
+	for _, secret := range []string{"Alice", "private.exe", "private format"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("diagnostic log contains %q: %s", secret, output)
+		}
+	}
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(output), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["event"] != "clipboard_read_failed" || entry["stage"] != "get_data" || entry["format"] != "CF_DIBV5" {
+		t.Fatalf("structured clipboard fields were not retained: %#v", entry)
+	}
+	if entry["win32Error"] != float64(1418) || entry["attempt"] != float64(2) || entry["sourcePid"] != float64(99) {
+		t.Fatalf("structured clipboard integers were not retained: %#v", entry)
+	}
+	if ids, ok := entry["formatIds"].([]any); !ok || len(ids) != 3 || ids[2] != float64(49153) {
+		t.Fatalf("safe numeric format IDs were not retained: %#v", entry)
+	}
+}
+
+func TestRedactDiagnosticLogKeepsClipboardEventReason(t *testing.T) {
+	input := []byte(`{"ts":"2026-08-28T11:26:02+08:00","level":"info","event":"clipboard_event_saved","kind":"other","reason":"unsupported_format","formatIds":[49155],"formats":["private name"],"isDuplicate":false}`)
+	output := string(redactDiagnosticLog(input))
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(output), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["event"] != "clipboard_event_saved" || entry["reason"] != "unsupported_format" {
+		t.Fatalf("clipboard event reason was not retained: %#v", entry)
+	}
+	if strings.Contains(output, "private name") {
+		t.Fatalf("registered format name leaked into diagnostic output: %s", output)
+	}
+}
+
 func TestWriteRedactedDiagnosticLogStopsOnOversizedLine(t *testing.T) {
 	secret := strings.Repeat("x", maxDiagnosticLogLineBytes+1024)
 	raw := `{"ts":"2026-07-28T04:00:00Z","level":"error","event":"import_failed","error":"` + secret + `"}`

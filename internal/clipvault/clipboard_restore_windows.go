@@ -53,7 +53,7 @@ func restoreItemToClipboard(item StoredItem, dataDir string) (uint32, error) {
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	if err := openClipboardWithRetry(8); err != nil {
+	if _, err := openClipboardWithRetry(clipboardOpenAttempts); err != nil {
 		return 0, fmt.Errorf("OpenClipboard: %w", err)
 	}
 	needClose := true

@@ -46,6 +46,15 @@ type ClipboardSnapshot struct {
 	ImageBytes []byte
 }
 
+// ClipboardFormatSet carries both human-readable names for the local database
+// and numeric Win32 IDs for privacy-safe diagnostics. Registered format names
+// are controlled by third-party applications and are therefore never copied
+// into exported support archives.
+type ClipboardFormatSet struct {
+	Names []string
+	IDs   []uint32
+}
+
 // ErrImageLimitExceeded 表示剪贴板图片超过 image.maxBytes 限制。
 // 平台层用它让 Recorder 落 content_available=false / image_limit_exceeded 记录。
 var ErrImageLimitExceeded = errors.New("clipboard image exceeds configured size limit")
@@ -118,6 +127,11 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 
 	cfg := r.cfgMgr.Get()
 	snapshot, formats, err := readClipboardEventForSequence(cfg, sequence)
+	// 来源详情必须在剪贴板关闭后解析，并且所有结果分支一致处理。
+	// 这样 read_failed / unsupported / superseded 记录不会再丢失来源应用。
+	if source.PID != 0 {
+		source.resolveDetails()
+	}
 	if err != nil {
 		if errors.Is(err, ErrClipboardSuperseded) {
 			// 事件在读取前被更新的复制覆盖：内容已不可得，但事件必须落库。
@@ -133,7 +147,8 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 			}, capturedAtMS, domain.ReasonImageLimitExceeded, nil)
 			return
 		}
-		r.logger.Error("clipboard_read_failed", err, nil)
+		fields := clipboardReadFailureFields(err, source, formats)
+		r.logger.Error("clipboard_read_failed", err, fields)
 		r.saveEventOnly(source, capturedAtMS, domain.ReasonReadFailed, formats)
 		return
 	}
@@ -142,16 +157,13 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 		r.saveEventOnly(source, capturedAtMS, domain.ReasonUnsupportedFormat, formats)
 		return
 	}
-	if containsString(formats, internalRestoreFormatName) {
+	if containsString(formats.Names, internalRestoreFormatName) {
 		// 内部恢复（搜索弹窗双击/Ctrl+Enter）写回的剪贴板内容不再录制。
 		return
 	}
 
 	// 来源信息是增强元数据：解析失败静默降级，绝不影响内容落库。
-	if source.PID != 0 {
-		source.resolveDetails()
-		snapshot.Source = source
-	}
+	snapshot.Source = source
 
 	// 图片：PNG 字节写入托管目录，入库记录引用托管文件路径。
 	if len(snapshot.ImageBytes) > 0 {
@@ -233,12 +245,37 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 	})
 }
 
+type diagnosticFieldProvider interface {
+	DiagnosticFields() map[string]any
+}
+
+func clipboardReadFailureFields(err error, source SourceInfo, formats ClipboardFormatSet) map[string]any {
+	fields := map[string]any{
+		"sourcePid": source.PID,
+		"formats":   formats.Names,
+		"formatIds": formats.IDs,
+	}
+	if source.ExeName != "" {
+		fields["sourceExeName"] = source.ExeName
+	}
+	var provider diagnosticFieldProvider
+	if errors.As(err, &provider) {
+		for key, value := range provider.DiagnosticFields() {
+			fields[key] = value
+		}
+	}
+	return fields
+}
+
 // saveEventOnly 保存一条「只发生过事件、没有内容」的记录。
 // 用于 superseded / unsupported_format / read_failed 等分支。
-func (r *Recorder) saveEventOnly(source SourceInfo, capturedAtMS int64, reason string, formats []string) {
+func (r *Recorder) saveEventOnly(source SourceInfo, capturedAtMS int64, reason string, formats ClipboardFormatSet) {
 	meta := map[string]any{}
-	if len(formats) > 0 {
-		meta["formats"] = formats
+	if len(formats.Names) > 0 {
+		meta["formats"] = formats.Names
+	}
+	if len(formats.IDs) > 0 {
+		meta["formatIds"] = formats.IDs
 	}
 	r.saveUnavailable(&ClipboardSnapshot{
 		Kind:   domain.KindOther,
@@ -287,11 +324,18 @@ func (r *Recorder) saveUnavailable(snapshot *ClipboardSnapshot, capturedAtMS int
 	}
 	r.lastHash = dedupeHash
 	r.lastKind = snapshot.Kind
-	r.logger.Info("clipboard_event_saved", map[string]any{
+	logFields := map[string]any{
 		"kind":        snapshot.Kind,
 		"reason":      reason,
 		"isDuplicate": isDuplicate,
-	})
+	}
+	if formats, ok := meta["formats"]; ok {
+		logFields["formats"] = formats
+	}
+	if formatIDs, ok := meta["formatIds"]; ok {
+		logFields["formatIds"] = formatIDs
+	}
+	r.logger.Info("clipboard_event_saved", logFields)
 }
 
 // saveManagedImage 把 PNG 字节写入托管目录（UTC 年/月两级），

@@ -28,6 +28,7 @@ var (
 	procOpenClipboard              = user32.NewProc("OpenClipboard")
 	procCloseClipboard             = user32.NewProc("CloseClipboard")
 	procGetClipboardData           = user32.NewProc("GetClipboardData")
+	procGetOpenClipboardWindow     = user32.NewProc("GetOpenClipboardWindow")
 	procIsClipboardFormatAvailable = user32.NewProc("IsClipboardFormatAvailable")
 	procGetClipboardSequenceNumber = user32.NewProc("GetClipboardSequenceNumber")
 	procEnumClipboardFormats       = user32.NewProc("EnumClipboardFormats")
@@ -40,6 +41,179 @@ var (
 )
 
 var ErrClipboardSuperseded = errors.New("clipboard event was superseded")
+
+const (
+	clipboardOpenAttempts       = 8
+	clipboardReadAttempts       = 2
+	clipboardReadRetryDelay     = 20 * time.Millisecond
+	errorClipboardNotOpen       = syscall.Errno(1418)
+	clipboardFormatUnknown      = "unknown"
+	clipboardReadStageOpen      = "open"
+	clipboardReadStageEnumerate = "enumerate"
+	clipboardReadStageGetData   = "get_data"
+	clipboardReadStageLockData  = "lock_data"
+	clipboardReadStageDecode    = "decode"
+	clipboardReadStageClose     = "close"
+)
+
+var errClipboardDataUnavailable = errors.New("clipboard format is advertised but data is unavailable")
+
+// clipboardOperationError records the exact Win32/data stage that failed.
+// It stays internal; clipboardReadError below is the single error contract
+// returned to Recorder and exported as privacy-safe structured diagnostics.
+type clipboardOperationError struct {
+	stage  string
+	format string
+	err    error
+}
+
+func (e *clipboardOperationError) Error() string {
+	return fmt.Sprintf("%s(%s): %v", e.stage, e.format, e.err)
+}
+
+func (e *clipboardOperationError) Unwrap() error { return e.err }
+
+type clipboardReadError struct {
+	stage              string
+	format             string
+	err                error
+	attempt            int
+	openAttempts       int
+	threadIDBefore     uint32
+	threadIDAfter      uint32
+	expectedSequence   uint32
+	sequenceBeforeOpen uint32
+	sequenceAfterOpen  uint32
+	sequenceAfterRead  uint32
+	clipboardOwnerPid  uint32
+	clipboardOpenerPid uint32
+	duration           time.Duration
+	closeErr           error
+}
+
+func (e *clipboardReadError) Error() string {
+	return fmt.Sprintf("clipboard %s failed for %s: %v", e.stage, e.format, e.err)
+}
+
+func (e *clipboardReadError) Unwrap() error { return e.err }
+
+func (e *clipboardReadError) Is(target error) bool {
+	return errors.Is(e.err, target) || errors.Is(e.closeErr, target)
+}
+
+// DiagnosticFields returns only bounded operational values. Recorder writes
+// these to the local log; diagnostics.go independently allowlists the subset
+// that is safe for support archives.
+func (e *clipboardReadError) DiagnosticFields() map[string]any {
+	fields := map[string]any{
+		"stage":              e.stage,
+		"format":             e.format,
+		"attempt":            e.attempt,
+		"openAttempts":       e.openAttempts,
+		"threadIdBefore":     e.threadIDBefore,
+		"threadIdAfter":      e.threadIDAfter,
+		"expectedSequence":   e.expectedSequence,
+		"sequenceBeforeOpen": e.sequenceBeforeOpen,
+		"sequenceAfterOpen":  e.sequenceAfterOpen,
+		"sequenceAfterRead":  e.sequenceAfterRead,
+		"clipboardOwnerPid":  e.clipboardOwnerPid,
+		"clipboardOpenerPid": e.clipboardOpenerPid,
+		"durationMs":         e.duration.Milliseconds(),
+		"win32Error":         win32ErrorCode(e.err),
+	}
+	if e.closeErr != nil {
+		fields["closeWin32Error"] = win32ErrorCode(e.closeErr)
+	}
+	return fields
+}
+
+func win32ErrorCode(err error) int64 {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return int64(errno)
+	}
+	return 0
+}
+
+func currentClipboardThreadID() uint32 {
+	tid, _, _ := procGetCurrentThreadId.Call()
+	return uint32(tid)
+}
+
+func clipboardWindowProcessID(hwnd uintptr) uint32 {
+	if hwnd == 0 {
+		return 0
+	}
+	var pid uint32
+	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	return pid
+}
+
+func currentClipboardOwnerPID() uint32 {
+	hwnd, _, _ := procGetClipboardOwner.Call()
+	return clipboardWindowProcessID(hwnd)
+}
+
+func currentClipboardOpenerPID() uint32 {
+	hwnd, _, _ := procGetOpenClipboardWindow.Call()
+	return clipboardWindowProcessID(hwnd)
+}
+
+type clipboardReadAttemptContext struct {
+	attempt                  int
+	openAttempts             int
+	threadIDBefore           uint32
+	expectedSequence         uint32
+	sequenceBeforeOpen       uint32
+	sequenceAfterOpen        uint32
+	sequenceAfterRead        uint32
+	clipboardOwnerPID        uint32
+	clipboardOpenerPID       uint32
+	clipboardWindowsCaptured bool
+	started                  time.Time
+}
+
+func newClipboardReadAttemptContext(attempt int, expectedSequence uint32) *clipboardReadAttemptContext {
+	return &clipboardReadAttemptContext{
+		attempt:            attempt,
+		threadIDBefore:     currentClipboardThreadID(),
+		expectedSequence:   expectedSequence,
+		sequenceBeforeOpen: clipboardSequenceNumber(),
+		started:            time.Now(),
+	}
+}
+
+func (c *clipboardReadAttemptContext) captureClipboardWindows() {
+	c.clipboardOwnerPID = currentClipboardOwnerPID()
+	c.clipboardOpenerPID = currentClipboardOpenerPID()
+	c.clipboardWindowsCaptured = true
+}
+
+func (c *clipboardReadAttemptContext) failure(stage, format string, err, closeErr error) error {
+	if c.sequenceAfterRead == 0 {
+		c.sequenceAfterRead = clipboardSequenceNumber()
+	}
+	if !c.clipboardWindowsCaptured {
+		c.captureClipboardWindows()
+	}
+	return &clipboardReadError{
+		stage:              stage,
+		format:             format,
+		err:                err,
+		attempt:            c.attempt,
+		openAttempts:       c.openAttempts,
+		threadIDBefore:     c.threadIDBefore,
+		threadIDAfter:      currentClipboardThreadID(),
+		expectedSequence:   c.expectedSequence,
+		sequenceBeforeOpen: c.sequenceBeforeOpen,
+		sequenceAfterOpen:  c.sequenceAfterOpen,
+		sequenceAfterRead:  c.sequenceAfterRead,
+		clipboardOwnerPid:  c.clipboardOwnerPID,
+		clipboardOpenerPid: c.clipboardOpenerPID,
+		duration:           time.Since(c.started),
+		closeErr:           closeErr,
+	}
+}
 
 func clipboardSequenceNumber() uint32 {
 	seq, _, _ := procGetClipboardSequenceNumber.Call()
@@ -58,60 +232,109 @@ func clipboardSequenceNumber() uint32 {
 // 同一线程上调用。Go 调度器可能在任意 syscall 返回点把 goroutine 迁移到别的
 // OS 线程，因此这里锁定当前线程，避免 CloseClipboard 落到错误的线程上导致
 // 剪贴板被永久占用（全系统粘贴失效）。
-func readClipboardEventForSequence(cfg Config, expectedSequence uint32) (*ClipboardSnapshot, []string, error) {
+func readClipboardEventForSequence(cfg Config, expectedSequence uint32) (*ClipboardSnapshot, ClipboardFormatSet, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
-		return nil, nil, ErrClipboardSuperseded
+
+	var lastFormats ClipboardFormatSet
+	for attempt := 1; attempt <= clipboardReadAttempts; attempt++ {
+		snapshot, formats, err := readClipboardAttempt(cfg, expectedSequence, attempt)
+		lastFormats = formats
+		if err == nil || errors.Is(err, ErrClipboardSuperseded) {
+			return snapshot, formats, err
+		}
+		if !errors.Is(err, errorClipboardNotOpen) || attempt == clipboardReadAttempts {
+			return nil, formats, err
+		}
+		observed := clipboardSequenceNumber()
+		if expectedSequence != 0 && observed != expectedSequence {
+			return nil, formats, ErrClipboardSuperseded
+		}
+		time.Sleep(clipboardReadRetryDelay)
+	}
+	return nil, lastFormats, errors.New("clipboard read attempts exhausted")
+}
+
+func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*ClipboardSnapshot, ClipboardFormatSet, error) {
+	ctx := newClipboardReadAttemptContext(attempt, expectedSequence)
+	if expectedSequence != 0 && ctx.sequenceBeforeOpen != expectedSequence {
+		return nil, ClipboardFormatSet{}, ErrClipboardSuperseded
 	}
 
-	// 剪贴板常被 Office/浏览器等短暂占用，OpenClipboard 立即失败是常态，
-	// 用指数退避重试几次再放弃，避免瞬时占用导致这条记录永久丢失。
-	// 8 次退避总窗口约 1.3s（10ms 起倍增），覆盖 Electron 等长占用场景；
-	// 重试发生在 worker goroutine 而非消息泵线程，拉长不会卡住 UI。
-	if err := openClipboardWithRetry(8); err != nil {
-		return nil, nil, fmt.Errorf("OpenClipboard: %w", err)
-	}
-	defer procCloseClipboard.Call()
-	if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
-		return nil, nil, ErrClipboardSuperseded
+	openAttempts, err := openClipboardWithRetry(clipboardOpenAttempts)
+	ctx.openAttempts = openAttempts
+	if err != nil {
+		return nil, ClipboardFormatSet{}, ctx.failure(clipboardReadStageOpen, clipboardFormatUnknown, err, nil)
 	}
 
-	formats := enumClipboardFormatNames()
+	ctx.sequenceAfterOpen = clipboardSequenceNumber()
+	if expectedSequence != 0 && ctx.sequenceAfterOpen != expectedSequence {
+		ctx.captureClipboardWindows()
+		closeErr := closeClipboard()
+		if closeErr != nil {
+			return nil, ClipboardFormatSet{}, ctx.failure(clipboardReadStageClose, clipboardFormatUnknown, closeErr, nil)
+		}
+		return nil, ClipboardFormatSet{}, ErrClipboardSuperseded
+	}
 
+	formats, readErr := enumClipboardFormatNames()
+	var snapshot *ClipboardSnapshot
+	if readErr == nil {
+		snapshot, readErr = readOpenedClipboard(cfg)
+	}
+	ctx.sequenceAfterRead = clipboardSequenceNumber()
+	ctx.captureClipboardWindows()
+	closeErr := closeClipboard()
+
+	if readErr != nil {
+		stage, format := clipboardReadStageDecode, clipboardFormatUnknown
+		var operationErr *clipboardOperationError
+		if errors.As(readErr, &operationErr) {
+			stage, format = operationErr.stage, operationErr.format
+		}
+		return nil, formats, ctx.failure(stage, format, readErr, closeErr)
+	}
+	if closeErr != nil {
+		return nil, formats, ctx.failure(clipboardReadStageClose, clipboardFormatUnknown, closeErr, nil)
+	}
+	return snapshot, formats, nil
+}
+
+func readOpenedClipboard(cfg Config) (*ClipboardSnapshot, error) {
 	if isClipboardFormatAvailable(cfUnicodeText) {
-		snapshot, err := readUnicodeTextClipboard()
-		return snapshot, formats, err
+		return readUnicodeTextClipboard()
 	}
 	if cfg.Image.Enabled {
 		if snapshot, ok, err := readClipboardImage(cfg); err != nil {
-			return nil, formats, err
+			return nil, err
 		} else if ok {
-			return snapshot, formats, nil
+			return snapshot, nil
 		}
 	}
 	if isClipboardFormatAvailable(cfHDrop) {
-		snapshot, err := readFileDropClipboard(cfg)
-		return snapshot, formats, err
+		return readFileDropClipboard(cfg)
 	}
-	return nil, formats, nil
+	return nil, nil
 }
 
 // enumClipboardFormatNames 枚举当前剪贴板的全部格式并返回可读名称。
 // 剪贴板必须已由调用方打开。标准格式返回常量名，注册格式（>=0xC000）
 // 返回 RegisterClipboardFormat 注册名，其余返回十六进制 id。
-func enumClipboardFormatNames() []string {
-	var names []string
+func enumClipboardFormatNames() (ClipboardFormatSet, error) {
+	formats := ClipboardFormatSet{}
 	format := uintptr(0)
 	for {
-		next, _, _ := procEnumClipboardFormats.Call(format)
+		next, _, err := procEnumClipboardFormats.Call(format)
 		if next == 0 {
-			break
+			if err != syscall.Errno(0) {
+				return formats, &clipboardOperationError{stage: clipboardReadStageEnumerate, format: clipboardFormatUnknown, err: err}
+			}
+			return formats, nil
 		}
 		format = next
-		names = append(names, clipboardFormatName(uint32(format)))
+		formats.IDs = append(formats.IDs, uint32(format))
+		formats.Names = append(formats.Names, clipboardFormatName(uint32(format)))
 	}
-	return names
 }
 
 func clipboardFormatName(format uint32) string {
@@ -138,12 +361,12 @@ func clipboardFormatName(format uint32) string {
 }
 
 // openClipboardWithRetry 以指数退避重试打开剪贴板，最多 attempts 次。
-func openClipboardWithRetry(attempts int) error {
+func openClipboardWithRetry(attempts int) (int, error) {
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		ok, _, err := procOpenClipboard.Call(0)
 		if ok != 0 {
-			return nil
+			return i + 1, nil
 		}
 		if err != syscall.Errno(0) {
 			lastErr = err
@@ -154,7 +377,18 @@ func openClipboardWithRetry(attempts int) error {
 			time.Sleep(time.Duration(10*(1<<i)) * time.Millisecond)
 		}
 	}
-	return lastErr
+	return attempts, lastErr
+}
+
+func closeClipboard() error {
+	ok, _, err := procCloseClipboard.Call()
+	if ok != 0 {
+		return nil
+	}
+	if err != syscall.Errno(0) {
+		return err
+	}
+	return errors.New("CloseClipboard failed")
 }
 
 func isClipboardFormatAvailable(format uint32) bool {
@@ -167,16 +401,16 @@ func readClipboardBytes(format uint32) ([]byte, error) {
 	handle, _, err := procGetClipboardData.Call(uintptr(format))
 	if handle == 0 {
 		if err != syscall.Errno(0) {
-			return nil, fmt.Errorf("GetClipboardData(%d): %w", format, err)
+			return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: clipboardFormatName(format), err: err}
 		}
-		return nil, nil
+		return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: clipboardFormatName(format), err: errClipboardDataUnavailable}
 	}
 	ptr, _, err := procGlobalLock.Call(handle)
 	if ptr == 0 {
 		if err != syscall.Errno(0) {
-			return nil, fmt.Errorf("GlobalLock(%d): %w", format, err)
+			return nil, &clipboardOperationError{stage: clipboardReadStageLockData, format: clipboardFormatName(format), err: err}
 		}
-		return nil, nil
+		return nil, &clipboardOperationError{stage: clipboardReadStageLockData, format: clipboardFormatName(format), err: errors.New("GlobalLock failed")}
 	}
 	defer procGlobalUnlock.Call(handle)
 	size, _, _ := procGlobalSize.Call(handle)
@@ -191,16 +425,16 @@ func readUnicodeTextClipboard() (*ClipboardSnapshot, error) {
 	handle, _, err := procGetClipboardData.Call(cfUnicodeText)
 	if handle == 0 {
 		if err != syscall.Errno(0) {
-			return nil, fmt.Errorf("GetClipboardData(CF_UNICODETEXT): %w", err)
+			return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: "CF_UNICODETEXT", err: err}
 		}
-		return nil, nil
+		return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: "CF_UNICODETEXT", err: errClipboardDataUnavailable}
 	}
 	ptr, _, err := procGlobalLock.Call(handle)
 	if ptr == 0 {
 		if err != syscall.Errno(0) {
-			return nil, fmt.Errorf("GlobalLock(CF_UNICODETEXT): %w", err)
+			return nil, &clipboardOperationError{stage: clipboardReadStageLockData, format: "CF_UNICODETEXT", err: err}
 		}
-		return nil, nil
+		return nil, &clipboardOperationError{stage: clipboardReadStageLockData, format: "CF_UNICODETEXT", err: errors.New("GlobalLock failed")}
 	}
 	defer procGlobalUnlock.Call(handle)
 
@@ -227,9 +461,9 @@ func readFileDropClipboard(cfg Config) (*ClipboardSnapshot, error) {
 	handle, _, err := procGetClipboardData.Call(cfHDrop)
 	if handle == 0 {
 		if err != syscall.Errno(0) {
-			return nil, fmt.Errorf("GetClipboardData(CF_HDROP): %w", err)
+			return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: "CF_HDROP", err: err}
 		}
-		return nil, nil
+		return nil, &clipboardOperationError{stage: clipboardReadStageGetData, format: "CF_HDROP", err: errClipboardDataUnavailable}
 	}
 
 	count, _, _ := procDragQueryFileW.Call(handle, 0xFFFFFFFF, 0, 0)
