@@ -263,7 +263,7 @@
 /* ── H5（≤768px）：来源应用升级为底部 sheet 弹窗 ─────────────
    同一份 DOM：桌面端是锚定按钮的下拉浮层；窄屏下 pop 变 fixed
    全屏壳（遮罩铺满、面板贴底），规避窄视口溢出与软键盘顶歪
-   绝对定位浮层的问题。断点 768 与 history.css sidebar 布局的
+   绝对定位浮层的问题。断点 768 与 history.css left-right 布局的
    min-width:769 衔接；层级与 .modal-overlay(200) 同一体系。 */
 @media (max-width: 768px) {
   /* sheet 打开时锁定背景滚动（纯 CSS，无需 JS 操作 body.style） */

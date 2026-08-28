@@ -81,7 +81,7 @@ func TestWebSourcesHaveNoHardcodedChinese(t *testing.T) {
 		if ext != ".html" && ext != ".js" {
 			return nil
 		}
-		if strings.Contains(name, "_test") || name == "web/__layout_check.html" {
+		if strings.Contains(name, "_test") {
 			return nil
 		}
 		data, readErr := fs.ReadFile(webFS, name)

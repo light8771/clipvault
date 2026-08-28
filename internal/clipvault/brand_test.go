@@ -428,7 +428,7 @@ func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
 	}
 	cfg := manager.Get()
 	cfg.Brand.Title = "Locked ClipVault"
-	cfg.Theme.FontScale = 130
+	cfg.Appearance.FontScale = 130
 	lockHash, err := newPasswordHash("AppearancePass1")
 	if err != nil {
 		t.Fatal(err)
@@ -447,14 +447,19 @@ func TestPublicAppearanceContainsOnlyVisualSettings(t *testing.T) {
 		t.Fatalf("public appearance exposes sensitive configuration: %s", result.Body.String())
 	}
 	var appearance struct {
-		Brand BrandConfig `json:"brand"`
-		Theme ThemeConfig `json:"theme"`
+		Brand       BrandConfig         `json:"brand"`
+		Appearance  AppearanceSettings  `json:"appearance"`
+		Navigation  NavigationSettings  `json:"navigation"`
+		HistoryPage HistoryPageSettings `json:"historyPage"`
 	}
 	if err := json.Unmarshal(result.Body.Bytes(), &appearance); err != nil {
 		t.Fatal(err)
 	}
-	if appearance.Brand.Title != cfg.Brand.Title || appearance.Theme.FontScale != 130 {
+	if appearance.Brand.Title != cfg.Brand.Title || appearance.Appearance.FontScale != 130 {
 		t.Fatalf("appearance = %#v", appearance)
+	}
+	if appearance.Navigation.Sticky != cfg.Navigation.Sticky || appearance.HistoryPage.Columns != cfg.HistoryPage.Columns {
+		t.Fatalf("public appearance layout sections = %#v / %#v", appearance.Navigation, appearance.HistoryPage)
 	}
 }
 
@@ -521,7 +526,7 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	}
 	cfg := manager.Get()
 	cfg.Brand.Title = "Locked ClipVault"
-	cfg.Theme.FontScale = 130
+	cfg.Appearance.FontScale = 130
 	if err := manager.Update(cfg); err != nil {
 		t.Fatalf("update visual config: %v", err)
 	}
@@ -563,13 +568,13 @@ func TestBrandEndpointsThroughHTTPServer(t *testing.T) {
 	}
 	var appearance struct {
 		Data struct {
-			Brand BrandConfig `json:"brand"`
-			Theme ThemeConfig `json:"theme"`
+			Brand      BrandConfig        `json:"brand"`
+			Appearance AppearanceSettings `json:"appearance"`
 		} `json:"data"`
 	}
 	appearanceDecodeErr := json.NewDecoder(appearanceRes.Body).Decode(&appearance)
 	appearanceRes.Body.Close()
-	if appearanceRes.StatusCode != http.StatusOK || appearanceDecodeErr != nil || appearance.Data.Brand.Title != cfg.Brand.Title || appearance.Data.Theme.FontScale != cfg.Theme.FontScale {
+	if appearanceRes.StatusCode != http.StatusOK || appearanceDecodeErr != nil || appearance.Data.Brand.Title != cfg.Brand.Title || appearance.Data.Appearance.FontScale != cfg.Appearance.FontScale {
 		t.Fatalf("public appearance = status %d, value %#v, error %v", appearanceRes.StatusCode, appearance, appearanceDecodeErr)
 	}
 

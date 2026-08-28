@@ -188,16 +188,16 @@ func readableThemePalette(p themePaletteColors, dark bool) themeResolvedColors {
 }
 
 // customThemePalette 对应前端的 customPalette：自定义皮肤只改品牌色，表面色沿用 graphite。
-func customThemePalette(theme ThemeConfig, dark bool) themeResolvedColors {
+func customThemePalette(appearance AppearanceSettings, dark bool) themeResolvedColors {
 	neutral := themePresetPalettes["graphite"][themeModeKey(dark)]
 	surfaces := []string{neutral.Card, neutral.Bg, neutral.Bg2}
-	primary := ensureThemeContrastOnSurfaces(validThemeHex(theme.Primary, "#14B8A6"), surfaces, 4.5, []float64{.12})
+	primary := ensureThemeContrastOnSurfaces(validThemeHex(appearance.Primary, "#14B8A6"), surfaces, 4.5, []float64{.12})
 	blendTarget := "#000000"
 	if dark {
 		blendTarget = "#FFFFFF"
 	}
 	hover := ensureThemeContrastOnSurfaces(blendThemeHex(primary, blendTarget, .12), surfaces, 4.5, []float64{.12})
-	accent := ensureThemeContrastOnSurfaces(validThemeHex(theme.Accent, "#F97316"), surfaces, 4.5, []float64{.1, .16})
+	accent := ensureThemeContrastOnSurfaces(validThemeHex(appearance.Accent, "#F97316"), surfaces, 4.5, []float64{.1, .16})
 	return themeResolvedColors{
 		P: primary, P2: hover, Accent: accent,
 		Bg: neutral.Bg, Bg2: neutral.Bg2, Card: neutral.Card,
@@ -213,19 +213,19 @@ func themeModeKey(dark bool) string {
 	return "light"
 }
 
-func resolveThemeColors(theme ThemeConfig, dark bool) themeResolvedColors {
-	if theme.Preset == "custom" {
-		return customThemePalette(theme, dark)
+func resolveThemeColors(appearance AppearanceSettings, dark bool) themeResolvedColors {
+	if appearance.Preset == "custom" {
+		return customThemePalette(appearance, dark)
 	}
-	modes, ok := themePresetPalettes[theme.Preset]
+	modes, ok := themePresetPalettes[appearance.Preset]
 	if !ok {
 		modes = themePresetPalettes["mint"]
 	}
 	return readableThemePalette(modes[themeModeKey(dark)], dark)
 }
 
-func themeFontScaleValue(theme ThemeConfig) string {
-	scale := theme.FontScale
+func themeFontScaleValue(appearance AppearanceSettings) string {
+	scale := appearance.FontScale
 	if scale == 0 {
 		scale = 100
 	}
@@ -233,23 +233,23 @@ func themeFontScaleValue(theme ThemeConfig) string {
 	return strconv.FormatFloat(float64(scale)/100, 'f', -1, 64)
 }
 
-func themeSurfaceAlpha(theme ThemeConfig) float64 {
-	opacity := theme.SurfaceOpacity
+func themeSurfaceAlpha(appearance AppearanceSettings) float64 {
+	opacity := appearance.SurfaceOpacity
 	opacity = max(0, min(100, opacity))
 	return float64(opacity) / 100
 }
 
-// themeNavAlpha 解析导航栏背景不透明度：NavOpacity 为负表示跟随界面不透明度。
-func themeNavAlpha(theme ThemeConfig) float64 {
-	if theme.NavOpacity < 0 {
-		return themeSurfaceAlpha(theme)
+// themeNavAlpha 解析导航栏背景不透明度：Opacity 为负表示跟随界面不透明度。
+func themeNavAlpha(nav NavigationSettings, appearance AppearanceSettings) float64 {
+	if nav.Opacity < 0 {
+		return themeSurfaceAlpha(appearance)
 	}
-	return float64(max(0, min(100, theme.NavOpacity))) / 100
+	return float64(max(0, min(100, nav.Opacity))) / 100
 }
 
 // themeNavBackdrop 生成导航栏 backdrop-filter 值，0 表示关闭模糊。
-func themeNavBackdrop(theme ThemeConfig) string {
-	blur := max(0, min(32, theme.NavBlur))
+func themeNavBackdrop(nav NavigationSettings) string {
+	blur := max(0, min(32, nav.Blur))
 	if blur == 0 {
 		return "none"
 	}
@@ -257,34 +257,52 @@ func themeNavBackdrop(theme ThemeConfig) string {
 }
 
 // themeNavBorderBottom 生成导航栏底部分隔线，关闭时为 none。
-func themeNavBorderBottom(theme ThemeConfig, border string) string {
-	if !theme.NavBorder {
+func themeNavBorderBottom(nav NavigationSettings, border string) string {
+	if !nav.Divider {
 		return "none"
 	}
 	return "1px solid " + border
 }
 
-// themeNavPosition 返回导航栏 position 值：NavSticky 为 true 时固定悬浮顶部（sticky），否则随页面滚动（static）。
-func themeNavPosition(theme ThemeConfig) string {
-	if !theme.NavSticky {
+// themeNavPosition 返回导航栏 position 值：Sticky 为 true 时固定悬浮顶部（sticky），否则随页面滚动（static）。
+func themeNavPosition(nav NavigationSettings) string {
+	if !nav.Sticky {
 		return "static"
 	}
 	return "sticky"
 }
 
 // themePreviewMaxH 生成历史卡片文本预览的最大高度（N 行 × 1.7em 行高），0 为不限制。
-func themePreviewMaxH(theme ThemeConfig) string {
-	lines := max(0, min(20, theme.PreviewLines))
+func themePreviewMaxH(previewLines int) string {
+	lines := max(0, min(20, previewLines))
 	if lines == 0 {
 		return "none"
 	}
 	return strconv.FormatFloat(float64(lines)*1.7, 'f', -1, 64) + "em"
 }
 
-// themeRootVars 生成与前端 applyTheme 写入 documentElement 完全一致的 CSS 变量声明。
-func themeRootVars(theme ThemeConfig, dark bool) string {
-	colors := resolveThemeColors(theme, dark)
-	alpha := themeSurfaceAlpha(theme)
+// themePreviewMinH 生成固定占位模式下的预览最小高度：开启时与最大高度一致
+// （内容不足也撑满行数，卡片高度整齐）；关闭或行数不限时为 0。
+func themePreviewMinH(page HistoryPageSettings) string {
+	if page.FixedPreview && page.PreviewLines > 0 {
+		return themePreviewMaxH(page.PreviewLines)
+	}
+	return "0em"
+}
+
+// historyContentMaxWidth 解析历史页内容区最大宽度：auto 模式充分使用可用空间。
+func historyContentMaxWidth(page HistoryPageSettings) string {
+	if page.ContentWidthMode == "custom" {
+		return strconv.Itoa(max(720, min(3200, page.ContentWidth))) + "px"
+	}
+	return "none"
+}
+
+// themeRootVars 生成与前端 applyTheme 写入 documentElement 完全一致的 CSS 变量声明
+// （含历史页布局变量，见 history-layout.js 的 applyHistoryPageLayout）。
+func themeRootVars(appearance AppearanceSettings, nav NavigationSettings, page HistoryPageSettings, dark bool) string {
+	colors := resolveThemeColors(appearance, dark)
+	alpha := themeSurfaceAlpha(appearance)
 	var sb strings.Builder
 	write := func(name, value string) {
 		sb.WriteString(name)
@@ -303,11 +321,15 @@ func themeRootVars(theme ThemeConfig, dark bool) string {
 	write("--card", colors.Card)
 	write("--card-border", colors.Border)
 	write("--card-rgba", themeHexToRgba(colors.Card, alpha))
-	write("--nav-bg", themeHexToRgba(colors.Bg, themeNavAlpha(theme)))
-	write("--nav-backdrop", themeNavBackdrop(theme))
-	write("--nav-border-bottom", themeNavBorderBottom(theme, colors.Border))
-	write("--nav-position", themeNavPosition(theme))
-	write("--preview-max-h", themePreviewMaxH(theme))
+	write("--nav-bg", themeHexToRgba(colors.Bg, themeNavAlpha(nav, appearance)))
+	write("--nav-backdrop", themeNavBackdrop(nav))
+	write("--nav-border-bottom", themeNavBorderBottom(nav, colors.Border))
+	write("--nav-position", themeNavPosition(nav))
+	write("--preview-max-h", themePreviewMaxH(page.PreviewLines))
+	write("--preview-min-h", themePreviewMinH(page))
+	write("--history-content-max-width", historyContentMaxWidth(page))
+	write("--history-horizontal-padding", strconv.Itoa(max(0, min(80, page.HorizontalPadding)))+"px")
+	write("--history-card-gap", strconv.Itoa(max(0, min(32, page.CardGap)))+"px")
 	write("--tx", colors.Tx)
 	write("--sub", colors.Sub)
 	write("--muted", colors.Muted)
@@ -326,22 +348,22 @@ func themeRootVars(theme ThemeConfig, dark bool) string {
 // 兼容页面 CSP（style-src 'self' 禁止内联 <style>，内联块会被浏览器直接丢弃，
 // 首帧退化为 tokens.css 的默认皮肤）。system 模式下 data-theme-mode 属性
 // 由 web/theme-mode.js 在首帧前同步设置。
-func themeBootCSS(theme ThemeConfig) string {
-	fontScale := themeFontScaleValue(theme)
-	switch theme.Mode {
+func themeBootCSS(appearance AppearanceSettings, nav NavigationSettings, page HistoryPageSettings) string {
+	fontScale := themeFontScaleValue(appearance)
+	switch appearance.Mode {
 	case "light", "dark":
-		return `:root{` + themeRootVars(theme, theme.Mode == "dark") + `--font-scale:` + fontScale + `}`
+		return `:root{` + themeRootVars(appearance, nav, page, appearance.Mode == "dark") + `--font-scale:` + fontScale + `}`
 	default:
-		return `:root{` + themeRootVars(theme, false) + `--font-scale:` + fontScale + `}` +
-			`@media (prefers-color-scheme: dark){:root{` + themeRootVars(theme, true) + `}}`
+		return `:root{` + themeRootVars(appearance, nav, page, false) + `--font-scale:` + fontScale + `}` +
+			`@media (prefers-color-scheme: dark){:root{` + themeRootVars(appearance, nav, page, true) + `}}`
 	}
 }
 
 // themeFixedMode 返回固定显示模式（"light"/"dark"），system 模式返回空串，
 // 由客户端脚本按系统偏好设置属性。
-func themeFixedMode(theme ThemeConfig) string {
-	if theme.Mode == "light" || theme.Mode == "dark" {
-		return theme.Mode
+func themeFixedMode(appearance AppearanceSettings) string {
+	if appearance.Mode == "light" || appearance.Mode == "dark" {
+		return appearance.Mode
 	}
 	return ""
 }

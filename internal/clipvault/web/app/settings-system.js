@@ -2,7 +2,7 @@ import { app } from './app-context.js';
 
 const t = window.clipvaultI18n.t;
 
-// 设置首页运行信息区域。
+// 设置首页运行信息区域 + 维护页「联系支持」区块。
 export function registerSettingsSystem() {
   const elStatus = document.getElementById('sysStatus');
   const elRecords = document.getElementById('sysRecords');
@@ -47,6 +47,74 @@ export function registerSettingsSystem() {
     elUptime.textContent = formatUptime(baseUptimeSec + elapsed);
   }
 
+  // ── 联系支持 ──────────────────────────────────────────────
+  // 联系方式属于应用元信息（ApplicationMetadata.Support，后端只读下发），
+  // 未配置的条目隐藏，全部为空时整个区块不渲染。
+  async function copySupportText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      app.toast(t('maintenance.support_copied'));
+    } catch (_) {
+      app.toast(t('common.copy_manual'), 'err');
+    }
+  }
+
+  function flashCopied(button) {
+    const label = button.textContent;
+    button.textContent = t('maintenance.support_copied');
+    button.disabled = true;
+    setTimeout(() => {
+      button.textContent = label;
+      button.disabled = false;
+    }, 1200);
+  }
+
+  function renderSupport(support) {
+    const wrap = document.getElementById('supportFields');
+    if (!wrap) return;
+    const value = support || {};
+    const email = String(value.email || '').trim();
+    const qq = String(value.qq || '').trim();
+    const website = String(value.website || '').trim();
+    const emailRow = document.getElementById('supportEmailRow');
+    const qqRow = document.getElementById('supportQQRow');
+    const websiteRow = document.getElementById('supportWebsiteRow');
+    const emailValue = document.getElementById('supportEmailValue');
+    const qqValue = document.getElementById('supportQQValue');
+    const websiteValue = document.getElementById('supportWebsiteValue');
+    const websiteOpen = document.getElementById('supportWebsiteOpen');
+    if (emailRow && emailValue) {
+      emailRow.hidden = !email;
+      emailRow.classList.toggle('hidden', !email);
+      emailValue.textContent = email;
+    }
+    if (qqRow && qqValue) {
+      qqRow.hidden = !qq;
+      qqRow.classList.toggle('hidden', !qq);
+      qqValue.textContent = qq;
+    }
+    if (websiteRow && websiteValue) {
+      websiteRow.hidden = !website;
+      websiteRow.classList.toggle('hidden', !website);
+      websiteValue.textContent = website;
+      websiteValue.href = website;
+      if (websiteOpen) websiteOpen.href = website;
+    }
+    wrap.hidden = !email && !qq && !website;
+    document.getElementById('s-maintenance-support')?.classList.toggle('hidden', !email && !qq && !website);
+    wrap.querySelectorAll('[data-support-copy]').forEach(button => {
+      if (button.dataset.supportBound === '1') return;
+      button.dataset.supportBound = '1';
+      button.addEventListener('click', async () => {
+        const source = document.getElementById(button.dataset.supportCopy);
+        const text = (source?.textContent || '').trim();
+        if (!text) return;
+        await copySupportText(text);
+        flashCopied(button);
+      });
+    });
+  }
+
   app.loadSystemInfo = async function loadSystemInfo() {
     try {
       const d = await app.fetch('/api/v1/system/info').then(r => r.json());
@@ -59,6 +127,7 @@ export function registerSettingsSystem() {
         elDataDir.textContent = d.dataDir || '-';
         elDataDir.title = d.dataDir || '';
       }
+      renderSupport(d.support);
       baseUptimeSec = Number(d.uptimeSec) || 0;
       baseFetchedAt = Date.now();
       renderUptime();

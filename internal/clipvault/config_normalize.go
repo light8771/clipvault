@@ -13,7 +13,9 @@ func normalizeConfig(cfg *Config) {
 	def := DefaultConfig()
 	normalizeBrand(&cfg.Brand, def.Brand)
 	normalizeBackground(&cfg.Background, def.Background)
-	normalizeTheme(&cfg.Theme, def.Theme)
+	normalizeAppearance(&cfg.Appearance, def.Appearance)
+	normalizeNavigation(&cfg.Navigation, def.Navigation)
+	normalizeHistoryPage(&cfg.HistoryPage, def.HistoryPage)
 	normalizeNotifications(&cfg.Notifications)
 	if cfg.Search.ListenAddr == "" {
 		cfg.Search.ListenAddr = def.Search.ListenAddr
@@ -202,46 +204,65 @@ func clampInt(value, min, max int) int {
 	return value
 }
 
-func normalizeTheme(theme *ThemeConfig, def ThemeConfig) {
-	switch theme.Preset {
+func normalizeAppearance(appearance *AppearanceSettings, def AppearanceSettings) {
+	switch appearance.Preset {
 	case "mint", "ocean", "sunrise", "graphite", "custom":
 	default:
-		theme.Preset = def.Preset
+		appearance.Preset = def.Preset
 	}
-	switch theme.Mode {
+	switch appearance.Mode {
 	case "system", "light", "dark":
 	default:
-		theme.Mode = def.Mode
+		appearance.Mode = def.Mode
 	}
-	theme.FontScale = clampInt(theme.FontScale, 100, 150)
-	theme.SurfaceOpacity = clampInt(theme.SurfaceOpacity, 0, 100)
-	switch theme.Layout {
-	case "vertical", "sidebar":
-	default:
-		theme.Layout = def.Layout
-	}
-	switch theme.HistoryColumns {
-	case "auto", "1", "2", "3", "4":
-	default:
-		theme.HistoryColumns = def.HistoryColumns
-	}
-	// auto 模式由系统按可用宽度自适应列数，强制固定语义不适用。
-	if theme.HistoryColumns == "auto" {
-		theme.HistoryForceColumns = false
-	}
-	theme.PreviewLines = clampInt(theme.PreviewLines, 0, 20)
-	theme.NavOpacity = clampInt(theme.NavOpacity, -1, 100)
-	theme.NavBlur = clampInt(theme.NavBlur, 0, 32)
-	if theme.Preset != "custom" {
-		theme.Primary = ""
-		theme.Accent = ""
+	appearance.FontScale = clampInt(appearance.FontScale, 100, 150)
+	appearance.SurfaceOpacity = clampInt(appearance.SurfaceOpacity, 0, 100)
+	if appearance.Preset != "custom" {
+		appearance.Primary = ""
+		appearance.Accent = ""
 		return
 	}
-	if !isHexColor(theme.Primary) {
-		theme.Primary = "#14B8A6"
+	if !isHexColor(appearance.Primary) {
+		appearance.Primary = "#14B8A6"
 	}
-	if !isHexColor(theme.Accent) {
-		theme.Accent = "#F97316"
+	if !isHexColor(appearance.Accent) {
+		appearance.Accent = "#F97316"
+	}
+}
+
+func normalizeNavigation(nav *NavigationSettings, def NavigationSettings) {
+	nav.Blur = clampInt(nav.Blur, 0, 32)
+	// -1 表示跟随界面不透明度（合法显式值），其余收敛到 -1..100。
+	nav.Opacity = clampInt(nav.Opacity, -1, 100)
+}
+
+func normalizeHistoryPage(page *HistoryPageSettings, def HistoryPageSettings) {
+	switch page.Layout {
+	case "top-bottom", "left-right":
+	default:
+		page.Layout = def.Layout
+	}
+	// 列数：0=自动，1-4 指定；越界回退自动。
+	if page.Columns < 0 || page.Columns > 4 {
+		page.Columns = def.Columns
+	}
+	// 自动模式下强制固定列数语义不适用。
+	if page.Columns == 0 {
+		page.ForceColumns = false
+	}
+	switch page.ContentWidthMode {
+	case "auto", "custom":
+	default:
+		page.ContentWidthMode = def.ContentWidthMode
+	}
+	// ContentWidth 在 auto 模式下只是切换 custom 后的备用值，始终收敛到合法区间。
+	page.ContentWidth = clampInt(page.ContentWidth, 720, 3200)
+	page.HorizontalPadding = clampInt(page.HorizontalPadding, 0, 80)
+	page.CardGap = clampInt(page.CardGap, 0, 32)
+	page.PreviewLines = clampInt(page.PreviewLines, 0, 20)
+	// 固定占位只在限定行数时有意义；不限制（0 行）时语义不适用，强制关闭。
+	if page.PreviewLines == 0 {
+		page.FixedPreview = false
 	}
 }
 

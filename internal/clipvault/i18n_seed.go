@@ -14,7 +14,7 @@ import (
 // I18nSchemaVersion 是官方词条集的版本。新增/修改/移除官方词条时递增；
 // 它与表结构版本（duckdbstorage.SchemaVersion）解耦——词条演进不需要
 // 重建数据库，只在启动时按标记增量同步。
-const I18nSchemaVersion = 2
+const I18nSchemaVersion = 4
 
 // i18nSeedVersionSettingKey 是 settings 表中记录已同步词条集版本的键。
 // 已同步的库每次启动只花一次 settings 读，避免全量 upsert 的启动开销。
@@ -36,7 +36,7 @@ type BuiltinTranslation struct {
 
 // BuiltinTranslations 聚合全部模块词条（顺序不影响运行，仅保证 diff 稳定）。
 var BuiltinTranslations = slices.Concat(
-	i18nSeedCore, i18nSeedSettings, i18nSeedStorage, i18nSeedAppearance, i18nSeedHistory, i18nSeedChannels, i18nSeedI18n, i18nSeedConfig,
+	i18nSeedCore, i18nSeedSettings, i18nSeedStorage, i18nSeedAppearance, i18nSeedLayout, i18nSeedHistory, i18nSeedChannels, i18nSeedI18n, i18nSeedConfig,
 )
 
 // builtinI18nLanguages 返回官方语言定义。base 仅供编辑页参考展示；

@@ -1,92 +1,83 @@
-import { app } from "./app-context.js";
+// ── 历史页布局应用 ────────────────────────────────────────────
+// 职责边界（布局重构后的约定）：
+//   1. 读取 HistoryPageSettings；
+//   2. 解析当前模式；
+//   3. 把模式写到 html 的 data 属性与 CSS 变量上。
+// 列数阶梯、内容宽度、边距、间距全部由 CSS 消费（见 history.css 的
+// PageContainer 与 List 断点体系）；本模块不监听窗口尺寸、不计算
+// 「当前宽度应该几列」，也不设置任何卡片最小宽度。
+import { app } from './app-context.js';
 
-// 历史列表列数运行时（clipvault-history-list-columns-force-ai-spec）。
-// preferredColumns（auto/1..4）与 forceColumns 持久化于配置 theme；
-// capacityColumns / actualColumns 为运行时派生状态，不持久化。
-const MAX_COLUMNS = 4;
-// 卡片「舒适宽度」仅用于 capacity 判断，不得写成卡片 CSS min-width：
-// 强制固定列数模式下卡片允许被持续压缩（spec §6.2 / §7）。
-const CARD_COMFORT_WIDTH = 480;
-const LIST_GAP = 10;
-// 内容区最大宽度随实际列数联动，1440px 不再是 3/4 列的硬上限（spec §14.1）
-const MAIN_MAX_WIDTH = { 1: 900, 2: 1440, 3: 1900, 4: 2400 };
+const DEFAULTS = {
+  layout: 'top-bottom',
+  columns: 0,
+  forceColumns: false,
+  contentWidthMode: 'auto',
+  contentWidth: 1600,
+  horizontalPadding: 24,
+  cardGap: 12,
+  previewLines: 3,
+  fixedPreview: false,
+};
 
-function normalizeColumns(value) {
-  return ["auto", "1", "2", "3", "4"].includes(value) ? value : "auto";
+function clampInt(value, min, max, fallback) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
-function normalizeForce(value, columns) {
-  // auto 模式由系统自适应列数，强制固定语义无效（spec §2.2）
-  return columns !== "auto" && value === true;
+function parseHistoryPageSettings(page) {
+  const settings = {
+    layout: page?.layout === 'left-right' ? 'left-right' : 'top-bottom',
+    columns: clampInt(page?.columns, 0, 4, DEFAULTS.columns),
+    forceColumns: page?.forceColumns === true,
+    contentWidthMode: page?.contentWidthMode === 'custom' ? 'custom' : 'auto',
+    contentWidth: clampInt(page?.contentWidth, 720, 3200, DEFAULTS.contentWidth),
+    horizontalPadding: clampInt(page?.horizontalPadding, 0, 80, DEFAULTS.horizontalPadding),
+    cardGap: clampInt(page?.cardGap, 0, 32, DEFAULTS.cardGap),
+    previewLines: clampInt(page?.previewLines, 0, 20, DEFAULTS.previewLines),
+    fixedPreview: page?.fixedPreview === true,
+  };
+  // 自动列数下强制固定语义不适用（与后端 normalize 规则一致）。
+  if (settings.columns === 0) settings.forceColumns = false;
+  // 不限制行数时固定占位语义不适用（与后端 normalize 规则一致）。
+  if (settings.previewLines === 0) settings.fixedPreview = false;
+  return settings;
 }
 
-// 当前可用宽度最多能「舒适」容纳几列（1..4）
-function capacityColumns(availableWidth) {
-  for (let columns = MAX_COLUMNS; columns >= 2; columns--) {
-    if (availableWidth >= columns * CARD_COMFORT_WIDTH + (columns - 1) * LIST_GAP) {
-      return columns;
-    }
-  }
-  return 1;
-}
-
-function resolveActualColumns(preferred, force, capacity) {
-  if (preferred === "auto") return capacity;
-  const configured = Number(preferred);
-  // 强制模式严格等于用户设置；默认模式为「最大列数」，随容量升降（spec §2）
-  return force ? configured : Math.min(configured, capacity);
-}
-
-// 外层真实可用内容宽度：视口宽 −（sidebar 布局侧栏让位 270px）− main 水平内边距。
-// 刻意不测量 main / .list 自身宽度——它们受 max-width 联动影响，会形成
-// actualColumns → max-width → 测量宽度 → capacityColumns 的循环（spec §15）。
-function outerAvailableWidth(main) {
+// applyHistoryPageLayout(page) 把历史页设置翻译为页面状态：
+//   html[data-history-layout]        top-bottom | left-right
+//   html[data-history-columns]       0（自动）| 1-4（最大 N 列）
+//   html[data-history-columns-force] 存在时强制固定列数（CSS 无断点、不降级）
+//   --history-content-max-width      auto → none；custom → Npx
+//   --history-horizontal-padding     页面左右边距
+//   --history-card-gap               卡片横向/纵向间距
+//   --preview-max-h                  文本预览行数对应的最大高度
+//   --preview-min-h                  固定占位高度（开启时同 --preview-max-h，否则 0）
+function applyHistoryPageLayout(page) {
+  const settings = parseHistoryPageSettings(page);
   const root = document.documentElement;
-  let width = root.clientWidth;
-  if (
-    root.dataset.historyLayout === "sidebar" &&
-    window.matchMedia("(min-width: 769px)").matches
-  ) {
-    width -= 270;
+  root.dataset.historyLayout = settings.layout;
+  root.dataset.historyColumns = String(settings.columns);
+  if (settings.forceColumns && settings.columns > 0) {
+    root.dataset.historyColumnsForce = String(settings.columns);
+  } else {
+    delete root.dataset.historyColumnsForce;
   }
-  const styles = getComputedStyle(main);
-  width -= (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
-  return width;
+  root.style.setProperty('--history-content-max-width',
+    settings.contentWidthMode === 'custom' ? `${settings.contentWidth}px` : 'none');
+  root.style.setProperty('--history-horizontal-padding', `${settings.horizontalPadding}px`);
+  root.style.setProperty('--history-card-gap', `${settings.cardGap}px`);
+  const previewMaxH = settings.previewLines > 0 ? `${settings.previewLines * 1.7}em` : 'none';
+  const previewMinH = settings.fixedPreview ? previewMaxH : '0em';
+  root.style.setProperty('--preview-max-h', previewMaxH);
+  root.style.setProperty('--preview-min-h', previewMinH);
+  // 文本截断工具在渲染卡片时读取行数（0 为不限制）。
+  app.previewLines = settings.previewLines;
+  app.historyPageSettings = settings;
+  return settings;
 }
 
 export function registerHistoryLayout() {
-  let lastTheme = null;
-
-  app.applyHistoryLayout = function applyHistoryLayout(theme) {
-    const main = document.getElementById("viewHistory");
-    if (!main) return; // 非历史页
-    lastTheme = theme || null;
-
-    const preferred = normalizeColumns(theme?.historyColumns);
-    const force = normalizeForce(theme?.historyForceColumns, preferred);
-    let actual;
-    if (force) {
-      actual = Number(preferred); // 强制模式：不判断宽度，空间不足时压缩卡片
-    } else {
-      actual = resolveActualColumns(preferred, false, capacityColumns(outerAvailableWidth(main)));
-    }
-    actual = Math.min(Math.max(actual, 1), MAX_COLUMNS);
-
-    const root = document.documentElement;
-    root.style.setProperty("--history-columns", String(actual));
-    root.style.setProperty("--history-main-max", `${MAIN_MAX_WIDTH[actual]}px`);
-  };
-
-  // 视口尺寸变化（resize / 最大化 / 还原 / 分屏 / 开发者工具）后重算。
-  // 监听 documentElement 而不是 .list，避免 max-width 联动的自循环。
-  let timer = 0;
-  const schedule = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => app.applyHistoryLayout(lastTheme), 80);
-  };
-  if (typeof ResizeObserver === "function") {
-    new ResizeObserver(schedule).observe(document.documentElement);
-  } else {
-    window.addEventListener("resize", schedule);
-  }
+  app.applyHistoryPageLayout = applyHistoryPageLayout;
 }

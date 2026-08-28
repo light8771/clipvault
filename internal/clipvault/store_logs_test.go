@@ -118,7 +118,7 @@ func TestSearchHistoryDedupeAndClear(t *testing.T) {
 func TestDiffConfigChanges(t *testing.T) {
 	oldCfg := DefaultConfig()
 	newCfg := oldCfg
-	newCfg.Theme.Mode = "dark"
+	newCfg.Appearance.Mode = "dark"
 	newCfg.MaxTextChars = oldCfg.MaxTextChars + 1
 	newCfg.Autostart.Enabled = !oldCfg.Autostart.Enabled
 	newCfg.Backup.DirBackup.Password = "new-secret"
@@ -131,8 +131,8 @@ func TestDiffConfigChanges(t *testing.T) {
 	}
 	// 操作记录持久化词条 key（config_field.* / config_value.*），
 	// 由前端展示时翻译。
-	if c, ok := byPath["theme.mode"]; !ok || c.Label != "config_field.theme_mode" || c.New != "dark" {
-		t.Fatalf("theme.mode change missing or wrong: %+v", c)
+	if c, ok := byPath["appearance.mode"]; !ok || c.Label != "config_field.appearance_mode" || c.New != "dark" {
+		t.Fatalf("appearance.mode change missing or wrong: %+v", c)
 	}
 	if c, ok := byPath["maxTextChars"]; !ok || c.Label != "config_field.max_text_chars" {
 		t.Fatalf("maxTextChars change missing or wrong: %+v", c)

@@ -3,6 +3,7 @@ package clipvault
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 type Config struct {
@@ -13,20 +14,24 @@ type Config struct {
 	// 关闭后不再捕获任何来源信息，隐私敏感环境可关闭。
 	RecordSourceInfo bool `json:"recordSourceInfo"`
 	// Source 控制"来源应用"的展示、筛选与搜索；仅当顶层 RecordSourceInfo=true 时有意义。
-	Source        SourceAppConfig    `json:"source"`
-	Brand         BrandConfig        `json:"brand"`
-	Background    BackgroundConfig   `json:"background"`
-	Theme         ThemeConfig        `json:"theme"`
-	Search        SearchConfig       `json:"search"`
-	Sensitive     SensitiveConfig    `json:"sensitive"`
-	Autostart     AutostartConfig    `json:"autostart"`
-	Notifications NotificationConfig `json:"notifications"`
-	Security      SecurityConfig     `json:"security"`
-	Hotkey        HotkeyConfig       `json:"hotkey"`
-	SearchHotkey  HotkeyConfig       `json:"searchHotkey"`
-	Image         ImageCaptureConfig `json:"image"`
-	Popup         SearchPopupConfig  `json:"popup"`
-	Backup        BackupConfig       `json:"backup"`
+	Source     SourceAppConfig  `json:"source"`
+	Brand      BrandConfig      `json:"brand"`
+	Background BackgroundConfig `json:"background"`
+	// Appearance / Navigation / HistoryPage 按作用域拆分：
+	// 全局视觉、全局导航栏、历史页专属布局互不污染。
+	Appearance    AppearanceSettings  `json:"appearance"`
+	Navigation    NavigationSettings  `json:"navigation"`
+	HistoryPage   HistoryPageSettings `json:"historyPage"`
+	Search        SearchConfig        `json:"search"`
+	Sensitive     SensitiveConfig     `json:"sensitive"`
+	Autostart     AutostartConfig     `json:"autostart"`
+	Notifications NotificationConfig  `json:"notifications"`
+	Security      SecurityConfig      `json:"security"`
+	Hotkey        HotkeyConfig        `json:"hotkey"`
+	SearchHotkey  HotkeyConfig        `json:"searchHotkey"`
+	Image         ImageCaptureConfig  `json:"image"`
+	Popup         SearchPopupConfig   `json:"popup"`
+	Backup        BackupConfig        `json:"backup"`
 	// DataAPI 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
 	// 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。
 	DataAPI ExternalServiceConfig `json:"dataApi"`
@@ -78,6 +83,14 @@ type SearchPopupConfig struct {
 // explicitly for upgrade compatibility; missing security fields must never
 // turn password protection off silently.
 func (cfg *Config) UnmarshalJSON(data []byte) error {
+	// 一次性数据结构迁移：旧版本把全局外观、导航栏与历史页布局混在
+	// theme 对象里。检测到旧结构时拆分为 appearance/navigation/historyPage
+	// 并删除 theme 键；新结构配置直接跳过。
+	migrated, err := migrateLegacyThemeConfig(data)
+	if err != nil {
+		return err
+	}
+	data = migrated
 	type configWire Config
 	decoded := configWire(DefaultConfig())
 	if err := decodeStrictJSON(data, &decoded); err != nil {
@@ -85,7 +98,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	}
 	top, err := requiredJSONObject(data, "config",
 		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
-		"brand", "background", "theme", "search", "sensitive", "autostart",
+		"brand", "background", "appearance", "navigation", "historyPage", "search", "sensitive", "autostart",
 		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi", "mcp", "ui")
 	if err != nil {
 		return err
@@ -96,10 +109,9 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	}{
 		{"brand", []string{"title", "logoContentType", "logoVersion", "faviconContentType", "faviconVersion"}},
 		{"background", []string{"contentType", "version", "fit", "opacity", "overlay", "blur", "brightness", "contrast", "saturation", "scale", "positionX", "positionY"}},
-		// historyColumns/historyForceColumns were added after persisted configs
-		// already existed. Their absence is upgraded to DefaultConfig values;
-		// every older theme field remains part of the strict contract.
-		{"theme", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity", "layout", "previewLines", "navOpacity", "navBlur", "navBorder", "navSticky"}},
+		{"appearance", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity"}},
+		{"navigation", []string{"sticky", "blur", "opacity", "divider"}},
+		{"historyPage", []string{"layout", "columns", "forceColumns", "contentWidthMode", "contentWidth", "horizontalPadding", "cardGap", "previewLines", "fixedPreview"}},
 		{"search", []string{"listenAddr", "timeZone"}},
 		{"autostart", []string{"enabled", "appName"}},
 		{"notifications", []string{"pauseResume", "pauseTitle", "pauseBody", "resumeTitle", "resumeBody"}},
@@ -220,32 +232,43 @@ type BackgroundConfig struct {
 	PositionY   int    `json:"positionY"`
 }
 
-// ThemeConfig stores the selected UI skin. Custom primary and accent colors
-// are used only when Preset is "custom" and are normalized before persistence.
-type ThemeConfig struct {
+// AppearanceSettings 只负责全局视觉（皮肤、模式、颜色、字号、界面不透明度）。
+// 任何页面专属布局（历史页列数、宽度、导航栏表现等）禁止放入本结构。
+type AppearanceSettings struct {
 	Preset         string `json:"preset"`
 	Mode           string `json:"mode"`
 	Primary        string `json:"primary"`
 	Accent         string `json:"accent"`
 	FontScale      int    `json:"fontScale"`
 	SurfaceOpacity int    `json:"surfaceOpacity"`
-	// Layout 控制历史页排布："vertical"（默认，上下流式）或 "sidebar"（左右，笔记式）。
-	Layout string `json:"layout"`
-	// HistoryColumns 控制历史列表列数："auto"（按可用宽度自适应 1-4 列）或 "1"-"4"。
-	HistoryColumns string `json:"historyColumns"`
-	// HistoryForceColumns 为 true 时实际列数严格等于 HistoryColumns，
-	// 不再随窗口宽度自动升降列（空间不足时压缩卡片）；仅对 "1"-"4" 有效。
-	HistoryForceColumns bool `json:"historyForceColumns"`
-	// PreviewLines 限制历史卡片文本预览行数（1-20），0 表示不限制。
-	PreviewLines int `json:"previewLines"`
-	// NavOpacity 为导航栏背景不透明度（0-100），-1 表示跟随 SurfaceOpacity。
-	NavOpacity int `json:"navOpacity"`
-	// NavBlur 为导航栏毛玻璃模糊强度（0-32px），0 关闭模糊。
-	NavBlur int `json:"navBlur"`
-	// NavBorder 控制是否绘制导航栏底部分隔线。
-	NavBorder bool `json:"navBorder"`
-	// NavSticky 控制导航栏是否固定悬浮在页面顶部（true）或随页面内容一起滚动（false）。
-	NavSticky bool `json:"navSticky"`
+}
+
+// NavigationSettings 负责全局导航栏的视觉与行为。
+// 导航栏的页面内容宽度不在此配置：它由各页面自己的 PageContainer 决定。
+type NavigationSettings struct {
+	Sticky  bool `json:"sticky"`  // 固定悬浮在页面顶部（否则随内容滚动）
+	Blur    int  `json:"blur"`    // 毛玻璃模糊强度（0-32px），0 关闭
+	Opacity int  `json:"opacity"` // 背景不透明度（0-100），-1 表示跟随界面不透明度
+	Divider bool `json:"divider"` // 是否绘制底部分隔线
+}
+
+// HistoryPageSettings 集中管理历史页专属布局。
+// Columns 取 0（自动）或 1-4；ForceColumns 为 true 时严格保持 Columns 列
+// 且不设卡片最小宽度（用户选择强制模式即接受卡片被压缩）。
+// ContentWidthMode 为 "auto"（充分使用窗口可用空间）或 "custom"（居中限宽），
+// ContentWidth 仅在 custom 模式生效（auto 模式下作为切换后的备用值保留）。
+type HistoryPageSettings struct {
+	Layout            string `json:"layout"`            // "top-bottom"（默认）或 "left-right"
+	Columns           int    `json:"columns"`           // 0=自动，1-4 指定列数
+	ForceColumns      bool   `json:"forceColumns"`      // 强制按 Columns 显示，空间不足时不降级
+	ContentWidthMode  string `json:"contentWidthMode"`  // "auto" | "custom"
+	ContentWidth      int    `json:"contentWidth"`      // custom 模式的内容区宽度（720-3200px）
+	HorizontalPadding int    `json:"horizontalPadding"` // 内容距窗口左右边缘（0-80px）
+	CardGap           int    `json:"cardGap"`           // 卡片横向/纵向间距（0-32px）
+	PreviewLines      int    `json:"previewLines"`      // 文本预览行数（1-20），0 不限制
+	// FixedPreview 固定占位：内容不足 PreviewLines 行时预览区也保持满行数高度，
+	// 卡片高度整齐一致；仅在 PreviewLines > 0 时有意义（normalize 会强制收敛）。
+	FixedPreview bool `json:"fixedPreview"`
 }
 
 type SearchConfig struct {
@@ -317,6 +340,102 @@ type DirBackupConfig struct {
 	Password         string      `json:"password"`         // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
 	Scope            ExportScope `json:"scope"`            // 备份范围 full/range/incremental
 	FullFallbackDays int         `json:"fullFallbackDays"` // 距上次全量超过该天数后自动全量兜底，0=不自动兜底，默认7
+}
+
+// migrateLegacyThemeConfig 把旧版混合在 theme 对象里的配置一次性迁移为
+// appearance / navigation / historyPage 三个作用域对象，并删除 theme 键。
+// 输入不含 theme 键时原样返回；theme 键存在但不是对象时返回错误。
+// 迁移规则：
+//   - appearance：preset/mode/primary/accent/fontScale/surfaceOpacity 原样映射
+//   - navigation：navSticky→sticky、navBlur→blur、navOpacity→opacity、navBorder→divider
+//   - historyPage：layout vertical→top-bottom、sidebar→left-right；
+//     historyColumns "auto"→0、"1"-"4"→1-4；historyForceColumns→forceColumns；
+//     previewLines→previewLines；新增字段取默认值
+func migrateLegacyThemeConfig(data []byte) ([]byte, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return data, nil // 非对象 JSON 交给 decodeStrictJSON 报出规范错误
+	}
+	legacy, exists := raw["theme"]
+	if !exists {
+		return data, nil
+	}
+	var legacyTheme struct {
+		Preset              string `json:"preset"`
+		Mode                string `json:"mode"`
+		Primary             string `json:"primary"`
+		Accent              string `json:"accent"`
+		FontScale           int    `json:"fontScale"`
+		SurfaceOpacity      int    `json:"surfaceOpacity"`
+		Layout              string `json:"layout"`
+		HistoryColumns      string `json:"historyColumns"`
+		HistoryForceColumns bool   `json:"historyForceColumns"`
+		PreviewLines        int    `json:"previewLines"`
+		NavOpacity          int    `json:"navOpacity"`
+		NavBlur             int    `json:"navBlur"`
+		NavBorder           bool   `json:"navBorder"`
+		NavSticky           bool   `json:"navSticky"`
+	}
+	if err := json.Unmarshal(legacy, &legacyTheme); err != nil {
+		return nil, fmt.Errorf("config.theme legacy migration failed: %w", err)
+	}
+	if _, exists := raw["appearance"]; !exists {
+		raw["appearance"] = mustMarshalJSON(AppearanceSettings{
+			Preset:         legacyTheme.Preset,
+			Mode:           legacyTheme.Mode,
+			Primary:        legacyTheme.Primary,
+			Accent:         legacyTheme.Accent,
+			FontScale:      legacyTheme.FontScale,
+			SurfaceOpacity: legacyTheme.SurfaceOpacity,
+		})
+	}
+	if _, exists := raw["navigation"]; !exists {
+		raw["navigation"] = mustMarshalJSON(NavigationSettings{
+			Sticky:  legacyTheme.NavSticky,
+			Blur:    legacyTheme.NavBlur,
+			Opacity: legacyTheme.NavOpacity,
+			Divider: legacyTheme.NavBorder,
+		})
+	}
+	if _, exists := raw["historyPage"]; !exists {
+		def := DefaultConfig().HistoryPage
+		columns := 0
+		if n, err := strconv.Atoi(legacyTheme.HistoryColumns); err == nil && n >= 1 && n <= 4 {
+			columns = n
+		}
+		previewLines := legacyTheme.PreviewLines
+		if previewLines == 0 {
+			previewLines = def.PreviewLines
+		}
+		// layout 取值迁移：vertical → top-bottom，sidebar → left-right。
+		layout := def.Layout
+		switch legacyTheme.Layout {
+		case "sidebar":
+			layout = "left-right"
+		case "vertical":
+			layout = "top-bottom"
+		}
+		raw["historyPage"] = mustMarshalJSON(HistoryPageSettings{
+			Layout:            layout,
+			Columns:           columns,
+			ForceColumns:      columns > 0 && legacyTheme.HistoryForceColumns,
+			ContentWidthMode:  def.ContentWidthMode,
+			ContentWidth:      def.ContentWidth,
+			HorizontalPadding: def.HorizontalPadding,
+			CardGap:           def.CardGap,
+			PreviewLines:      previewLines,
+		})
+	}
+	delete(raw, "theme")
+	return json.Marshal(raw)
+}
+
+func mustMarshalJSON(value any) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("marshal config value: %v", err))
+	}
+	return data
 }
 
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。

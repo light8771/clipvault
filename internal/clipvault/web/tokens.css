@@ -1,5 +1,11 @@
 /* ── Design Tokens ─────────────────────────────────────────── */
 :root {
+  /* PageContainer：全站通用页面容器宽度体系。
+     nav-inner 与 main 共用同一变量，保证导航与主内容左右边界一致；
+     历史页在 history.css 中用 --history-* 变量覆盖为自己的容器规则。 */
+  --page-container-max-width: 880px;
+  --page-container-padding: 20px;
+
   --p:          #14B8A6;
   --p2:         #0D9488;
   --on-p:       #000000;
@@ -108,13 +114,14 @@ body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay)
   border-bottom: var(--nav-border-bottom, 1px solid var(--card-border));
 }
 .nav-inner {
-  max-width: 880px;
+  max-width: var(--page-container-max-width);
   margin: 0 auto;
-  padding: 0 20px;
+  padding: 0 var(--page-container-padding);
   height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  box-sizing: border-box;
 }
 
 .nav-brand {
@@ -213,8 +220,16 @@ body > :not(.background-media-layer):not(.background-shield):not(.modal-overlay)
 
 /* ── Main ──────────────────────────────────────────────────── */
 main {
-  max-width: 880px;
+  max-width: var(--page-container-max-width);
   margin: 0 auto;
-  padding: 24px 20px 80px;
+  padding: 24px var(--page-container-padding) 80px;
+}
+
+/* 宽屏时通用页面容器逐级放宽（设置页、维护页等共用）。 */
+@media (min-width: 1100px) {
+  :root { --page-container-max-width: 1120px; }
+}
+@media (min-width: 1440px) {
+  :root { --page-container-max-width: 1400px; }
 }
 

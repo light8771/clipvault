@@ -17,16 +17,35 @@
 - To verify JS syntax (run from repo root): `Get-ChildItem -Recurse internal/clipvault/web -Filter *.js | ForEach-Object { node --check $_.FullName }`
 - CSS/HTML have no build step; verify by serving `internal/clipvault/web/` and loading in a browser.
 
-## Frontend Appearance System
+## Frontend Appearance & Layout System
 
+- Config is split by scope into three top-level sections (see `Config` in `internal/clipvault/config.go`):
+  - `AppearanceSettings` (`cfg.appearance`): global visuals only (preset/mode/primary/accent/fontScale/surfaceOpacity).
+  - `NavigationSettings` (`cfg.navigation`): navbar behavior (sticky/blur/opacity/divider). Opacity `-1` means "follow surface opacity".
+  - `HistoryPageSettings` (`cfg.historyPage`): history-page-only layout (layout `top-bottom`/`left-right`,
+    columns 0=auto/1–4, forceColumns, contentWidthMode auto/custom, contentWidth 720–3200,
+    horizontalPadding 0–80, cardGap 0–32, previewLines 0–20).
+  Legacy configs that still carry a `theme` object are migrated once in `Config.UnmarshalJSON`
+  (`migrateLegacyThemeConfig`).
 - Theme colors are defined as CSS custom properties on `:root` (light) and overridden in
   `@media (prefers-color-scheme: dark)` (dark), then re-set at runtime by `applyTheme()` in
-  `internal/clipvault/web/script.js`.
+  `internal/clipvault/web/app/appearance-theme.js` (consumes `appearance` + `navigation` only).
 - `--card` is the opaque card color (hex). `--card-rgba` is the rgba version whose alpha is
-  controlled by the "界面不透明度" (Surface Opacity) slider (ThemeConfig.SurfaceOpacity, 0–100).
+  controlled by the "界面不透明度" (Surface Opacity) slider (AppearanceSettings.SurfaceOpacity, 0–100).
   Used by `article`, `.ssec-fields`, `.export-group`, and `pre::after` gradient.
 - `--nav-bg` is the navbar/sidebar background, also derived from the Surface Opacity slider
   (rgba of the bg color). Used by `.navbar` and the sticky `.settings-sidebar`.
-- `ThemeConfig.SurfaceOpacity` is a plain `int` (default 100, range 0–100).
-  `getConfig` pre-seeds with `DefaultConfig()` before unmarshaling, so absent JSON fields
-  keep the default; explicit 0 means "fully transparent".
+- Page containers: all non-history pages share `--page-container-max-width` / `--page-container-padding`
+  (tokens.css; 880 → 1120 → 1400px breakpoints). The history page overrides both `#viewHistory` and
+  `.nav-inner` with `--history-content-max-width` / `--history-horizontal-padding` so navbar, search,
+  filters, cards and pagination share the same container. All history rules are scoped with
+  `html[data-app-page="history"]`.
+- History column count is CSS-driven (breakpoint ladders in `web/history.css`); JS only writes
+  `data-history-columns` / `data-history-columns-force` attributes and the `--history-*` variables
+  (`applyHistoryPageLayout()` in `web/app/history-layout.js`). Never reintroduce a JS width→column
+  calculator or a per-column fixed page width.
+- First paint: `serveApplicationPage` emits `data-app-page` and history layout attributes on `<html>`,
+  and `/theme-boot.css` (themeBootCSS) emits all CSS variables incl. `--history-*` to avoid FOUC.
+- Maintenance/support contact info is app metadata (not user settings):
+  `currentApplicationMetadata()` in `application_meta.go`, exposed read-only via
+  `GET /api/v1/system/info` (`support` field); empty entries are hidden in the UI.

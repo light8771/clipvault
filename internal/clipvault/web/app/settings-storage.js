@@ -233,7 +233,9 @@ export function registerSettingsStorage() {
   app.applyConfigToForm = function applyConfigToForm(cfg) {
     app.applyBrandFormState(cfg.brand);
     app.applyBackgroundFormState(cfg.background);
-    app.applyThemeFormState(cfg.theme);
+    app.applyAppearanceFormState(cfg);
+    app.applyNavigationFormState(cfg);
+    app.applyHistoryPageFormState(cfg);
     const setValue = (id, value) => {
       const el = document.getElementById(id);
       if (el) el.value = value;

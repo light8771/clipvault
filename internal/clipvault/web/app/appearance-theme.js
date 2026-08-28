@@ -132,12 +132,12 @@ export function registerAppearanceTheme() {
       border: app.hexToRgba(primary, isDark ? .18 : .2)
     };
   };
-  app.customPalette = function customPalette(theme, mode) {
+  app.customPalette = function customPalette(appearance, mode) {
     const isDark = mode === 'dark';
     const neutral = app.THEME_PALETTES.graphite[mode];
     const surfaces = [neutral.card, neutral.bg, neutral.bg2];
-    const primary = app.ensureContrastOnSurfaces(app.validHex(theme.primary, '#14B8A6'), surfaces, 4.5, [.12]);
-    const accent = app.ensureContrastOnSurfaces(app.validHex(theme.accent, '#F97316'), surfaces, 4.5, [.1, .16]);
+    const primary = app.ensureContrastOnSurfaces(app.validHex(appearance.primary, '#14B8A6'), surfaces, 4.5, [.12]);
+    const accent = app.ensureContrastOnSurfaces(app.validHex(appearance.accent, '#F97316'), surfaces, 4.5, [.1, .16]);
     // Keep neutral surfaces fixed for each mode. A user-provided background
     // cannot guarantee text contrast, so custom skins only alter brand colors.
     return {
@@ -148,15 +148,17 @@ export function registerAppearanceTheme() {
       border: app.hexToRgba(primary, isDark ? .18 : .2)
     };
   };
-  app.applyTheme = function applyTheme(theme) {
-    const normalized = theme || {
-      preset: 'mint',
-      mode: 'system'
-    };
-    const mode = app.resolvedThemeMode(normalized);
-    const preset = app.THEME_PALETTES[normalized.preset];
-    const palette = normalized.preset === 'custom' ? app.customPalette(normalized, mode) : (preset || app.THEME_PALETTES.mint)[mode];
-    const colors = normalized.preset === 'custom' ? palette : app.readablePalette(palette, mode);
+  // applyTheme 只消费全局视觉（appearance）与导航栏（navigation）两个作用域。
+  // 历史页布局（列数/内容宽度/边距/间距/预览行数）由 applyHistoryPageLayout
+  // （history-layout.js）单独应用，避免全局主题与页面布局互相污染。
+  app.applyTheme = function applyTheme(payload) {
+    const sections = payload || {};
+    const appearance = sections.appearance || { preset: 'mint', mode: 'system' };
+    const navigation = sections.navigation || {};
+    const mode = app.resolvedThemeMode(appearance);
+    const preset = app.THEME_PALETTES[appearance.preset];
+    const palette = appearance.preset === 'custom' ? app.customPalette(appearance, mode) : (preset || app.THEME_PALETTES.mint)[mode];
+    const colors = appearance.preset === 'custom' ? palette : app.readablePalette(palette, mode);
     const root = document.documentElement;
     root.dataset.themeMode = mode;
     root.style.setProperty('--p', colors.p);
@@ -169,31 +171,19 @@ export function registerAppearanceTheme() {
     root.style.setProperty('--bg2', colors.bg2);
     root.style.setProperty('--card', colors.card);
     root.style.setProperty('--card-border', colors.border);
-    const surfaceOpacity = Number(normalized.surfaceOpacity);
+    const surfaceOpacity = Number(appearance.surfaceOpacity);
     const surfaceAlpha = (Number.isFinite(surfaceOpacity) ? Math.max(0, Math.min(100, surfaceOpacity)) : 100) / 100;
     root.style.setProperty('--card-rgba', app.hexToRgba(colors.card, surfaceAlpha));
     // 导航栏：不透明度（-1 跟随界面不透明度）、毛玻璃模糊、底部分隔线
-    const navOpacity = Number(normalized.navOpacity);
+    const navOpacity = Number(navigation.opacity);
     const navAlpha = Number.isFinite(navOpacity) && navOpacity >= 0 ? Math.min(100, navOpacity) / 100 : surfaceAlpha;
     root.style.setProperty('--nav-bg', app.hexToRgba(colors.bg, navAlpha));
-    const navBlur = Number(normalized.navBlur);
+    const navBlur = Number(navigation.blur);
     const navBlurPx = Number.isFinite(navBlur) ? Math.max(0, Math.min(32, navBlur)) : 16;
     root.style.setProperty('--nav-backdrop', navBlurPx > 0 ? `blur(${navBlurPx}px) saturate(180%)` : 'none');
-    root.style.setProperty('--nav-border-bottom', normalized.navBorder === false ? 'none' : `1px solid ${colors.border}`);
+    root.style.setProperty('--nav-border-bottom', navigation.divider === false ? 'none' : `1px solid ${colors.border}`);
     // 导航栏是否吸附跟随滚动（sticky）还是随页面滚动（static）
-    root.style.setProperty('--nav-position', normalized.navSticky === false ? 'static' : 'sticky');
-    // 历史卡片文本预览行数（0 表示不限制），供 history.css 的 pre 裁剪与渲染逻辑使用
-    const previewLines = Number(normalized.previewLines);
-    app.previewLines = Number.isFinite(previewLines) ? Math.max(0, Math.min(20, previewLines)) : 2;
-    root.style.setProperty('--preview-max-h', app.previewLines > 0 ? `${app.previewLines * 1.7}em` : 'none');
-    // 历史页布局：vertical（默认）/ sidebar（笔记式左右布局）
-    if (normalized.layout === 'sidebar') {
-      root.dataset.historyLayout = 'sidebar';
-    } else {
-      delete root.dataset.historyLayout;
-    }
-    // 历史列表列数：容量计算 + 内容区宽度联动（仅历史页注册，见 history-layout.js）
-    app.applyHistoryLayout?.(normalized);
+    root.style.setProperty('--nav-position', navigation.sticky === false ? 'static' : 'sticky');
     root.style.setProperty('--tx', colors.tx);
     root.style.setProperty('--sub', colors.sub);
     root.style.setProperty('--muted', colors.muted);
@@ -203,19 +193,20 @@ export function registerAppearanceTheme() {
     root.style.setProperty('--accent-dim', app.hexToRgba(colors.accent, .1));
     root.style.setProperty('--accent-glow', app.hexToRgba(colors.accent, .16));
     root.style.setProperty('--accent-border', app.hexToRgba(colors.accent, .3));
-    root.style.setProperty('--font-scale', `${Math.max(100, Math.min(150, Number(normalized.fontScale) || 100)) / 100}`);
+    root.style.setProperty('--font-scale', `${Math.max(100, Math.min(150, Number(appearance.fontScale) || 100)) / 100}`);
     root.style.setProperty('--shadow-md', `0 4px 16px ${app.hexToRgba(colors.p, .1)}, 0 2px 6px rgba(0,0,0,.05)`);
     root.style.setProperty('--shadow-lg', `0 8px 32px ${app.hexToRgba(colors.p, .15)}, 0 3px 10px rgba(0,0,0,.08)`);
   };
   app.loadPublicAppearance = async function loadPublicAppearance() {
     try {
-      const appearance = await app.fetch('/api/v1/appearance', {
+      const payload = await app.fetch('/api/v1/appearance', {
         cache: 'no-store'
       }).then(r => r.ok ? r.json() : null);
-      if (!appearance) return;
-      app.applyTheme(appearance.theme);
-      app.applyBrand(appearance.brand);
-      app.applyBackground(appearance.background);
+      if (!payload) return;
+      app.applyTheme({ appearance: payload.appearance, navigation: payload.navigation });
+      app.applyHistoryPageLayout?.(payload.historyPage);
+      app.applyBrand(payload.brand);
+      app.applyBackground(payload.background);
     } catch (_) {}
   };
   app.brandAssetURL = function brandAssetURL(kind, version) {

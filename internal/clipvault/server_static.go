@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -85,6 +86,22 @@ var applicationPageDefinitions = []applicationPage{
 		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-appearance.html"),
+	},
+	{
+		Path:      "/settings/history",
+		Name:      "settings",
+		TitleKey:  "app.title.settings_history",
+		Menu:      "settings-history",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-history.html"),
+	},
+	{
+		Path:      "/settings/navigation",
+		Name:      "settings",
+		TitleKey:  "app.title.settings_navigation",
+		Menu:      "settings-navigation",
+		Bootstrap: "/app/settings-bootstrap.js",
+		Parts:     settingsPageParts("web/pages/settings-navigation.html"),
 	},
 	{
 		Path:      "/settings/general",
@@ -249,20 +266,27 @@ type applicationPageView struct {
 	// ThemeMode 非空时表示固定显示模式（"light"/"dark"），渲染为 <html> 的
 	// data-theme-mode 属性；system 模式留空，由 theme-mode.js 按系统偏好设置。
 	ThemeMode string
-	// HistoryLayout 为 "sidebar" 时渲染为 <html> 的 data-history-layout 属性，
-	// 使历史页左右布局随首帧生效，避免 JS 拉取配置后再重排造成的闪动。
-	HistoryLayout string
+	// AppPage 是页面标识（如 "history"、"settings"），渲染为 <html> 的
+	// data-app-page 属性，供 CSS 把历史页布局规则严格限定在历史页面。
+	AppPage string
+	// 历史页布局的 <html> 属性值：使历史页布局与列数随首帧生效，
+	// 避免 JS 拉取配置后再重排造成的闪动。值均为受控标识符（模板安全转义）。
+	HistoryLayout       string // top-bottom | left-right
+	HistoryColumns      string // "0"（自动）| "1"-"4"
+	HistoryForceColumns string // 非空时按该列数强制固定
 }
 
 func (s *SearchServer) serveApplicationPage(w http.ResponseWriter, page applicationPage) {
-	theme := DefaultConfig().Theme
+	appearance := DefaultConfig().Appearance
+	historyPage := DefaultConfig().HistoryPage
 	if s.cfgMgr != nil {
-		theme = s.cfgMgr.Get().Theme
+		cfg := s.cfgMgr.Get()
+		appearance = cfg.Appearance
+		historyPage = cfg.HistoryPage
 	}
-	view := applicationPageView{applicationPage: page, Title: templateT(page.TitleKey, nil), Lang: currentTemplateLanguage(), ThemeMode: themeFixedMode(theme)}
-	if theme.Layout == "sidebar" {
-		view.HistoryLayout = "sidebar"
-	}
+	historyAttrs := historyPageAttrsValue(historyPage)
+	view := applicationPageView{applicationPage: page, Title: templateT(page.TitleKey, nil), Lang: currentTemplateLanguage(), ThemeMode: themeFixedMode(appearance), AppPage: page.Name,
+		HistoryLayout: historyAttrs.layout, HistoryColumns: historyAttrs.columns, HistoryForceColumns: historyAttrs.force}
 	var rendered bytes.Buffer
 	if err := page.template.Execute(&rendered, view); err != nil {
 		s.writeAPIError(w, http.StatusInternalServerError, "asset_invalid", s.i18nT("api.error.asset_invalid", nil), err)
@@ -273,16 +297,37 @@ func (s *SearchServer) serveApplicationPage(w http.ResponseWriter, page applicat
 	_, _ = w.Write(rendered.Bytes())
 }
 
+// historyPageAttrsValue 解析历史页布局的 <html> 属性值。属性在所有页面输出
+// （选择器只在历史页命中，设置页无副作用）；列数/强制列数属性由 CSS 断点
+// 体系消费，详见 web/history.css。
+func historyPageAttrsValue(page HistoryPageSettings) (attrs struct {
+	layout  string
+	columns string
+	force   string
+}) {
+	layout := "top-bottom"
+	if page.Layout == "left-right" {
+		layout = "left-right"
+	}
+	columns := clampInt(page.Columns, 0, 4)
+	attrs.layout = layout
+	attrs.columns = strconv.Itoa(columns)
+	if columns > 0 && page.ForceColumns {
+		attrs.force = strconv.Itoa(columns)
+	}
+	return attrs
+}
+
 // handleThemeBootCSS 按当前配置动态生成主题变量样式表。作为外部 CSS 引用时
 // 是渲染阻塞的，首帧即按用户配置的皮肤绘制，且满足 style-src 'self' 的 CSP。
 func (s *SearchServer) handleThemeBootCSS(w http.ResponseWriter, _ *http.Request) {
-	theme := DefaultConfig().Theme
+	cfg := DefaultConfig()
 	if s.cfgMgr != nil {
-		theme = s.cfgMgr.Get().Theme
+		cfg = s.cfgMgr.Get()
 	}
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write([]byte(themeBootCSS(theme)))
+	_, _ = w.Write([]byte(themeBootCSS(cfg.Appearance, cfg.Navigation, cfg.HistoryPage)))
 }
 
 func (s *SearchServer) serveFile(w http.ResponseWriter, name, contentType string) {

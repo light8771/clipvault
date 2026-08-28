@@ -10,7 +10,8 @@ export function registerAppearanceLoader() {
       app.replaceCurrentConfig(cfg);
       app.sourceAliases = cfg.source.exeAliases;
       app.sourceWhitelist = cfg.source.exeWhitelist?.length ? cfg.source.exeWhitelist.slice() : null;
-      app.applyTheme(cfg.theme);
+      app.applyTheme({ appearance: cfg.appearance, navigation: cfg.navigation });
+      app.applyHistoryPageLayout?.(cfg.historyPage);
       app.applyBrand(cfg.brand);
       app.applyBackground(cfg.background);
     } catch (_) {
@@ -21,6 +22,8 @@ export function registerAppearanceLoader() {
     }
   };
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (app.currentCfg?.theme.mode === 'system') app.applyTheme(app.currentCfg.theme);
+    if (app.currentCfg?.appearance.mode === 'system') {
+      app.applyTheme({ appearance: app.currentCfg.appearance, navigation: app.currentCfg.navigation });
+    }
   });
 }

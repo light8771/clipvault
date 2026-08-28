@@ -162,7 +162,9 @@ export function registerConfigSave() {
         title: document.getElementById('cfg-brandTitle')?.value.trim() || cur.brand?.title || 'ClipVault'
       },
       background: app.backgroundFromForm(),
-      theme: app.themeFromForm(),
+      appearance: app.appearanceFromForm(),
+      navigation: app.navigationFromForm(),
+      historyPage: app.historyPageFromForm(),
       maxTextChars: has('cfg-maxTextChars') ? parseInt(document.getElementById('cfg-maxTextChars').value) || 0 : cur.maxTextChars,
       maxFileDropPaths: has('cfg-maxFileDropPaths') ? parseInt(document.getElementById('cfg-maxFileDropPaths').value) || 0 : cur.maxFileDropPaths,
       recordSourceInfo: has('cfg-recordSourceInfo') ? !!document.getElementById('cfg-recordSourceInfo').checked : cur.recordSourceInfo,

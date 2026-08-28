@@ -4,6 +4,8 @@ const t = window.clipvaultI18n.t;
 
 const SETTINGS_GROUPS = [
   { id: 'appearance', titleKey: 'app.title.appearance', descKey: 'settings_home.appearance_desc' },
+  { id: 'history', titleKey: 'app.title.settings_history', descKey: 'settings_home.history_desc' },
+  { id: 'navigation', titleKey: 'app.title.settings_navigation', descKey: 'settings_home.navigation_desc' },
   { id: 'general', titleKey: 'app.title.general', descKey: 'settings_home.general_desc' },
   { id: 'security', titleKey: 'app.title.security', descKey: 'settings_home.security_desc' },
   { id: 'storage', titleKey: 'app.title.storage', descKey: 'settings_home.storage_desc' },

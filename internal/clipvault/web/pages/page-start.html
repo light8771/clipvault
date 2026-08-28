@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}" data-page-title="{{.Title}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}}{{if eq .HistoryLayout "sidebar"}} data-history-layout="sidebar"{{end}}>
+<html lang="{{.Lang}}" data-page-title="{{.Title}}" data-app-page="{{.AppPage}}"{{if .ThemeMode}} data-theme-mode="{{.ThemeMode}}"{{end}} data-history-layout="{{.HistoryLayout}}" data-history-columns="{{.HistoryColumns}}"{{if .HistoryForceColumns}} data-history-columns-force="{{.HistoryForceColumns}}"{{end}}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">

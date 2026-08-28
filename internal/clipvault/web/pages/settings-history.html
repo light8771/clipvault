@@ -1,0 +1,156 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">{{T "app.title.settings_history"}}</div>
+        <a class="amenu-anchor" href="#s-history-layout">{{T "history_page.layout_section"}}</a>
+        <a class="amenu-anchor" href="#s-history-list">{{T "history_page.list_section"}}</a>
+        <a class="amenu-anchor" href="#s-history-width">{{T "history_page.width_section"}}</a>
+        <a class="amenu-anchor" href="#s-history-spacing">{{T "history_page.spacing_section"}}</a>
+        <a class="amenu-anchor" href="#s-history-display">{{T "history_page.display_section"}}</a>
+      </div>
+    </aside>
+
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="{{T "settings.crumb_label"}}">
+          <a class="sd-crumb-link" href="/settings">{{T "menu.settings"}}</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">{{T "app.title.settings_history"}}</span>
+        </nav>
+        <h1 class="sd-title">{{T "app.title.settings_history"}}</h1>
+        <p class="sd-desc">{{T "history_page.desc"}}</p>
+      </header>
+
+      <section class="ssec" id="s-history">
+        <div class="ssec-head">
+          <div class="ssec-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </div>
+          <div>
+            <h2 class="ssec-title">{{T "app.title.settings_history"}}</h2>
+            <p class="ssec-desc">{{T "history_page.desc"}}</p>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-history-layout">
+          <h3 class="fsec-title">{{T "history_page.layout_section"}}</h3>
+          <p class="fsec-desc">{{T "history_page.layout_section_desc"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <span class="field-label">{{T "history_page.layout"}}</span>
+            </div>
+            <div class="theme-presets" id="historyLayoutOptions" role="radiogroup" aria-label="{{T "history_page.layout"}}">
+              <button type="button" class="theme-preset" data-history-layout-option="top-bottom" role="radio" aria-checked="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="10" rx="1"/></svg>
+                <span>{{T "history_page.layout_top_bottom"}}</span>
+              </button>
+              <button type="button" class="theme-preset" data-history-layout-option="left-right" role="radio" aria-checked="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="6" height="18" rx="1"/><rect x="11" y="3" width="10" height="18" rx="1"/></svg>
+                <span>{{T "history_page.layout_left_right"}}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-history-list">
+          <h3 class="fsec-title">{{T "history_page.list_section"}}</h3>
+          <p class="fsec-desc">{{T "history_page.list_section_desc"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyColumns">{{T "history_page.columns"}}</label>
+              <p class="field-hint">{{T "history_page.columns_hint"}}</p>
+            </div>
+            <select id="cfg-historyColumns" class="field-input theme-mode-select">
+              <option value="0">{{T "history_page.columns_auto"}}</option>
+              <option value="1">{{T "history_page.columns_1"}}</option>
+              <option value="2">{{T "history_page.columns_2"}}</option>
+              <option value="3">{{T "history_page.columns_3"}}</option>
+              <option value="4">{{T "history_page.columns_4"}}</option>
+            </select>
+          </div>
+          <div class="field-row" id="historyForceColumnsRow">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyForceColumns">{{T "history_page.force_columns"}}</label>
+              <p class="field-hint">{{T "history_page.force_columns_hint"}}</p>
+            </div>
+            <label class="ar-toggle"><input type="checkbox" id="cfg-historyForceColumns"><span>{{T "common.enabled_short"}}</span></label>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-history-width">
+          <h3 class="fsec-title">{{T "history_page.width_section"}}</h3>
+          <p class="fsec-desc">{{T "history_page.width_section_desc"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <span class="field-label">{{T "history_page.content_width"}}</span>
+            </div>
+            <div class="theme-presets" id="historyWidthOptions" role="radiogroup" aria-label="{{T "history_page.content_width"}}">
+              <button type="button" class="theme-preset" data-history-width-option="auto" role="radio" aria-checked="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/></svg>
+                <span>{{T "history_page.width_auto"}}</span>
+              </button>
+              <button type="button" class="theme-preset" data-history-width-option="custom" role="radio" aria-checked="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/></svg>
+                <span>{{T "history_page.width_custom"}}</span>
+              </button>
+            </div>
+          </div>
+          <div class="field-row" id="historyCustomWidthRow">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyContentWidth">{{T "history_page.width_custom"}}</label>
+              <p class="field-hint">{{T "history_page.width_custom_hint"}}</p>
+            </div>
+            <div class="history-width-input">
+              <input type="number" id="cfg-historyContentWidth" class="field-input field-input-sm" min="720" max="3200" step="10" value="1600" aria-describedby="historyContentWidthHint">
+              <span class="history-width-unit">{{T "history_page.custom_width_px"}}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-history-spacing">
+          <h3 class="fsec-title">{{T "history_page.spacing_section"}}</h3>
+          <p class="fsec-desc">{{T "history_page.spacing_section_desc"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyHorizontalPadding">{{T "history_page.horizontal_padding"}}</label>
+            </div>
+            <label class="background-range theme-font-scale" for="cfg-historyHorizontalPadding"><span><output id="cfg-historyHorizontalPaddingOutput">24px</output></span><input type="range" id="cfg-historyHorizontalPadding" min="0" max="80" step="1" value="24"></label>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyCardGap">{{T "history_page.card_gap"}}</label>
+              <p class="field-hint">{{T "history_page.card_gap_hint"}}</p>
+            </div>
+            <label class="background-range theme-font-scale" for="cfg-historyCardGap"><span><output id="cfg-historyCardGapOutput">12px</output></span><input type="range" id="cfg-historyCardGap" min="0" max="32" step="1" value="12"></label>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-history-display">
+          <h3 class="fsec-title">{{T "history_page.display_section"}}</h3>
+          <p class="fsec-desc">{{T "history_page.display_section_desc"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row">
+            <div class="field-info">
+              <label class="field-label" for="cfg-previewLines">{{T "history_page.preview_lines"}}</label>
+              <p class="field-hint">{{T "history_page.preview_lines_hint"}}</p>
+            </div>
+            <label class="background-range theme-font-scale" for="cfg-previewLines"><span><output id="cfg-previewLinesOutput">3</output></span><input type="range" id="cfg-previewLines" min="0" max="20" step="1" value="3"></label>
+          </div>
+          <div class="field-row" id="historyFixedPreviewRow">
+            <div class="field-info">
+              <label class="field-label" for="cfg-historyFixedPreview">{{T "history_page.fixed_preview"}}</label>
+              <p class="field-hint">{{T "history_page.fixed_preview_hint"}}</p>
+            </div>
+            <label class="ar-toggle"><input type="checkbox" id="cfg-historyFixedPreview"><span>{{T "common.enabled_short"}}</span></label>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

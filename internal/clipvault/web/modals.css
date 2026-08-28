@@ -149,6 +149,8 @@
   font: 15px/1.7 ui-monospace, Consolas, monospace;
   color: var(--tx);
   max-height: none;
+  /* 内容预览弹窗始终完整展示，不受固定占位约束 */
+  min-height: 0;
   overflow: visible;
 }
 pre.modal-pre::after {
@@ -316,23 +318,4 @@ pre.modal-pre::after {
 
 @keyframes mOverlayIn { from { opacity:0 } to { opacity:1 } }
 @keyframes mBoxIn     { from { transform:translateY(10px) scale(.97); opacity:0 } to { transform:translateY(0) scale(1); opacity:1 } }
-
-/* ── Widescreen layout ─────────────────────────────────────── */
-@media (min-width: 1100px) {
-  .nav-inner {
-    max-width: 1120px;
-  }
-  main {
-    max-width: 1120px;
-  }
-}
-
-@media (min-width: 1440px) {
-  .nav-inner {
-    max-width: 1400px;
-  }
-  main {
-    max-width: 1400px;
-  }
-}
 

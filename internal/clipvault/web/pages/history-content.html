@@ -100,44 +100,46 @@
     </div>
     </div><!-- /.history-side -->
 
-    <div class="list-meta">
-      <span id="rc" class="result-count">{{T "common.loading"}}</span>
-    </div>
-
-    <section class="list" id="list">
-      <div class="loading">
-        <div class="spinner"></div>
-        <span>{{T "common.loading"}}</span>
+    <div class="history-results">
+      <div class="list-meta">
+        <span id="rc" class="result-count">{{T "common.loading"}}</span>
       </div>
-    </section>
 
-    <div class="pagination hidden" id="pagination">
-      <button class="page-btn" id="prevBtn" disabled>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-        {{T "history.prev_page"}}
-      </button>
-      <span class="page-info" id="pageInfo"></span>
-      <div class="pagesize-combo" id="pagesizeCombo">
-        <input type="number" id="pagesize" class="pagesize-input" value="50" min="10" max="500" />
-        <button class="pagesize-dropdown-btn" id="pagesizeDropdownBtn" type="button">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <div class="pagesize-dropdown" id="pagesizeDropdown">
-          <div class="pagesize-opt" data-val="20">20{{T "history.per_page"}}</div>
-          <div class="pagesize-opt" data-val="50">50{{T "history.per_page"}}</div>
-          <div class="pagesize-opt" data-val="100">100{{T "history.per_page"}}</div>
-          <div class="pagesize-opt" data-val="200">200{{T "history.per_page"}}</div>
-          <div class="pagesize-opt" data-val="500">500{{T "history.per_page"}}</div>
+      <section class="list" id="list">
+        <div class="loading">
+          <div class="spinner"></div>
+          <span>{{T "common.loading"}}</span>
         </div>
-        <span class="pagesize-suffix">{{T "history.per_page"}}</span>
+      </section>
+
+      <div class="pagination hidden" id="pagination">
+        <button class="page-btn" id="prevBtn" disabled>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          {{T "history.prev_page"}}
+        </button>
+        <span class="page-info" id="pageInfo"></span>
+        <div class="pagesize-combo" id="pagesizeCombo">
+          <input type="number" id="pagesize" class="pagesize-input" value="50" min="10" max="500" />
+          <button class="pagesize-dropdown-btn" id="pagesizeDropdownBtn" type="button">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="pagesize-dropdown" id="pagesizeDropdown">
+            <div class="pagesize-opt" data-val="20">20{{T "history.per_page"}}</div>
+            <div class="pagesize-opt" data-val="50">50{{T "history.per_page"}}</div>
+            <div class="pagesize-opt" data-val="100">100{{T "history.per_page"}}</div>
+            <div class="pagesize-opt" data-val="200">200{{T "history.per_page"}}</div>
+            <div class="pagesize-opt" data-val="500">500{{T "history.per_page"}}</div>
+          </div>
+          <span class="pagesize-suffix">{{T "history.per_page"}}</span>
+        </div>
+        <span class="page-jump">
+          <input type="number" id="pageJumpInput" class="page-jump-input" min="1" value="1" />
+          <button class="page-jump-btn" id="pageJumpBtn">{{T "history.jump"}}</button>
+        </span>
+        <button class="page-btn" id="nextBtn">
+          {{T "history.next_page"}}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
       </div>
-      <span class="page-jump">
-        <input type="number" id="pageJumpInput" class="page-jump-input" min="1" value="1" />
-        <button class="page-jump-btn" id="pageJumpBtn">{{T "history.jump"}}</button>
-      </span>
-      <button class="page-btn" id="nextBtn">
-        {{T "history.next_page"}}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>
     </div>
   </main>

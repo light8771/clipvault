@@ -707,3 +707,57 @@
 
 /* 分组卡片为链接 */
 a.sgroup-card { text-decoration: none; color: inherit; }
+
+/* ── 历史页面 / 导航栏设置 ────────────────────────────── */
+/* 布局方式 / 内容宽度选项按钮组：复用 .theme-preset 样式，
+   仅调整图标占位（无色板 swatch，直接用线性图标） */
+.theme-presets .theme-preset svg { flex-shrink: 0; color: var(--muted); }
+.theme-presets .theme-preset.active svg { color: var(--p); }
+
+/* 自定义内容宽度输入：数值 + 单位 */
+.history-width-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.history-width-unit {
+  font: 12px sans-serif;
+  color: var(--muted);
+}
+
+/* ── 维护页：联系支持 ────────────────────────────────── */
+.support-field-row[hidden] { display: none; }
+.support-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, 100%);
+  min-width: 0;
+}
+.support-value {
+  color: var(--tx);
+  font: 500 13px ui-monospace, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.support-link { color: var(--p); text-decoration: none; }
+.support-link:hover { text-decoration: underline; }
+.btn-copy {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: var(--bg);
+  color: var(--sub);
+  font: 500 12px sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  transition: color .15s, border-color .15s, background .15s;
+  text-decoration: none;
+}
+.btn-copy:hover:not(:disabled) { color: var(--p); border-color: var(--p-border); background: var(--p-dim); }
+.btn-copy:disabled { opacity: .6; cursor: default; }

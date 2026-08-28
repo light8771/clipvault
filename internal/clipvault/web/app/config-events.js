@@ -39,75 +39,133 @@ export function registerConfigEvents() {
     document.getElementById('cfg-backgroundFit')?.addEventListener('change', () => {
       app.applyBackground(app.backgroundFromForm());
     });
-    document.querySelectorAll('.theme-preset').forEach(button => {
+    // 实时预览辅助：外观域 / 导航栏域 / 历史页域分别构建后应用。
+    const previewAppearance = () => app.applyTheme({
+      appearance: app.appearanceFromForm(),
+      navigation: app.navigationFromForm()
+    });
+    const previewNavigation = () => app.applyTheme({
+      appearance: app.appearanceFromForm(),
+      navigation: app.navigationFromForm()
+    });
+    const previewHistoryPage = () => app.applyHistoryPageLayout?.(app.historyPageFromForm());
+    document.querySelectorAll('[data-theme-preset]').forEach(button => {
       button.addEventListener('click', () => {
         const preset = button.dataset.themePreset;
-        document.querySelectorAll('.theme-preset').forEach(item => {
+        document.querySelectorAll('[data-theme-preset]').forEach(item => {
           const selected = item === button;
           item.classList.toggle('active', selected);
           item.setAttribute('aria-checked', selected ? 'true' : 'false');
         });
         document.getElementById('customThemeColors')?.classList.toggle('hidden', preset !== 'custom');
-        app.applyTheme(app.themeFromForm());
+        previewAppearance();
         app.scheduleConfigSave(150);
       });
     });
     ['cfg-themeMode', 'cfg-themePrimary', 'cfg-themeAccent'].forEach(id => {
       const control = document.getElementById(id);
       if (!control) return;
-      control.addEventListener('input', () => app.applyTheme(app.themeFromForm()));
-      control.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
+      control.addEventListener('input', previewAppearance);
+      control.addEventListener('change', previewAppearance);
     });
     const fontScale = document.getElementById('cfg-themeFontScale');
     fontScale?.addEventListener('input', () => {
       const output = document.getElementById('cfg-themeFontScaleOutput');
       if (output) output.value = `${fontScale.value}%`;
-      app.applyTheme(app.themeFromForm());
+      previewAppearance();
     });
     const surfaceOpacityControl = document.getElementById('cfg-themeSurfaceOpacity');
     surfaceOpacityControl?.addEventListener('input', () => {
       const output = document.getElementById('cfg-themeSurfaceOpacityOutput');
       if (output) output.value = `${surfaceOpacityControl.value}%`;
-      app.applyTheme(app.themeFromForm());
+      previewAppearance();
     });
-    // 布局与导航栏：实时预览（自动保存由下方 settingsEl 委托事件统一触发）
+    // 导航栏：实时预览（自动保存由下方 settingsEl 委托事件统一触发）
     const navOpacityControl = document.getElementById('cfg-navOpacity');
     const navOpacityFollow = document.getElementById('cfg-navOpacityFollow');
     const navOpacityOutput = document.getElementById('cfg-navOpacityOutput');
     navOpacityControl?.addEventListener('input', () => {
       if (navOpacityOutput) navOpacityOutput.value = `${navOpacityControl.value}%`;
-      app.applyTheme(app.themeFromForm());
+      previewNavigation();
     });
     navOpacityFollow?.addEventListener('change', () => {
       if (navOpacityControl) navOpacityControl.disabled = navOpacityFollow.checked;
-      if (navOpacityOutput) navOpacityOutput.value = navOpacityFollow.checked ? t('appearance.follow') : `${navOpacityControl?.value || 100}%`;
-      app.applyTheme(app.themeFromForm());
+      if (navOpacityOutput) navOpacityOutput.value = navOpacityFollow.checked ? t('navigation.follow') : `${navOpacityControl?.value || 100}%`;
+      previewNavigation();
     });
     const navBlurControl = document.getElementById('cfg-navBlur');
     navBlurControl?.addEventListener('input', () => {
       const output = document.getElementById('cfg-navBlurOutput');
       if (output) output.value = `${navBlurControl.value}px`;
-      app.applyTheme(app.themeFromForm());
+      previewNavigation();
     });
-    ['cfg-navBorder', 'cfg-navSticky', 'cfg-historyLayout'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
+    ['cfg-navSticky', 'cfg-navDivider'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', previewNavigation);
     });
-    // 列表列数：切换 auto/固定列数时同步「强制固定列数」开关的可用状态
+    // 历史页面布局：布局方式按钮组（top-bottom / left-right）
+    document.querySelectorAll('[data-history-layout-option]').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-history-layout-option]').forEach(item => {
+          const selected = item === button;
+          item.classList.toggle('active', selected);
+          item.setAttribute('aria-checked', selected ? 'true' : 'false');
+        });
+        previewHistoryPage();
+        app.scheduleConfigSave(150);
+      });
+    });
+    // 内容区宽度：模式按钮组（auto / custom）
+    document.querySelectorAll('[data-history-width-option]').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-history-width-option]').forEach(item => {
+          const selected = item === button;
+          item.classList.toggle('active', selected);
+          item.setAttribute('aria-checked', selected ? 'true' : 'false');
+        });
+        const widthInput = document.getElementById('cfg-historyContentWidth');
+        if (widthInput) widthInput.disabled = button.dataset.historyWidthOption !== 'custom';
+        previewHistoryPage();
+        app.scheduleConfigSave(150);
+      });
+    });
+    // 列表列数：切换自动/固定列数时同步「强制固定列数」开关的可用状态
     const historyColumnsSelect = document.getElementById('cfg-historyColumns');
     const historyForceToggle = document.getElementById('cfg-historyForceColumns');
-    if (historyColumnsSelect && historyForceToggle) {
+    if (historyColumnsSelect) {
       const syncForceState = () => {
-        const isAuto = historyColumnsSelect.value === 'auto';
-        historyForceToggle.disabled = isAuto;
-        if (isAuto) historyForceToggle.checked = false;
+        const isAuto = historyColumnsSelect.value === '0';
+        if (historyForceToggle) {
+          historyForceToggle.disabled = isAuto;
+          if (isAuto) historyForceToggle.checked = false;
+        }
       };
       syncForceState();
       historyColumnsSelect.addEventListener('change', () => {
         syncForceState();
-        app.applyTheme(app.themeFromForm());
+        previewHistoryPage();
       });
-      historyForceToggle.addEventListener('change', () => app.applyTheme(app.themeFromForm()));
+      historyForceToggle?.addEventListener('change', previewHistoryPage);
     }
+    // 历史页数值控件：边距 / 间距 / 自定义宽度 / 预览行数（滑块）
+    const historyRangeOutput = (control, output, unit) => control?.addEventListener('input', () => {
+      if (output) output.value = `${control.value}${unit}`;
+      previewHistoryPage();
+    });
+    historyRangeOutput(document.getElementById('cfg-historyHorizontalPadding'),
+      document.getElementById('cfg-historyHorizontalPaddingOutput'), 'px');
+    historyRangeOutput(document.getElementById('cfg-historyCardGap'),
+      document.getElementById('cfg-historyCardGapOutput'), 'px');
+    document.getElementById('cfg-historyContentWidth')?.addEventListener('input', previewHistoryPage);
+    document.getElementById('cfg-historyContentWidth')?.addEventListener('change', previewHistoryPage);
+    // 预览行数滑块：输出「N 行 / 不限制」并同步固定占位开关的可用状态。
+    const previewLinesControl = document.getElementById('cfg-previewLines');
+    previewLinesControl?.addEventListener('input', () => {
+      app.updatePreviewLinesOutput();
+      app.syncFixedPreviewState();
+      previewHistoryPage();
+    });
+    // 固定占位开关：不限制行数时由 syncFixedPreviewState 禁用。
+    document.getElementById('cfg-historyFixedPreview')?.addEventListener('change', previewHistoryPage);
     // 首页设置搜索框不是配置项，输入不得触发自动保存。
     const isExcluded = target => target === listenAddrEl || target === timeZoneEl
       || target?.id === 'settingsSearch' || target?.type === 'file';

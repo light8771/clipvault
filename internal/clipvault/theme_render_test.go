@@ -9,9 +9,9 @@ import (
 )
 
 func TestThemeBootCSSSystemMode(t *testing.T) {
-	theme := ThemeConfig{Preset: "ocean", Mode: "system", FontScale: 100, SurfaceOpacity: 100}
-	css := themeBootCSS(theme)
-	if mode := themeFixedMode(theme); mode != "" {
+	appearance := AppearanceSettings{Preset: "ocean", Mode: "system", FontScale: 100, SurfaceOpacity: 100}
+	css := themeBootCSS(appearance, NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true}, DefaultConfig().HistoryPage)
+	if mode := themeFixedMode(appearance); mode != "" {
 		t.Fatalf("system mode should not pin data-theme-mode, got %q", mode)
 	}
 	for _, want := range []string{
@@ -47,11 +47,11 @@ func TestThemeModeScriptRespectsPinnedMode(t *testing.T) {
 }
 
 func TestThemeBootCSSFixedModes(t *testing.T) {
-	lightTheme := ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100}
-	if mode := themeFixedMode(lightTheme); mode != "light" {
+	lightAppearance := AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100}
+	if mode := themeFixedMode(lightAppearance); mode != "light" {
 		t.Fatalf("light mode = %q, want light", mode)
 	}
-	light := themeBootCSS(lightTheme)
+	light := themeBootCSS(lightAppearance, NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true}, DefaultConfig().HistoryPage)
 	if strings.Contains(light, "prefers-color-scheme") {
 		t.Errorf("fixed light mode must not emit media query:\n%s", light)
 	}
@@ -59,11 +59,11 @@ func TestThemeBootCSSFixedModes(t *testing.T) {
 		t.Errorf("fixed light mode missing mint light background:\n%s", light)
 	}
 
-	darkTheme := ThemeConfig{Preset: "sunrise", Mode: "dark", FontScale: 100, SurfaceOpacity: 100}
-	if mode := themeFixedMode(darkTheme); mode != "dark" {
+	darkAppearance := AppearanceSettings{Preset: "sunrise", Mode: "dark", FontScale: 100, SurfaceOpacity: 100}
+	if mode := themeFixedMode(darkAppearance); mode != "dark" {
 		t.Fatalf("dark mode = %q, want dark", mode)
 	}
-	dark := themeBootCSS(darkTheme)
+	dark := themeBootCSS(darkAppearance, NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true}, DefaultConfig().HistoryPage)
 	if !strings.Contains(dark, "--bg:#16100B") {
 		t.Errorf("fixed dark mode missing sunrise dark background:\n%s", dark)
 	}
@@ -73,14 +73,16 @@ func TestThemeBootCSSFixedModes(t *testing.T) {
 }
 
 func TestThemeBootCSSSurfaceOpacityAndFontScale(t *testing.T) {
-	css := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 125, SurfaceOpacity: 72, NavOpacity: -1})
+	css := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 125, SurfaceOpacity: 72},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true}, DefaultConfig().HistoryPage)
 	for _, want := range []string{"--card-rgba:rgba(255,255,255,0.72)", "--nav-bg:rgba(240,253,251,0.72)", "--font-scale:1.25"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("theme boot missing %q:\n%s", want, css)
 		}
 	}
 
-	css = themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 0, SurfaceOpacity: 0})
+	css = themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 0, SurfaceOpacity: 0},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true}, DefaultConfig().HistoryPage)
 	if !strings.Contains(css, "--font-scale:1") || strings.Contains(css, "--font-scale:1.0") {
 		t.Errorf("zero font scale should fall back to 1:\n%s", css)
 	}
@@ -90,8 +92,8 @@ func TestThemeBootCSSSurfaceOpacityAndFontScale(t *testing.T) {
 }
 
 func TestThemeBootCSSCustomPreset(t *testing.T) {
-	theme := ThemeConfig{Preset: "custom", Mode: "light", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 100, SurfaceOpacity: 100}
-	css := themeBootCSS(theme)
+	appearance := AppearanceSettings{Preset: "custom", Mode: "light", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 100, SurfaceOpacity: 100}
+	css := themeBootCSS(appearance, NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true}, DefaultConfig().HistoryPage)
 	// 自定义皮肤表面色沿用 graphite，品牌色来自用户配置（经对比度调整）。
 	for _, want := range []string{"--p:#225ad6", "--bg:#F8FAFC", "--card:#FFFFFF"} {
 		if !strings.Contains(css, want) {
@@ -102,14 +104,19 @@ func TestThemeBootCSSCustomPreset(t *testing.T) {
 
 func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
 	// 默认：导航栏跟随界面不透明度，16px 毛玻璃，带分隔线，吸附跟随滚动，文本预览 2 行
-	follow := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60,
-		NavOpacity: -1, NavBlur: 16, NavBorder: true, NavSticky: true, PreviewLines: 2})
+	follow := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
+		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1600, HorizontalPadding: 24, CardGap: 12, PreviewLines: 2})
 	for _, want := range []string{
 		"--nav-bg:rgba(240,253,251,0.6)",
 		"--nav-backdrop:blur(16px) saturate(180%)",
 		"--nav-border-bottom:1px solid ",
 		"--nav-position:sticky",
 		"--preview-max-h:3.4em",
+		"--preview-min-h:0em",
+		"--history-content-max-width:none",
+		"--history-horizontal-padding:24px",
+		"--history-card-gap:12px",
 		"--on-accent:",
 	} {
 		if !strings.Contains(follow, want) {
@@ -118,28 +125,64 @@ func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
 	}
 
 	// 显式配置：独立不透明度、关闭模糊与分隔线、导航栏随页面滚动、预览不限制
-	explicit := themeBootCSS(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60,
-		NavOpacity: 35, NavBlur: 0, NavBorder: false, NavSticky: false, PreviewLines: 0})
+	explicit := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 60},
+		NavigationSettings{Sticky: false, Blur: 0, Opacity: 35, Divider: false},
+		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1600, HorizontalPadding: 24, CardGap: 12, PreviewLines: 0})
 	for _, want := range []string{
 		"--nav-bg:rgba(240,253,251,0.35)",
 		"--nav-backdrop:none",
 		"--nav-border-bottom:none",
 		"--nav-position:static",
 		"--preview-max-h:none",
+		"--preview-min-h:0em",
 	} {
 		if !strings.Contains(explicit, want) {
 			t.Errorf("explicit nav/preview boot missing %q:\n%s", want, explicit)
 		}
 	}
+
+	// 固定占位：min-h 与 max-h 一致（短内容也撑满行数）；行数不限时固定语义不生效。
+	fixed := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
+		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1600, HorizontalPadding: 24, CardGap: 12, PreviewLines: 4, FixedPreview: true})
+	if !strings.Contains(fixed, "--preview-max-h:6.8em") || !strings.Contains(fixed, "--preview-min-h:6.8em") {
+		t.Errorf("fixed preview boot must keep min-h equal to max-h:\n%s", fixed)
+	}
+	unlimitedFixed := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
+		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1600, HorizontalPadding: 24, CardGap: 12, PreviewLines: 0, FixedPreview: true})
+	if !strings.Contains(unlimitedFixed, "--preview-min-h:0em") {
+		t.Errorf("fixed preview must not apply when lines are unlimited:\n%s", unlimitedFixed)
+	}
+}
+
+func TestThemeBootCSSHistoryContentWidth(t *testing.T) {
+	// custom 模式输出限宽；auto 模式输出 none（充分使用可用空间）。
+	custom := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
+		HistoryPageSettings{Layout: "top-bottom", Columns: 4, ForceColumns: true, ContentWidthMode: "custom", ContentWidth: 1800, HorizontalPadding: 24, CardGap: 12, PreviewLines: 3})
+	if !strings.Contains(custom, "--history-content-max-width:1800px") {
+		t.Errorf("custom content width missing:\n%s", custom)
+	}
+	auto := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
+		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1800, HorizontalPadding: 24, CardGap: 12, PreviewLines: 3})
+	if !strings.Contains(auto, "--history-content-max-width:none") {
+		t.Errorf("auto content width must emit none:\n%s", auto)
+	}
 }
 
 func TestThemeRootVarsMatchFrontendApplyTheme(t *testing.T) {
-	// 与 appearance-theme.js applyTheme 写入的变量集合保持一致。
-	vars := themeRootVars(ThemeConfig{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100}, false)
+	// 与 appearance-theme.js applyTheme + history-layout.js applyHistoryPageLayout
+	// 写入的变量集合保持一致。
+	vars := themeRootVars(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
+		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
+		DefaultConfig().HistoryPage, false)
 	for _, name := range []string{
 		"--p", "--p2", "--on-p", "--on-p2", "--accent", "--on-accent", "--bg", "--bg2", "--card",
 		"--card-border", "--card-rgba", "--nav-bg", "--nav-backdrop", "--nav-border-bottom",
-		"--nav-position", "--preview-max-h", "--tx", "--sub", "--muted",
+		"--nav-position", "--preview-max-h", "--preview-min-h", "--history-content-max-width", "--history-horizontal-padding",
+		"--history-card-gap", "--tx", "--sub", "--muted",
 		"--p-dim", "--p-glow", "--p-border", "--accent-dim", "--accent-glow", "--accent-border",
 		"--shadow-md", "--shadow-lg",
 	} {
@@ -158,24 +201,24 @@ func TestThemeRootVarsMatchFrontendApplyTheme(t *testing.T) {
 func TestThemeColorsMatchFrontend(t *testing.T) {
 	tests := []struct {
 		name                  string
-		theme                 ThemeConfig
+		appearance            AppearanceSettings
 		dark                  bool
 		p, p2, accent, border string
 		onP, onP2             string
 	}{
-		{"mint light", ThemeConfig{Preset: "mint"}, false, "#0c7267", "#0a7269", "#9d480e", "rgba(12,114,103,0.2)", "#FFFFFF", "#FFFFFF"},
-		{"mint dark", ThemeConfig{Preset: "mint"}, true, "#2DD4BF", "#14B8A6", "#FB923C", "rgba(45,212,191,0.18)", "#000000", "#000000"},
-		{"ocean light", ThemeConfig{Preset: "ocean"}, false, "#02679b", "#03669c", "#2055ca", "rgba(2,103,155,0.2)", "#FFFFFF", "#FFFFFF"},
-		{"ocean dark", ThemeConfig{Preset: "ocean"}, true, "#38BDF8", "#0EA5E9", "#60A5FA", "rgba(56,189,248,0.18)", "#000000", "#000000"},
-		{"sunrise light", ThemeConfig{Preset: "sunrise"}, false, "#a83f09", "#ad3a0b", "#8d4d04", "rgba(168,63,9,0.2)", "#FFFFFF", "#FFFFFF"},
-		{"sunrise dark", ThemeConfig{Preset: "sunrise"}, true, "#FB923C", "#F97316", "#FBBF24", "rgba(251,146,60,0.18)", "#000000", "#000000"},
-		{"graphite light", ThemeConfig{Preset: "graphite"}, false, "#475569", "#334155", "#0e6a63", "rgba(71,85,105,0.2)", "#FFFFFF", "#FFFFFF"},
-		{"graphite dark", ThemeConfig{Preset: "graphite"}, true, "#94A3B8", "#8b97a8", "#2DD4BF", "rgba(148,163,184,0.18)", "#000000", "#000000"},
-		{"custom light", ThemeConfig{Preset: "custom", Primary: "#2563EB", Accent: "#F59E0B"}, false, "#225ad6", "#1e4fbc", "#845506", "rgba(34,90,214,0.2)", "#FFFFFF", "#FFFFFF"},
+		{"mint light", AppearanceSettings{Preset: "mint"}, false, "#0c7267", "#0a7269", "#9d480e", "rgba(12,114,103,0.2)", "#FFFFFF", "#FFFFFF"},
+		{"mint dark", AppearanceSettings{Preset: "mint"}, true, "#2DD4BF", "#14B8A6", "#FB923C", "rgba(45,212,191,0.18)", "#000000", "#000000"},
+		{"ocean light", AppearanceSettings{Preset: "ocean"}, false, "#02679b", "#03669c", "#2055ca", "rgba(2,103,155,0.2)", "#FFFFFF", "#FFFFFF"},
+		{"ocean dark", AppearanceSettings{Preset: "ocean"}, true, "#38BDF8", "#0EA5E9", "#60A5FA", "rgba(56,189,248,0.18)", "#000000", "#000000"},
+		{"sunrise light", AppearanceSettings{Preset: "sunrise"}, false, "#a83f09", "#ad3a0b", "#8d4d04", "rgba(168,63,9,0.2)", "#FFFFFF", "#FFFFFF"},
+		{"sunrise dark", AppearanceSettings{Preset: "sunrise"}, true, "#FB923C", "#F97316", "#FBBF24", "rgba(251,146,60,0.18)", "#000000", "#000000"},
+		{"graphite light", AppearanceSettings{Preset: "graphite"}, false, "#475569", "#334155", "#0e6a63", "rgba(71,85,105,0.2)", "#FFFFFF", "#FFFFFF"},
+		{"graphite dark", AppearanceSettings{Preset: "graphite"}, true, "#94A3B8", "#8b97a8", "#2DD4BF", "rgba(148,163,184,0.18)", "#000000", "#000000"},
+		{"custom light", AppearanceSettings{Preset: "custom", Primary: "#2563EB", Accent: "#F59E0B"}, false, "#225ad6", "#1e4fbc", "#845506", "rgba(34,90,214,0.2)", "#FFFFFF", "#FFFFFF"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			colors := resolveThemeColors(tt.theme, tt.dark)
+			colors := resolveThemeColors(tt.appearance, tt.dark)
 			if colors.P != tt.p || colors.P2 != tt.p2 || colors.Accent != tt.accent || colors.Border != tt.border {
 				t.Errorf("colors = (%s, %s, %s, %s), want (%s, %s, %s, %s)",
 					colors.P, colors.P2, colors.Accent, colors.Border, tt.p, tt.p2, tt.accent, tt.border)
@@ -215,7 +258,7 @@ func TestApplicationPageIncludesThemeBoot(t *testing.T) {
 func TestThemeBootCSSHandlerServesCurrentTheme(t *testing.T) {
 	manager := &ConfigManager{cfg: func() Config {
 		cfg := DefaultConfig()
-		cfg.Theme = ThemeConfig{Preset: "sunrise", Mode: "dark", FontScale: 100, SurfaceOpacity: 100}
+		cfg.Appearance = AppearanceSettings{Preset: "sunrise", Mode: "dark", FontScale: 100, SurfaceOpacity: 100}
 		return cfg
 	}()}
 	server := &SearchServer{cfgMgr: manager}

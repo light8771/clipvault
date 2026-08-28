@@ -48,10 +48,45 @@
         <div class="ssec-fields">
           <div class="field-row">
             <div class="field-info">
-              <span class="field-label">{{T "maintenance.runtime_logs"}}</span>
               <p class="field-hint">{{T "maintenance.runtime_logs_hint"}}</p>
             </div>
             <button type="button" class="btn-export" id="diagnosticsExportBtn">{{T "maintenance.export_logs"}}</button>
+          </div>
+        </div>
+
+        <!-- 联系支持：只读展示应用元信息（SupportInfo），用户不可修改；
+             未配置的条目由前端隐藏，全部为空时整个区块不渲染。 -->
+        <div class="fsec" id="s-maintenance-support">
+          <h3 class="fsec-title">{{T "maintenance.support"}}</h3>
+          <p class="fsec-desc">{{T "maintenance.support_desc"}}</p>
+        </div>
+        <div class="ssec-fields" id="supportFields" hidden>
+          <div class="field-row support-field-row" id="supportEmailRow" hidden>
+            <div class="field-info">
+              <span class="field-label">{{T "maintenance.support_email"}}</span>
+            </div>
+            <div class="support-entry">
+              <span class="support-value" id="supportEmailValue"></span>
+              <button type="button" class="btn-copy" data-support-copy="supportEmailValue" aria-label='{{T "maintenance.support_copy"}}'>{{T "maintenance.support_copy"}}</button>
+            </div>
+          </div>
+          <div class="field-row support-field-row" id="supportQQRow" hidden>
+            <div class="field-info">
+              <span class="field-label">{{T "maintenance.support_qq"}}</span>
+            </div>
+            <div class="support-entry">
+              <span class="support-value" id="supportQQValue"></span>
+              <button type="button" class="btn-copy" data-support-copy="supportQQValue" aria-label='{{T "maintenance.support_copy"}}'>{{T "maintenance.support_copy"}}</button>
+            </div>
+          </div>
+          <div class="field-row support-field-row" id="supportWebsiteRow" hidden>
+            <div class="field-info">
+              <span class="field-label">{{T "maintenance.support_website"}}</span>
+            </div>
+            <div class="support-entry">
+              <a class="support-value support-link" id="supportWebsiteValue" href="#" target="_blank" rel="noopener noreferrer"></a>
+              <a class="btn-copy" id="supportWebsiteOpen" href="#" target="_blank" rel="noopener noreferrer" aria-label='{{T "maintenance.support_open"}}'>{{T "maintenance.support_open"}}</a>
+            </div>
           </div>
         </div>
       </section>

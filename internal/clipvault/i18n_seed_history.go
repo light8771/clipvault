@@ -226,8 +226,8 @@ var i18nSeedHistory = []BuiltinTranslation{
 
 	// ── maintenance 运行维护 ──────────────────────────────────────────
 	{Key: "maintenance.desc", Module: "maintenance", Description: "运行维护页描述",
-		ZhCN: "运行信息、诊断日志与运行维护。导出诊断日志需要二次验证。",
-		EnUS: "Runtime information, diagnostic logs, and maintenance. Exporting diagnostic logs requires secondary verification."},
+		ZhCN: "运行信息、运行日志、联系支持与运行维护。导出运行日志需要二次验证。",
+		EnUS: "Runtime information, runtime logs, support contact, and maintenance. Exporting runtime logs requires secondary verification."},
 	{Key: "maintenance.runtime_info", Module: "maintenance", Description: "运行信息区块", ZhCN: "运行信息", EnUS: "Runtime Info"},
 	{Key: "maintenance.runtime_live", Module: "maintenance", Description: "实时数据说明", ZhCN: "本机实时数据", EnUS: "Live data from this machine"},
 	{Key: "maintenance.recording_status", Module: "maintenance", Description: "录制状态", ZhCN: "录制状态", EnUS: "Recording"},
@@ -236,9 +236,8 @@ var i18nSeedHistory = []BuiltinTranslation{
 	{Key: "maintenance.uptime", Module: "maintenance", Description: "运行时间", ZhCN: "运行时间", EnUS: "Uptime"},
 	{Key: "maintenance.version", Module: "maintenance", Description: "版本", ZhCN: "版本", EnUS: "Version"},
 	{Key: "maintenance.data_dir", Module: "maintenance", Description: "数据目录", ZhCN: "数据目录", EnUS: "Data Directory"},
-	{Key: "maintenance.diag_logs", Module: "maintenance", Description: "诊断日志标题", ZhCN: "诊断日志", EnUS: "Diagnostic Logs"},
-	{Key: "maintenance.diag_logs_desc", Module: "maintenance", Description: "诊断日志描述", ZhCN: "导出问题排查所需的脱敏运行日志", EnUS: "Export redacted runtime logs for troubleshooting"},
-	{Key: "maintenance.runtime_logs", Module: "maintenance", Description: "运行日志字段", ZhCN: "运行日志", EnUS: "Runtime Logs"},
+	{Key: "maintenance.diag_logs", Module: "maintenance", Description: "运行日志标题", ZhCN: "运行日志", EnUS: "Runtime Logs"},
+	{Key: "maintenance.diag_logs_desc", Module: "maintenance", Description: "运行日志描述", ZhCN: "导出问题排查所需的脱敏运行日志", EnUS: "Export redacted runtime logs for troubleshooting"},
 	{Key: "maintenance.runtime_logs_hint", Module: "maintenance", Description: "运行日志说明",
 		ZhCN: "导出最近 7 天、最多 8 MiB 的脱敏日志和运行环境信息，不包含剪贴板内容、数据库、配置或密钥。请将 ZIP 文件发送给技术支持。",
 		EnUS: "Exports redacted logs and environment info from the last 7 days (up to 8 MiB), excluding clipboard content, database, config, or keys. Send the ZIP file to technical support."},
@@ -251,6 +250,18 @@ var i18nSeedHistory = []BuiltinTranslation{
 		ZhCN: "{hours} 小时 {minutes} 分钟", EnUS: "{hours}h {minutes}m"},
 	{Key: "maintenance.uptime_minutes", Module: "maintenance", Description: "运行时长（{minutes} 参数）", ZhCN: "{minutes} 分钟", EnUS: "{minutes}m"},
 	{Key: "maintenance.uptime_seconds", Module: "maintenance", Description: "运行时长（{seconds} 参数）", ZhCN: "{seconds} 秒", EnUS: "{seconds}s"},
+
+	// ── maintenance 联系支持 ─────────────────────────────────────────
+	{Key: "maintenance.support", Module: "maintenance", Description: "联系支持区块", ZhCN: "联系支持", EnUS: "Contact Support"},
+	{Key: "maintenance.support_desc", Module: "maintenance", Description: "联系支持描述",
+		ZhCN: "使用过程中遇到问题，可以联系维护者。反馈程序问题时建议同时附上运行日志。",
+		EnUS: "If you run into problems, contact the maintainer. When reporting an issue, attaching the runtime logs is recommended."},
+	{Key: "maintenance.support_email", Module: "maintenance", Description: "联系支持邮箱字段", ZhCN: "邮箱", EnUS: "Email"},
+	{Key: "maintenance.support_qq", Module: "maintenance", Description: "联系支持 QQ 字段", ZhCN: "QQ", EnUS: "QQ"},
+	{Key: "maintenance.support_website", Module: "maintenance", Description: "联系支持官网字段", ZhCN: "官方网站", EnUS: "Website"},
+	{Key: "maintenance.support_copy", Module: "maintenance", Description: "复制按钮", ZhCN: "复制", EnUS: "Copy"},
+	{Key: "maintenance.support_copied", Module: "maintenance", Description: "已复制提示", ZhCN: "已复制", EnUS: "Copied"},
+	{Key: "maintenance.support_open", Module: "maintenance", Description: "打开网站按钮", ZhCN: "打开", EnUS: "Open"},
 
 	// ── license 软件授权 ──────────────────────────────────────────────
 	{Key: "license.desc", Module: "license", Description: "授权页描述",

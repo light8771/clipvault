@@ -205,9 +205,11 @@ func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 func (s *SearchServer) handlePublicAppearance(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.Get()
 	s.writeJSON(w, map[string]any{
-		"brand":      cfg.Brand,
-		"background": cfg.Background,
-		"theme":      cfg.Theme,
+		"brand":       cfg.Brand,
+		"background":  cfg.Background,
+		"appearance":  cfg.Appearance,
+		"navigation":  cfg.Navigation,
+		"historyPage": cfg.HistoryPage,
 	})
 }
 

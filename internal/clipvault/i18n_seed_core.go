@@ -153,6 +153,8 @@ var i18nSeedCore = []BuiltinTranslation{
 	{Key: "app.title.history", Module: "app", Description: "页面标题：历史", ZhCN: "历史", EnUS: "History"},
 	{Key: "app.title.settings", Module: "app", Description: "页面标题：设置", ZhCN: "设置", EnUS: "Settings"},
 	{Key: "app.title.appearance", Module: "app", Description: "页面标题：外观与通知", ZhCN: "外观与通知", EnUS: "Appearance & Notifications"},
+	{Key: "app.title.settings_history", Module: "app", Description: "页面标题：历史页面", ZhCN: "历史页面", EnUS: "History Page"},
+	{Key: "app.title.settings_navigation", Module: "app", Description: "页面标题：导航栏", ZhCN: "导航栏", EnUS: "Navigation Bar"},
 	{Key: "app.title.general", Module: "app", Description: "页面标题：录制与快捷键", ZhCN: "录制与快捷键", EnUS: "Recording & Hotkeys"},
 	{Key: "app.title.security", Module: "app", Description: "页面标题：安全与隐私", ZhCN: "安全与隐私", EnUS: "Security & Privacy"},
 	{Key: "app.title.storage", Module: "app", Description: "页面标题：存储与数据", ZhCN: "存储与数据", EnUS: "Storage & Data"},
@@ -171,6 +173,8 @@ var i18nSeedCore = []BuiltinTranslation{
 	// ── menu 设置菜单 ─────────────────────────────────────────────────
 	{Key: "menu.label", Module: "menu", Description: "管理菜单 aria 标签", ZhCN: "管理菜单", EnUS: "Management Menu"},
 	{Key: "menu.settings", Module: "menu", Description: "设置菜单：系统设置", ZhCN: "系统设置", EnUS: "System Settings"},
+	{Key: "menu.settings_history", Module: "menu", Description: "设置菜单：历史页面", ZhCN: "历史页面", EnUS: "History Page"},
+	{Key: "menu.settings_navigation", Module: "menu", Description: "设置菜单：导航栏", ZhCN: "导航栏", EnUS: "Navigation Bar"},
 	{Key: "menu.language", Module: "menu", Description: "设置菜单：语言", ZhCN: "语言", EnUS: "Language"},
 	{Key: "menu.groups", Module: "menu", Description: "设置菜单：分组管理", ZhCN: "分组管理", EnUS: "Groups"},
 	{Key: "menu.data_api", Module: "menu", Description: "设置菜单：数据接口", ZhCN: "数据接口", EnUS: "Data API"},

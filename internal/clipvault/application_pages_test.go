@@ -49,6 +49,8 @@ func TestApplicationPageRoutesAreExact(t *testing.T) {
 		"/settings":            "settings",
 		"/settings/language":   "settings",
 		"/settings/appearance": "settings",
+		"/settings/history":    "settings",
+		"/settings/navigation": "settings",
 		"/settings/general":    "settings",
 		"/settings/security":   "settings",
 		"/settings/storage":    "settings",

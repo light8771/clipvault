@@ -109,8 +109,8 @@ for (const [name, source] of moduleSources) {
     assert.match(token[0], /^["'`]\/api\/v1\//, `${name} contains an unversioned API path ${token[0]}`);
   }
 }
-assert.match(applicationSource, /ensureContrastOnSurfaces\(app\.validHex\(theme\.primary/);
-assert.match(applicationSource, /ensureContrastOnSurfaces\(app\.validHex\(theme\.accent/);
+assert.match(applicationSource, /ensureContrastOnSurfaces\(app\.validHex\(appearance\.primary/);
+assert.match(applicationSource, /ensureContrastOnSurfaces\(app\.validHex\(appearance\.accent/);
 assert.match(applicationSource, /--on-p/, 'the primary foreground token must be set at runtime');
 assert.match(stylesheet, /color:\s*var\(--on-p\)/, 'solid primary controls must use the calculated foreground');
 assert.match(stylesheet, /\.background-range input\[type=range\]\s*\{[^}]*accent-color:\s*var\(--p\)/, 'background adjustment sliders must use the theme primary color');

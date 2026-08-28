@@ -67,12 +67,12 @@ func startupGateThemeColors(store *Store) (mode string, palette startupGatePalet
 	if err != nil {
 		return mode, palette
 	}
-	switch cfg.Theme.Mode {
+	switch cfg.Appearance.Mode {
 	case "light", "dark":
-		mode = cfg.Theme.Mode
+		mode = cfg.Appearance.Mode
 	}
-	if cfg.Theme.Preset == "custom" {
-		if primary, ok := normalizeStartupGateHex(cfg.Theme.Primary); ok {
+	if cfg.Appearance.Preset == "custom" {
+		if primary, ok := normalizeStartupGateHex(cfg.Appearance.Primary); ok {
 			return mode, startupGatePalette{
 				light:      primary,
 				lightHover: blendStartupGateHex(primary, false, 0.12),
@@ -82,7 +82,7 @@ func startupGateThemeColors(store *Store) (mode string, palette startupGatePalet
 		}
 		return mode, palette
 	}
-	if preset, ok := startupGatePalettes[cfg.Theme.Preset]; ok {
+	if preset, ok := startupGatePalettes[cfg.Appearance.Preset]; ok {
 		palette = preset
 	}
 	return mode, palette
