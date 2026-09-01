@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -115,9 +114,7 @@ var (
 
 func internalRestoreFormat() uint32 {
 	internalRestoreOnce.Do(func() {
-		name, _ := syscall.UTF16PtrFromString(internalRestoreFormatName)
-		id, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(name)))
-		internalRestoreID = uint32(id)
+		internalRestoreID = registerClipboardFormat(internalRestoreFormatName)
 	})
 	return internalRestoreID
 }

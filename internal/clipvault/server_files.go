@@ -113,36 +113,16 @@ func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
 		return
 	}
-	item, err := s.store.GetByID(r.Context(), id)
-	if errors.Is(err, ErrItemNotFound) {
-		s.writeAPIError(w, http.StatusNotFound, "item_not_found", s.i18nT("api.error.item_not_found", nil), nil)
+	item, ok := s.loadAuthorizedItem(w, r, id)
+	if !ok {
 		return
-	}
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	if s.license != nil && !s.license.CanUsePaidFeatures() {
-		pos, perr := s.store.GetPositionByID(r.Context(), id)
-		if perr != nil {
-			s.writeError(w, perr)
-			return
-		}
-		if pos >= FreeTierVisibleLimit {
-			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside", s.i18nT("api.error.free_window_generic", nil), nil)
-			return
-		}
 	}
 	if item.Format != "CLIPVAULT_IMAGE_FILE" || !item.ContentAvailable {
 		s.writeAPIError(w, http.StatusBadRequest, "not_image", s.i18nT("api.error.not_managed_image", nil), nil)
 		return
 	}
-	if item.Sensitive && !s.authorizeSecondaryRequest(w, r) {
-		return
-	}
-	imagesRoot := filepath.Clean(s.env.ImagesDirectory())
-	full := filepath.Clean(filepath.Join(imagesRoot, filepath.FromSlash(strings.TrimPrefix(item.Text, "images/"))))
-	if full != imagesRoot && !strings.HasPrefix(full, imagesRoot+string(os.PathSeparator)) {
+	full, err := resolveManagedImagePath(s.env, item.Text)
+	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_image_path", s.i18nT("api.error.invalid_image_path", nil), nil)
 		return
 	}
@@ -153,6 +133,62 @@ func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/png")
 	http.ServeFile(w, r, full)
+}
+
+// handleItemCopyText returns the text representation used by history-page copy
+// actions. Managed images are stored with a portable path relative to DataDir;
+// only this explicit, authenticated action expands it to a local absolute path.
+func (s *SearchServer) handleItemCopyText(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id <= 0 {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_id", s.i18nT("api.error.invalid_id", nil), nil)
+		return
+	}
+	item, ok := s.loadAuthorizedItem(w, r, id)
+	if !ok {
+		return
+	}
+	if !item.ContentAvailable {
+		s.writeAPIError(w, http.StatusBadRequest, "content_unavailable", s.i18nT("history.unavailable_content", nil), nil)
+		return
+	}
+	text := item.Text
+	if item.Format == "CLIPVAULT_IMAGE_FILE" {
+		text, err = resolveManagedImagePath(s.env, item.Text)
+		if err != nil {
+			s.writeAPIError(w, http.StatusBadRequest, "invalid_image_path", s.i18nT("api.error.invalid_image_path", nil), nil)
+			return
+		}
+		info, statErr := os.Stat(text)
+		if statErr != nil || info.IsDir() {
+			s.writeAPIError(w, http.StatusNotFound, "file_not_found", s.i18nT("api.error.image_file_not_found", nil), nil)
+			return
+		}
+	}
+	s.writeJSON(w, map[string]any{"text": text})
+}
+
+func (s *SearchServer) loadAuthorizedItem(w http.ResponseWriter, r *http.Request, id int64) (StoredItem, bool) {
+	item, err := s.store.GetByID(r.Context(), id)
+	if err != nil {
+		s.writeItemLookupError(w, err)
+		return StoredItem{}, false
+	}
+	if s.license != nil && !s.license.CanUsePaidFeatures() {
+		position, positionErr := s.store.GetPositionByID(r.Context(), id)
+		if positionErr != nil {
+			s.writeError(w, positionErr)
+			return StoredItem{}, false
+		}
+		if position >= FreeTierVisibleLimit {
+			s.writeAPIError(w, http.StatusPaymentRequired, "window_outside", s.i18nT("api.error.free_window_generic", nil), nil)
+			return StoredItem{}, false
+		}
+	}
+	if item.Sensitive && !s.authorizeSecondaryRequest(w, r) {
+		return StoredItem{}, false
+	}
+	return item, true
 }
 
 // ErrFreeWindowOutside 表示请求的文件所属记录在免费版可见窗口之外。

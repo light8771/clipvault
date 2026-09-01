@@ -290,7 +290,7 @@ func TestImportDeduplicatesLinksAfterGroupMerge(t *testing.T) {
 		SourceEngine:  "duckdb",
 		Items: []StoredItem{{
 			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT",
-			Text: "hello", ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}",
+			Text: "hello", ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}", ContentAvailable: true,
 		}},
 		Groups: []StoredGroup{
 			{ID: 1, Name: "Dup", ParentID: 0, CreatedAt: now},

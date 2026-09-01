@@ -3,6 +3,8 @@ package clipvault
 import (
 	"context"
 	"testing"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 func TestStoreSaveAndSearch(t *testing.T) {
@@ -36,6 +38,26 @@ func TestStoreSaveAndSearch(t *testing.T) {
 	}
 	if items[0].Text != "alpha project note" {
 		t.Fatalf("unexpected text %q", items[0].Text)
+	}
+}
+
+func TestStoreRejectsInvalidClipboardStates(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	invalid := []ClipboardItem{
+		{Kind: domain.KindOther, Format: domain.FormatEventOnly, UnavailableReason: "obsolete_reason"},
+		{Kind: domain.KindOther, Format: domain.FormatEventOnly},
+		{Kind: domain.KindText, Format: domain.FormatUnicodeText, UnavailableReason: domain.ReasonImageLimitExceeded},
+		{Kind: domain.KindImage, Format: domain.FormatEventOnly, UnavailableReason: domain.ReasonReadFailed},
+	}
+	for _, item := range invalid {
+		if err := store.Save(context.Background(), item); err == nil {
+			t.Fatalf("invalid clipboard state was accepted: %+v", item)
+		}
 	}
 }
 

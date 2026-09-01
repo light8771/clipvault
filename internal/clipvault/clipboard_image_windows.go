@@ -28,52 +28,84 @@ var (
 )
 
 var (
-	pngFormatOnce sync.Once
-	pngFormatID   uint32
+	pngFormatOnce     sync.Once
+	pngFormatID       uint32
+	mimePNGFormatOnce sync.Once
+	mimePNGFormatID   uint32
 )
 
 // clipboardPNGFormat 返回注册格式 "PNG" 的 id（进程内缓存）。
 func clipboardPNGFormat() uint32 {
 	pngFormatOnce.Do(func() {
-		name, _ := syscall.UTF16PtrFromString("PNG")
-		id, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(name)))
-		pngFormatID = uint32(id)
+		pngFormatID = registerClipboardFormat("PNG")
 	})
 	return pngFormatID
 }
 
+func clipboardMIMEPNGFormat() uint32 {
+	mimePNGFormatOnce.Do(func() {
+		mimePNGFormatID = registerClipboardFormat("image/png")
+	})
+	return mimePNGFormatID
+}
+
 var errImageTooLarge = ErrImageLimitExceeded
+
+type clipboardImageAccess struct {
+	pngFormatIDs []uint32
+	available    func(uint32) bool
+	readBytes    func(uint32) ([]byte, error)
+	readBitmap   func() ([]byte, error)
+}
 
 // readClipboardImage 尝试把剪贴板中的图片读取为 PNG 字节。
 // 剪贴板必须已由调用方打开。ok=false 表示剪贴板中没有可识别的图片格式。
 func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
+	return readClipboardImageWith(cfg, clipboardImageAccess{
+		pngFormatIDs: []uint32{clipboardPNGFormat(), clipboardMIMEPNGFormat()},
+		available:    isClipboardFormatAvailable,
+		readBytes:    readClipboardBytes,
+		readBitmap:   bitmapHandleToPNG,
+	})
+}
+
+// readClipboardImageWith treats advertised clipboard formats as candidates,
+// not guarantees. Delayed-rendering producers commonly advertise several image
+// formats while one of their GetClipboardData calls still returns no handle.
+// A broken higher-priority candidate must therefore never prevent a lower-
+// priority representation of the same image from being captured.
+func readClipboardImageWith(cfg Config, access clipboardImageAccess) (*ClipboardSnapshot, bool, error) {
 	maxBytes := cfg.Image.MaxBytes
 	if maxBytes <= 0 {
 		maxBytes = defaultImageMaxBytes
 	}
-	if pngID := clipboardPNGFormat(); pngID != 0 && isClipboardFormatAvailable(pngID) {
-		raw, err := readClipboardBytes(pngID)
-		if err != nil {
-			return nil, true, err
+	var lastErr error
+	for _, pngID := range access.pngFormatIDs {
+		if pngID == 0 || !access.available(pngID) {
+			continue
 		}
-		if len(raw) > 0 {
+		raw, err := access.readBytes(pngID)
+		if err != nil {
+			lastErr = err
+		} else if len(raw) > 0 {
 			if len(raw) > maxBytes {
 				return nil, true, errImageTooLarge
 			}
 			if !isPNG(raw) {
-				return nil, true, errors.New("registered PNG format payload is not a PNG")
+				lastErr = &clipboardOperationError{stage: clipboardReadStageDecode, format: clipboardFormatName(pngID), err: errors.New("registered PNG format payload is not a PNG")}
+			} else {
+				return newImageSnapshot(raw, clipboardFormatName(pngID)), true, nil
 			}
-			return newImageSnapshot(raw, "PNG"), true, nil
 		}
 	}
-	var lastErr error
 	for _, format := range []uint32{cfDIBV5, cfDIB} {
-		if !isClipboardFormatAvailable(format) {
+		if !access.available(format) {
 			continue
 		}
-		raw, err := readClipboardBytes(format)
+		raw, err := access.readBytes(format)
 		if err != nil {
-			return nil, true, err
+			lastErr = err
+			continue
 		}
 		if len(raw) == 0 {
 			continue
@@ -90,8 +122,8 @@ func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
 		}
 		return newImageSnapshot(pngBytes, clipboardFormatName(format)), true, nil
 	}
-	if isClipboardFormatAvailable(cfBitmap) {
-		pngBytes, err := bitmapHandleToPNG()
+	if access.available(cfBitmap) {
+		pngBytes, err := access.readBitmap()
 		if err != nil {
 			lastErr = err
 		} else if len(pngBytes) > 0 {

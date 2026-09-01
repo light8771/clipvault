@@ -1,5 +1,5 @@
 import { app } from "./app-context.js";
-
+import { renderClipboardEventDetails } from './clipboard-event-details.js';
 const t = window.clipvaultI18n.t;
 
 export function registerHistoryList() {
@@ -8,9 +8,7 @@ export function registerHistoryList() {
   app.LIST = document.getElementById('list');
   app.BADGE = document.getElementById('badge');
   app.RC = document.getElementById('rc');
-  app.AR = document.getElementById('ar');
   app.debounce = 0;
-  app.arTimer = 0;
   app.currentKind = '';
   app.currentPage = 0;
   app.totalCount = 0;
@@ -20,7 +18,7 @@ export function registerHistoryList() {
   app.filterDateFrom = '';
   app.filterDateTo = '';
   app.currentGroupID = 0;
-  app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ' + t('history.view');
+  app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span class="ab-label">' + t('history.view') + '</span>';
   app.delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   app.groupBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>';
   app.locateHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
@@ -69,10 +67,10 @@ export function registerHistoryList() {
         charText = t('history.hidden_count');
         showView = true;
       } else if (it.contentAvailable === false) {
-        // 事件优先：事件已落库但内容不可用（被覆盖/格式不支持/超限等）
+        // 内容不可用事件直接展示持久化的结构化失败上下文。
         const reasonKey = app.UNAVAILABLE_LABEL_KEY[it.unavailableReason];
         const reasonLabel = reasonKey ? t(reasonKey) : t('history.unavailable_content');
-        bodyHTML = `<pre class="open event-only">${app.esc(reasonLabel)}</pre>`;
+        bodyHTML = renderClipboardEventDetails(it, reasonLabel, t, app.esc);
         charText = t('history.event_only');
         showView = false;
       } else if (managedImage) {
@@ -113,9 +111,9 @@ export function registerHistoryList() {
             ${srcHTML}
           </div>
           <div class="card-acts">
-            ${showView ? `<button class="ab exp" data-action="${viewAction}" data-item-id="${it.id}">${app.viewHTML}</button>` : ''}
+            ${showView ? `<button class="ab exp" data-action="${viewAction}" data-item-id="${it.id}" title="${app.esc(t('history.view'))}" aria-label="${app.esc(t('history.view'))}">${app.viewHTML}</button>` : ''}
             ${q ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="${t('history.locate')}">${app.locateHTML}</button>` : ''}
-            ${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}">${app.cpHTML}</button>` : ''}
+            ${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}" title="${app.esc(t('common.copy'))}" aria-label="${app.esc(t('common.copy'))}">${app.cpHTML}</button>` : ''}
             <button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
             <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? t('history.unmark_sensitive') : t('history.mark_sensitive')}">${app.sensBtnHTML}</button>
             <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="${t('groups.modal_assign')}">${app.groupBtnHTML}</button>
@@ -362,13 +360,6 @@ export function registerHistoryList() {
       JI.max = totalPages;
     }
   };
-  app.setupAR = function setupAR() {
-    clearInterval(app.arTimer);
-    if (app.AR.checked) app.arTimer = setInterval(() => {
-      app.search();
-      app.refreshState();
-    }, 3000);
-  };
   // ── Events ────────────────────────────────────────────────
   app.Q.addEventListener('input', () => {
     clearTimeout(app.debounce);
@@ -387,8 +378,6 @@ export function registerHistoryList() {
       app.PAGESIZE.blur();
     }
   });
-  app.AR.addEventListener('change', app.setupAR);
-
   // ── Pagesize custom dropdown ─────────────────────────────
   app.psDropdown = document.getElementById('pagesizeDropdown');
   app.psDropdownBtn = document.getElementById('pagesizeDropdownBtn');

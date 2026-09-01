@@ -7,7 +7,7 @@ import (
 )
 
 // ExportVersion 随导出契约递增。v5：条目新增 contentAvailable / isDuplicate /
-// unavailableReason 三个事件状态字段（事件优先语义）。
+// unavailableReason 三个内容可用性字段。
 const ExportVersion = 5
 
 // Scope is the shared range contract for export and backup operations.

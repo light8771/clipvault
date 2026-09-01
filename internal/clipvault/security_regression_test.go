@@ -1346,7 +1346,7 @@ func TestImportRejectsInvalidItemAndGroupInvariants(t *testing.T) {
 	now := time.Now().UTC()
 	validItem := StoredItem{
 		ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",
-		ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}",
+		ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}", ContentAvailable: true,
 	}
 
 	tests := []struct {

@@ -13,6 +13,7 @@ import (
 const (
 	wmDestroy          = 0x0002
 	wmCommand          = 0x0111
+	wmRuntimeTimer     = 0x0113
 	wmClipboardUpdate  = 0x031D
 	wmTrayIcon         = 0x0400 + 1
 	wmRButtonUp        = 0x0205
@@ -28,6 +29,9 @@ const (
 	idMenuExit        = 105
 	idHotkeyToggle    = 1000
 	idHotkeySearch    = 1001
+	idClipboardPoll   = 2001
+
+	clipboardPollIntervalMS = 250
 
 	nimAdd        = 0x00000000
 	nimModify     = 0x00000001
@@ -121,16 +125,15 @@ type WindowsRuntime struct {
 	pendingSearchHotkey *HotkeyConfig
 	pendingHotkeyResult chan error
 
-	// 剪贴板事件由单个 worker goroutine 串行消费。每个事件携带 Win32
-	// sequence number、派发现场捕获的来源与事件发生时间（Unix ms）；
-	// worker 只在序列仍匹配时读取，防止旧来源错配到新内容。
-	// 队列是无界 FIFO（事件优先，绝不丢弃事件）。
-	clipQueue     *clipQueue
+	// 剪贴板事件由单个 worker goroutine 串行消费；邮箱只保留尚未读取的
+	// 最新 sequence，因为旧 sequence 的内容在系统剪贴板中已不可恢复。
+	clipMailbox   *clipMailbox
 	clipDone      chan struct{}
 	clipCloseOnce sync.Once
-	// clipWarnedDepth 是队列高水位告警的去抖水位（上次告警时的深度），
-	// 只在消息循环线程读写；回落到阈值一半以下时复位，重新完整告警。
-	clipWarnedDepth int
+	// lastClipboardSequence merges the normal WM_CLIPBOARDUPDATE path with the
+	// sequence-number polling fallback. Both producers run on the message-loop
+	// thread, so no synchronization is needed.
+	lastClipboardSequence uint32
 
 	// suppressUntilSeq 是内部恢复（搜索弹窗写回剪贴板）的序列抑制水位：
 	// sequence <= 水位的事件视为应用自身写回，不进入录制队列。
@@ -183,6 +186,8 @@ var (
 	procGetMessageW                   = user32.NewProc("GetMessageW")
 	procTranslateMessage              = user32.NewProc("TranslateMessage")
 	procDispatchMessageW              = user32.NewProc("DispatchMessageW")
+	procClipboardSetTimer             = user32.NewProc("SetTimer")
+	procClipboardKillTimer            = user32.NewProc("KillTimer")
 	procAddClipboardFormatListener    = user32.NewProc("AddClipboardFormatListener")
 	procRemoveClipboardFormatListener = user32.NewProc("RemoveClipboardFormatListener")
 	procLoadIconW                     = user32.NewProc("LoadIconW")
@@ -305,6 +310,13 @@ func (r *WindowsRuntime) Run() error {
 	if ok, _, err := procAddClipboardFormatListener.Call(hwnd); ok == 0 {
 		r.logger.Warn("clipboard_listener_failed", map[string]any{"error": err.Error()})
 	}
+	// A small number of producers (notably some scrolling-screenshot flows) update
+	// the clipboard sequence without delivering WM_CLIPBOARDUPDATE to every
+	// listener. Polling the cheap sequence counter closes that gap; the shared
+	// lastClipboardSequence watermark prevents duplicate recording.
+	if timerID, _, err := procClipboardSetTimer.Call(hwnd, idClipboardPoll, clipboardPollIntervalMS, 0); timerID == 0 {
+		r.logger.Warn("clipboard_poll_timer_failed", map[string]any{"error": err.Error()})
+	}
 	if err := r.addTrayIcon(); err != nil {
 		r.logger.Warn("tray_add_failed", map[string]any{"error": err.Error()})
 	}
@@ -353,6 +365,13 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			r.notifyClipboardUpdate(source)
 		}
 		return 0
+	case wmRuntimeTimer:
+		if r != nil && wParam == idClipboardPoll {
+			r.pollClipboardUpdate()
+			return 0
+		}
+		ret, _, _ := procDefWindowProcW.Call(hwnd, uintptr(message), wParam, lParam)
+		return ret
 	case wmTrayIcon:
 		if r != nil {
 

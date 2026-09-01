@@ -138,6 +138,7 @@ func (s *SearchServer) Start() (string, error) {
 	api("GET /api/v1/items/sensitive/item", s.requireSecondary(s.handleSensitiveItem))
 	api("GET /api/v1/items/position", s.requireAuth(s.handleItemPosition))
 	api("GET /api/v1/items/image", s.requireAuth(s.handleItemImage))
+	api("GET /api/v1/items/copy-text", s.requireAuth(s.handleItemCopyText))
 	api("GET /api/v1/files/check", s.requireAuth(s.handleFileCheck))
 	api("GET /api/v1/files/content", s.requireAuth(s.handleFileServe))
 	api("POST /api/v1/files/open-directory", s.requireAuth(s.handleFileOpenDir))

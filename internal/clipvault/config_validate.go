@@ -193,5 +193,5 @@ func (e Environment) LogDirectory() string {
 
 // ImagesDirectory 返回托管图片（剪贴板图片转码 PNG）的根目录。
 func (e Environment) ImagesDirectory() string {
-	return filepath.Join(e.DataDir, "images")
+	return filepath.Join(e.DataDir, managedImageDirectoryName)
 }

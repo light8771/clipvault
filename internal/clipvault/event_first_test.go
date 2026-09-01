@@ -48,7 +48,7 @@ func TestEventStateRoundtripAndDisplayFilters(t *testing.T) {
 		{Kind: "text", Format: "CF_UNICODETEXT", Text: "alpha", CapturedAtMS: base},
 		{Kind: "text", Format: "CF_UNICODETEXT", Text: "alpha", CapturedAtMS: base + 1, IsDuplicate: true},
 		{Kind: domain.KindOther, Format: domain.FormatEventOnly, CapturedAtMS: base + 2,
-			ContentAvailable: false, UnavailableReason: domain.ReasonSuperseded},
+			ContentAvailable: false, UnavailableReason: domain.ReasonUnsupportedFormat},
 	}
 	for _, record := range records {
 		if err := store.Save(ctx, record); err != nil {
@@ -76,6 +76,9 @@ func TestEventStateRoundtripAndDisplayFilters(t *testing.T) {
 	if n := search(SearchOptions{HideDuplicates: true, HideUnavailable: true}); n != 1 {
 		t.Fatalf("both filters = %d, want 1", n)
 	}
+	if n := search(SearchOptions{Kind: domain.KindOther}); n != 1 {
+		t.Fatalf("event kind filter = %d, want 1", n)
+	}
 	// 事件状态字段随查询返回
 	items, _, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
 	if err != nil {
@@ -87,7 +90,7 @@ func TestEventStateRoundtripAndDisplayFilters(t *testing.T) {
 			eventOnly = &items[i]
 		}
 	}
-	if eventOnly == nil || eventOnly.ContentAvailable || eventOnly.UnavailableReason != domain.ReasonSuperseded {
+	if eventOnly == nil || eventOnly.ContentAvailable || eventOnly.UnavailableReason != domain.ReasonUnsupportedFormat {
 		t.Fatalf("event-only record state drift: %+v", eventOnly)
 	}
 }

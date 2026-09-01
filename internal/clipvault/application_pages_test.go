@@ -43,6 +43,15 @@ func TestApplicationPagesHaveUniqueElementIDs(t *testing.T) {
 	}
 }
 
+func TestHistoryPageOffersEveryClipboardKindFilter(t *testing.T) {
+	body := renderApplicationPage(t, "/")
+	for _, kind := range []string{"text", "image", "video", "archive", "office", "files", "other"} {
+		if !strings.Contains(body, `class="filter-chip" data-kind="`+kind+`"`) {
+			t.Errorf("history page is missing kind filter %q", kind)
+		}
+	}
+}
+
 func TestApplicationPageRoutesAreExact(t *testing.T) {
 	want := map[string]string{
 		"/":                    "history",

@@ -37,12 +37,31 @@ const (
 // 内容不可用原因（clipboard_items.unavailable_reason）。
 const (
 	ReasonNone               = ""
-	ReasonSuperseded         = "superseded_before_read" // 读取前已被更新的剪贴板事件覆盖
-	ReasonUnsupportedFormat  = "unsupported_format"     // 剪贴板格式不在支持列表
-	ReasonTextLimitExceeded  = "text_limit_exceeded"    // 文本长度超过 MaxTextChars
-	ReasonImageLimitExceeded = "image_limit_exceeded"   // 图片超过 image.maxBytes
-	ReasonReadFailed         = "read_failed"            // OpenClipboard/读取失败
+	ReasonUnsupportedFormat  = "unsupported_format"   // 剪贴板格式不在支持列表
+	ReasonTextLimitExceeded  = "text_limit_exceeded"  // 文本长度超过 MaxTextChars
+	ReasonImageLimitExceeded = "image_limit_exceeded" // 图片超过 image.maxBytes
+	ReasonReadFailed         = "read_failed"          // OpenClipboard/读取失败
 )
+
+// ValidItemState validates the complete kind/format/availability contract.
+// Event-only formats are never valid without a concrete unavailable reason.
+func ValidItemState(kind, format, reason string) bool {
+	if !ValidItemKindFormat(kind, format) {
+		return false
+	}
+	switch reason {
+	case ReasonNone:
+		return format != FormatEventOnly
+	case ReasonUnsupportedFormat, ReasonReadFailed:
+		return kind == KindOther && format == FormatEventOnly
+	case ReasonTextLimitExceeded:
+		return kind == KindText && format == FormatUnicodeText
+	case ReasonImageLimitExceeded:
+		return kind == KindImage && format == FormatEventOnly
+	default:
+		return false
+	}
+}
 
 // ValidItemKindFormat 校验 kind/format 组合是否合法（采集与导入共用）。
 func ValidItemKindFormat(kind, format string) bool {

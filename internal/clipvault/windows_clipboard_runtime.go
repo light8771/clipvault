@@ -13,100 +13,113 @@ import (
 // store.Save 把整个进程退出流程无限期阻塞住。
 const clipWorkerDrainTimeout = 5 * time.Second
 
-// clipQueueHighWater 是事件队列的高水位告警阈值。队列按设计无界且
-// 绝不丢弃事件；正常周转毫秒级，唯一的长停滞源是导入等持有唯一 DB
-// 连接的长事务。积压本身不构成故障（事件在消费恢复后回放），水位
-// 告警只用于让"异常积压"在日志里可见。
-const clipQueueHighWater = 10000
+// clipWorkerSettleDelay 是一次逻辑复制发布多个格式时的短暂收敛窗口。
+const clipWorkerSettleDelay = 25 * time.Millisecond
 
-// clipQueue 是无界 FIFO 事件队列（事件优先：绝不丢弃任何剪贴板事件）。
-// 生产端只在消息循环线程调用 push；消费端是唯一的 worker goroutine。
-// 事件在内存中排队等 worker 收敛，不用「满 → 丢最旧」换背压。
-type clipQueue struct {
+// clipMailbox 只保留尚未读取的最新剪贴板状态。系统剪贴板是可变的全局
+// 状态；新 sequence 出现后，旧通知对应的内容已经无法恢复。
+type clipMailbox struct {
 	mu        sync.Mutex
-	events    []clipEvent
+	pending   clipEvent
+	hasValue  bool
 	closed    bool
 	signal    chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
 }
 
-func newClipQueue() *clipQueue {
-	return &clipQueue{signal: make(chan struct{}, 1), done: make(chan struct{})}
+func newClipMailbox() *clipMailbox {
+	return &clipMailbox{signal: make(chan struct{}, 1), done: make(chan struct{})}
 }
 
-// push 是队列唯一写入口，返回写入后的当前深度（含本次事件），
-// 供调用方做高水位监控。
-func (q *clipQueue) push(ev clipEvent) int {
-	q.mu.Lock()
-	if q.closed {
-		q.mu.Unlock()
-		return 0
+// put 覆盖尚未消费的旧通知，并唤醒唯一 worker。
+func (m *clipMailbox) put(ev clipEvent) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
 	}
-	q.events = append(q.events, ev)
-	depth := len(q.events)
-	q.mu.Unlock()
+	m.pending = ev
+	m.hasValue = true
+	m.mu.Unlock()
 	select {
-	case q.signal <- struct{}{}:
+	case m.signal <- struct{}{}:
 	default:
 	}
-	return depth
 }
 
-func (q *clipQueue) pop() (clipEvent, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.events) == 0 {
+func (m *clipMailbox) take() (clipEvent, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.hasValue {
 		return clipEvent{}, false
 	}
-	ev := q.events[0]
-	q.events[0] = clipEvent{}
-	q.events = q.events[1:]
+	ev := m.pending
+	m.pending = clipEvent{}
+	m.hasValue = false
 	return ev, true
 }
 
-func (q *clipQueue) isClosed() bool {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return q.closed
+func (m *clipMailbox) isClosedAndEmpty() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed && !m.hasValue
 }
 
-// close 停止接收新事件；队列中已排队的事件仍会被 worker 消费完。
-func (q *clipQueue) close() {
-	q.closeOnce.Do(func() {
-		q.mu.Lock()
-		q.closed = true
-		q.mu.Unlock()
-		close(q.done)
+// close 停止接收新事件；当前最新状态仍会被 worker 消费完。
+func (m *clipMailbox) close() {
+	m.closeOnce.Do(func() {
+		m.mu.Lock()
+		m.closed = true
+		m.mu.Unlock()
+		close(m.done)
 		select {
-		case q.signal <- struct{}{}:
+		case m.signal <- struct{}{}:
 		default:
 		}
 	})
 }
 
-// startClipWorker 启动唯一的剪贴板处理 goroutine。
-// 并发度恒定为 1，处理顺序与事件顺序一致；队列为无界 FIFO，事件不会丢失。
+func (m *clipMailbox) waitUntilSettled() {
+	timer := time.NewTimer(clipWorkerSettleDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return
+		case <-m.signal:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(clipWorkerSettleDelay)
+		case <-m.done:
+			return
+		}
+	}
+}
+
+// startClipWorker 启动唯一的剪贴板处理 goroutine。连续通知先收敛到最新
+// 状态，避免把早已不可读的中间 sequence 落成伪故障记录。
 func (r *WindowsRuntime) startClipWorker() {
-	r.clipQueue = newClipQueue()
+	r.clipMailbox = newClipMailbox()
 	r.clipDone = make(chan struct{})
-	q := r.clipQueue
+	mailbox := r.clipMailbox
 	go func() {
 		defer close(r.clipDone)
 		for {
 			select {
-			case <-q.signal:
-			case <-q.done:
+			case <-mailbox.signal:
+			case <-mailbox.done:
 			}
-			for {
-				ev, ok := q.pop()
-				if !ok {
-					if q.isClosed() {
-						return
-					}
-					break
-				}
+			mailbox.waitUntilSettled()
+			if ev, ok := mailbox.take(); ok {
 				r.recorder.ProcessClipboardUpdate(ev.source, ev.sequence, ev.capturedAtMS)
+			}
+			if mailbox.isClosedAndEmpty() {
+				return
 			}
 		}
 	}()
@@ -117,14 +130,24 @@ func (r *WindowsRuntime) startClipWorker() {
 // 被内部恢复抑制水位覆盖的事件（搜索弹窗写回剪贴板）直接跳过。
 // 该函数只在消息循环线程调用，不会阻塞消息泵。
 func (r *WindowsRuntime) notifyClipboardUpdate(source SourceInfo) {
-	q := r.clipQueue
-	if q == nil {
+	r.notifyClipboardSequence(source, clipboardSequenceNumber(), time.Now().UnixMilli())
+}
+
+// notifyClipboardSequence merges message notifications and polling detections.
+// A non-zero sequence is claimed once, before suppression is checked, so an
+// internally restored clipboard state is not rediscovered by the poll timer.
+func (r *WindowsRuntime) notifyClipboardSequence(source SourceInfo, sequence uint32, capturedAtMS int64) {
+	mailbox := r.clipMailbox
+	if mailbox == nil {
+		return
+	}
+	if !r.claimClipboardSequence(sequence) {
 		return
 	}
 	ev := clipEvent{
 		source:       source,
-		sequence:     clipboardSequenceNumber(),
-		capturedAtMS: time.Now().UnixMilli(),
+		sequence:     sequence,
+		capturedAtMS: capturedAtMS,
 	}
 	if ev.sequence != 0 && r.isSequenceSuppressed(ev.sequence) {
 		return
@@ -132,37 +155,45 @@ func (r *WindowsRuntime) notifyClipboardUpdate(source SourceInfo) {
 	if ev.sequence == 0 {
 		ev.source = SourceInfo{}
 	}
-	r.warnQueueDepth(q.push(ev))
+	mailbox.put(ev)
 }
 
-// warnQueueDepth 记录事件队列的高水位告警（倍增去抖：10000、20000、40000…），
-// 水位回落到阈值一半以下时复位去抖状态。只在消息循环线程调用。
-func (r *WindowsRuntime) warnQueueDepth(depth int) {
-	if depth < clipQueueHighWater/2 {
-		r.clipWarnedDepth = 0
+func (r *WindowsRuntime) claimClipboardSequence(sequence uint32) bool {
+	if sequence == 0 {
+		return true
+	}
+	if r.lastClipboardSequence == sequence {
+		return false
+	}
+	r.lastClipboardSequence = sequence
+	return true
+}
+
+// pollClipboardUpdate detects producers that mutate the clipboard sequence but
+// do not deliver WM_CLIPBOARDUPDATE. The clipboard owner is a better attribution
+// source than the foreground window at this delayed observation point.
+func (r *WindowsRuntime) pollClipboardUpdate() {
+	sequence := clipboardSequenceNumber()
+	if sequence == 0 || sequence == r.lastClipboardSequence {
 		return
 	}
-	if depth < clipQueueHighWater || depth < r.clipWarnedDepth*2 {
-		return
+	var source SourceInfo
+	if r.cfgMgr.Get().RecordSourceInfo {
+		source = captureClipboardOwnerSourceFast()
 	}
-	r.clipWarnedDepth = depth
-	r.logger.Warn("clipboard_queue_high_water", map[string]any{
-		"depth":     depth,
-		"threshold": clipQueueHighWater,
-		"hint":      "clipboard events backlogged (consumer may be blocked by a long transaction such as import); events are not lost and replay in order once the consumer resumes",
-	})
+	r.notifyClipboardSequence(source, sequence, time.Now().UnixMilli())
 }
 
 // stopClipWorker 请求 worker 退出并等待其真正结束，避免 goroutine 泄漏。
 // 关闭后队列中残留的事件仍会被消费完。可重复调用，未启动时为空操作。
 func (r *WindowsRuntime) stopClipWorker() {
-	q := r.clipQueue
-	if q == nil {
+	mailbox := r.clipMailbox
+	if mailbox == nil {
 		return
 	}
 	r.clipCloseOnce.Do(func() {
-		r.clipQueue = nil
-		q.close()
+		r.clipMailbox = nil
+		mailbox.close()
 	})
 	select {
 	case <-r.clipDone:
@@ -176,6 +207,7 @@ func (r *WindowsRuntime) stopClipWorker() {
 func (r *WindowsRuntime) cleanup() {
 	r.unregisterHotkey()
 	r.unregisterSearchHotkey()
+	procClipboardKillTimer.Call(r.hwnd, idClipboardPoll)
 	procRemoveClipboardFormatListener.Call(r.hwnd)
 	nid := r.notifyIconData()
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&nid)))

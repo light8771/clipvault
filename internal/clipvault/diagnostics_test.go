@@ -84,6 +84,20 @@ func TestRedactDiagnosticLogKeepsStructuredClipboardFailure(t *testing.T) {
 	}
 }
 
+func TestRedactDiagnosticLogKeepsKnownRegisteredClipboardFormats(t *testing.T) {
+	for _, format := range []string{"image/png", "UniformResourceLocator", "UniformResourceLocatorW"} {
+		input := []byte(`{"ts":"2026-09-01T11:26:02+08:00","level":"error","event":"clipboard_read_failed","stage":"get_data","format":"` + format + `","win32Error":1418}`)
+		output := string(redactDiagnosticLog(input))
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(output), &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry["format"] != format {
+			t.Fatalf("safe registered clipboard format %q was not retained: %#v", format, entry)
+		}
+	}
+}
+
 func TestRedactDiagnosticLogKeepsClipboardEventReason(t *testing.T) {
 	input := []byte(`{"ts":"2026-08-28T11:26:02+08:00","level":"info","event":"clipboard_event_saved","kind":"other","reason":"unsupported_format","formatIds":[49155],"formats":["private name"],"isDuplicate":false}`)
 	output := string(redactDiagnosticLog(input))

@@ -231,13 +231,11 @@ func validateExportData(export ExportData) error {
 		if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
 			return fmt.Errorf("invalid item %d", item.ID)
 		}
-		if !validItemKindFormat(item.Kind, item.Format) {
-			return fmt.Errorf("invalid item %d: unsupported kind/format %q/%q", item.ID, item.Kind, item.Format)
-		}
 		if item.ByteLen != len([]byte(item.Text)) || item.CharLen != textRuneLen(item.Text) || item.SHA256 != hashString(item.Text) {
 			return fmt.Errorf("invalid item %d: content metadata mismatch", item.ID)
 		}
-		if !validUnavailableState(item.ContentAvailable, item.UnavailableReason) {
+		if item.ContentAvailable != (item.UnavailableReason == domain.ReasonNone) ||
+			!domain.ValidItemState(item.Kind, item.Format, item.UnavailableReason) {
 			return fmt.Errorf("invalid item %d: inconsistent content availability state", item.ID)
 		}
 		if _, exists := itemIDs[item.ID]; exists {
@@ -282,26 +280,6 @@ func validateExportData(export ExportData) error {
 		links[link] = struct{}{}
 	}
 	return nil
-}
-
-// validItemKindFormat 委托 domain 的唯一合法性矩阵（采集/导入/导出共用）。
-func validItemKindFormat(kind, format string) bool {
-	return domain.ValidItemKindFormat(kind, format)
-}
-
-// validUnavailableState 校验 content_available 与 unavailable_reason 的一致性：
-// 内容可用时 reason 必须为空；不可用时必须给出已知原因。
-func validUnavailableState(contentAvailable bool, reason string) bool {
-	if contentAvailable {
-		return reason == domain.ReasonNone
-	}
-	switch reason {
-	case domain.ReasonSuperseded, domain.ReasonUnsupportedFormat,
-		domain.ReasonTextLimitExceeded, domain.ReasonImageLimitExceeded, domain.ReasonReadFailed:
-		return true
-	default:
-		return false
-	}
 }
 
 func escapeLike(s string) string {

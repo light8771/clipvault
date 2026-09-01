@@ -101,28 +101,52 @@ func (e *clipboardReadError) Is(target error) bool {
 	return errors.Is(e.err, target) || errors.Is(e.closeErr, target)
 }
 
+func (e *clipboardReadError) ClipboardFailureDetail() clipboardFailureDetail {
+	detail := clipboardFailureDetail{
+		Stage:              e.stage,
+		Format:             e.format,
+		Attempt:            e.attempt,
+		OpenAttempts:       e.openAttempts,
+		ThreadIDBefore:     e.threadIDBefore,
+		ThreadIDAfter:      e.threadIDAfter,
+		ExpectedSequence:   e.expectedSequence,
+		SequenceBeforeOpen: e.sequenceBeforeOpen,
+		SequenceAfterOpen:  e.sequenceAfterOpen,
+		SequenceAfterRead:  e.sequenceAfterRead,
+		ClipboardOwnerPID:  e.clipboardOwnerPid,
+		ClipboardOpenerPID: e.clipboardOpenerPid,
+		DurationMS:         e.duration.Milliseconds(),
+		Win32Error:         win32ErrorCode(e.err),
+	}
+	if e.closeErr != nil {
+		detail.CloseWin32Error = win32ErrorCode(e.closeErr)
+	}
+	return detail
+}
+
 // DiagnosticFields returns only bounded operational values. Recorder writes
 // these to the local log; diagnostics.go independently allowlists the subset
 // that is safe for support archives.
 func (e *clipboardReadError) DiagnosticFields() map[string]any {
+	detail := e.ClipboardFailureDetail()
 	fields := map[string]any{
-		"stage":              e.stage,
-		"format":             e.format,
-		"attempt":            e.attempt,
-		"openAttempts":       e.openAttempts,
-		"threadIdBefore":     e.threadIDBefore,
-		"threadIdAfter":      e.threadIDAfter,
-		"expectedSequence":   e.expectedSequence,
-		"sequenceBeforeOpen": e.sequenceBeforeOpen,
-		"sequenceAfterOpen":  e.sequenceAfterOpen,
-		"sequenceAfterRead":  e.sequenceAfterRead,
-		"clipboardOwnerPid":  e.clipboardOwnerPid,
-		"clipboardOpenerPid": e.clipboardOpenerPid,
-		"durationMs":         e.duration.Milliseconds(),
-		"win32Error":         win32ErrorCode(e.err),
+		"stage":              detail.Stage,
+		"format":             detail.Format,
+		"attempt":            detail.Attempt,
+		"openAttempts":       detail.OpenAttempts,
+		"threadIdBefore":     detail.ThreadIDBefore,
+		"threadIdAfter":      detail.ThreadIDAfter,
+		"expectedSequence":   detail.ExpectedSequence,
+		"sequenceBeforeOpen": detail.SequenceBeforeOpen,
+		"sequenceAfterOpen":  detail.SequenceAfterOpen,
+		"sequenceAfterRead":  detail.SequenceAfterRead,
+		"clipboardOwnerPid":  detail.ClipboardOwnerPID,
+		"clipboardOpenerPid": detail.ClipboardOpenerPID,
+		"durationMs":         detail.DurationMS,
+		"win32Error":         detail.Win32Error,
 	}
-	if e.closeErr != nil {
-		fields["closeWin32Error"] = win32ErrorCode(e.closeErr)
+	if detail.CloseWin32Error != 0 {
+		fields["closeWin32Error"] = detail.CloseWin32Error
 	}
 	return fields
 }
@@ -222,7 +246,7 @@ func clipboardSequenceNumber() uint32 {
 
 // readClipboardEventForSequence 读取一次剪贴板事件。
 //
-// 返回值语义（事件优先）：
+// 返回值语义：
 //   - snapshot != nil：读到了可入库的内容（文本/文件/图片）。
 //   - snapshot == nil 且 err == nil：剪贴板只有不支持的格式，formats 为
 //     打开期间枚举到的全部格式名，调用方应落 event-only 记录。
@@ -243,7 +267,7 @@ func readClipboardEventForSequence(cfg Config, expectedSequence uint32) (*Clipbo
 		if err == nil || errors.Is(err, ErrClipboardSuperseded) {
 			return snapshot, formats, err
 		}
-		if !errors.Is(err, errorClipboardNotOpen) || attempt == clipboardReadAttempts {
+		if !isRetryableClipboardReadError(err) || attempt == clipboardReadAttempts {
 			return nil, formats, err
 		}
 		observed := clipboardSequenceNumber()
@@ -255,6 +279,10 @@ func readClipboardEventForSequence(cfg Config, expectedSequence uint32) (*Clipbo
 	return nil, lastFormats, errors.New("clipboard read attempts exhausted")
 }
 
+func isRetryableClipboardReadError(err error) bool {
+	return errors.Is(err, errorClipboardNotOpen) || errors.Is(err, errClipboardDataUnavailable)
+}
+
 func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*ClipboardSnapshot, ClipboardFormatSet, error) {
 	ctx := newClipboardReadAttemptContext(attempt, expectedSequence)
 	if expectedSequence != 0 && ctx.sequenceBeforeOpen != expectedSequence {
@@ -264,13 +292,25 @@ func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*Cl
 	openAttempts, err := openClipboardWithRetry(clipboardOpenAttempts)
 	ctx.openAttempts = openAttempts
 	if err != nil {
+		if expectedSequence != 0 && clipboardSequenceNumber() != expectedSequence {
+			return nil, ClipboardFormatSet{}, ErrClipboardSuperseded
+		}
 		return nil, ClipboardFormatSet{}, ctx.failure(clipboardReadStageOpen, clipboardFormatUnknown, err, nil)
 	}
+	closed := false
+	defer func() {
+		// Last-resort release for every return path and future decoder changes.
+		// The explicit closes below still report failures through diagnostics.
+		if !closed {
+			_ = closeClipboard()
+		}
+	}()
 
 	ctx.sequenceAfterOpen = clipboardSequenceNumber()
 	if expectedSequence != 0 && ctx.sequenceAfterOpen != expectedSequence {
 		ctx.captureClipboardWindows()
 		closeErr := closeClipboard()
+		closed = closeErr == nil
 		if closeErr != nil {
 			return nil, ClipboardFormatSet{}, ctx.failure(clipboardReadStageClose, clipboardFormatUnknown, closeErr, nil)
 		}
@@ -285,6 +325,7 @@ func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*Cl
 	ctx.sequenceAfterRead = clipboardSequenceNumber()
 	ctx.captureClipboardWindows()
 	closeErr := closeClipboard()
+	closed = closeErr == nil
 
 	if readErr != nil {
 		stage, format := clipboardReadStageDecode, clipboardFormatUnknown
@@ -300,19 +341,64 @@ func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*Cl
 	return snapshot, formats, nil
 }
 
+type openedClipboardAccess struct {
+	available       func(uint32) bool
+	readUnicodeText func() (*ClipboardSnapshot, error)
+	readImage       func(Config) (*ClipboardSnapshot, bool, error)
+	readFileDrop    func(Config) (*ClipboardSnapshot, error)
+	readURL         func() (*ClipboardSnapshot, bool, error)
+}
+
 func readOpenedClipboard(cfg Config) (*ClipboardSnapshot, error) {
-	if isClipboardFormatAvailable(cfUnicodeText) {
-		return readUnicodeTextClipboard()
-	}
-	if cfg.Image.Enabled {
-		if snapshot, ok, err := readClipboardImage(cfg); err != nil {
-			return nil, err
-		} else if ok {
+	return readOpenedClipboardWith(cfg, openedClipboardAccess{
+		available:       isClipboardFormatAvailable,
+		readUnicodeText: readUnicodeTextClipboard,
+		readImage:       readClipboardImage,
+		readFileDrop:    readFileDropClipboard,
+		readURL:         readClipboardURL,
+	})
+}
+
+// readOpenedClipboardWith treats every advertised representation as a
+// candidate. Delayed-rendering producers can enumerate a format but fail to
+// provide its handle; a broken higher-priority candidate must not hide a
+// usable lower-priority representation of the same clipboard content.
+func readOpenedClipboardWith(cfg Config, access openedClipboardAccess) (*ClipboardSnapshot, error) {
+	var lastErr error
+	if access.available(cfUnicodeText) {
+		snapshot, err := access.readUnicodeText()
+		if err != nil {
+			lastErr = err
+		} else if snapshot != nil {
 			return snapshot, nil
 		}
 	}
-	if isClipboardFormatAvailable(cfHDrop) {
-		return readFileDropClipboard(cfg)
+	if cfg.Image.Enabled {
+		snapshot, ok, err := access.readImage(cfg)
+		if errors.Is(err, ErrImageLimitExceeded) {
+			return nil, err
+		}
+		if err != nil {
+			lastErr = err
+		} else if ok && snapshot != nil {
+			return snapshot, nil
+		}
+	}
+	if access.available(cfHDrop) {
+		snapshot, err := access.readFileDrop(cfg)
+		if err != nil {
+			lastErr = err
+		} else if snapshot != nil {
+			return snapshot, nil
+		}
+	}
+	if snapshot, ok, err := access.readURL(); err != nil {
+		lastErr = err
+	} else if ok && snapshot != nil {
+		return snapshot, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	return nil, nil
 }
@@ -358,6 +444,15 @@ func clipboardFormatName(format uint32) string {
 		}
 	}
 	return fmt.Sprintf("CF_%04X", format)
+}
+
+func registerClipboardFormat(name string) uint32 {
+	ptr, err := syscall.UTF16PtrFromString(name)
+	if err != nil {
+		return 0
+	}
+	id, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(ptr)))
+	return uint32(id)
 }
 
 // openClipboardWithRetry 以指数退避重试打开剪贴板，最多 attempts 次。

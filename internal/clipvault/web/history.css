@@ -168,23 +168,6 @@
   white-space: nowrap;
 }
 
-.ar-toggle {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font: 13px sans-serif;
-  color: var(--sub);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-.ar-toggle input[type=checkbox] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--p);
-  cursor: pointer;
-}
-
 /* ── List Meta ─────────────────────────────────────────────── */
 .list-meta { margin-bottom: 10px; }
 
@@ -353,13 +336,10 @@ mark {
 }
 
 /* Card footer — meta + actions bar */
-/* 允许换行：多列窄卡片下 meta 与按钮组整体掉行，而不是被裁剪 */
 .card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
   padding: 7px 14px 8px;
   border-top: 1px solid var(--card-border);
   background: rgba(0,0,0,.018);
@@ -486,14 +466,14 @@ article[data-sensitive="1"] {
   cursor: default;
 }
 
-/* Actions group */
-/* 允许按钮换行：强制多列时列宽可能小于按钮组总宽，换行优于裁剪 */
+/* 操作栏独占一行，避免元信息挤压后按钮拆成两排。 */
 .card-acts {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
   gap: 4px;
-  flex-shrink: 1;
+  min-width: 0;
 }
 
 .ab {
@@ -526,7 +506,26 @@ article[data-sensitive="1"] {
   color: var(--p);
 }
 .ab.cp:hover { background: var(--p); color: var(--on-p); border-color: var(--p); }
-.ab.cp.ok    { background: var(--p); color: var(--on-p); border-color: var(--p); }
+
+/* 四列卡片使用紧凑图标按钮，工具提示和 aria-label 保留完整含义。 */
+html[data-app-page="history"][data-history-columns-force="4"] .card-acts .ab.exp,
+html[data-app-page="history"][data-history-columns-force="4"] .card-acts .ab.cp {
+  width: 26px;
+  padding: 0;
+}
+html[data-app-page="history"][data-history-columns-force="4"] .card-acts .ab-label {
+  display: none;
+}
+@container history-results (min-width: 1660px) {
+  html[data-app-page="history"][data-history-columns="4"] .card-acts .ab.exp,
+  html[data-app-page="history"][data-history-columns="4"] .card-acts .ab.cp {
+    width: 26px;
+    padding: 0;
+  }
+  html[data-app-page="history"][data-history-columns="4"] .card-acts .ab-label {
+    display: none;
+  }
+}
 
 .ab.hash {
   background: transparent;
@@ -708,9 +707,6 @@ article[data-starred="1"]:hover {
     box-shadow: 0 4px 14px rgba(0,0,0,.08);
   }
 
-  /* 自动刷新：与菜单项左对齐 */
-  html[data-app-page="history"][data-history-layout="left-right"] .ar-toggle { height: 30px; padding: 0 10px; }
-
   /* 日期筛选：标签独占一行，起止输入框等宽并排 */
   html[data-app-page="history"][data-history-layout="left-right"] .date-filter-bar {
     display: grid;
@@ -733,7 +729,7 @@ article[data-starred="1"]:hover {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── 事件优先：重复/无内容状态与托管图片 ───────────────────── */
+/* ── 重复/无内容状态与托管图片 ────────────────────────────── */
 .mdup {
   font-size: 10.5px;
   font-weight: 700;
@@ -743,10 +739,6 @@ article[data-starred="1"]:hover {
   background: var(--p-dim);
   border: 1px solid var(--card-border);
   flex-shrink: 0;
-}
-pre.event-only {
-  color: var(--muted);
-  font-style: italic;
 }
 .managed-image img {
   max-width: min(220px, 100%);

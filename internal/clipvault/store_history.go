@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // 单条备份历史的错误信息长度上限，防止超长底层错误撑爆历史表。
@@ -16,8 +18,9 @@ const maxBackupHistoryErrorRunes = 500
 // （item.CapturedAtMS，Unix 毫秒）；<=0 时回退为当前时间。
 // 数据库写入时间永远不被当作剪贴板事件时间。
 func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
-	if !validItemKindFormat(item.Kind, item.Format) {
-		return fmt.Errorf("invalid clipboard kind/format %q/%q", item.Kind, item.Format)
+	if !domain.ValidItemState(item.Kind, item.Format, item.UnavailableReason) {
+		return fmt.Errorf("invalid clipboard state kind=%q format=%q unavailable_reason=%q",
+			item.Kind, item.Format, item.UnavailableReason)
 	}
 	item.ByteLen = len([]byte(item.Text))
 	item.CharLen = textRuneLen(item.Text)

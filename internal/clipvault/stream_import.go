@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // ImportFullJSONReader parses item payloads incrementally and keeps only IDs,
@@ -235,8 +237,9 @@ func validateImportedItem(item StoredItem) error {
 	if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
 		return fmt.Errorf("invalid item %d", item.ID)
 	}
-	if !validItemKindFormat(item.Kind, item.Format) {
-		return fmt.Errorf("invalid item %d: unsupported kind/format %q/%q", item.ID, item.Kind, item.Format)
+	if item.ContentAvailable != (item.UnavailableReason == domain.ReasonNone) ||
+		!domain.ValidItemState(item.Kind, item.Format, item.UnavailableReason) {
+		return fmt.Errorf("invalid item %d: inconsistent clipboard state", item.ID)
 	}
 	if item.ByteLen != len([]byte(item.Text)) || item.CharLen != textRuneLen(item.Text) || item.SHA256 != hashString(item.Text) {
 		return fmt.Errorf("invalid item %d: content metadata mismatch", item.ID)

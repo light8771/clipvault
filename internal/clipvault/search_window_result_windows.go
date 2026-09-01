@@ -39,12 +39,12 @@ func formatSuggestion(it StoredItem) string {
 
 func unavailableReasonLabel(reason string) string {
 	switch reason {
-	case "superseded_before_read":
-		return templateT("history.unavail_superseded", nil)
 	case "unsupported_format":
 		return templateT("history.unavail_format", nil)
 	case "text_limit_exceeded":
 		return templateT("history.unavail_text_limit", nil)
+	case "image_limit_exceeded":
+		return templateT("history.unavail_image_limit", nil)
 	case "read_failed":
 		return templateT("history.unavail_read_failed", nil)
 	default:

@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"clipboard_ext/internal/clipvault/domain"
 	"clipboard_ext/internal/licensing"
 	"fmt"
 	"net/http"
@@ -106,13 +107,26 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 // 由前端展示时翻译——与操作记录同理由：持久化数据不落语言相关文案。
 func searchHistoryFilters(kind string, starredOnly bool, groupID int64, dateFrom, dateTo string, sourceExeNames []string) map[string]string {
 	filters := map[string]string{}
+	var kindTranslationKey string
 	switch kind {
-	case "text":
-		filters["shlog.filter.kind"] = "history.kind_text"
-	case "image":
-		filters["shlog.filter.kind"] = "history.kind_image"
-	case "":
-	default:
+	case domain.KindText:
+		kindTranslationKey = "history.kind_text"
+	case domain.KindImage:
+		kindTranslationKey = "history.kind_image"
+	case domain.KindVideo:
+		kindTranslationKey = "history.kind_video"
+	case domain.KindArchive:
+		kindTranslationKey = "history.kind_archive"
+	case domain.KindOffice:
+		kindTranslationKey = "history.kind_office"
+	case domain.KindFiles:
+		kindTranslationKey = "history.kind_files"
+	case domain.KindOther:
+		kindTranslationKey = "history.kind_other"
+	}
+	if kindTranslationKey != "" {
+		filters["shlog.filter.kind"] = kindTranslationKey
+	} else if kind != "" {
 		filters["shlog.filter.kind"] = kind
 	}
 	if starredOnly {

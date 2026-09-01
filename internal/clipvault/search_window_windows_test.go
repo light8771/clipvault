@@ -57,8 +57,12 @@ func TestFormatSuggestionMarksEventStates(t *testing.T) {
 	if got := formatSuggestion(dup); got != "07-24 12:30  文本·重复  hello" {
 		t.Errorf("duplicate suggestion = %q", got)
 	}
-	unavailable := StoredItem{CreatedAt: at, Kind: "other", Format: "CLIPVAULT_EVENT_ONLY", UnavailableReason: "superseded_before_read"}
-	if got := formatSuggestion(unavailable); got != "07-24 12:30  other  [内容已被新复制覆盖]" {
+	unavailable := StoredItem{CreatedAt: at, Kind: "other", Format: "CLIPVAULT_EVENT_ONLY", UnavailableReason: "unsupported_format"}
+	if got := formatSuggestion(unavailable); got != "07-24 12:30  other  [不支持的剪贴板格式]" {
 		t.Errorf("event-only suggestion = %q", got)
+	}
+	imageLimit := StoredItem{CreatedAt: at, Kind: "image", Format: "CLIPVAULT_EVENT_ONLY", UnavailableReason: "image_limit_exceeded"}
+	if got := formatSuggestion(imageLimit); got != "07-24 12:30  图片  [图片超过大小上限，未保存内容]" {
+		t.Errorf("image-limit suggestion = %q", got)
 	}
 }

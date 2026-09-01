@@ -25,7 +25,7 @@ registerActions({
   'file-view': element => app.doFileView(Number(element.dataset.itemId), Number(element.dataset.fileIndex)),
   'view-item': element => app.doView(Number(element.dataset.itemId)),
   'locate-item': element => app.doLocate(Number(element.dataset.itemId)),
-  'copy-item': element => app.doCopy(Number(element.dataset.itemId), element),
+  'copy-item': element => app.doCopy(Number(element.dataset.itemId)),
   'star-item': element => app.doStar(Number(element.dataset.itemId), element),
   'toggle-sensitive': element => app.doToggleSensitive(Number(element.dataset.itemId)),
   'view-managed-image': element => app.doViewManagedImage(Number(element.dataset.itemId)),

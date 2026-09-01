@@ -17,43 +17,33 @@ export function registerHistoryActions() {
     if (d < 604800) return t('history.rel_days', { n: Math.floor(d / 86400) });
     return new Date(s).toLocaleString(window.clipvaultI18n.locale());
   };
-  app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> ' + t('common.copy');
-  app.copiedHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ' + t('common.copied');
-  app.fetchSensitiveText = async function fetchSensitiveText(id) {
-    const url = '/api/v1/items/sensitive/item?id=' + id;
-    const res = await app.authorizedItemFetch(id, url);
-    if (!res.ok) return null;
+  app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="ab-label">' + t('common.copy') + '</span>';
+  app.fetchItemCopyText = async function fetchItemCopyText(id) {
+    const res = await app.authorizedItemFetch(id, '/api/v1/items/copy-text?id=' + id);
+    await app.requireOK(res, t('common.copy_failed'));
     const d = await res.json();
-    return d.item ? d.item.text : null;
+    if (typeof d.text !== 'string') throw new app.APIError('invalid_response', t('common.copy_failed'), 500);
+    return d.text;
   };
-  app.doCopy = async function doCopy(id, btn) {
+  app.copyItemToClipboard = async function copyItemToClipboard(id) {
     const item = app.items.get(id);
     if (!item) return;
-    let textToCopy = item.text;
-    if (item.sensitive) {
-      try {
-        textToCopy = await app.fetchSensitiveText(id);
-      } catch (_) {
-        textToCopy = null;
-      }
-      if (textToCopy === null) {
-        app.toast(t('history.sensitive_copy_blocked'), 'err');
-        return;
-      }
+    let textToCopy;
+    try {
+      textToCopy = await app.fetchItemCopyText(id);
+    } catch (error) {
+      const authBlocked = item.sensitive && ['secondary_cancelled', 'secondary_required', 'fresh_secondary_required'].includes(error?.code);
+      app.toast(authBlocked ? t('history.sensitive_copy_blocked') : t('common.copy_failed'), 'err');
+      return;
     }
     try {
       await navigator.clipboard.writeText(textToCopy);
-      btn.innerHTML = app.copiedHTML;
-      btn.classList.add('ok');
       app.toast(t('history.copied_to_clipboard'));
-      setTimeout(() => {
-        btn.innerHTML = app.cpHTML;
-        btn.classList.remove('ok');
-      }, 1600);
     } catch (_) {
       app.toast(t('common.copy_failed'), 'err');
     }
   };
+  app.doCopy = app.copyItemToClipboard;
   app.doDelete = async function doDelete(id, art) {
     try {
       const res = await app.authorizedItemFetch(id, '/api/v1/items?id=' + id, {
@@ -177,33 +167,7 @@ export function registerHistoryActions() {
     trapModalFocus(app.VIEW_MODAL, event);
   });
   app.modalCopy = async function () {
-    const item = app.items.get(app.currentModalId);
-    if (!item) return;
-    const btn = document.getElementById('modalCopyBtn');
-    let textToCopy = item.text;
-    if (item.sensitive) {
-      try {
-        textToCopy = await app.fetchSensitiveText(app.currentModalId);
-      } catch (_) {
-        textToCopy = null;
-      }
-      if (textToCopy === null) {
-        app.toast(t('history.sensitive_copy_blocked'), 'err');
-        return;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      btn.innerHTML = app.copiedHTML;
-      btn.classList.add('ok');
-      app.toast(t('history.copied_to_clipboard'));
-      setTimeout(() => {
-        btn.innerHTML = app.cpHTML;
-        btn.classList.remove('ok');
-      }, 1600);
-    } catch (_) {
-      app.toast(t('common.copy_failed'), 'err');
-    }
+    await app.copyItemToClipboard(app.currentModalId);
   };
 
   // ── Kind label map ────────────────────────────────
@@ -217,9 +181,8 @@ export function registerHistoryActions() {
     files: 'history.kind_files',
     other: 'history.kind_other'
   };
-  // 内容不可用原因（event-first 记录状态）；值为 i18n key。
+  // 内容不可用原因；值为 i18n key。
   app.UNAVAILABLE_LABEL_KEY = {
-    superseded_before_read: 'history.unavail_superseded',
     unsupported_format: 'history.unavail_format',
     text_limit_exceeded: 'history.unavail_text_limit',
     image_limit_exceeded: 'history.unavail_image_limit',

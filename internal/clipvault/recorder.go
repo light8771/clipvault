@@ -15,10 +15,8 @@ import (
 	"clipboard_ext/internal/clipvault/domain"
 )
 
-// Recorder 是事件优先（event-first）的剪贴板录制状态机：
-// 每一次 WM_CLIPBOARDUPDATE 都必然产生一条历史记录，区别只在内容状态——
-// 正常内容、重复事件（is_duplicate）、或内容不可用（content_available=false +
-// unavailable_reason）。任何分支都不允许静默丢事件。
+// Recorder 保存可被检查的剪贴板状态。已经被新 sequence 覆盖的瞬态通知
+// 没有可恢复的内容，因此不会被伪装成用户可见的失败记录。
 type Recorder struct {
 	cfgMgr    *ConfigManager
 	store     *Store
@@ -127,17 +125,16 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 
 	cfg := r.cfgMgr.Get()
 	snapshot, formats, err := readClipboardEventForSequence(cfg, sequence)
+	if errors.Is(err, ErrClipboardSuperseded) {
+		// 新通知携带当前唯一可读的状态，由 runtime 邮箱继续处理。
+		return
+	}
 	// 来源详情必须在剪贴板关闭后解析，并且所有结果分支一致处理。
-	// 这样 read_failed / unsupported / superseded 记录不会再丢失来源应用。
+	// 这样 read_failed / unsupported 记录不会丢失来源应用。
 	if source.PID != 0 {
 		source.resolveDetails()
 	}
 	if err != nil {
-		if errors.Is(err, ErrClipboardSuperseded) {
-			// 事件在读取前被更新的复制覆盖：内容已不可得，但事件必须落库。
-			r.saveEventOnly(source, capturedAtMS, domain.ReasonSuperseded, formats)
-			return
-		}
 		if errors.Is(err, ErrImageLimitExceeded) {
 			// 图片超过配置大小：事件落库，内容不可用。
 			r.saveUnavailable(&ClipboardSnapshot{
@@ -149,12 +146,12 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 		}
 		fields := clipboardReadFailureFields(err, source, formats)
 		r.logger.Error("clipboard_read_failed", err, fields)
-		r.saveEventOnly(source, capturedAtMS, domain.ReasonReadFailed, formats)
+		r.saveEventOnly(source, capturedAtMS, domain.ReasonReadFailed, formats, clipboardReadFailureMeta(err))
 		return
 	}
 	if snapshot == nil {
 		// 不支持的格式：事件落库，格式清单写入元数据。
-		r.saveEventOnly(source, capturedAtMS, domain.ReasonUnsupportedFormat, formats)
+		r.saveEventOnly(source, capturedAtMS, domain.ReasonUnsupportedFormat, formats, nil)
 		return
 	}
 	if containsString(formats.Names, internalRestoreFormatName) {
@@ -170,7 +167,8 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 		relPath, err := r.saveManagedImage(snapshot.ImageBytes, capturedAtMS, snapshot.SHA256)
 		if err != nil {
 			r.logger.Error("clipboard_image_save_failed", err, nil)
-			r.saveEventOnly(source, capturedAtMS, domain.ReasonReadFailed, formats)
+			r.saveEventOnly(source, capturedAtMS, domain.ReasonReadFailed, formats,
+				clipboardFailureMeta(err, "persist", domain.FormatImageFile))
 			return
 		}
 		snapshot.Text = filepath.ToSlash(relPath)
@@ -267,15 +265,71 @@ func clipboardReadFailureFields(err error, source SourceInfo, formats ClipboardF
 	return fields
 }
 
+const clipboardErrorMessageMaxRunes = 512
+
+type clipboardFailureDetail struct {
+	Message            string `json:"message"`
+	Stage              string `json:"stage,omitempty"`
+	Format             string `json:"format,omitempty"`
+	Attempt            int    `json:"attempt,omitempty"`
+	OpenAttempts       int    `json:"openAttempts,omitempty"`
+	ThreadIDBefore     uint32 `json:"threadIdBefore,omitempty"`
+	ThreadIDAfter      uint32 `json:"threadIdAfter,omitempty"`
+	ExpectedSequence   uint32 `json:"expectedSequence,omitempty"`
+	SequenceBeforeOpen uint32 `json:"sequenceBeforeOpen,omitempty"`
+	SequenceAfterOpen  uint32 `json:"sequenceAfterOpen,omitempty"`
+	SequenceAfterRead  uint32 `json:"sequenceAfterRead,omitempty"`
+	ClipboardOwnerPID  uint32 `json:"clipboardOwnerPid,omitempty"`
+	ClipboardOpenerPID uint32 `json:"clipboardOpenerPid,omitempty"`
+	DurationMS         int64  `json:"durationMs,omitempty"`
+	Win32Error         int64  `json:"win32Error,omitempty"`
+	CloseWin32Error    int64  `json:"closeWin32Error,omitempty"`
+}
+
+type clipboardFailureDetailProvider interface {
+	ClipboardFailureDetail() clipboardFailureDetail
+}
+
+// clipboardReadFailureMeta is the durable, local counterpart of the diagnostic
+// log entry. Its typed schema is intentionally independent from log sanitizing.
+func clipboardReadFailureMeta(err error) map[string]any {
+	detail := clipboardFailureDetail{}
+	var provider clipboardFailureDetailProvider
+	if errors.As(err, &provider) {
+		detail = provider.ClipboardFailureDetail()
+	}
+	detail.Message = boundedClipboardErrorMessage(err.Error())
+	return map[string]any{"error": detail}
+}
+
+func clipboardFailureMeta(err error, stage, format string) map[string]any {
+	return map[string]any{"error": clipboardFailureDetail{
+		Message: boundedClipboardErrorMessage(err.Error()),
+		Stage:   stage,
+		Format:  format,
+	}}
+}
+
+func boundedClipboardErrorMessage(message string) string {
+	runes := []rune(message)
+	if len(runes) <= clipboardErrorMessageMaxRunes {
+		return message
+	}
+	return string(runes[:clipboardErrorMessageMaxRunes]) + "…"
+}
+
 // saveEventOnly 保存一条「只发生过事件、没有内容」的记录。
-// 用于 superseded / unsupported_format / read_failed 等分支。
-func (r *Recorder) saveEventOnly(source SourceInfo, capturedAtMS int64, reason string, formats ClipboardFormatSet) {
+// 用于 unsupported_format / read_failed 等分支。
+func (r *Recorder) saveEventOnly(source SourceInfo, capturedAtMS int64, reason string, formats ClipboardFormatSet, extra map[string]any) {
 	meta := map[string]any{}
 	if len(formats.Names) > 0 {
 		meta["formats"] = formats.Names
 	}
 	if len(formats.IDs) > 0 {
 		meta["formatIds"] = formats.IDs
+	}
+	for key, value := range extra {
+		meta[key] = value
 	}
 	r.saveUnavailable(&ClipboardSnapshot{
 		Kind:   domain.KindOther,
@@ -361,7 +415,7 @@ func (r *Recorder) saveManagedImage(pngBytes []byte, capturedAtMS int64, content
 	if err := os.WriteFile(full, pngBytes, 0o600); err != nil {
 		return "", fmt.Errorf("write image file: %w", err)
 	}
-	return filepath.Join(filepath.Base(r.imagesDir), t.Format("2006"), t.Format("01"), name), nil
+	return buildManagedImageStoredPath(t.Format("2006"), t.Format("01"), name), nil
 }
 
 func containsString(list []string, target string) bool {

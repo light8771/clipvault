@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -252,9 +251,8 @@ func (s *ExternalReadService) GetContent(ctx context.Context, access ReadAccess,
 	}
 	switch {
 	case item.Format == "CLIPVAULT_IMAGE_FILE" && item.ContentAvailable:
-		imagesRoot := filepath.Clean(s.env.ImagesDirectory())
-		full := filepath.Clean(filepath.Join(imagesRoot, filepath.FromSlash(strings.TrimPrefix(item.Text, "images/"))))
-		if full != imagesRoot && !strings.HasPrefix(full, imagesRoot+string(os.PathSeparator)) {
+		full, err := resolveManagedImagePath(s.env, item.Text)
+		if err != nil {
 			return ExternalContent{}, fmt.Errorf("%w: invalid image path", ErrExternalInvalid)
 		}
 		info, err := os.Stat(full)
