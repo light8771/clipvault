@@ -4,10 +4,10 @@ package clipvault
 var i18nSeedAppearance = []BuiltinTranslation{
 	// ── appearance 外观与通知 ─────────────────────────────────────────
 	{Key: "appearance.desc", Module: "appearance", Description: "外观页描述",
-		ZhCN: "皮肤、显示模式、字体、背景媒体与系统通知。修改立即生效。",
-		EnUS: "Theme, display mode, fonts, background media, and notifications. Changes apply immediately."},
-	{Key: "appearance.skin_section_title", Module: "appearance", Description: "外观与皮肤标题", ZhCN: "外观与皮肤", EnUS: "Appearance & Theme"},
-	{Key: "appearance.skin_section_desc", Module: "appearance", Description: "外观与皮肤说明", ZhCN: "选择预设皮肤，或使用自定义配色；切换后立即生效", EnUS: "Pick a preset theme or customize colors; changes apply immediately"},
+		ZhCN: "皮肤、显示模式、字体、导航栏、背景媒体与系统通知。修改立即生效。",
+		EnUS: "Theme, display mode, fonts, navigation bar, background media, and notifications. Changes apply immediately."},
+	{Key: "appearance.section_title", Module: "appearance", Description: "界面定制标题", ZhCN: "界面定制", EnUS: "Interface Customization"},
+	{Key: "appearance.section_desc", Module: "appearance", Description: "界面定制说明", ZhCN: "管理品牌、皮肤、导航栏、背景与系统通知", EnUS: "Manage branding, theme, navigation, background, and system notifications"},
 	{Key: "appearance.brand", Module: "appearance", Description: "品牌与标题区块", ZhCN: "品牌与标题", EnUS: "Brand & Title"},
 	{Key: "appearance.brand_desc", Module: "appearance", Description: "品牌与标题说明", ZhCN: "自定义界面中展示的名称与图标", EnUS: "Customize the name and icon shown in the interface"},
 	{Key: "appearance.site_title", Module: "appearance", Description: "站点标题字段", ZhCN: "站点标题", EnUS: "Site Title"},
@@ -48,6 +48,7 @@ var i18nSeedAppearance = []BuiltinTranslation{
 	{Key: "appearance.surface_opacity_hint", Module: "appearance", Description: "界面不透明度说明",
 		ZhCN: "控制卡片、设置区块的不透明度；配合背景图片使用可以呈现磨砂玻璃效果",
 		EnUS: "Controls the opacity of cards and settings sections; combine with a background image for a frosted glass effect"},
+	{Key: "appearance.navigation", Module: "appearance", Description: "导航栏区块", ZhCN: "导航栏", EnUS: "Navigation Bar"},
 	{Key: "appearance.background", Module: "appearance", Description: "背景媒体区块", ZhCN: "背景媒体", EnUS: "Background Media"},
 	{Key: "appearance.background_desc", Module: "appearance", Description: "背景媒体说明", ZhCN: "为界面设置图片或视频背景，并调整呈现效果", EnUS: "Set an image or video background and adjust its rendering"},
 	{Key: "appearance.background_media", Module: "appearance", Description: "背景媒体字段", ZhCN: "背景媒体", EnUS: "Background Media"},

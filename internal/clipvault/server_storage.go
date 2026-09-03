@@ -50,6 +50,40 @@ func (s *SearchServer) handleStorageOpen(w http.ResponseWriter, r *http.Request)
 	s.writeJSON(w, map[string]any{"ok": true})
 }
 
+func (s *SearchServer) handleLogDirectoryConfigure(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LogDir string `json:"logDir"`
+	}
+	if err := decodeJSONRequest(w, r, &req, 4<<10); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_log_directory_request", s.i18nT("storage.log_change_failed", nil), err)
+		return
+	}
+	if err := ConfigureLogDirectory(s.env, req.LogDir); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "log_directory_change_failed", s.i18nT("storage.log_change_failed_with", map[string]any{"message": err.Error()}), err)
+		return
+	}
+	s.logger.Info("log_directory_change_scheduled", nil)
+	s.writeJSON(w, map[string]any{"ok": true, "message": s.i18nT("storage.log_change_scheduled", nil)})
+}
+
+func (s *SearchServer) handleLogDirectoryOpen(w http.ResponseWriter, r *http.Request) {
+	dir := strings.TrimSpace(s.env.LogDirectory())
+	if dir == "" {
+		s.writeError(w, fmt.Errorf("%s", s.i18nT("storage.log_unavailable", nil)))
+		return
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		s.writeError(w, fmt.Errorf("%s: %s", s.i18nT("storage.log_dir_inaccessible", nil), dir))
+		return
+	}
+	if err := openDirectory(dir); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, map[string]any{"ok": true})
+}
+
 func (s *SearchServer) handleDiagnosticExport(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	archive, err := os.CreateTemp("", "clipvault-logs-*.zip")

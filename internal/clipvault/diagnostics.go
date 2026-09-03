@@ -142,6 +142,7 @@ var diagnosticStringFieldValues = map[string]map[string]struct{}{
 	"kind": diagnosticStringSet("archive", "files", "image", "office", "other", "text", "video"),
 	"mode": diagnosticStringSet("first_install", "normal", "recovery_needed", "state_corrupt"),
 	"reason": diagnosticStringSet(
+		"clipboard_empty",
 		"image_limit_exceeded",
 		"read_failed",
 		"search_server_disabled",

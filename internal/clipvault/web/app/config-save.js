@@ -16,6 +16,7 @@ export function registerConfigSave() {
   app.storageRelocationInFlight = false;
   app.storageRelocationScheduled = false;
   app.storageStatusRequestSequence = 0;
+  app.logDirectoryChangeInFlight = false;
   app.diagnosticsExportInFlight = false;
   app.autoSaveBound = false;
   app.hasPendingConfigSave = function hasPendingConfigSave() {

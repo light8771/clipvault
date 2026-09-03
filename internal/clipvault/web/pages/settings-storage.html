@@ -1,6 +1,7 @@
       <div class="amenu-sub">
         <div class="amenu-sub-title">{{T "app.title.storage"}}</div>
         <a class="amenu-anchor" href="#s-storage-dir">{{T "storage.data_dir"}}</a>
+        <a class="amenu-anchor" href="#s-log-dir">{{T "storage.log_dir"}}</a>
         <a class="amenu-anchor" href="#s-storage-isolated">{{T "storage.isolated_db"}}</a>
         <a class="amenu-anchor" href="#s-cleanup">{{T "storage.cleanup"}}</a>
       </div>
@@ -49,6 +50,30 @@
               <p class="field-hint">{{T "storage.relocate_hint"}}</p>
             </div>
             <button type="button" class="btn-export" id="storageRelocateBtn" disabled>{{T "storage.relocate_prepare"}}</button>
+          </div>
+        </div>
+
+        <div class="fsec" id="s-log-dir">
+          <h3 class="fsec-title">{{T "storage.log_dir"}}</h3>
+          <p class="fsec-desc">{{T "storage.log_dir_desc"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div class="field-row storage-current-row">
+            <div class="field-info">
+              <span class="field-label">{{T "storage.current_log_dir"}}</span>
+              <p class="field-hint" id="storageLogHint" aria-live="polite">{{T "storage.loading"}}</p>
+            </div>
+            <div class="storage-current-controls">
+              <code class="storage-path" id="storageCurrentLogDir">-</code>
+              <button type="button" class="btn-export" id="storageOpenLogDirBtn" title='{{T "storage.open_dir_tip"}}'>{{T "storage.open_dir"}}</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-info">
+              <span class="field-label">{{T "storage.change_log_dir"}}</span>
+              <p class="field-hint">{{T "storage.change_log_dir_hint"}}</p>
+            </div>
+            <button type="button" class="btn-export" id="storageChangeLogDirBtn" disabled>{{T "storage.change_log_dir_button"}}</button>
           </div>
         </div>
 

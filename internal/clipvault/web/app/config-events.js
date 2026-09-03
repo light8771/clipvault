@@ -214,6 +214,8 @@ export function registerConfigEvents() {
     }
     document.getElementById('storageOpenDirBtn')?.addEventListener('click', app.openDataDirectory);
     document.getElementById('storageRelocateBtn')?.addEventListener('click', app.openMigrateDialog);
+    document.getElementById('storageOpenLogDirBtn')?.addEventListener('click', app.openLogDirectory);
+    document.getElementById('storageChangeLogDirBtn')?.addEventListener('click', app.openLogDirectoryDialog);
     const diagnosticsButton = document.getElementById('diagnosticsExportBtn');
     diagnosticsButton?.addEventListener('click', async () => {
       if (app.diagnosticsExportInFlight) return;

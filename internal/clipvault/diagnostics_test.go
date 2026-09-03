@@ -99,17 +99,19 @@ func TestRedactDiagnosticLogKeepsKnownRegisteredClipboardFormats(t *testing.T) {
 }
 
 func TestRedactDiagnosticLogKeepsClipboardEventReason(t *testing.T) {
-	input := []byte(`{"ts":"2026-08-28T11:26:02+08:00","level":"info","event":"clipboard_event_saved","kind":"other","reason":"unsupported_format","formatIds":[49155],"formats":["private name"],"isDuplicate":false}`)
-	output := string(redactDiagnosticLog(input))
-	var entry map[string]any
-	if err := json.Unmarshal([]byte(output), &entry); err != nil {
-		t.Fatal(err)
-	}
-	if entry["event"] != "clipboard_event_saved" || entry["reason"] != "unsupported_format" {
-		t.Fatalf("clipboard event reason was not retained: %#v", entry)
-	}
-	if strings.Contains(output, "private name") {
-		t.Fatalf("registered format name leaked into diagnostic output: %s", output)
+	for _, reason := range []string{"unsupported_format", "clipboard_empty"} {
+		input := []byte(`{"ts":"2026-08-28T11:26:02+08:00","level":"info","event":"clipboard_event_saved","kind":"other","reason":"` + reason + `","formatIds":[49155],"formats":["private name"],"isDuplicate":false}`)
+		output := string(redactDiagnosticLog(input))
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(output), &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry["event"] != "clipboard_event_saved" || entry["reason"] != reason {
+			t.Fatalf("clipboard event reason was not retained: %#v", entry)
+		}
+		if strings.Contains(output, "private name") {
+			t.Fatalf("registered format name leaked into diagnostic output: %s", output)
+		}
 	}
 }
 

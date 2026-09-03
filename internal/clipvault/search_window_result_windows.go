@@ -3,6 +3,8 @@ package clipvault
 import (
 	"fmt"
 	"strings"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 func formatSuggestion(it StoredItem) string {
@@ -39,13 +41,15 @@ func formatSuggestion(it StoredItem) string {
 
 func unavailableReasonLabel(reason string) string {
 	switch reason {
-	case "unsupported_format":
+	case domain.ReasonClipboardEmpty:
+		return templateT("history.unavail_clipboard_empty", nil)
+	case domain.ReasonUnsupportedFormat:
 		return templateT("history.unavail_format", nil)
-	case "text_limit_exceeded":
+	case domain.ReasonTextLimitExceeded:
 		return templateT("history.unavail_text_limit", nil)
-	case "image_limit_exceeded":
+	case domain.ReasonImageLimitExceeded:
 		return templateT("history.unavail_image_limit", nil)
-	case "read_failed":
+	case domain.ReasonReadFailed:
 		return templateT("history.unavail_read_failed", nil)
 	default:
 		return templateT("history.unavailable_content", nil)

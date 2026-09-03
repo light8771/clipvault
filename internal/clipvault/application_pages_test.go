@@ -59,7 +59,6 @@ func TestApplicationPageRoutesAreExact(t *testing.T) {
 		"/settings/language":   "settings",
 		"/settings/appearance": "settings",
 		"/settings/history":    "settings",
-		"/settings/navigation": "settings",
 		"/settings/general":    "settings",
 		"/settings/security":   "settings",
 		"/settings/storage":    "settings",
@@ -83,7 +82,7 @@ func TestApplicationPageRoutesAreExact(t *testing.T) {
 			t.Errorf("route %s page=%q found=%v, want %q", route, page.Name, ok, name)
 		}
 	}
-	for _, route := range []string{"/history", "/settings/", "/index.html", "/app", "/settings/maintenance", "/settings/groups", "/settings/license"} {
+	for _, route := range []string{"/history", "/settings/", "/index.html", "/app", "/settings/navigation", "/settings/maintenance", "/settings/groups", "/settings/license"} {
 		result := httptest.NewRecorder()
 		(&SearchServer{}).handleIndex(result, httptest.NewRequest(http.MethodGet, "http://clipvault.local"+route, nil))
 		if result.Code != http.StatusNotFound {

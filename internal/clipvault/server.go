@@ -132,6 +132,8 @@ func (s *SearchServer) Start() (string, error) {
 	api("GET /api/v1/storage", s.requireAuth(s.handleStorageStatus))
 	api("POST /api/v1/storage/relocation", s.requireSecondary(s.handleStorageRelocate))
 	api("POST /api/v1/storage/open", s.requireAuth(s.handleStorageOpen))
+	api("POST /api/v1/storage/log-directory", s.requireSecondary(s.handleLogDirectoryConfigure))
+	api("POST /api/v1/storage/log-directory/open", s.requireAuth(s.handleLogDirectoryOpen))
 	api("GET /api/v1/diagnostics", s.requireSecondary(s.handleDiagnosticExport))
 	api("GET /api/v1/config/sensitive-rules", s.requireSecondary(s.handleSensitiveRules))
 	api("GET /api/v1/items/sensitive", s.requireSecondary(s.handleSensitiveSearch))

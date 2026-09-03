@@ -16,7 +16,8 @@ function translate(key, values = {}) {
     'history.error_pid': 'PID {pid}',
     'history.error_duration': 'Duration',
     'history.error_duration_ms': '{count} ms',
-    'history.error_formats': 'Detected formats'
+    'history.error_formats': 'Detected formats',
+    'history.error_formats_none': 'No formats detected'
   };
   return Object.entries(values).reduce(
     (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
@@ -61,6 +62,18 @@ test('unsupported formats are displayed even without an error object', () => {
   assert.equal(model.message, '');
   assert.deepEqual(model.rows, [
     { label: 'Detected formats', value: 'FileGroupDescriptorW, FileContents' }
+  ]);
+});
+
+test('a cleared clipboard explicitly reports that no formats were detected', () => {
+  const model = clipboardEventDetailModel({
+    unavailableReason: 'clipboard_empty',
+    metaJson: '{}'
+  }, translate);
+
+  assert.equal(model.message, '');
+  assert.deepEqual(model.rows, [
+    { label: 'Detected formats', value: 'No formats detected' }
   ]);
 });
 

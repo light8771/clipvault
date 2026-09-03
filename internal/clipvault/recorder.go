@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -150,8 +151,10 @@ func (r *Recorder) ProcessClipboardUpdate(source SourceInfo, sequence uint32, ca
 		return
 	}
 	if snapshot == nil {
-		// 不支持的格式：事件落库，格式清单写入元数据。
-		r.saveEventOnly(source, capturedAtMS, domain.ReasonUnsupportedFormat, formats, nil)
+		// 枚举成功但格式为空表示剪贴板已被清空；有格式但没有
+		// 可读内容才是真正的不支持格式。两者分开落库，避免空事件被误报。
+		reason := unavailableReasonForNoSnapshot(formats)
+		r.saveEventOnly(source, capturedAtMS, reason, formats, nil)
 		return
 	}
 	if containsString(formats.Names, internalRestoreFormatName) {
@@ -331,17 +334,22 @@ func (r *Recorder) saveEventOnly(source SourceInfo, capturedAtMS int64, reason s
 	for key, value := range extra {
 		meta[key] = value
 	}
-	r.saveUnavailable(&ClipboardSnapshot{
+	r.saveUnavailableWithDedupeDetail(&ClipboardSnapshot{
 		Kind:   domain.KindOther,
 		Format: domain.FormatEventOnly,
 		Source: source,
 		Meta:   meta,
-	}, capturedAtMS, reason, nil)
+	}, capturedAtMS, reason, nil, clipboardFormatSetDedupeKey(formats))
 }
 
 // saveUnavailable 以 content_available=false 保存事件记录。
 // snapshot.Meta 与 extra 合并后入库（extra 优先）。
 func (r *Recorder) saveUnavailable(snapshot *ClipboardSnapshot, capturedAtMS int64, reason string, extra map[string]any) {
+	r.saveUnavailableWithDedupeDetail(snapshot, capturedAtMS, reason, extra, "")
+}
+
+// saveUnavailableWithDedupeDetail 仅供需要把结构化上下文纳入去重的事件调用。
+func (r *Recorder) saveUnavailableWithDedupeDetail(snapshot *ClipboardSnapshot, capturedAtMS int64, reason string, extra map[string]any, dedupeDetail string) {
 	meta := map[string]any{}
 	for k, v := range snapshot.Meta {
 		meta[k] = v
@@ -355,8 +363,9 @@ func (r *Recorder) saveUnavailable(snapshot *ClipboardSnapshot, capturedAtMS int
 			metaJSON = string(data)
 		}
 	}
-	// event-only / 不可用记录的去重键包含原因：同一原因连续发生才标记重复。
-	dedupeHash := hashString(snapshot.Kind + "\x00" + snapshot.Format + "\x00" + reason)
+	// event-only / 不可用记录的去重键包含原因。枚举到的格式集合也纳入
+	// event-only 去重，避免不同的第三方虚拟格式被误标为重复。
+	dedupeHash := hashString(snapshot.Kind + "\x00" + snapshot.Format + "\x00" + reason + "\x00" + dedupeDetail)
 	isDuplicate := r.lastHash == dedupeHash && r.lastKind == snapshot.Kind
 
 	if err := r.store.Save(context.Background(), ClipboardItem{
@@ -390,6 +399,33 @@ func (r *Recorder) saveUnavailable(snapshot *ClipboardSnapshot, capturedAtMS int
 		logFields["formatIds"] = formatIDs
 	}
 	r.logger.Info("clipboard_event_saved", logFields)
+}
+
+func unavailableReasonForNoSnapshot(formats ClipboardFormatSet) string {
+	if len(formats.IDs) == 0 && len(formats.Names) == 0 {
+		return domain.ReasonClipboardEmpty
+	}
+	return domain.ReasonUnsupportedFormat
+}
+
+// clipboardFormatSetDedupeKey 为格式集合生成与枚举顺序无关的稳定键。
+// Win32 ID 是权威身份；只在 ID 缺失时才使用名称作为降级身份。
+func clipboardFormatSetDedupeKey(formats ClipboardFormatSet) string {
+	if len(formats.IDs) == 0 && len(formats.Names) == 0 {
+		return ""
+	}
+	ids := slices.Clone(formats.IDs)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	if len(ids) > 0 {
+		data, _ := json.Marshal(ids)
+		return "ids:" + string(data)
+	}
+	names := slices.Clone(formats.Names)
+	slices.Sort(names)
+	names = slices.Compact(names)
+	data, _ := json.Marshal(names)
+	return "names:" + string(data)
 }
 
 // saveManagedImage 把 PNG 字节写入托管目录（UTC 年/月两级），

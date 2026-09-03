@@ -11,13 +11,14 @@ const appDirName = "ClipVault"
 
 const AppVersion = "0.1.0"
 
-// Environment 持有运行时路径信息（数据目录、日志目录）。
-// 配置不再存储为 JSON 文件，而是持久化在数据库的 settings 表中。
+// Environment 持有启动期已解析的运行时路径。数据和日志位置必须在
+// 打开数据库前确定，因此使用用户级启动控制文件；其余应用设置存在 settings 表。
 type Environment struct {
-	DataDir  string
-	LogDir   string
-	Portable bool
-	Source   string
+	DataDir    string
+	LogDir     string
+	LogWarning string
+	Portable   bool
+	Source     string
 }
 
 // NewEnvironment resolves the runtime environment with DataDir priority:
@@ -37,71 +38,50 @@ func newEnvironment(dataDirOverride string) (Environment, error) {
 		return Environment{}, err
 	}
 	exeDir := filepath.Dir(exePath)
-	logDir := defaultLogDirectory(exeDir)
-
+	var env Environment
 	if dataDirOverride != "" {
 		dataDir, err := resolveAbsoluteDataDirectory(dataDirOverride, "data directory override")
 		if err != nil {
 			return Environment{}, err
 		}
-		return Environment{
-			DataDir: dataDir,
-			LogDir:  logDir,
-			Source:  "command",
-		}, nil
-	}
-
-	if envDir := os.Getenv("CLIPVAULT_DATA_DIR"); envDir != "" {
+		env = Environment{DataDir: dataDir, Source: "command"}
+	} else if envDir := os.Getenv("CLIPVAULT_DATA_DIR"); envDir != "" {
 		dataDir, err := resolveAbsoluteDataDirectory(envDir, "CLIPVAULT_DATA_DIR")
 		if err != nil {
 			return Environment{}, err
 		}
-		return Environment{
-			DataDir: dataDir,
-			LogDir:  logDir,
-			Source:  "environment",
-		}, nil
-	}
-
-	portableFlag := filepath.Join(exeDir, "portable.flag")
-	if isPortableFlag(portableFlag) {
-		return Environment{
+		env = Environment{DataDir: dataDir, Source: "environment"}
+	} else if isPortableFlag(filepath.Join(exeDir, "portable.flag")) {
+		env = Environment{
 			DataDir:  filepath.Join(exeDir, "data"),
 			LogDir:   filepath.Join(exeDir, "logs"),
 			Portable: true,
 			Source:   "portable",
-		}, nil
-	}
-
-	controlDir := environmentControlDir()
-	if configuredDir, err := configuredDataDirectory(controlDir); err != nil {
-		return Environment{}, err
-	} else if configuredDir != "" {
-		return Environment{DataDir: configuredDir, LogDir: logDir, Source: "configured"}, nil
-	}
-
-	local := os.Getenv("LOCALAPPDATA")
-	if local != "" {
-		return Environment{
-			DataDir: filepath.Join(local, appDirName),
-			LogDir:  logDir,
-			Source:  "default",
-		}, nil
-	}
-
-	roaming := os.Getenv("APPDATA")
-	if roaming == "" {
-		home, err := os.UserHomeDir()
+		}
+	} else {
+		controlDir := environmentControlDir()
+		configuredDir, err := configuredDataDirectory(controlDir)
 		if err != nil {
 			return Environment{}, err
 		}
-		roaming = filepath.Join(home, "AppData", "Roaming")
+		if configuredDir != "" {
+			env = Environment{DataDir: configuredDir, Source: "configured"}
+		} else {
+			env = Environment{DataDir: controlDir, Source: "default"}
+		}
 	}
-	return Environment{
-		DataDir: filepath.Join(roaming, appDirName),
-		LogDir:  logDir,
-		Source:  "default",
-	}, nil
+
+	if env.Portable {
+		return env, nil
+	}
+	env.LogDir = defaultLogDirectory(exeDir)
+	configuredLogDir, err := configuredLogDirectory(environmentControlDir())
+	if err != nil {
+		env.LogWarning = err.Error()
+	} else if configuredLogDir != "" {
+		env.LogDir = configuredLogDir
+	}
+	return env, nil
 }
 
 func resolveAbsoluteDataDirectory(value, source string) (string, error) {
@@ -130,6 +110,14 @@ func defaultLogDirectory(exeDir string) string {
 	return filepath.Join(exeDir, "logs")
 }
 
+func defaultLogDirectoryForCurrentExecutable() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return filepath.Join(environmentControlDir(), "logs")
+	}
+	return defaultLogDirectory(filepath.Dir(exe))
+}
+
 // StartupErrorLogFile returns a writable per-user location for errors that
 // occur before the normal daily logger can be initialized.
 func StartupErrorLogFile() string {
@@ -137,7 +125,14 @@ func StartupErrorLogFile() string {
 	if err != nil {
 		return "startup-error.log"
 	}
-	return filepath.Join(defaultLogDirectory(filepath.Dir(exe)), "startup-error.log")
+	exeDir := filepath.Dir(exe)
+	logDir := defaultLogDirectory(exeDir)
+	if isPortableFlag(filepath.Join(exeDir, "portable.flag")) {
+		logDir = filepath.Join(exeDir, "logs")
+	} else if configuredDir, configErr := configuredLogDirectory(environmentControlDir()); configErr == nil && configuredDir != "" {
+		logDir = configuredDir
+	}
+	return filepath.Join(logDir, "startup-error.log")
 }
 
 // Config 是应用的完整配置结构，通过 Web 界面修改，存储在数据库中。

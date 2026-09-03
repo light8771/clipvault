@@ -132,6 +132,8 @@ func (r *WindowsRuntime) showMenu() {
 	}
 	appendMenu(menu, searchFlags, idMenuSearch, searchText)
 	appendMenu(menu, mfString, idMenuDataDir, r.i18nT("tray.open_data_dir", nil))
+	appendMenu(menu, mfString, idMenuLogDir, r.i18nT("tray.open_log_dir", nil))
+	appendMenu(menu, mfString, idMenuAppDir, r.i18nT("tray.open_app_dir", nil))
 
 	cfg := r.cfgMgr.Get()
 	autostartFlags := uint32(mfString)
@@ -166,6 +168,15 @@ func (r *WindowsRuntime) handleCommand(id uint16) {
 		r.openSearch()
 	case idMenuDataDir:
 		r.openPath(r.env.DataDir)
+	case idMenuLogDir:
+		r.openPath(r.env.LogDirectory())
+	case idMenuAppDir:
+		exePath, err := os.Executable()
+		if err != nil {
+			r.logger.Warn("app_directory_open_failed", map[string]any{"error": err.Error()})
+			return
+		}
+		r.openPath(filepath.Dir(exePath))
 	case idMenuAutostart:
 		r.toggleAutostart()
 	case idMenuExit:

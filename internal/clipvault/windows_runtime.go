@@ -27,6 +27,8 @@ const (
 	idMenuDataDir     = 103
 	idMenuAutostart   = 104
 	idMenuExit        = 105
+	idMenuLogDir      = 106
+	idMenuAppDir      = 107
 	idHotkeyToggle    = 1000
 	idHotkeySearch    = 1001
 	idClipboardPoll   = 2001

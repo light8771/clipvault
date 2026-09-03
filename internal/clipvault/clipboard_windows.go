@@ -248,8 +248,8 @@ func clipboardSequenceNumber() uint32 {
 //
 // 返回值语义：
 //   - snapshot != nil：读到了可入库的内容（文本/文件/图片）。
-//   - snapshot == nil 且 err == nil：剪贴板只有不支持的格式，formats 为
-//     打开期间枚举到的全部格式名，调用方应落 event-only 记录。
+//   - snapshot == nil 且 err == nil：未读到可保存内容。formats 为空表示
+//     剪贴板已清空；非空表示只有不支持的格式。调用方应分类落 event-only 记录。
 //   - err == ErrClipboardSuperseded：等待/读取期间序列已变化，事件被覆盖。
 //
 // Win32 剪贴板所有权是按线程记账的：OpenClipboard / CloseClipboard 必须在

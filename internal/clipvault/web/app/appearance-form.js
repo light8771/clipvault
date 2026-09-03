@@ -1,7 +1,7 @@
 // ── 配置表单 ↔ 作用域模型转换 ─────────────────────────────────
 // 配置按作用域拆分后，表单构建也按域组织：
 //   appearanceFromForm / applyAppearanceFormState → 全局视觉（外观页）
-//   navigationFromForm / applyNavigationFormState → 导航栏（导航栏页）
+//   navigationFromForm / applyNavigationFormState → 导航栏（外观页）
 //   historyPageFromForm / applyHistoryPageFormState → 历史页布局（历史页面页）
 // 页面缺少对应控件时回退 currentCfg 中的值，保证全量 PUT /api/v1/config
 // 不丢字段、也不会把未展示的设置重置为默认。
@@ -70,7 +70,7 @@ export function registerAppearanceForm() {
   // ── 导航栏 ─────────────────────────────────────────────────
   app.navigationFromForm = function navigationFromForm(current) {
     const currentNavigation = current || app.currentCfg?.navigation || {};
-    // 非导航栏页保留当前配置
+    // 不含导航栏控件的页面保留当前配置
     if (!document.getElementById('cfg-navSticky')) {
       return { ...currentNavigation };
     }

@@ -1,14 +1,12 @@
 package clipvault
 
 // 本文件与其他 i18n_seed_*.go 共同维护官方词条；按模块拆分以满足单文件行数上限。
-// 历史页面（history_page.*）与导航栏（navigation.*）按配置作用域独立成组，
-// 与全局外观（appearance.*）分离：页面设置不再污染全局主题词条。
+// 历史页面（history_page.*）与导航栏（navigation.*）按配置作用域独立成组；
+// 导航栏词条虽展示在外观页，仍不混入全局外观配置字段。
 var i18nSeedLayout = []BuiltinTranslation{
-	// ── 设置首页卡片（历史页面 / 导航栏入口） ────────────────────────
+	// ── 设置首页卡片（历史页面；导航栏由外观页承载） ─────────────────
 	{Key: "settings_home.history_desc", Module: "settings_home", Description: "历史页面分组描述", ZhCN: "历史页布局、列数、内容宽度、边距与卡片间距", EnUS: "History page layout, columns, content width, padding, and card gap"},
 	{Key: "settings_home.history_keys", Module: "settings_home", Description: "历史页面分组关键词", ZhCN: "页面布局 · 列数 · 内容宽度 · 边距 · 卡片间距 · 预览行数 · 固定占位", EnUS: "Layout · Columns · Content width · Padding · Card gap · Preview lines · Fixed placeholder"},
-	{Key: "settings_home.navigation_desc", Module: "settings_home", Description: "导航栏分组描述", ZhCN: "导航栏固定、毛玻璃、透明度与分隔线", EnUS: "Navbar stickiness, frosted glass, opacity, and divider"},
-	{Key: "settings_home.navigation_keys", Module: "settings_home", Description: "导航栏分组关键词", ZhCN: "导航栏 · 固定顶部 · 毛玻璃 · 透明度 · 分隔线", EnUS: "Navbar · Sticky · Frosted glass · Opacity · Divider"},
 
 	// ── 历史页面设置 ─────────────────────────────────────────────────
 	{Key: "history_page.desc", Module: "history_page", Description: "历史页面设置描述",
@@ -80,10 +78,6 @@ var i18nSeedLayout = []BuiltinTranslation{
 	{Key: "navigation.desc", Module: "navigation", Description: "导航栏设置描述",
 		ZhCN: "导航栏的固定方式、毛玻璃、透明度与分隔线。导航栏的内容宽度由各页面容器决定，不在此配置。",
 		EnUS: "Navbar stickiness, frosted glass, opacity, and divider. Content width follows each page's own container."},
-	{Key: "navigation.behavior_section", Module: "navigation", Description: "导航行为区块", ZhCN: "导航行为", EnUS: "Navigation Behavior"},
-	{Key: "navigation.behavior_section_desc", Module: "navigation", Description: "导航行为说明",
-		ZhCN: "导航栏在全站的滚动行为与视觉表现",
-		EnUS: "Scrolling behavior and visual style of the navbar across all pages"},
 	{Key: "navigation.sticky", Module: "navigation", Description: "固定顶部字段", ZhCN: "固定顶部", EnUS: "Sticky at Top"},
 	{Key: "navigation.sticky_hint", Module: "navigation", Description: "固定顶部说明",
 		ZhCN: "开启后导航栏固定悬浮在页面顶部；关闭后随页面内容一起滚出屏幕",

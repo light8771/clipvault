@@ -32,15 +32,26 @@ var storageMoveMu sync.Mutex
 // StorageStatus describes the active data directory and whether it can be
 // relocated through the settings page.
 type StorageStatus struct {
-	DataDir string `json:"dataDir"`
-	LogDir  string `json:"logDir"`
-	Movable bool   `json:"movable"`
-	Pending bool   `json:"pending"`
-	Reason  string `json:"reason,omitempty"`
+	DataDir         string `json:"dataDir"`
+	LogDir          string `json:"logDir"`
+	Movable         bool   `json:"movable"`
+	Pending         bool   `json:"pending"`
+	Reason          string `json:"reason,omitempty"`
+	LogConfigurable bool   `json:"logConfigurable"`
+	LogPending      bool   `json:"logPending"`
+	PendingLogDir   string `json:"pendingLogDir,omitempty"`
+	LogReason       string `json:"logReason,omitempty"`
+	LogFallback     bool   `json:"logFallback"`
 }
 
 func (env Environment) StorageStatus() StorageStatus {
-	status := StorageStatus{DataDir: env.DataDir, LogDir: env.LogDirectory(), Movable: true}
+	status := StorageStatus{DataDir: env.DataDir, LogDir: env.LogDirectory(), Movable: true, LogConfigurable: !env.Portable, LogFallback: env.LogWarning != ""}
+	if env.Portable {
+		status.LogReason = templateT("storage.log_reason_portable", nil)
+	} else if configuredDir, err := configuredLogDirectory(environmentControlDir()); err == nil && configuredDir != "" && !samePath(configuredDir, env.LogDirectory()) {
+		status.LogPending = true
+		status.PendingLogDir = configuredDir
+	}
 	switch env.Source {
 	case "portable":
 		status.Movable = false
@@ -229,7 +240,7 @@ func isManagedControlEntry(entry os.DirEntry) bool {
 		return false
 	}
 	switch entry.Name() {
-	case storageLocationFile, storageMoveFile, "startup-error.log":
+	case storageLocationFile, storageMoveFile, logLocationFile, "startup-error.log":
 		return entry.Type().IsRegular()
 	case "logs":
 		return entry.IsDir()

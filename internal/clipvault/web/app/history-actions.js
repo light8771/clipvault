@@ -183,6 +183,7 @@ export function registerHistoryActions() {
   };
   // 内容不可用原因；值为 i18n key。
   app.UNAVAILABLE_LABEL_KEY = {
+    clipboard_empty: 'history.unavail_clipboard_empty',
     unsupported_format: 'history.unavail_format',
     text_limit_exceeded: 'history.unavail_text_limit',
     image_limit_exceeded: 'history.unavail_image_limit',

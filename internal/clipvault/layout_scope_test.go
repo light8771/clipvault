@@ -67,8 +67,8 @@ func TestMaintenancePageRendersSupportSection(t *testing.T) {
 	}
 }
 
-// 设置页作用域验收：历史页布局控件只出现在 /settings/history，
-// 导航栏控件只出现在 /settings/navigation，外观页不再包含任何布局字段。
+// 设置页作用域验收：历史页布局控件只出现在 /settings/history；导航栏控件
+// 与全局外观共用 /settings/appearance 页面，但配置模型仍保持 navigation 域。
 func TestSettingsPagesAreScopedByConcern(t *testing.T) {
 	historySettings := renderApplicationPage(t, "/settings/history")
 	for _, want := range []string{
@@ -89,38 +89,37 @@ func TestSettingsPagesAreScopedByConcern(t *testing.T) {
 			t.Errorf("history settings page missing %s", want)
 		}
 	}
-	navSettings := renderApplicationPage(t, "/settings/navigation")
+	appearanceSettings := renderApplicationPage(t, "/settings/appearance")
 	for _, want := range []string{
+		`href="#s-appearance-navigation"`,
+		`id="s-appearance-navigation"`,
 		`id="cfg-navSticky"`,
 		`id="cfg-navBlur"`,
 		`id="cfg-navOpacity"`,
 		`id="cfg-navDivider"`,
 	} {
-		if !strings.Contains(navSettings, want) {
-			t.Errorf("navigation settings page missing %s", want)
+		if !strings.Contains(appearanceSettings, want) {
+			t.Errorf("appearance settings page missing navigation control %s", want)
 		}
 	}
-	// 作用域互斥：外观页不得再渲染布局/导航控件。
-	appearanceSettings := renderApplicationPage(t, "/settings/appearance")
+	// 历史页布局仍保持独立，外观页不得渲染任何历史页控件。
 	for _, forbidden := range []string{
 		`id="cfg-historyColumns"`,
 		`id="cfg-historyLayout"`,
 		`id="cfg-previewLines"`,
 		`id="cfg-historyFixedPreview"`,
-		`id="cfg-navSticky"`,
-		`id="cfg-navBlur"`,
-		`id="cfg-navBorder"`,
 	} {
 		if strings.Contains(appearanceSettings, forbidden) {
-			t.Errorf("appearance page must not contain layout/navbar control %s", forbidden)
+			t.Errorf("appearance page must not contain history layout control %s", forbidden)
 		}
 	}
-	// 历史页设置不得出现在导航栏页，反之亦然。
-	if strings.Contains(navSettings, `id="cfg-historyColumns"`) {
-		t.Errorf("navigation settings page must not contain history layout controls")
-	}
+	// 导航栏控件不得泄漏到历史页面。
 	if strings.Contains(historySettings, `id="cfg-navSticky"`) {
 		t.Errorf("history settings page must not contain navbar controls")
+	}
+	settingsHome := renderApplicationPage(t, "/settings")
+	if strings.Contains(settingsHome, `href="/settings/navigation"`) {
+		t.Error("settings home must not expose a standalone navigation settings route")
 	}
 }
 

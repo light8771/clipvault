@@ -36,6 +36,10 @@ export function registerSettingsStorage() {
     const hint = document.getElementById('storageCurrentHint');
     const openBtn = document.getElementById('storageOpenDirBtn');
     const button = document.getElementById('storageRelocateBtn');
+    const logDir = document.getElementById('storageCurrentLogDir');
+    const logHint = document.getElementById('storageLogHint');
+    const logOpenBtn = document.getElementById('storageOpenLogDirBtn');
+    const logChangeBtn = document.getElementById('storageChangeLogDirBtn');
     if (!currentDir || !hint || !button) return;
     try {
       const res = await app.fetch('/api/v1/storage');
@@ -45,6 +49,23 @@ export function registerSettingsStorage() {
       currentDir.textContent = status.dataDir || '-';
       currentDir.title = status.dataDir || '';
       if (openBtn) openBtn.disabled = !status.dataDir;
+      if (logDir) {
+        logDir.textContent = status.logDir || '-';
+        logDir.title = status.logDir || '';
+      }
+      if (logOpenBtn) logOpenBtn.disabled = !status.logDir;
+      if (logHint) {
+        if (status.logPending) {
+          logHint.textContent = t('storage.log_change_pending', { dir: status.pendingLogDir || '-' });
+        } else if (status.logFallback) {
+          logHint.textContent = t('storage.log_fallback');
+        } else if (status.logConfigurable) {
+          logHint.textContent = t('storage.log_change_available');
+        } else {
+          logHint.textContent = status.logReason || t('storage.log_change_unsupported');
+        }
+      }
+      if (logChangeBtn) logChangeBtn.disabled = !status.logConfigurable || app.logDirectoryChangeInFlight;
       if (status.movable && !status.pending && !app.storageRelocationScheduled) {
         hint.textContent = t('storage.relocate_available');
         button.disabled = false;
@@ -60,6 +81,9 @@ export function registerSettingsStorage() {
       hint.textContent = t('storage.status_unavailable');
       button.disabled = true;
       if (openBtn) openBtn.disabled = true;
+      if (logOpenBtn) logOpenBtn.disabled = true;
+      if (logChangeBtn) logChangeBtn.disabled = true;
+      if (logHint) logHint.textContent = t('storage.status_unavailable');
     }
   };
   app.openDataDirectory = async function openDataDirectory() {
@@ -78,6 +102,24 @@ export function registerSettingsStorage() {
       app.toast(t('storage.opened'));
     } catch (_) {
       app.toast(t('storage.open_failed'), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  app.openLogDirectory = async function openLogDirectory() {
+    const btn = document.getElementById('storageOpenLogDirBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const res = await app.fetch('/api/v1/storage/log-directory/open', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        app.toast(data.error || t('storage.log_open_failed'), 'err');
+        return;
+      }
+      app.toast(t('storage.log_opened'));
+    } catch (_) {
+      app.toast(t('storage.log_open_failed'), 'err');
     } finally {
       btn.disabled = false;
     }

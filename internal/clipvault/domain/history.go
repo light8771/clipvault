@@ -37,6 +37,7 @@ const (
 // 内容不可用原因（clipboard_items.unavailable_reason）。
 const (
 	ReasonNone               = ""
+	ReasonClipboardEmpty     = "clipboard_empty"      // 剪贴板已清空（未枚举到任何格式）
 	ReasonUnsupportedFormat  = "unsupported_format"   // 剪贴板格式不在支持列表
 	ReasonTextLimitExceeded  = "text_limit_exceeded"  // 文本长度超过 MaxTextChars
 	ReasonImageLimitExceeded = "image_limit_exceeded" // 图片超过 image.maxBytes
@@ -52,7 +53,7 @@ func ValidItemState(kind, format, reason string) bool {
 	switch reason {
 	case ReasonNone:
 		return format != FormatEventOnly
-	case ReasonUnsupportedFormat, ReasonReadFailed:
+	case ReasonClipboardEmpty, ReasonUnsupportedFormat, ReasonReadFailed:
 		return kind == KindOther && format == FormatEventOnly
 	case ReasonTextLimitExceeded:
 		return kind == KindText && format == FormatUnicodeText

@@ -60,6 +60,7 @@ export function clipboardEventDetailModel(item, t) {
     ? meta.formats.filter(value => typeof value === 'string' && value.trim()).slice(0, 32)
     : [];
   if (formats.length) add('history.error_formats', formats.join(', '));
+  else if (item?.unavailableReason === 'clipboard_empty') add('history.error_formats', t('history.error_formats_none'));
 
   return {
     message: typeof error.message === 'string' ? error.message : '',

@@ -14,7 +14,7 @@ import (
 // I18nSchemaVersion 是官方词条集的版本。新增/修改/移除官方词条时递增；
 // 它与表结构版本（duckdbstorage.SchemaVersion）解耦——词条演进不需要
 // 重建数据库，只在启动时按标记增量同步。
-const I18nSchemaVersion = 4
+const I18nSchemaVersion = 8
 
 // i18nSeedVersionSettingKey 是 settings 表中记录已同步词条集版本的键。
 // 已同步的库每次启动只花一次 settings 读，避免全量 upsert 的启动开销。

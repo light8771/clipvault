@@ -17,9 +17,25 @@ import (
 func Run(env Environment) error {
 	logger, err := NewDailyLoggerWithConsole(env.LogDirectory(), os.Stdout)
 	if err != nil {
-		return err
+		if env.Portable {
+			return err
+		}
+		fallbackDir := defaultLogDirectoryForCurrentExecutable()
+		if samePath(env.LogDirectory(), fallbackDir) {
+			return err
+		}
+		configuredErr := err
+		env.LogDir = fallbackDir
+		env.LogWarning = configuredErr.Error()
+		logger, err = NewDailyLoggerWithConsole(env.LogDirectory(), os.Stdout)
+		if err != nil {
+			return fmt.Errorf("open configured log directory: %v; open fallback log directory: %w", configuredErr, err)
+		}
 	}
 	defer logger.Close()
+	if env.LogWarning != "" {
+		logger.Warn("log_directory_fallback", map[string]any{"error": env.LogWarning, "fallbackDir": env.LogDirectory()})
+	}
 
 	instanceLock, err := AcquireInstanceLock()
 	if err != nil {

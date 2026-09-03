@@ -169,5 +169,5 @@ func removeMovedData(sourceDir, controlDir string) error {
 }
 
 func isControlFile(name string) bool {
-	return name == storageLocationFile || name == storageMoveFile || name == "logs" || name == "startup-error.log"
+	return name == storageLocationFile || name == storageMoveFile || name == logLocationFile || name == "logs" || name == "startup-error.log"
 }
