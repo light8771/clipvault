@@ -40,9 +40,9 @@ func TestFormatSuggestionUsesChineseKindLabel(t *testing.T) {
 	for kind, want := range tests {
 		t.Run(kind, func(t *testing.T) {
 			item := StoredItem{
-				CreatedAt:        time.Date(2026, time.July, 24, 12, 30, 0, 0, time.Local),
-				Kind:             kind,
-				ContentAvailable: true,
+				CreatedAt:  time.Date(2026, time.July, 24, 12, 30, 0, 0, time.Local),
+				RecordType: domain.HistoryRecordContent,
+				Kind:       kind,
 			}
 			wantSuggestion := "07-24 12:30  " + want + "  [" + want + "]"
 			if got := formatSuggestion(item); got != wantSuggestion {
@@ -55,20 +55,30 @@ func TestFormatSuggestionUsesChineseKindLabel(t *testing.T) {
 func TestFormatSuggestionMarksEventStates(t *testing.T) {
 	newFormatSuggestionTestEnv(t)
 	at := time.Date(2026, time.July, 24, 12, 30, 0, 0, time.Local)
-	dup := StoredItem{CreatedAt: at, Kind: "text", Text: "hello", ContentAvailable: true, IsDuplicate: true}
-	if got := formatSuggestion(dup); got != "07-24 12:30  文本·重复  hello" {
-		t.Errorf("duplicate suggestion = %q", got)
+	unavailable := StoredItem{CreatedAt: at, RecordType: domain.HistoryRecordEvent, EventCode: domain.EventUnsupportedFormat}
+	if got := formatSuggestion(unavailable); got != "07-24 12:30  采集事件  [暂不支持此类剪贴板内容]" {
+		t.Errorf("capture event suggestion = %q", got)
 	}
-	unavailable := StoredItem{CreatedAt: at, Kind: domain.KindOther, Format: domain.FormatEventOnly, UnavailableReason: domain.ReasonUnsupportedFormat}
-	if got := formatSuggestion(unavailable); got != "07-24 12:30  other  [不支持的剪贴板格式]" {
-		t.Errorf("event-only suggestion = %q", got)
-	}
-	empty := StoredItem{CreatedAt: at, Kind: domain.KindOther, Format: domain.FormatEventOnly, UnavailableReason: domain.ReasonClipboardEmpty}
-	if got := formatSuggestion(empty); got != "07-24 12:30  other  [剪贴板已清空]" {
+	empty := StoredItem{CreatedAt: at, RecordType: domain.HistoryRecordEvent, EventCode: domain.EventClipboardEmpty}
+	if got := formatSuggestion(empty); got != "07-24 12:30  采集事件  [剪贴板已清空]" {
 		t.Errorf("clipboard-empty suggestion = %q", got)
 	}
-	imageLimit := StoredItem{CreatedAt: at, Kind: domain.KindImage, Format: domain.FormatEventOnly, UnavailableReason: domain.ReasonImageLimitExceeded}
-	if got := formatSuggestion(imageLimit); got != "07-24 12:30  图片  [图片超过大小上限，未保存内容]" {
+	imageLimit := StoredItem{CreatedAt: at, RecordType: domain.HistoryRecordEvent, EventCode: domain.EventImageLimitExceeded}
+	if got := formatSuggestion(imageLimit); got != "07-24 12:30  采集事件  [图片超过保存上限]" {
 		t.Errorf("image-limit suggestion = %q", got)
+	}
+}
+
+func TestFormatSuggestionMarksConsecutiveContentDuplicate(t *testing.T) {
+	newFormatSuggestionTestEnv(t)
+	item := StoredItem{
+		CreatedAt:            time.Date(2026, time.July, 24, 12, 30, 0, 0, time.Local),
+		RecordType:           domain.HistoryRecordContent,
+		Kind:                 domain.KindText,
+		Text:                 "same",
+		ConsecutiveDuplicate: true,
+	}
+	if got := formatSuggestion(item); got != "07-24 12:30  文本·连续重复  same" {
+		t.Fatalf("duplicate suggestion = %q", got)
 	}
 }

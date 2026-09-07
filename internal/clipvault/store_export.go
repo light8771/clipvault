@@ -9,6 +9,7 @@ import (
 	"io"
 	"time"
 
+	"clipboard_ext/internal/clipvault/domain"
 	"clipboard_ext/internal/clipvault/transfer"
 )
 
@@ -20,9 +21,27 @@ type ExportData struct {
 	SourceEngine  string          `json:"sourceEngine"`
 	Warning       string          `json:"warning"`
 	Items         []StoredItem    `json:"items"`
+	Assets        []ExportAsset   `json:"assets"`
 	Groups        []StoredGroup   `json:"groups"`
 	ItemGroups    []ItemGroupLink `json:"itemGroups"`
 	Settings      ExportSettings  `json:"settings"`
+}
+
+func (export ExportData) MarshalJSON() ([]byte, error) {
+	type exportData ExportData
+	if export.Items == nil {
+		export.Items = []StoredItem{}
+	}
+	if export.Assets == nil {
+		export.Assets = []ExportAsset{}
+	}
+	if export.Groups == nil {
+		export.Groups = []StoredGroup{}
+	}
+	if export.ItemGroups == nil {
+		export.ItemGroups = []ItemGroupLink{}
+	}
+	return json.Marshal(exportData(export))
 }
 
 // ExportSettings contains the portable settings required to restore the
@@ -30,6 +49,15 @@ type ExportData struct {
 // of data exports.
 type ExportSettings struct {
 	Sensitive SensitiveConfig `json:"sensitive"`
+}
+
+// ExportAsset carries the immutable bytes for one managed-image history item.
+// ItemID, rather than the machine-local image path, is the portable identity.
+type ExportAsset struct {
+	ItemID  int64  `json:"itemId"`
+	SHA256  string `json:"sha256"`
+	ByteLen int    `json:"byteLen"`
+	Data    []byte `json:"data"`
 }
 
 // UnmarshalJSON requires every portable settings field in the export contract.
@@ -82,6 +110,7 @@ func validateExportScope(scope ExportScope) error {
 // caller can advance a backup watermark from the exact snapshot that was
 // exported — querying the max id afterwards would race with concurrent writes.
 func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer) (int64, error) {
+	w = transfer.NewJSONWriter(w)
 	if err := validateExportScope(scope); err != nil {
 		return 0, err
 	}
@@ -126,6 +155,7 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 	}
 	first := true
 	var lastID int64
+	var assetFiles []exportAssetFile
 	for rows.Next() {
 		var item StoredItem
 		if err := scanStoredItem(rows, &item); err != nil {
@@ -146,6 +176,14 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 		if _, err := w.Write(b); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("write item: %w", err)
+		}
+		if item.Format == domain.FormatImageFile {
+			asset, err := s.loadExportAsset(item)
+			if err != nil {
+				rows.Close()
+				return 0, err
+			}
+			assetFiles = append(assetFiles, asset)
 		}
 		first = false
 		lastID = item.ID
@@ -215,6 +253,19 @@ func (s *Store) StreamExport(ctx context.Context, scope ExportScope, w io.Writer
 	}
 	if err := lrows.Err(); err != nil {
 		return 0, fmt.Errorf("iterate item_groups: %w", err)
+	}
+	if _, err := w.Write([]byte(`],"assets":[`)); err != nil {
+		return 0, fmt.Errorf("write assets header: %w", err)
+	}
+	for index, assetFile := range assetFiles {
+		if index > 0 {
+			if _, err := w.Write([]byte(",")); err != nil {
+				return 0, fmt.Errorf("write asset separator: %w", err)
+			}
+		}
+		if err := assetFile.writeJSON(w); err != nil {
+			return 0, fmt.Errorf("write asset for item %d: %w", assetFile.ItemID, err)
+		}
 	}
 
 	cfg, err := getConfig(ctx, tx)

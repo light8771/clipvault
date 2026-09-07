@@ -345,6 +345,20 @@
   color: var(--tx);
   font: italic 15px/1.7 ui-monospace, Consolas, monospace;
 }
+.capture-event-description {
+  margin: 6px 0 0;
+  color: var(--sub);
+  font: 13px/1.55 sans-serif;
+}
+.capture-event-technical {
+  margin-top: 10px;
+  color: var(--muted);
+  font: 12px/1.5 sans-serif;
+}
+.capture-event-technical summary {
+  cursor: pointer;
+  width: fit-content;
+}
 .event-error-message {
   padding: 7px 9px;
   border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);

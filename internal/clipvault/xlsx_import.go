@@ -1,11 +1,18 @@
 package clipvault
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
+	"strings"
 	"time"
+
+	"clipboard_ext/internal/clipvault/domain"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -21,11 +28,9 @@ func (s *Store) ImportXLSX(ctx context.Context, data []byte) error {
 }
 
 // decodeImportXLSX parses a ClipVault workbook into the format-agnostic
-// ExportData carrier. It is the XLSX half of the decoder/persister split and
-// mirrors decodeImportJSON: format- and envelope-level validation happens here
-// (sheet set, headers, formula rejection, per-field syntax), while
-// data-semantic validation stays in importExportData so both import formats
-// keep sharing one rule set.
+// ExportData carrier. Format- and envelope-level validation happens here
+// (sheet set, headers, formula rejection, per-field syntax), while data-semantic
+// validation stays in importExportData so both import formats share one rule set.
 //
 // The workbook is closed before this function returns, i.e. earlier than when
 // the decode was still inlined in ImportXLSX. That is safe: readXLSXRows
@@ -74,19 +79,23 @@ func decodeImportXLSX(data []byte) (ExportData, error) {
 	if err != nil {
 		return ExportData{}, err
 	}
+	assetRows, err := readXLSXRows(book, xlsxAssetsSheet, xlsxAssetsHeader)
+	if err != nil {
+		return ExportData{}, err
+	}
 
 	export := ExportData{App: "ClipVault", ExportVersion: currentExportVersion}
 	for row, values := range records {
 		item, err := parseXLSXItem(values)
 		if err != nil {
-			return ExportData{}, fmt.Errorf("Records row %d: %w", row+2, err)
+			return ExportData{}, fmt.Errorf("records row %d: %w", row+2, err)
 		}
 		export.Items = append(export.Items, item)
 	}
 	for row, values := range groups {
 		group, err := parseXLSXGroup(values)
 		if err != nil {
-			return ExportData{}, fmt.Errorf("Groups row %d: %w", row+2, err)
+			return ExportData{}, fmt.Errorf("groups row %d: %w", row+2, err)
 		}
 		export.Groups = append(export.Groups, group)
 	}
@@ -107,16 +116,20 @@ func decodeImportXLSX(data []byte) (ExportData, error) {
 		}
 		export.Settings.Sensitive.CustomPatterns = append(export.Settings.Sensitive.CustomPatterns, values[0])
 	}
+	export.Assets, err = decodeXLSXAssets(data, assetRows)
+	if err != nil {
+		return ExportData{}, err
+	}
 	return export, nil
 }
 
 func validateXLSXSheets(book *excelize.File) error {
 	want := map[string]struct{}{
-		xlsxManifestSheet: {}, xlsxRecordsSheet: {}, xlsxGroupsSheet: {}, xlsxItemGroupsSheet: {}, xlsxSensitiveRulesSheet: {},
+		xlsxManifestSheet: {}, xlsxRecordsSheet: {}, xlsxGroupsSheet: {}, xlsxItemGroupsSheet: {}, xlsxSensitiveRulesSheet: {}, xlsxAssetsSheet: {},
 	}
 	sheets := book.GetSheetList()
 	if len(sheets) != len(want) {
-		return fmt.Errorf("invalid XLSX sheets: expected Manifest, Records, Groups, ItemGroups, SensitiveRules")
+		return fmt.Errorf("invalid XLSX sheets: expected Manifest, Records, Groups, ItemGroups, SensitiveRules, Assets")
 	}
 	for _, sheet := range sheets {
 		if _, ok := want[sheet]; !ok {
@@ -124,6 +137,73 @@ func validateXLSXSheets(book *excelize.File) error {
 		}
 	}
 	return nil
+}
+
+func decodeXLSXAssets(data []byte, rows [][]string) ([]ExportAsset, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("open XLSX asset package: %w", err)
+	}
+	entries := make(map[string][]*zip.File)
+	for _, entry := range reader.File {
+		entries[entry.Name] = append(entries[entry.Name], entry)
+	}
+	assets := make([]ExportAsset, 0, len(rows))
+	seenItems := make(map[int64]struct{}, len(rows))
+	var totalBytes int64
+	for row, values := range rows {
+		itemID, err := parseXLSXPositiveInt(values[0])
+		if err != nil {
+			return nil, fmt.Errorf("Assets row %d itemId: %w", row+2, err)
+		}
+		if _, duplicate := seenItems[itemID]; duplicate {
+			return nil, fmt.Errorf("Assets row %d duplicates item %d", row+2, itemID)
+		}
+		byteLen, err := parseXLSXPositiveInt(values[2])
+		if err != nil || byteLen > maxImageMaxBytes {
+			return nil, fmt.Errorf("Assets row %d has an invalid byteLen", row+2)
+		}
+		expectedEntry := exportAssetPackageEntry(itemID)
+		if values[3] != expectedEntry {
+			return nil, fmt.Errorf("Assets row %d has an invalid package entry", row+2)
+		}
+		matches := entries[expectedEntry]
+		if len(matches) != 1 || matches[0].UncompressedSize64 != uint64(byteLen) {
+			return nil, fmt.Errorf("Assets row %d package entry is missing, duplicated, or has the wrong size", row+2)
+		}
+		totalBytes += byteLen
+		if totalBytes > xlsxAssetBytesLimit {
+			return nil, fmt.Errorf("%w: managed image assets exceed %d bytes", errXLSXSizeLimit, xlsxAssetBytesLimit)
+		}
+		in, err := matches[0].Open()
+		if err != nil {
+			return nil, fmt.Errorf("open XLSX asset for item %d: %w", itemID, err)
+		}
+		payload, readErr := io.ReadAll(io.LimitReader(in, byteLen+1))
+		closeErr := in.Close()
+		if readErr != nil || closeErr != nil {
+			return nil, errors.Join(readErr, closeErr)
+		}
+		asset := ExportAsset{ItemID: itemID, SHA256: values[1], ByteLen: int(byteLen), Data: payload}
+		if err := validateExportAssetData(asset); err != nil {
+			return nil, fmt.Errorf("Assets row %d: %w", row+2, err)
+		}
+		assets = append(assets, asset)
+		seenItems[itemID] = struct{}{}
+	}
+	for name := range entries {
+		if strings.HasPrefix(name, "clipvault/assets/") {
+			itemIDText := strings.TrimSuffix(strings.TrimPrefix(name, "clipvault/assets/"), ".png")
+			itemID, err := strconv.ParseInt(itemIDText, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("unexpected XLSX asset entry %q", name)
+			}
+			if _, ok := seenItems[itemID]; !ok || name != exportAssetPackageEntry(itemID) {
+				return nil, fmt.Errorf("unexpected XLSX asset entry %q", name)
+			}
+		}
+	}
+	return assets, nil
 }
 
 func readXLSXRows(book *excelize.File, sheet string, header []string) ([][]string, error) {
@@ -200,41 +280,56 @@ func parseXLSXItem(values []string) (StoredItem, error) {
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("createdAt: %w", err)
 	}
-	byteLen, err := parseXLSXNonNegativeInt(values[5])
+	byteLen, err := parseXLSXNonNegativeInt(values[6])
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("byteLen: %w", err)
 	}
-	charLen, err := parseXLSXNonNegativeInt(values[6])
+	charLen, err := parseXLSXNonNegativeInt(values[7])
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("charLen: %w", err)
 	}
-	starred, err := strconv.ParseBool(values[9])
+	consecutiveDuplicate, err := strconv.ParseBool(values[9])
+	if err != nil {
+		return StoredItem{}, fmt.Errorf("consecutiveDuplicate: %w", err)
+	}
+	starred, err := strconv.ParseBool(values[11])
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("starred: %w", err)
 	}
-	sensitive, err := strconv.ParseBool(values[10])
+	sensitive, err := strconv.ParseBool(values[12])
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("sensitive: %w", err)
 	}
-	contentAvailable, err := strconv.ParseBool(values[11])
+	captureSequence, err := strconv.ParseUint(values[15], 10, 32)
 	if err != nil {
-		return StoredItem{}, fmt.Errorf("contentAvailable: %w", err)
+		return StoredItem{}, fmt.Errorf("captureSequence: %w", err)
 	}
-	isDuplicate, err := strconv.ParseBool(values[12])
+	captureAttempts, err := parseXLSXNonNegativeInt(values[17])
 	if err != nil {
-		return StoredItem{}, fmt.Errorf("isDuplicate: %w", err)
+		return StoredItem{}, fmt.Errorf("captureAttempts: %w", err)
+	}
+	var eventFormats []domain.ClipboardFormatInfo
+	if err := json.Unmarshal([]byte(values[18]), &eventFormats); err != nil {
+		return StoredItem{}, fmt.Errorf("eventFormats: %w", err)
+	}
+	var contentHash *string
+	if values[8] != "" {
+		value := values[8]
+		contentHash = &value
 	}
 	maxInt := int64(^uint(0) >> 1)
 	if byteLen > maxInt || charLen > maxInt {
 		return StoredItem{}, fmt.Errorf("byteLen and charLen exceed the platform integer limit")
 	}
 	return StoredItem{
-		ID: id, CreatedAt: createdAt, Kind: values[2], Format: values[3], Text: values[4],
-		ByteLen: int(byteLen), CharLen: int(charLen), SHA256: values[7], MetaJSON: values[8],
+		ID: id, CreatedAt: createdAt, RecordType: domain.HistoryRecordType(values[2]), Kind: values[3], Format: values[4], Text: values[5],
+		ByteLen: int(byteLen), CharLen: int(charLen), ContentSHA256: contentHash,
+		ConsecutiveDuplicate: consecutiveDuplicate, MetaJSON: values[10],
 		Starred: starred, Sensitive: sensitive,
-		ContentAvailable: contentAvailable, IsDuplicate: isDuplicate, UnavailableReason: values[13],
-		SourceExeName: values[14], SourceExePath: values[15],
-		SourceWindowTitle: values[16], SourceMethod: values[17],
+		EventCode: domain.ClipboardEventCode(values[13]), EventFingerprint: values[14], CaptureSequence: uint32(captureSequence),
+		CaptureStage: values[16], CaptureAttempts: int(captureAttempts), EventFormats: eventFormats, ErrorCategory: values[19],
+		SourceExeName: values[20], SourceExePath: values[21],
+		SourceWindowTitle: values[22], SourceAttribution: values[23],
 	}, nil
 }
 

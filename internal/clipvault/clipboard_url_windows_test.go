@@ -4,6 +4,7 @@ package clipvault
 
 import (
 	"encoding/binary"
+	"errors"
 	"testing"
 	"unicode/utf16"
 
@@ -88,6 +89,32 @@ func TestReadClipboardURLReportsNoRecognizedFormat(t *testing.T) {
 	snapshot, ok, err := readClipboardURLWith(access)
 	if snapshot != nil || ok || err != nil {
 		t.Fatalf("unexpected absent URL result: snapshot=%#v ok=%v err=%v", snapshot, ok, err)
+	}
+}
+
+func TestReadClipboardURLPreservesDelayedUnicodeForRetry(t *testing.T) {
+	wantErr := &clipboardOperationError{
+		stage: clipboardReadStageGetData, format: clipboardURLFormatUnicodeName, err: errClipboardDataUnavailable,
+	}
+	access := clipboardURLAccess{
+		candidates: []clipboardURLCandidate{
+			{formatID: 1, formatName: clipboardURLFormatUnicodeName, decode: decodeUTF16ClipboardString},
+			{formatID: 2, formatName: clipboardURLFormatANSIName, decode: func([]byte) (string, error) {
+				return "", errors.New("bad ANSI URL")
+			}},
+		},
+		available: func(uint32) bool { return true },
+		readBytes: func(format uint32) ([]byte, error) {
+			if format == 1 {
+				return nil, wantErr
+			}
+			return []byte("bad payload"), nil
+		},
+	}
+
+	snapshot, found, err := readClipboardURLWith(access)
+	if snapshot != nil || !found || err != wantErr {
+		t.Fatalf("delayed Unicode URL was not preserved: snapshot=%#v found=%v err=%v", snapshot, found, err)
 	}
 }
 

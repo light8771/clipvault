@@ -56,15 +56,15 @@ func TestSearchMasksSensitiveMetadata(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "secret-token-value",
-		MetaJSON: `{"k":"v"}`, Sensitive: true, IsDuplicate: true,
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "secret-token-value",
+		MetaJSON: `{"k":"v"}`, Sensitive: true,
 		SourceExeName: "passwordmgr.exe", SourceExePath: `C:\Apps\passwordmgr.exe`,
-		SourceWindowTitle: "密码管理器", SourceMethod: "foreground",
+		SourceWindowTitle: "密码管理器", SourceAttribution: "foreground",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "normal note", SourceExeName: "notepad.exe",
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "normal note", SourceExeName: "notepad.exe",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -77,22 +77,30 @@ func TestSearchMasksSensitiveMetadata(t *testing.T) {
 	if result.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", result.Code, result.Body.String())
 	}
+	explicitRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items?record_type=content", nil)
+	explicitRequest.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+	explicitResult := httptest.NewRecorder()
+	server.handleSearch(explicitResult, explicitRequest)
+	if explicitResult.Code != result.Code || explicitResult.Body.String() != result.Body.String() {
+		t.Fatalf("explicit content projection changed masked response:\ndefault=%s\nexplicit=%s", result.Body.String(), explicitResult.Body.String())
+	}
 	var resp struct {
 		Items []struct {
-			ID                int64  `json:"id"`
-			Kind              string `json:"kind"`
-			Text              string `json:"text"`
-			Sensitive         bool   `json:"sensitive"`
-			SHA256            string `json:"sha256"`
-			MetaJSON          string `json:"metaJson"`
-			Format            string `json:"format"`
-			ByteLen           int    `json:"byteLen"`
-			CharLen           int    `json:"charLen"`
-			SourceExeName     string `json:"sourceExeName"`
-			SourceExePath     string `json:"sourceExePath"`
-			SourceWindowTitle string `json:"sourceWindowTitle"`
-			SourceMethod      string `json:"sourceMethod"`
-			IsDuplicate       bool   `json:"isDuplicate"`
+			ID            int64   `json:"id"`
+			Kind          string  `json:"kind"`
+			Text          string  `json:"text"`
+			Sensitive     bool    `json:"sensitive"`
+			ContentSHA256 *string `json:"contentSha256"`
+			MetaJSON      string  `json:"metaJson"`
+			Format        string  `json:"format"`
+			ByteLen       int     `json:"byteLen"`
+			CharLen       int     `json:"charLen"`
+			Source        *struct {
+				ExeName     string `json:"exeName"`
+				ExePath     string `json:"exePath"`
+				WindowTitle string `json:"windowTitle"`
+				Attribution string `json:"attribution"`
+			} `json:"source"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(result.Body.Bytes(), &resp); err != nil {
@@ -106,7 +114,7 @@ func TestSearchMasksSensitiveMetadata(t *testing.T) {
 	for _, it := range resp.Items {
 		if !it.Sensitive {
 			plain++
-			if it.Text != "normal note" || it.SourceExeName != "notepad.exe" {
+			if it.Text != "normal note" || it.Source == nil || it.Source.ExeName != "notepad.exe" {
 				t.Fatalf("plain item altered: %+v", it)
 			}
 			continue
@@ -116,10 +124,9 @@ func TestSearchMasksSensitiveMetadata(t *testing.T) {
 		if it.Text != "【敏感内容，点击查看】" {
 			t.Fatalf("masked text = %q", it.Text)
 		}
-		if it.SHA256 != "" || it.MetaJSON != "" || it.Format != "" ||
+		if it.ContentSHA256 != nil || it.MetaJSON != "" || it.Format != "" ||
 			it.ByteLen != 0 || it.CharLen != 0 ||
-			it.SourceExeName != "" || it.SourceExePath != "" ||
-			it.SourceWindowTitle != "" || it.SourceMethod != "" || it.IsDuplicate {
+			it.Source != nil {
 			t.Fatalf("sensitive metadata leaked: %+v", it)
 		}
 		if it.Kind != "text" || it.ID == 0 {
@@ -139,7 +146,7 @@ func TestSearchSecondaryAuthedShowsSensitive(t *testing.T) {
 	}
 	defer store.Close()
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "secret-token-value", Sensitive: true,
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "secret-token-value", Sensitive: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,5 +162,41 @@ func TestSearchSecondaryAuthedShowsSensitive(t *testing.T) {
 	}
 	if !strings.Contains(result.Body.String(), "secret-token-value") {
 		t.Fatalf("secondary-authed search hides sensitive plaintext: %s", result.Body.String())
+	}
+}
+
+func TestSearchWithoutSecondaryAuthHidesSensitiveAdjacency(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, sensitive := range []bool{true, false} {
+		if err := store.Save(context.Background(), ClipboardItem{
+			RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT",
+			Text: "shared value", Sensitive: sensitive,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, _, session := newMaskTestServer(t, store)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/items", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+	result := httptest.NewRecorder()
+	server.handleSearch(result, request)
+	if result.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+	}
+	var response struct {
+		Items []struct {
+			Sensitive            bool `json:"sensitive"`
+			ConsecutiveDuplicate bool `json:"consecutiveDuplicate"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Items) != 2 || response.Items[0].Sensitive || response.Items[0].ConsecutiveDuplicate {
+		t.Fatalf("sensitive predecessor leaked through adjacency: %+v", response.Items)
 	}
 }

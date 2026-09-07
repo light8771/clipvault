@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -107,6 +108,9 @@ func parseDataAPIQuery(req *dataAPIQueryRequest) (*dataAPIQueryPlan, *dataAPIErr
 		if !ok {
 			return nil, unsupportedFilter(field)
 		}
+		if len(ops) == 0 {
+			return nil, invalidQuery("Filter %s requires at least one operator.", field)
+		}
 		for op, raw := range ops {
 			cond, args, err := spec.compileOp(field, op, raw)
 			if err != nil {
@@ -165,6 +169,9 @@ func (p *dataAPIQueryPlan) compileAggregate(req *dataAPIQueryRequest) *dataAPIEr
 	if len(req.GroupBy) != 1 {
 		return invalidQuery("Exactly one groupBy field is required for aggregate queries.")
 	}
+	if len(req.Aggregate) != 1 {
+		return invalidQuery("Exactly one aggregate is required.")
+	}
 	col, ok := dataAPIGroupFields[req.GroupBy[0]]
 	if !ok {
 		return unsupportedFilter(req.GroupBy[0])
@@ -220,14 +227,18 @@ func (spec dataAPIFieldSpec) compileOp(field, op string, raw json.RawMessage) (s
 	}
 }
 
-func intValues(raw json.RawMessage) ([]int64, *dataAPIError) {
-	var single int64
-	if err := json.Unmarshal(raw, &single); err == nil {
-		return []int64{single}, nil
+func integerValue(raw json.RawMessage) (int64, *dataAPIError) {
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, invalidQuery("Expected an integer.")
 	}
+	return value, nil
+}
+
+func integerValues(raw json.RawMessage) ([]int64, *dataAPIError) {
 	var list []int64
 	if err := json.Unmarshal(raw, &list); err != nil || len(list) == 0 {
-		return nil, invalidQuery("Expected an integer or a non-empty integer array.")
+		return nil, invalidQuery("Expected a non-empty integer array.")
 	}
 	if len(list) > 100 {
 		return nil, invalidQuery("The \"in\" operator accepts at most 100 values.")
@@ -236,14 +247,7 @@ func intValues(raw json.RawMessage) ([]int64, *dataAPIError) {
 }
 
 func (spec dataAPIFieldSpec) compileIntOp(field, op string, raw json.RawMessage) (string, []any, *dataAPIError) {
-	values, err := intValues(raw)
-	if err != nil {
-		return "", nil, err
-	}
 	column := spec.column
-	if spec.kind == "group" {
-		column = "id"
-	}
 	toAny := func(v []int64) []any {
 		out := make([]any, len(v))
 		for i, value := range v {
@@ -251,26 +255,47 @@ func (spec dataAPIFieldSpec) compileIntOp(field, op string, raw json.RawMessage)
 		}
 		return out
 	}
-	wrap := func(cond string) string {
-		if spec.kind == "group" {
-			return "id IN (SELECT item_id FROM item_groups WHERE " + cond + ")"
-		}
-		return cond
-	}
 	switch op {
-	case "eq":
-		return wrap(column + " = ?"), toAny(values[:1]), nil
-	case "neq":
-		return wrap(column + " <> ?"), toAny(values[:1]), nil
 	case "in":
+		values, err := integerValues(raw)
+		if err != nil {
+			return "", nil, err
+		}
+		if (field == "id" || spec.kind == "group") && slices.ContainsFunc(values, func(value int64) bool { return value <= 0 }) {
+			return "", nil, invalidQuery("Field %s expects positive IDs.", field)
+		}
 		ph := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
-		return wrap(column + " IN (" + ph + ")"), toAny(values), nil
-	case "gte", "gt", "lte", "lt":
 		if spec.kind == "group" {
-			return "", nil, unsupportedFilter(field + "." + op)
+			return "id IN (SELECT item_id FROM item_groups WHERE group_id IN (" + ph + "))", toAny(values), nil
+		}
+		return column + " IN (" + ph + ")", toAny(values), nil
+	case "eq", "neq", "gte", "gt", "lte", "lt":
+		if spec.kind == "group" {
+			if op != "eq" && op != "neq" {
+				return "", nil, unsupportedFilter(field + "." + op)
+			}
+		}
+		value, err := integerValue(raw)
+		if err != nil {
+			return "", nil, err
+		}
+		if (field == "id" || spec.kind == "group") && value <= 0 {
+			return "", nil, invalidQuery("Field %s expects a positive ID.", field)
+		}
+		if op == "eq" {
+			if spec.kind == "group" {
+				return "id IN (SELECT item_id FROM item_groups WHERE group_id = ?)", []any{value}, nil
+			}
+			return column + " = ?", []any{value}, nil
+		}
+		if op == "neq" {
+			if spec.kind == "group" {
+				return "id NOT IN (SELECT item_id FROM item_groups WHERE group_id = ?)", []any{value}, nil
+			}
+			return column + " <> ?", []any{value}, nil
 		}
 		symbol := map[string]string{"gte": ">=", "gt": ">", "lte": "<=", "lt": "<"}[op]
-		return column + " " + symbol + " ?", toAny(values[:1]), nil
+		return column + " " + symbol + " ?", []any{value}, nil
 	default:
 		return "", nil, unsupportedFilter(field + "." + op)
 	}

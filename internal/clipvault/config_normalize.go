@@ -8,7 +8,7 @@ import (
 )
 
 // normalizeConfig 用默认值填充零值字段。
-// MaxTextChars == 0 和 MaxFileDropPaths == 0 均为合法值（表示不限制），不做替换。
+// MaxTextChars == 0 表示不设置用户限制；MaxFileDropPaths == 0 表示使用进程安全上限。
 func normalizeConfig(cfg *Config) {
 	def := DefaultConfig()
 	normalizeBrand(&cfg.Brand, def.Brand)

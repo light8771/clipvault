@@ -51,6 +51,14 @@ func clipboardMIMEPNGFormat() uint32 {
 
 var errImageTooLarge = ErrImageLimitExceeded
 
+// 40 million pixels covers an 8K frame while bounding each RGBA working
+// buffer to about 153 MiB. DIB input is uncompressed, so its byte cap can be
+// enforced before copying the clipboard handle.
+const (
+	maxClipboardImagePixels = maxDecodedImagePixels
+	maxClipboardDIBBytes    = maxClipboardImagePixels*4 + 1<<20
+)
+
 type clipboardImageAccess struct {
 	pngFormatIDs []uint32
 	available    func(uint32) bool
@@ -58,15 +66,11 @@ type clipboardImageAccess struct {
 	readBitmap   func() ([]byte, error)
 }
 
-// readClipboardImage 尝试把剪贴板中的图片读取为 PNG 字节。
-// 剪贴板必须已由调用方打开。ok=false 表示剪贴板中没有可识别的图片格式。
-func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
-	return readClipboardImageWith(cfg, clipboardImageAccess{
-		pngFormatIDs: []uint32{clipboardPNGFormat(), clipboardMIMEPNGFormat()},
-		available:    isClipboardFormatAvailable,
-		readBytes:    readClipboardBytes,
-		readBitmap:   bitmapHandleToPNG,
-	})
+func configuredImageMaxBytes(cfg Config) int {
+	if cfg.Image.MaxBytes > 0 {
+		return cfg.Image.MaxBytes
+	}
+	return defaultImageMaxBytes
 }
 
 // readClipboardImageWith treats advertised clipboard formats as candidates,
@@ -75,24 +79,31 @@ func readClipboardImage(cfg Config) (*ClipboardSnapshot, bool, error) {
 // A broken higher-priority candidate must therefore never prevent a lower-
 // priority representation of the same image from being captured.
 func readClipboardImageWith(cfg Config, access clipboardImageAccess) (*ClipboardSnapshot, bool, error) {
-	maxBytes := cfg.Image.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = defaultImageMaxBytes
-	}
-	var lastErr error
+	maxBytes := configuredImageMaxBytes(cfg)
+	var failures clipboardCandidateErrors
 	for _, pngID := range access.pngFormatIDs {
 		if pngID == 0 || !access.available(pngID) {
 			continue
 		}
 		raw, err := access.readBytes(pngID)
 		if err != nil {
-			lastErr = err
-		} else if len(raw) > 0 {
+			failures.add(err)
+		} else if len(raw) == 0 {
+			failures.add(&clipboardOperationError{
+				stage: clipboardReadStageDecode, format: clipboardFormatName(pngID),
+				err: errors.New("registered PNG format payload is empty"),
+			})
+		} else {
 			if len(raw) > maxBytes {
-				return nil, true, errImageTooLarge
+				failures.add(errImageTooLarge)
+				continue
 			}
-			if !isPNG(raw) {
-				lastErr = &clipboardOperationError{stage: clipboardReadStageDecode, format: clipboardFormatName(pngID), err: errors.New("registered PNG format payload is not a PNG")}
+			if err := validateClipboardPNG(raw); err != nil {
+				if errors.Is(err, ErrImageLimitExceeded) {
+					failures.add(errImageTooLarge)
+				} else {
+					failures.add(&clipboardOperationError{stage: clipboardReadStageDecode, format: clipboardFormatName(pngID), err: err})
+				}
 			} else {
 				return newImageSnapshot(raw, clipboardFormatName(pngID)), true, nil
 			}
@@ -104,37 +115,52 @@ func readClipboardImageWith(cfg Config, access clipboardImageAccess) (*Clipboard
 		}
 		raw, err := access.readBytes(format)
 		if err != nil {
-			lastErr = err
+			failures.add(err)
 			continue
 		}
 		if len(raw) == 0 {
+			failures.add(&clipboardOperationError{
+				stage: clipboardReadStageDecode, format: clipboardFormatName(format),
+				err: errors.New("DIB payload is empty"),
+			})
 			continue
 		}
 		pngBytes, err := dibToPNG(raw)
 		if err != nil {
-			// DIB 解析失败时继续尝试下一个图片格式，全部失败后返回
-			// 最后一个结构化错误，不能把损坏数据误记为 unsupported。
-			lastErr = &clipboardOperationError{stage: clipboardReadStageDecode, format: clipboardFormatName(format), err: err}
+			if errors.Is(err, ErrImageLimitExceeded) {
+				failures.add(errImageTooLarge)
+				continue
+			}
+			// DIB 解析失败时继续尝试下一个图片格式；全部失败后由
+			// 候选错误策略返回结构化失败，不能把损坏数据误记为 unsupported。
+			failures.add(&clipboardOperationError{stage: clipboardReadStageDecode, format: clipboardFormatName(format), err: err})
 			continue
 		}
 		if len(pngBytes) > maxBytes {
-			return nil, true, errImageTooLarge
+			failures.add(errImageTooLarge)
+			continue
 		}
 		return newImageSnapshot(pngBytes, clipboardFormatName(format)), true, nil
 	}
 	if access.available(cfBitmap) {
 		pngBytes, err := access.readBitmap()
 		if err != nil {
-			lastErr = err
-		} else if len(pngBytes) > 0 {
+			failures.add(err)
+		} else if len(pngBytes) == 0 {
+			failures.add(&clipboardOperationError{
+				stage: clipboardReadStageDecode, format: "CF_BITMAP",
+				err: errors.New("bitmap conversion returned an empty PNG"),
+			})
+		} else {
 			if len(pngBytes) > maxBytes {
-				return nil, true, errImageTooLarge
+				failures.add(errImageTooLarge)
+			} else {
+				return newImageSnapshot(pngBytes, "CF_BITMAP"), true, nil
 			}
-			return newImageSnapshot(pngBytes, "CF_BITMAP"), true, nil
 		}
 	}
-	if lastErr != nil {
-		return nil, true, lastErr
+	if err := failures.err(); err != nil {
+		return nil, true, err
 	}
 	return nil, false, nil
 }
@@ -144,6 +170,8 @@ func newImageSnapshot(pngBytes []byte, sourceFormat string) *ClipboardSnapshot {
 	return &ClipboardSnapshot{
 		Kind:       domain.KindImage,
 		Format:     domain.FormatImageFile,
+		ByteLen:    len(pngBytes),
+		CharLen:    0,
 		ImageBytes: pngBytes,
 		SHA256:     hashBytes(pngBytes),
 		Meta: map[string]any{
@@ -158,6 +186,23 @@ func newImageSnapshot(pngBytes []byte, sourceFormat string) *ClipboardSnapshot {
 func isPNG(data []byte) bool {
 	magic := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
 	return len(data) >= 8 && bytes.Equal(data[:8], magic)
+}
+
+func validateClipboardPNG(data []byte) error {
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("invalid PNG header: %w", err)
+	}
+	if config.Width <= 0 || config.Height <= 0 || config.Width > 16384 || config.Height > 16384 {
+		return fmt.Errorf("unsupported PNG dimensions %dx%d", config.Width, config.Height)
+	}
+	if int64(config.Width)*int64(config.Height) > maxClipboardImagePixels {
+		return ErrImageLimitExceeded
+	}
+	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("invalid PNG payload: %w", err)
+	}
+	return nil
 }
 
 // pngDimensions 从 PNG 字节中读取 IHDR 尺寸（不完整解码）。
@@ -192,6 +237,9 @@ func dibToPNG(dib []byte) ([]byte, error) {
 	if width <= 0 || height <= 0 || width > 16384 || height > 16384 {
 		return nil, fmt.Errorf("unsupported DIB dimensions %dx%d", width, height)
 	}
+	if int64(width)*int64(height) > maxClipboardImagePixels {
+		return nil, ErrImageLimitExceeded
+	}
 	if bitCount != 24 && bitCount != 32 {
 		return nil, fmt.Errorf("unsupported DIB bit count %d", bitCount)
 	}
@@ -202,11 +250,16 @@ func dibToPNG(dib []byte) ([]byte, error) {
 	case 0: // BI_RGB：无 alpha 语义，32bpp 的第四字节按不透明处理。
 	case 3: // BI_BITFIELDS：仅接受标准 BGR(A) 掩码布局。
 		var masks [3]uint32
-		if headerSize >= 56 {
+		switch {
+		case headerSize >= 52:
+			// BITMAPV2INFOHEADER and later revisions embed the RGB masks
+			// in the header itself.
 			masks[0] = le.Uint32(dib[40:44])
 			masks[1] = le.Uint32(dib[44:48])
 			masks[2] = le.Uint32(dib[48:52])
-		} else {
+		case headerSize == 40:
+			// BITMAPINFOHEADER stores three masks immediately after its
+			// 40-byte header.
 			if len(dib) < offset+12 {
 				return nil, errors.New("DIB bitfields masks missing")
 			}
@@ -214,14 +267,37 @@ func dibToPNG(dib []byte) ([]byte, error) {
 			masks[1] = le.Uint32(dib[offset+4 : offset+8])
 			masks[2] = le.Uint32(dib[offset+8 : offset+12])
 			offset += 12
+		default:
+			return nil, fmt.Errorf("unsupported DIB bitfields header size %d", headerSize)
 		}
 		if masks != [3]uint32{0x00FF0000, 0x0000FF00, 0x000000FF} || bitCount != 32 {
 			return nil, fmt.Errorf("unsupported DIB bitfields masks %v/%d", masks, bitCount)
 		}
-		honorAlpha = true
+		// BITMAPINFOHEADER carries only three external color masks, so its
+		// fourth byte is reserved rather than alpha. V3/V4/V5 headers declare
+		// alpha explicitly at offset 52; a zero mask likewise means opaque.
+		if headerSize >= 56 {
+			alphaMask := le.Uint32(dib[52:56])
+			switch alphaMask {
+			case 0:
+			case 0xFF000000:
+				honorAlpha = true
+			default:
+				return nil, fmt.Errorf("unsupported DIB alpha mask %#x", alphaMask)
+			}
+		}
 	default:
 		return nil, fmt.Errorf("unsupported DIB compression %d", compression)
 	}
+	// True-color DIBs may still carry an optional RGBQUAD table used to
+	// optimize palette-based devices. biClrUsed/bV4ClrUsed/bV5ClrUsed gives
+	// its exact entry count; the packed pixel array follows that table.
+	colorEntries := uint64(le.Uint32(dib[32:36]))
+	remaining := len(dib) - offset
+	if colorEntries > uint64(remaining/4) {
+		return nil, errors.New("DIB color table truncated")
+	}
+	offset += int(colorEntries * 4)
 
 	stride := ((width*bitCount + 31) / 32) * 4
 	if len(dib) < offset+stride*height {
@@ -268,8 +344,16 @@ type bitmapHeader struct {
 	Bits       uintptr
 }
 
-// bitmapHandleToPNG 读取 CF_BITMAP（HBITMAP）并转码为 PNG（32bpp top-down DIB）。
-func bitmapHandleToPNG() ([]byte, error) {
+type clipboardBitmapCapture struct {
+	width  int
+	height int
+	pixels []byte
+}
+
+// captureClipboardBitmap copies CF_BITMAP pixels while the clipboard is open.
+// Color conversion and PNG encoding are deliberately deferred until after
+// CloseClipboard.
+func captureClipboardBitmap() (*clipboardBitmapCapture, error) {
 	handle, _, err := procGetClipboardData.Call(cfBitmap)
 	if handle == 0 {
 		if err == syscall.Errno(0) {
@@ -285,6 +369,9 @@ func bitmapHandleToPNG() ([]byte, error) {
 	width, height := int(bm.Width), int(bm.Height)
 	if width > 16384 || height > 16384 {
 		return nil, fmt.Errorf("bitmap too large %dx%d", width, height)
+	}
+	if int64(width)*int64(height) > maxClipboardImagePixels {
+		return nil, ErrImageLimitExceeded
 	}
 
 	hdc, _, _ := procGetDC.Call(0)
@@ -309,15 +396,29 @@ func bitmapHandleToPNG() ([]byte, error) {
 		uintptr(unsafe.Pointer(&bmi[0])),
 		0, // DIB_RGB_COLORS
 	)
-	if rows == 0 {
-		return nil, errors.New("GetDIBits failed")
+	if err := validateBitmapScanlineCount(rows, height); err != nil {
+		return nil, err
 	}
 
-	img := image.NewNRGBA(image.Rect(0, 0, width, height))
-	for y := 0; y < height; y++ {
-		row := pixels[y*width*4:]
+	return &clipboardBitmapCapture{width: width, height: height, pixels: pixels}, nil
+}
+
+func validateBitmapScanlineCount(rows uintptr, height int) error {
+	if height <= 0 || rows != uintptr(height) {
+		return fmt.Errorf("GetDIBits copied %d of %d scanlines", rows, height)
+	}
+	return nil
+}
+
+func (capture *clipboardBitmapCapture) toPNG() ([]byte, error) {
+	if capture == nil || capture.width <= 0 || capture.height <= 0 || len(capture.pixels) != capture.width*capture.height*4 {
+		return nil, errors.New("invalid captured bitmap")
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, capture.width, capture.height))
+	for y := 0; y < capture.height; y++ {
+		row := capture.pixels[y*capture.width*4:]
 		dst := img.Pix[y*img.Stride:]
-		for x := 0; x < width; x++ {
+		for x := 0; x < capture.width; x++ {
 			dst[x*4+0] = row[x*4+2]
 			dst[x*4+1] = row[x*4+1]
 			dst[x*4+2] = row[x*4+0]

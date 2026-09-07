@@ -97,11 +97,10 @@ func DefaultConfig() Config {
 			MaxBytes: defaultImageMaxBytes,
 		},
 		Popup: SearchPopupConfig{
-			HideDuplicates:  false,
-			HideUnavailable: false,
-			KeyOpen:         "Enter",
-			KeyRestore:      "Shift+Enter",
-			KeyPaste:        "Ctrl+Enter",
+			HideConsecutiveDuplicates: false,
+			KeyOpen:                   "Enter",
+			KeyRestore:                "Shift+Enter",
+			KeyPaste:                  "Ctrl+Enter",
 		},
 		Backup: BackupConfig{
 			DirBackup: DirBackupConfig{

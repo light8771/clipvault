@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"clipboard_ext/internal/clipvault/domain"
+
 	"github.com/xuri/excelize/v2"
 )
 
@@ -95,9 +97,9 @@ func TestExportImportRoundtrip(t *testing.T) {
 
 	// Save some items
 	items := []ClipboardItem{
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "hello world", ByteLen: 11, CharLen: 11, SHA256: "abc123", MetaJSON: "{}"},
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "=evil formula", ByteLen: 13, CharLen: 13, SHA256: "def456", MetaJSON: "{}", Sensitive: true},
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "你好世界", ByteLen: 12, CharLen: 4, SHA256: "ghi789", MetaJSON: "{}"},
+		{RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "hello world", MetaJSON: "{}"},
+		{RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "=evil formula", MetaJSON: "{}", Sensitive: true},
+		{RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "你好世界", MetaJSON: "{}"},
 	}
 	for _, item := range items {
 		if err := store.Save(ctx, item); err != nil {
@@ -254,6 +256,57 @@ func TestExportImportRoundtrip(t *testing.T) {
 	t.Logf("[OK] sensitive settings restored without importing credentials")
 }
 
+func TestImportRecomputesDuplicateAtTargetBoundary(t *testing.T) {
+	ctx := context.Background()
+	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Save(ctx, ClipboardItem{
+		RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "same",
+	}); err != nil {
+		source.Close()
+		t.Fatal(err)
+	}
+	export := exportAllForTest(t, source)
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	jsonData, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	importers := map[string]func(*Store) error{
+		"streaming JSON": func(store *Store) error { return store.ImportFullJSON(ctx, jsonData) },
+		"materialized":   func(store *Store) error { return store.importExportData(ctx, *export) },
+	}
+	for name, importData := range importers {
+		t.Run(name, func(t *testing.T) {
+			store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			if err := store.Save(ctx, ClipboardItem{
+				RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "same",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := importData(store); err != nil {
+				t.Fatal(err)
+			}
+			items, _, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 2 || !items[0].ConsecutiveDuplicate {
+				t.Fatalf("import did not derive target boundary: %+v", items)
+			}
+		})
+	}
+}
+
 func TestXLSXRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	source, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
@@ -261,7 +314,7 @@ func TestXLSXRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	if err := source.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "=SUM(A1)\nnext line", ByteLen: 18, CharLen: 18, SHA256: "abc", MetaJSON: "{\"source\":\"xlsx\"}", Sensitive: true}); err != nil {
+	if err := source.Save(ctx, ClipboardItem{RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "=SUM(A1)\nnext line", MetaJSON: "{\"source\":\"xlsx\"}", Sensitive: true}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := DefaultConfig()
@@ -345,7 +398,7 @@ func TestImportXLSXRequiresCurrentManifest(t *testing.T) {
 	}{
 		{name: "missing manifest", mutate: func(book *excelize.File) error { return book.DeleteSheet(xlsxManifestSheet) }},
 		{name: "wrong app", mutate: func(book *excelize.File) error { return book.SetCellStr(xlsxManifestSheet, "A2", "Other") }},
-		{name: "wrong version", mutate: func(book *excelize.File) error { return book.SetCellStr(xlsxManifestSheet, "B2", "3") }},
+		{name: "previous version", mutate: func(book *excelize.File) error { return book.SetCellStr(xlsxManifestSheet, "B2", "6") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			book, err := excelize.OpenReader(bytes.NewReader(data))
@@ -407,6 +460,12 @@ func TestImportRejectsInvalidSensitiveRulesAtomically(t *testing.T) {
 	export := ExportData{
 		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
+		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
+		SourceEngine:  "duckdb",
+		Warning:       "test",
+		Items:         []StoredItem{},
+		Groups:        []StoredGroup{},
+		ItemGroups:    []ItemGroupLink{},
 		Settings:      ExportSettings{Sensitive: SensitiveConfig{CustomPatterns: []string{"[invalid"}}},
 	}
 	jsonData, err := json.Marshal(export)
@@ -448,9 +507,12 @@ func TestImportRejectsDuplicateItemGroupLinksAtomically(t *testing.T) {
 	export := ExportData{
 		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
+		ExportedAt:    now.Format(time.RFC3339),
+		SourceEngine:  "duckdb",
+		Warning:       "test",
 		Items: []StoredItem{{
-			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: hashString("record"), MetaJSON: "{}",
-			ContentAvailable: true,
+			ID: 1, CreatedAt: now, RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, ContentSHA256: strPtrOrNil(hashString("record")), MetaJSON: "{}",
+			SourceAttribution: "unknown",
 		}},
 		Groups:     []StoredGroup{{ID: 1, Name: "group", CreatedAt: now}},
 		ItemGroups: []ItemGroupLink{{ItemID: 1, GroupID: 1}, {ItemID: 1, GroupID: 1}},
@@ -485,11 +547,56 @@ func TestImportRejectsDuplicateItemGroupLinksAtomically(t *testing.T) {
 	}
 }
 
+func TestImportRejectsEventGroupLinks(t *testing.T) {
+	now := time.Now().UTC()
+	export := ExportData{
+		ExportVersion: currentExportVersion,
+		App:           "ClipVault",
+		ExportedAt:    now.Format(time.RFC3339),
+		SourceEngine:  "duckdb",
+		Warning:       "test",
+		Items: []StoredItem{{
+			ID: 1, CreatedAt: now, RecordType: RecordTypeEvent, MetaJSON: "{}",
+			EventCode:         domain.EventClipboardEmpty,
+			EventFingerprint:  buildEventFingerprint(domain.EventClipboardEmpty, ClipboardFormatSet{}, "", "", ""),
+			SourceAttribution: "unknown",
+		}},
+		Groups:     []StoredGroup{{ID: 1, Name: "content-only", CreatedAt: now}},
+		ItemGroups: []ItemGroupLink{{ItemID: 1, GroupID: 1}},
+		Settings:   ExportSettings{Sensitive: SensitiveConfig{CustomPatterns: []string{}}},
+	}
+	jsonData, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xlsxData, err := encodeExportXLSX(&export)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, importData := range map[string][]byte{"JSON": jsonData, "XLSX": xlsxData} {
+		t.Run(name, func(t *testing.T) {
+			store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			if name == "JSON" {
+				err = store.ImportFullJSON(context.Background(), importData)
+			} else {
+				err = store.ImportXLSX(context.Background(), importData)
+			}
+			if err == nil || !strings.Contains(err.Error(), "event item") {
+				t.Fatalf("event/group link import error=%v", err)
+			}
+		})
+	}
+}
+
 func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	now := time.Now().UTC()
 	export := &ExportData{Items: []StoredItem{{
-		ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "safe", ByteLen: 4, CharLen: 4, SHA256: "abc", MetaJSON: "{}",
-		ContentAvailable: true,
+		ID: 1, CreatedAt: now, RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "safe", ByteLen: 4, CharLen: 4, ContentSHA256: strPtrOrNil(hashString("safe")), MetaJSON: "{}",
 	}}}
 	data, err := encodeExportXLSX(export)
 	if err != nil {
@@ -525,7 +632,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellStr(xlsxRecordsSheet, "S2", "unexpected"); err != nil {
+	if err := book.SetCellStr(xlsxRecordsSheet, "Y2", "unexpected"); err != nil {
 		t.Fatal(err)
 	}
 	extraColumnData, err := book.WriteToBuffer()
@@ -543,7 +650,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellFormula(xlsxRecordsSheet, "S2", `=""`); err != nil {
+	if err := book.SetCellFormula(xlsxRecordsSheet, "Y2", `=""`); err != nil {
 		t.Fatal(err)
 	}
 	blankFormulaData, err := book.WriteToBuffer()
@@ -608,7 +715,7 @@ func TestXLSXExportEndpoint(t *testing.T) {
 		t.Fatalf("XLSX export is not a workbook: %v", err)
 	}
 	defer book.Close()
-	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxManifestSheet}) {
+	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxAssetsSheet, xlsxManifestSheet}) {
 		t.Fatalf("XLSX sheets = %#v", book.GetSheetList())
 	}
 	invalidFormat := httptest.NewRecorder()
@@ -674,7 +781,7 @@ func TestImportDataSucceedsWhenRuntimeRefreshFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	if err := source.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "imported", ByteLen: 8, CharLen: 8, SHA256: "imported", MetaJSON: "{}"}); err != nil {
+	if err := source.Save(ctx, ClipboardItem{RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "imported", MetaJSON: "{}"}); err != nil {
 		t.Fatal(err)
 	}
 	export := exportAllForTest(t, source)

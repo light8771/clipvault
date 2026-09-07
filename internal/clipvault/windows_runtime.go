@@ -119,9 +119,10 @@ type WindowsRuntime struct {
 	// searchURL 由主 goroutine（Web 服务重启）写入、消息循环线程（托盘/
 	// 快捷搜索）读取，使用 atomic.Value 避免数据竞争。
 	searchURL atomic.Value
-	hwnd      uintptr
-	hIcon     uintptr
+	hwnd      atomic.Uintptr
+	hIcon     atomic.Uintptr
 
+	hotkeyApplyMu       sync.Mutex
 	hotkeyMu            sync.Mutex
 	pendingHotkey       *HotkeyConfig
 	pendingSearchHotkey *HotkeyConfig
@@ -137,9 +138,10 @@ type WindowsRuntime struct {
 	// thread, so no synchronization is needed.
 	lastClipboardSequence uint32
 
-	// suppressUntilSeq 是内部恢复（搜索弹窗写回剪贴板）的序列抑制水位：
-	// sequence <= 水位的事件视为应用自身写回，不进入录制队列。
-	suppressUntilSeq atomic.Uint32
+	// suppressSequenceState 的高 32 位表示水位已初始化，低 32 位保存
+	// Windows 剪贴板 sequence。组合状态使首次高位 sequence 与 uint32
+	// 回绕都能在一次原子 CAS 中正确处理。
+	suppressSequenceState atomic.Uint64
 }
 
 // clipEvent 是一次剪贴板变化信号。source 与 capturedAtMS 在消息派发现场捕获
@@ -156,9 +158,14 @@ func (r *WindowsRuntime) suppressClipboardSequencesThrough(sequence uint32) {
 	if sequence == 0 {
 		return
 	}
+	const initialized = uint64(1) << 32
+	next := initialized | uint64(sequence)
 	for {
-		cur := r.suppressUntilSeq.Load()
-		if cur >= sequence || r.suppressUntilSeq.CompareAndSwap(cur, sequence) {
+		state := r.suppressSequenceState.Load()
+		if state != 0 && !clipboardSequenceAfter(sequence, uint32(state)) {
+			return
+		}
+		if r.suppressSequenceState.CompareAndSwap(state, next) {
 			return
 		}
 	}
@@ -166,7 +173,19 @@ func (r *WindowsRuntime) suppressClipboardSequencesThrough(sequence uint32) {
 
 // isSequenceSuppressed 判定事件序列是否被内部恢复抑制。
 func (r *WindowsRuntime) isSequenceSuppressed(sequence uint32) bool {
-	return sequence <= r.suppressUntilSeq.Load()
+	state := r.suppressSequenceState.Load()
+	if sequence == 0 || state == 0 {
+		return false
+	}
+	through := uint32(state)
+	return sequence == through || clipboardSequenceAfter(through, sequence)
+}
+
+// clipboardSequenceAfter compares uint32 sequence numbers in their circular
+// space. Clipboard observations are adjacent in practice, so the standard
+// half-range rule gives an unambiguous order across 0xffffffff -> 1.
+func clipboardSequenceAfter(candidate, reference uint32) bool {
+	return int32(candidate-reference) > 0
 }
 
 // HotkeyError 表示全局快捷键注册失败。
@@ -304,7 +323,7 @@ func (r *WindowsRuntime) Run() error {
 		}
 		return fmt.Errorf("CreateWindowExW failed")
 	}
-	r.hwnd = hwnd
+	r.hwnd.Store(hwnd)
 
 	r.startClipWorker()
 	defer r.stopClipWorker()

@@ -41,7 +41,7 @@ const (
 	cvexportFrameHeaderSize       = 5
 	cvexportFrameData        byte = 0
 	cvexportFrameFinal       byte = 1
-	maxCVExportPlaintextSize      = 500 << 20
+	maxCVExportPlaintextSize      = MaxJSONBytes
 )
 
 const MagicLength = cvexportMagicLen
@@ -63,10 +63,14 @@ func WriteCVExport(dst io.Writer, password string, writePlain func(io.Writer) er
 		return err
 	}
 	gz := gzip.NewWriter(enc)
-	writeErr := writePlain(gz)
+	lw := &sizeLimitWriter{dst: gz, remaining: maxCVExportPlaintextSize, limitErr: errCVExportPlaintextTooLarge}
+	writeErr := writePlain(lw)
 	gzipErr := gz.Close()
 	closeErr := enc.Close()
 	if writeErr != nil {
+		if errors.Is(writeErr, errCVExportPlaintextTooLarge) {
+			return fmt.Errorf("cvexport plaintext exceeds %d bytes", maxCVExportPlaintextSize)
+		}
 		return writeErr
 	}
 	if gzipErr != nil {
@@ -91,7 +95,7 @@ func DecryptCVExport(dst io.Writer, src io.Reader, password string) error {
 	if err != nil {
 		return fmt.Errorf("gzip reader: %w", err)
 	}
-	lw := &cvexportLimitWriter{dst: dst, remaining: maxCVExportPlaintextSize}
+	lw := &sizeLimitWriter{dst: dst, remaining: maxCVExportPlaintextSize, limitErr: errCVExportPlaintextTooLarge}
 	_, copyErr := io.Copy(lw, gz)
 	closeErr := gz.Close()
 	if copyErr != nil {
@@ -373,18 +377,4 @@ func makeCVExportAAD(header []byte, counter uint32, frameType byte) []byte {
 	binary.BigEndian.PutUint32(aad[len(header):], counter)
 	aad[len(aad)-1] = frameType
 	return aad
-}
-
-type cvexportLimitWriter struct {
-	dst       io.Writer
-	remaining int64
-}
-
-func (w *cvexportLimitWriter) Write(p []byte) (int, error) {
-	if int64(len(p)) > w.remaining {
-		return 0, errCVExportPlaintextTooLarge
-	}
-	n, err := w.dst.Write(p)
-	w.remaining -= int64(n)
-	return n, err
 }

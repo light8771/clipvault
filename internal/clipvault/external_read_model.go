@@ -15,36 +15,39 @@ import (
 // ExternalItem 是剪贴板条目的协议中立表示（MCP 工具/资源输出）。
 // 托管图片的内部存储路径绝不外泄：Text 置空，仅保留元数据。
 type ExternalItem struct {
-	ID               string    `json:"id"`
-	CreatedAt        time.Time `json:"createdAt"`
-	Kind             string    `json:"kind"`
-	Format           string    `json:"format,omitempty"`
-	Text             string    `json:"text"`
-	TextTruncated    bool      `json:"textTruncated,omitempty"`
-	ByteLen          int64     `json:"byteLen"`
-	CharLen          int64     `json:"charLen"`
-	SHA256           string    `json:"sha256,omitempty"`
-	Starred          bool      `json:"starred"`
-	Sensitive        bool      `json:"sensitive"`
-	GroupIDs         []string  `json:"groupIds"`
-	SourceApp        string    `json:"sourceApp,omitempty"`
-	SourceWindow     string    `json:"sourceWindow,omitempty"`
-	ContentAvailable bool      `json:"contentAvailable"`
+	ID                   string    `json:"id"`
+	CreatedAt            time.Time `json:"createdAt"`
+	Kind                 string    `json:"kind"`
+	Format               string    `json:"format,omitempty"`
+	Text                 string    `json:"text"`
+	TextTruncated        bool      `json:"textTruncated,omitempty"`
+	ByteLen              int64     `json:"byteLen"`
+	CharLen              int64     `json:"charLen"`
+	RecordType           string    `json:"recordType"`
+	ContentSHA256        *string   `json:"contentSha256"`
+	ConsecutiveDuplicate bool      `json:"consecutiveDuplicate"`
+	Starred              bool      `json:"starred"`
+	Sensitive            bool      `json:"sensitive"`
+	GroupIDs             []string  `json:"groupIds"`
+	SourceApp            string    `json:"sourceApp,omitempty"`
+	SourceWindow         string    `json:"sourceWindow,omitempty"`
 }
 
 // toExternalItem 把存储记录映射为协议中立 DTO。preview=true 时截断超长文本，
 // 完整文本经单条获取。
 func toExternalItem(item StoredItem, groupIDs []int64, preview bool) ExternalItem {
 	out := ExternalItem{
-		ID:               strconv.FormatInt(item.ID, 10),
-		CreatedAt:        item.CreatedAt,
-		Kind:             item.Kind,
-		ByteLen:          int64(item.ByteLen),
-		CharLen:          int64(item.CharLen),
-		Starred:          item.Starred,
-		Sensitive:        item.Sensitive,
-		GroupIDs:         make([]string, 0, len(groupIDs)),
-		ContentAvailable: item.ContentAvailable,
+		ID:                   strconv.FormatInt(item.ID, 10),
+		CreatedAt:            item.CreatedAt,
+		Kind:                 item.Kind,
+		ByteLen:              int64(item.ByteLen),
+		CharLen:              int64(item.CharLen),
+		Starred:              item.Starred,
+		Sensitive:            item.Sensitive,
+		GroupIDs:             make([]string, 0, len(groupIDs)),
+		RecordType:           string(item.RecordType),
+		ContentSHA256:        item.ContentSHA256,
+		ConsecutiveDuplicate: item.ConsecutiveDuplicate,
 	}
 	for _, gid := range groupIDs {
 		out.GroupIDs = append(out.GroupIDs, strconv.FormatInt(gid, 10))
@@ -59,7 +62,6 @@ func toExternalItem(item StoredItem, groupIDs []int64, preview bool) ExternalIte
 		return out
 	}
 	out.Format = item.Format
-	out.SHA256 = item.SHA256
 	text := item.Text
 	if preview {
 		runes := []rune(text)
@@ -161,29 +163,33 @@ type ExternalGroup struct {
 // 谓词在此下推为 SQL 条件；未授权调用方额外请求 sensitive=true 时，
 // 条件合取自然产生空结果，不会绕过限制。
 
-// visibilityAnd 返回追加在已有主条件后的 " AND sensitive = false"（授权时为空）。
-func visibilityAnd(access ReadAccess) string {
+// externalItemScopeAnd appends the invariant external-item scope to a query
+// that already has a WHERE clause. Capture events are intentionally internal.
+func externalItemScopeAnd(access ReadAccess) string {
 	if access.AllowSensitive {
-		return ""
+		return " AND record_type = 'content'"
 	}
-	return " AND sensitive = false"
+	return " AND record_type = 'content' AND sensitive = false"
 }
 
-// applyVisibility 把隐式敏感过滤并入 WHERE 片段（where 为空串或以 " WHERE " 开头）。
-func applyVisibility(where string, access ReadAccess) string {
-	if access.AllowSensitive {
-		return where
+// applyExternalItemScope adds the content-only and sensitive-data boundaries
+// to a WHERE fragment. This is the single guard for all external list, query,
+// aggregate, stats, and group-item reads.
+func applyExternalItemScope(where string, access ReadAccess) string {
+	condition := "record_type = 'content'"
+	if !access.AllowSensitive {
+		condition += " AND sensitive = false"
 	}
 	if where == "" {
-		return " WHERE sensitive = false"
+		return " WHERE " + condition
 	}
-	return where + " AND sensitive = false"
+	return where + " AND " + condition
 }
 
 // validExternalKind 报告 kind 是否在受支持的种类白名单内。
 func validExternalKind(kind string) bool {
 	switch kind {
-	case domain.KindText, domain.KindImage, domain.KindVideo, domain.KindArchive, domain.KindOffice, domain.KindFiles, domain.KindOther:
+	case domain.KindText, domain.KindImage, domain.KindVideo, domain.KindArchive, domain.KindOffice, domain.KindFiles:
 		return true
 	default:
 		return false
@@ -247,7 +253,7 @@ func buildExternalFilter(req CountRequest, access ReadAccess) (string, []any, er
 	if len(conds) > 0 {
 		where = " WHERE " + strings.Join(conds, " AND ")
 	}
-	return applyVisibility(where, access), args, nil
+	return applyExternalItemScope(where, access), args, nil
 }
 
 // ── 游标（created_at DESC, id DESC 的 keyset 分页）─────────
@@ -294,10 +300,11 @@ func parseExternalGroupID(id string) (int64, error) {
 	return gid, nil
 }
 
-// externalGroupVisibleCond 返回分组计数子查询中的敏感过滤条件（授权时为空）。
+// externalGroupVisibleCond returns the complete external-item constraint for
+// group count subqueries, whose clipboard_items alias is i.
 func externalGroupVisibleCond(access ReadAccess) string {
 	if access.AllowSensitive {
-		return ""
+		return " AND i.record_type = 'content'"
 	}
-	return " AND i.sensitive = false"
+	return " AND i.record_type = 'content' AND i.sensitive = false"
 }

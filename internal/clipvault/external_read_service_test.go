@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // externalReadFixture 准备一个共享读取服务与固定数据集：
@@ -15,6 +17,7 @@ type externalReadFixture struct {
 	normalIDs    []int64
 	sensitiveIDs []int64
 	groupID      int64
+	eventID      int64
 }
 
 func newExternalReadFixture(t *testing.T) *externalReadFixture {
@@ -27,10 +30,10 @@ func newExternalReadFixture(t *testing.T) *externalReadFixture {
 	ctx := context.Background()
 	fx := &externalReadFixture{store: store, svc: NewExternalReadService(store, env)}
 	seeds := []ClipboardItem{
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "normal one", SourceExeName: "Code.exe"},
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "normal two", SourceExeName: "chrome.exe"},
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "secret one", SourceExeName: "Code.exe"},
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "secret two", SourceExeName: "chrome.exe"},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "normal one", SourceExeName: "Code.exe"},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "normal two", SourceExeName: "chrome.exe"},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "secret one", SourceExeName: "Code.exe"},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "secret two", SourceExeName: "chrome.exe"},
 	}
 	for _, item := range seeds {
 		if err := store.Save(ctx, item); err != nil {
@@ -54,6 +57,17 @@ func newExternalReadFixture(t *testing.T) *externalReadFixture {
 		`UPDATE clipboard_items SET sensitive = true WHERE text LIKE 'secret%'`); err != nil {
 		t.Fatal(err)
 	}
+	// Capture events live in the internal history timeline only. Every external
+	// read surface, including aggregate statistics, must remain content-only.
+	if err := store.Save(ctx, ClipboardItem{
+		RecordType: RecordTypeEvent, EventCode: domain.EventClipboardEmpty,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT id FROM clipboard_items WHERE record_type = 'event'`).Scan(&fx.eventID); err != nil {
+		t.Fatal(err)
+	}
 	group, err := store.CreateGroup(ctx, "工作", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +81,44 @@ func newExternalReadFixture(t *testing.T) *externalReadFixture {
 		t.Fatal(err)
 	}
 	return fx
+}
+
+func TestExternalReadSurfacesExcludeCaptureEvents(t *testing.T) {
+	fx := newExternalReadFixture(t)
+	ctx := context.Background()
+
+	if _, err := fx.svc.GetStoredItem(ctx, grantedAccess, fx.eventID); !errors.Is(err, ErrExternalNotFound) {
+		t.Fatalf("direct event read error=%v, want not found", err)
+	}
+	items, err := fx.svc.GetStoredItems(ctx, grantedAccess, append([]int64{fx.eventID}, fx.normalIDs...))
+	if err != nil || len(items) != len(fx.normalIDs) {
+		t.Fatalf("batch event exclusion: items=%d err=%v", len(items), err)
+	}
+
+	queryPlan := &dataAPIQueryPlan{orderSQL: "created_at DESC, id DESC", limit: 50}
+	queried, _, err := fx.svc.QueryItems(ctx, grantedAccess, queryPlan)
+	if err != nil || len(queried) != len(fx.normalIDs)+len(fx.sensitiveIDs) {
+		t.Fatalf("query DSL event exclusion: items=%d err=%v", len(queried), err)
+	}
+	aggregatePlan := &dataAPIQueryPlan{aggregate: true, groupField: "kind", groupCol: "kind", orderSQL: "c DESC", limit: 50}
+	aggregated, err := fx.svc.QueryAggregate(ctx, grantedAccess, aggregatePlan)
+	if err != nil || len(aggregated) != 1 || aggregated[0]["kind"] != "text" || aggregated[0]["count"] != int64(4) {
+		t.Fatalf("query aggregate included event: rows=%+v err=%v", aggregated, err)
+	}
+
+	// Defend even against an impossible-through-public-API event/group link.
+	if _, err := fx.store.db.ExecContext(ctx,
+		`INSERT INTO item_groups (item_id, group_id) VALUES (?, ?)`, fx.eventID, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	groups, err := fx.svc.ListGroups(ctx, grantedAccess, true)
+	if err != nil || len(groups) != 1 || groups[0].VisibleItemCount != 2 {
+		t.Fatalf("group count included event: groups=%+v err=%v", groups, err)
+	}
+	groupItems, err := fx.svc.ListGroupItems(ctx, grantedAccess, formatGroupID(fx.groupID), 50, "")
+	if err != nil || len(groupItems.Items) != 2 {
+		t.Fatalf("group item list included event: items=%d err=%v", len(groupItems.Items), err)
+	}
 }
 
 var (
@@ -102,6 +154,38 @@ func TestSearchIncludesSensitiveWithPermission(t *testing.T) {
 	}
 	if len(result.Items) != len(fx.normalIDs)+len(fx.sensitiveIDs) {
 		t.Fatalf("items=%d, want %d", len(result.Items), len(fx.normalIDs)+len(fx.sensitiveIDs))
+	}
+}
+
+func TestExternalReadHidesSensitiveAdjacencyWithoutPermission(t *testing.T) {
+	store := openDataAPITestStore(t)
+	env, err := newEnvironment(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, sensitive := range []bool{true, false} {
+		if err := store.Save(ctx, ClipboardItem{
+			RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText,
+			Text: "shared value", Sensitive: sensitive,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := NewExternalReadService(store, env)
+	denied, err := svc.Search(ctx, deniedAccess, SearchRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(denied.Items) != 1 || denied.Items[0].ConsecutiveDuplicate {
+		t.Fatalf("denied result leaked sensitive adjacency: %+v", denied.Items)
+	}
+	granted, err := svc.Search(ctx, grantedAccess, SearchRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(granted.Items) != 2 || !granted.Items[0].ConsecutiveDuplicate {
+		t.Fatalf("authorized result lost duplicate state: %+v", granted.Items)
 	}
 }
 

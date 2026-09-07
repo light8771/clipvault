@@ -15,13 +15,11 @@ func TestStoreSaveAndSearch(t *testing.T) {
 	defer store.Close()
 
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind:     "text",
-		Format:   "CF_UNICODETEXT",
-		Text:     "alpha project note",
-		ByteLen:  18,
-		CharLen:  18,
-		SHA256:   hashString("alpha project note"),
-		MetaJSON: "{}",
+		RecordType: RecordTypeContent,
+		Kind:       "text",
+		Format:     "CF_UNICODETEXT",
+		Text:       "alpha project note",
+		MetaJSON:   "{}",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,15 +47,136 @@ func TestStoreRejectsInvalidClipboardStates(t *testing.T) {
 	defer store.Close()
 
 	invalid := []ClipboardItem{
-		{Kind: domain.KindOther, Format: domain.FormatEventOnly, UnavailableReason: "obsolete_reason"},
-		{Kind: domain.KindOther, Format: domain.FormatEventOnly},
-		{Kind: domain.KindText, Format: domain.FormatUnicodeText, UnavailableReason: domain.ReasonImageLimitExceeded},
-		{Kind: domain.KindImage, Format: domain.FormatEventOnly, UnavailableReason: domain.ReasonReadFailed},
+		{Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "missing discriminator"},
+		{RecordType: RecordTypeContent, Format: domain.FormatUnicodeText, Text: "missing kind"},
+		{RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, EventCode: domain.EventCaptureFailed},
+		{RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "visible\x00hidden"},
+		{RecordType: RecordTypeContent, Kind: domain.KindFiles, Format: domain.FormatFileDrop, Text: "C:\\visible.txt\x00D:\\hidden.txt"},
+		{RecordType: RecordTypeContent, Kind: domain.KindImage, Format: domain.FormatImageFile, Text: "images/missing-length.png", ContentSHA256: hashString("png")},
+		{RecordType: RecordTypeContent, Kind: domain.KindImage, Format: domain.FormatImageFile, Text: "images/char-length.png", ByteLen: 3, CharLen: 1, ContentSHA256: hashString("png")},
+		{RecordType: RecordTypeContent, Kind: domain.KindImage, Format: domain.FormatImageFile, Text: "images/../outside.png", ByteLen: 3, ContentSHA256: hashString("png")},
+		{RecordType: RecordTypeEvent},
+		{RecordType: RecordTypeEvent, EventCode: domain.EventCaptureFailed, Text: "forbidden"},
 	}
 	for _, item := range invalid {
 		if err := store.Save(context.Background(), item); err == nil {
 			t.Fatalf("invalid clipboard state was accepted: %+v", item)
 		}
+	}
+}
+
+func TestStoreMarksAndFiltersConsecutiveContentDuplicates(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	for _, item := range []ClipboardItem{
+		{RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "same"},
+		{RecordType: RecordTypeEvent, EventCode: domain.EventClipboardEmpty},
+		{RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "same"},
+		{RecordType: RecordTypeContent, Kind: domain.KindFiles, Format: domain.FormatFileDrop, Text: "same"},
+		{RecordType: RecordTypeContent, Kind: domain.KindFiles, Format: domain.FormatFileDrop, Text: "same"},
+	} {
+		if err := store.Save(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	items, total, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 || len(items) != 4 {
+		t.Fatalf("content results = %d/%d, want 4/4", len(items), total)
+	}
+	want := []bool{true, false, true, false}
+	for index := range want {
+		if items[index].ConsecutiveDuplicate != want[index] {
+			t.Fatalf("item %d consecutiveDuplicate = %v, want %v", items[index].ID, items[index].ConsecutiveDuplicate, want[index])
+		}
+	}
+
+	filtered, filteredTotal, err := store.Search(ctx, SearchOptions{
+		Limit: 10, IncludeSensitive: true, HideConsecutiveDuplicates: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filteredTotal != 2 || len(filtered) != 2 {
+		t.Fatalf("filtered content results = %d/%d, want 2/2", len(filtered), filteredTotal)
+	}
+}
+
+func TestDeleteRecomputesNewContentBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		texts         []string
+		deleteNewestN int
+		wantNewestDup bool
+	}{
+		{name: "duplicate becomes unique", texts: []string{"A", "B", "B"}, deleteNewestN: 1, wantNewestDup: false},
+		{name: "unique becomes duplicate", texts: []string{"A", "B", "A"}, deleteNewestN: 1, wantNewestDup: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			for _, text := range test.texts {
+				if err := store.Save(ctx, ClipboardItem{
+					RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: text,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			items, _, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Delete(ctx, items[test.deleteNewestN].ID); err != nil {
+				t.Fatal(err)
+			}
+			items, _, err = store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 2 || items[0].ConsecutiveDuplicate != test.wantNewestDup {
+				t.Fatalf("items after delete = %+v; newest duplicate want %v", items, test.wantNewestDup)
+			}
+		})
+	}
+}
+
+func TestCleanupRecomputesContentBoundaries(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for index, text := range []string{"A", "B", "A"} {
+		if err := store.Save(ctx, ClipboardItem{
+			RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText,
+			Text: text, CapturedAtMS: int64(index+1) * 1000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, err := store.Cleanup(ctx, CleanupOptions{Mode: "range", FromMS: 2000, ToExclusiveMS: 3000})
+	if err != nil || deleted != 1 {
+		t.Fatalf("Cleanup deleted=%d err=%v, want 1", deleted, err)
+	}
+	items, _, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || !items[0].ConsecutiveDuplicate {
+		t.Fatalf("cleanup did not derive the new A/A boundary: %+v", items)
 	}
 }
 
@@ -85,11 +204,14 @@ func TestCurrentSchemaUsesUnixMillisecondsAndIdentity(t *testing.T) {
 			t.Errorf("%s.%s type=%q", column.table, column.name, dataType)
 		}
 	}
-	for _, column := range []string{"content_available", "is_duplicate", "unavailable_reason"} {
-		var dataType string
-		if err := store.db.QueryRow(`SELECT data_type FROM information_schema.columns
-			WHERE table_schema = current_schema() AND table_name = 'clipboard_items' AND column_name = ?`, column).Scan(&dataType); err != nil {
-			t.Fatalf("query clipboard_items.%s type: %v", column, err)
+	for _, column := range []string{"sha256", "content_available", "is_duplicate", "unavailable_reason", "source_method"} {
+		var count int
+		if err := store.db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = 'clipboard_items' AND column_name = ?`, column).Scan(&count); err != nil {
+			t.Fatalf("query clipboard_items.%s: %v", column, err)
+		}
+		if count != 0 {
+			t.Errorf("legacy column clipboard_items.%s still exists", column)
 		}
 	}
 	var identity string
@@ -98,6 +220,21 @@ func TestCurrentSchemaUsesUnixMillisecondsAndIdentity(t *testing.T) {
 	}
 	if identity != storeSchemaIdentity {
 		t.Fatalf("schema identity=%q, want %q", identity, storeSchemaIdentity)
+	}
+}
+
+func TestSchemaBoundsCaptureSequenceToWin32Range(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err := store.Save(ctx, ClipboardItem{RecordType: RecordTypeEvent, EventCode: domain.EventClipboardEmpty}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE clipboard_items SET capture_sequence = 4294967296 WHERE record_type = 'event'`); err == nil {
+		t.Fatal("schema accepted a capture sequence that cannot fit the Win32 uint32 source")
 	}
 }
 
@@ -110,32 +247,26 @@ func TestStoreSearchMatchesAllSearchableFields(t *testing.T) {
 
 	items := []ClipboardItem{
 		{
-			Kind:     "files",
-			Format:   "CF_HDROP",
-			Text:     "C:\\work\\release\\notes.txt",
-			ByteLen:  26,
-			CharLen:  26,
-			SHA256:   "a1b2c3d4",
-			MetaJSON: `{"source":"Explorer","label":"Release notes"}`,
+			RecordType: RecordTypeContent,
+			Kind:       "files",
+			Format:     "CF_HDROP",
+			Text:       "C:\\work\\release\\notes.txt",
+			MetaJSON:   `{"source":"Explorer","label":"Release notes"}`,
 		},
 		{
-			Kind:      "image",
-			Format:    "CF_HDROP",
-			Text:      "",
-			ByteLen:   128,
-			CharLen:   0,
-			SHA256:    "deadbeef",
-			MetaJSON:  `{"application":"Screenshot Tool"}`,
-			Sensitive: true,
+			RecordType: RecordTypeContent,
+			Kind:       "image",
+			Format:     "CF_HDROP",
+			Text:       "",
+			MetaJSON:   `{"application":"Screenshot Tool"}`,
+			Sensitive:  true,
 		},
 		{
-			Kind:     "text",
-			Format:   "CF_UNICODETEXT",
-			Text:     "发布计划 🚀",
-			ByteLen:  18,
-			CharLen:  7,
-			SHA256:   "emoji123",
-			MetaJSON: "{}",
+			RecordType: RecordTypeContent,
+			Kind:       "text",
+			Format:     "CF_UNICODETEXT",
+			Text:       "发布计划 🚀",
+			MetaJSON:   "{}",
 		},
 	}
 	for _, item := range items {
@@ -217,15 +348,22 @@ func TestStoreSearchDoesNotMatchManagedImageInternals(t *testing.T) {
 	}
 	defer store.Close()
 
-	// 注：Save 会以文本内容哈希覆盖 SHA256 字段（与生产行为一致）。
 	imageText := "images/2026-08-19_abc123.png"
+	imageHash := hashString("original PNG bytes")
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind:     "image",
-		Format:   "CLIPVAULT_IMAGE_FILE",
-		Text:     imageText,
-		MetaJSON: `{"imagePath":"C:\\Users\\me\\AppData\\Roaming\\ClipVault\\images\\2026-08-19_abc123.png","width":800,"height":600}`,
+		RecordType:    RecordTypeContent,
+		Kind:          "image",
+		Format:        "CLIPVAULT_IMAGE_FILE",
+		Text:          imageText,
+		ByteLen:       len("original PNG bytes"),
+		ContentSHA256: imageHash,
+		MetaJSON:      `{"imagePath":"C:\\Users\\me\\AppData\\Roaming\\ClipVault\\images\\2026-08-19_abc123.png","width":800,"height":600}`,
 	}); err != nil {
 		t.Fatal(err)
+	}
+	stored, _, err := store.Search(context.Background(), SearchOptions{Kind: domain.KindImage, Limit: 1, IncludeSensitive: true})
+	if err != nil || len(stored) != 1 || stored[0].ByteLen != len("original PNG bytes") || stored[0].CharLen != 0 {
+		t.Fatalf("managed image lengths were not preserved: items=%+v err=%v", stored, err)
 	}
 
 	// 关键词命中伪格式名 / 内部路径 / 文件名时不得返回图片
@@ -247,7 +385,7 @@ func TestStoreSearchDoesNotMatchManagedImageInternals(t *testing.T) {
 	if len(byKind) != 1 {
 		t.Fatalf("kind search should still find the image: %+v", byKind)
 	}
-	byHash, _, err := store.Search(context.Background(), SearchOptions{Query: hashString(imageText)[:12], Limit: 10})
+	byHash, _, err := store.Search(context.Background(), SearchOptions{Query: imageHash[:12], Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +402,7 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 	}
 	defer store.Close()
 
-	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "record", ByteLen: 6, CharLen: 6, SHA256: "record", MetaJSON: "{}"}); err != nil {
+	if err := store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "record", MetaJSON: "{}"}); err != nil {
 		t.Fatal(err)
 	}
 	items, err := exportAll(ctx, store.db)
@@ -295,7 +433,7 @@ func TestItemGroupReferentialIntegrity(t *testing.T) {
 		t.Fatalf("delete left item-group links: %#v", export.ItemGroups)
 	}
 
-	if err := store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "second", ByteLen: 6, CharLen: 6, SHA256: "second", MetaJSON: "{}"}); err != nil {
+	if err := store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "second", MetaJSON: "{}"}); err != nil {
 		t.Fatal(err)
 	}
 	items, err = exportAll(ctx, store.db)

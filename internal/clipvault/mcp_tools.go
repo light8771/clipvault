@@ -175,7 +175,7 @@ func intPtr(v int) *int         { return &v }
 func mcpFilterProperties() map[string]*jsonschema.Schema {
 	return map[string]*jsonschema.Schema{
 		"query":        {Type: "string", Description: "Substring to match against item text", Default: json.RawMessage(`""`)},
-		"kind":         {Type: "array", Items: &jsonschema.Schema{Type: "string", Enum: []any{"text", "image", "video", "archive", "office", "files", "other"}}, Description: `Content kinds to include, as an array of strings (e.g. ["image"]); one or more of: text, image, video, archive, office, files, other`},
+		"kind":         {Type: "array", Items: &jsonschema.Schema{Type: "string", Enum: []any{"text", "image", "video", "archive", "office", "files"}}, Description: `Content kinds to include, as an array of strings (e.g. ["image"]); one or more of: text, image, video, archive, office, files`},
 		"sourceApp":    {Type: "string", Description: `Exact source application name, a single string (case-insensitive), e.g. "chrome.exe"`, Default: json.RawMessage(`""`)},
 		"sourceWindow": {Type: "string", Description: "Substring to match against the source window title", Default: json.RawMessage(`""`)},
 		"starred":      {Types: []string{"boolean", "null"}, Description: "Filter by starred flag"},

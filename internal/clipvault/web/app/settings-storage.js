@@ -17,7 +17,7 @@ export function registerSettingsStorage() {
       if (request === app.configRequestSequence && revision === app.configRevision && !app.hasPendingConfigSave()) {
         app.replaceCurrentConfig(cfg);
         try {
-          await app.loadSourceExes();
+          await app.loadSourceExes('all');
         } catch (_) {}
         app.applyConfigToForm(cfg);
       }
@@ -328,10 +328,8 @@ export function registerSettingsStorage() {
     const imageMaxMBEl = document.getElementById('cfg-imageMaxMB');
     if (imageMaxMBEl) imageMaxMBEl.value = Math.round((imageCfg.maxBytes || 32 * 1024 * 1024) / (1024 * 1024));
     const popupCfg = cfg.popup || {};
-    const popupDupEl = document.getElementById('cfg-popupHideDuplicates');
-    if (popupDupEl) popupDupEl.checked = !!popupCfg.hideDuplicates;
-    const popupUnEl = document.getElementById('cfg-popupHideUnavailable');
-    if (popupUnEl) popupUnEl.checked = !!popupCfg.hideUnavailable;
+    const popupHideConsecutiveDuplicates = document.getElementById('cfg-popupHideConsecutiveDuplicates');
+    if (popupHideConsecutiveDuplicates) popupHideConsecutiveDuplicates.checked = !!popupCfg.hideConsecutiveDuplicates;
     const popupKeyOpen = document.getElementById('cfg-popupKeyOpen');
     if (popupKeyOpen) popupKeyOpen.value = popupCfg.keyOpen || 'Enter';
     const popupKeyRestore = document.getElementById('cfg-popupKeyRestore');

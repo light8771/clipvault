@@ -11,11 +11,13 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"clipboard_ext/internal/clipvault/transfer"
 )
 
 const (
 	maxStreamImportBytes = 520 << 20
-	maxXLSXImportBytes   = 64 << 20
+	maxXLSXImportBytes   = 520 << 20
 )
 
 // handleExportData exports complete data as JSON, XLSX, or encrypted cvexport.
@@ -157,7 +159,9 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 	}
 
 	maxBytes := int64(maxStreamImportBytes)
-	if format == "xlsx" {
+	if format == "json" {
+		maxBytes = transfer.MaxJSONBytes
+	} else if format == "xlsx" {
 		maxBytes = maxXLSXImportBytes
 	}
 	file, err := spoolImportBody(w, r, maxBytes)
@@ -279,6 +283,9 @@ func (s *SearchServer) importDecryptedExport(ctx context.Context, plain *os.File
 	for _, entry := range zr.File {
 		switch entry.Name {
 		case "clipvault-export.json":
+			if entry.UncompressedSize64 > uint64(transfer.MaxJSONBytes) {
+				return transfer.ErrJSONTooLarge
+			}
 			rc, err := entry.Open()
 			if err != nil {
 				return fmt.Errorf("open zipped JSON payload: %w", err)

@@ -6,15 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode/utf16"
 	"unsafe"
 )
 
 func (r *WindowsRuntime) addTrayIcon() error {
-	r.hIcon = createClipboardIcon()
-	if r.hIcon == 0 {
-
-		r.hIcon, _, _ = procLoadIconW.Call(0, 32512)
+	icon := createClipboardIcon()
+	if icon == 0 {
+		icon, _, _ = procLoadIconW.Call(0, 32512)
 	}
+	r.hIcon.Store(icon)
 	nid := r.notifyIconData()
 	ok, _, err := procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
 	if ok == 0 {
@@ -29,7 +30,7 @@ func (r *WindowsRuntime) addTrayIcon() error {
 }
 
 func (r *WindowsRuntime) updateTrayIcon() {
-	if r.hwnd == 0 {
+	if r.hwnd.Load() == 0 {
 		return
 	}
 	nid := r.notifyIconData()
@@ -37,7 +38,8 @@ func (r *WindowsRuntime) updateTrayIcon() {
 }
 
 func (r *WindowsRuntime) showPauseNotification(paused bool) {
-	if r.hwnd == 0 || !r.cfgMgr.Get().Notifications.PauseResume {
+	hwnd := r.hwnd.Load()
+	if hwnd == 0 || !r.cfgMgr.Get().Notifications.PauseResume {
 		return
 	}
 
@@ -62,7 +64,7 @@ func (r *WindowsRuntime) showPauseNotification(paused bool) {
 	}
 	nid := notifyIconData{
 		Size:      uint32(unsafe.Sizeof(notifyIconData{})),
-		Hwnd:      r.hwnd,
+		Hwnd:      hwnd,
 		ID:        idTrayIcon,
 		Flags:     nifInfo,
 		InfoFlags: niifInfo,
@@ -79,7 +81,9 @@ func copyUTF16NULTerminated(dst []uint16, value string) {
 	if len(dst) == 0 {
 		return
 	}
-	encoded := syscall.StringToUTF16(value)
+	clear(dst)
+	value, _, _ = strings.Cut(value, "\x00")
+	encoded := utf16.Encode([]rune(value))
 	limit := len(dst) - 1
 	if len(encoded) > limit {
 		encoded = encoded[:limit]
@@ -93,11 +97,11 @@ func copyUTF16NULTerminated(dst []uint16, value string) {
 func (r *WindowsRuntime) notifyIconData() notifyIconData {
 	nid := notifyIconData{
 		Size:            uint32(unsafe.Sizeof(notifyIconData{})),
-		Hwnd:            r.hwnd,
+		Hwnd:            r.hwnd.Load(),
 		ID:              idTrayIcon,
 		Flags:           nifMessage | nifIcon | nifTip,
 		CallbackMessage: wmTrayIcon,
-		Icon:            r.hIcon,
+		Icon:            r.hIcon.Load(),
 	}
 	tip := r.i18nT("tray.tip_recording", nil)
 	if r.license != nil && !r.license.CanUsePaidFeatures() {
@@ -105,7 +109,7 @@ func (r *WindowsRuntime) notifyIconData() notifyIconData {
 	} else if r.state.IsPaused() {
 		tip = r.i18nT("tray.tip_paused", nil)
 	}
-	copy(nid.Tip[:], syscall.StringToUTF16(tip))
+	copyUTF16NULTerminated(nid.Tip[:], tip)
 	return nid
 }
 
@@ -146,8 +150,9 @@ func (r *WindowsRuntime) showMenu() {
 
 	var pt point
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-	procSetForegroundWindow.Call(r.hwnd)
-	procTrackPopupMenu.Call(menu, tpmRightButton, uintptr(pt.X), uintptr(pt.Y), 0, r.hwnd, 0)
+	hwnd := r.hwnd.Load()
+	procSetForegroundWindow.Call(hwnd)
+	procTrackPopupMenu.Call(menu, tpmRightButton, uintptr(pt.X), uintptr(pt.Y), 0, hwnd, 0)
 }
 
 func appendMenu(menu uintptr, flags uint32, id uint16, text string) {
@@ -180,7 +185,7 @@ func (r *WindowsRuntime) handleCommand(id uint16) {
 	case idMenuAutostart:
 		r.toggleAutostart()
 	case idMenuExit:
-		procDestroyWindow.Call(r.hwnd)
+		procDestroyWindow.Call(r.hwnd.Load())
 	}
 }
 

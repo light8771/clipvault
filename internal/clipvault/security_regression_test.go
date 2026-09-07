@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -406,11 +407,96 @@ func TestBackupServiceStopIsIdempotentAndRejectsNewWork(t *testing.T) {
 	service := &BackupService{}
 	service.Stop()
 	service.Stop()
+	if err := service.beginBackupExecution(); !errors.Is(err, errBackupStopped) {
+		t.Fatalf("begin backup after Stop error=%v", err)
+	}
 	if err := service.doDirBackup(DefaultConfig(), backupTriggerManual, false); !errors.Is(err, errBackupStopped) {
 		t.Fatalf("directory backup after Stop error=%v", err)
 	}
 	if err := service.doEmailBackup(DefaultConfig(), backupTriggerManual, false); !errors.Is(err, errBackupStopped) {
 		t.Fatalf("email backup after Stop error=%v", err)
+	}
+}
+
+func TestConcurrentBackupStopsShareTheExecutionBarrier(t *testing.T) {
+	service := &BackupService{}
+	service.execMu.Lock()
+	firstDone := make(chan struct{})
+	go func() {
+		service.Stop()
+		close(firstDone)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		service.mu.Lock()
+		stopped := service.stopped
+		service.mu.Unlock()
+		if stopped {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Stop did not publish stopped state")
+		}
+		runtime.Gosched()
+	}
+
+	secondDone := make(chan struct{})
+	go func() {
+		service.Stop()
+		close(secondDone)
+	}()
+	select {
+	case <-secondDone:
+		t.Fatal("second Stop bypassed active execution barrier")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	service.execMu.Unlock()
+	for name, done := range map[string]<-chan struct{}{"first": firstDone, "second": secondDone} {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s Stop did not complete after execution finished", name)
+		}
+	}
+}
+
+func TestBackupServiceStopWaitsForTimerCallbacks(t *testing.T) {
+	service := &BackupService{}
+	service.timerCallbackMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		service.Stop()
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		service.mu.Lock()
+		stopped := service.stopped
+		service.mu.Unlock()
+		if stopped {
+			break
+		}
+		if time.Now().After(deadline) {
+			service.timerCallbackMu.Unlock()
+			t.Fatal("Stop did not publish stopped state")
+		}
+		runtime.Gosched()
+	}
+	select {
+	case <-done:
+		service.timerCallbackMu.Unlock()
+		t.Fatal("Stop bypassed an active timer callback")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	service.timerCallbackMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not complete after the timer callback finished")
 	}
 }
 
@@ -667,7 +753,11 @@ func TestStoredConfigAndImportsRejectUnknownJSONFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	data = append(bytes.TrimSuffix(data, []byte("}")), []byte(`,"unknown":true}`)...)
-	if _, err := decodeImportJSON(data); err == nil {
+	staged, err := stageJSONImport(bytes.NewReader(data))
+	if staged != nil {
+		staged.Close()
+	}
+	if err == nil {
 		t.Fatal("import with unknown field was accepted")
 	}
 }
@@ -678,10 +768,10 @@ func TestStoreRejectsInvalidMetadataAndDatabaseRejectsInvalidTimestamp(t *testin
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.Save(context.Background(), ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "bad", MetaJSON: "{"}); err == nil {
+	if err := store.Save(context.Background(), ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "bad", MetaJSON: "{"}); err == nil {
 		t.Fatal("invalid metadata was silently replaced")
 	}
-	if err := store.Save(context.Background(), ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "valid"}); err != nil {
+	if err := store.Save(context.Background(), ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "valid"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.Exec(`UPDATE clipboard_items SET created_at = 'invalid'`); err == nil {
@@ -1071,7 +1161,7 @@ func TestSensitiveFileRequiresBoundSecondaryAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.Save(context.Background(), ClipboardItem{Kind: "files", Format: "CF_HDROP", Text: file, Sensitive: true}); err != nil {
+	if err := store.Save(context.Background(), ClipboardItem{RecordType: RecordTypeContent, Kind: "files", Format: "CF_HDROP", Text: file, Sensitive: true}); err != nil {
 		t.Fatal(err)
 	}
 	items, _, _ := store.Search(context.Background(), SearchOptions{Limit: 1, IncludeSensitive: true})
@@ -1119,7 +1209,7 @@ func TestSensitiveItemMutationsRequireSecondaryAuthorization(t *testing.T) {
 	}
 	defer store.Close()
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "sensitive", Sensitive: true,
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "sensitive", Sensitive: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1324,8 +1414,8 @@ func TestStoreNormalizesContentMetadata(t *testing.T) {
 
 	const content = "你好🙂"
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: content,
-		ByteLen: 1, CharLen: 99, SHA256: "caller-controlled", MetaJSON: "{}",
+		RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: content,
+		MetaJSON: "{}",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1337,7 +1427,7 @@ func TestStoreNormalizesContentMetadata(t *testing.T) {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
 	item := items[0]
-	if item.ByteLen != len([]byte(content)) || item.CharLen != textRuneLen(content) || item.SHA256 != hashString(content) {
+	if item.ByteLen != len([]byte(content)) || item.CharLen != textRuneLen(content) || item.ContentSHA256 == nil || *item.ContentSHA256 != hashString(content) {
 		t.Fatalf("content metadata was not normalized: %+v", item)
 	}
 }
@@ -1345,8 +1435,8 @@ func TestStoreNormalizesContentMetadata(t *testing.T) {
 func TestImportRejectsInvalidItemAndGroupInvariants(t *testing.T) {
 	now := time.Now().UTC()
 	validItem := StoredItem{
-		ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",
-		ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}", ContentAvailable: true,
+		ID: 1, CreatedAt: now, RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",
+		ByteLen: 5, CharLen: 5, ContentSHA256: strPtrOrNil(hashString("hello")), MetaJSON: "{}",
 	}
 
 	tests := []struct {
@@ -1354,7 +1444,7 @@ func TestImportRejectsInvalidItemAndGroupInvariants(t *testing.T) {
 		mutate func(*ExportData)
 	}{
 		{name: "kind and format mismatch", mutate: func(data *ExportData) { data.Items[0].Format = "CF_HDROP" }},
-		{name: "content metadata mismatch", mutate: func(data *ExportData) { data.Items[0].SHA256 = "wrong" }},
+		{name: "content metadata mismatch", mutate: func(data *ExportData) { data.Items[0].ContentSHA256 = strPtrOrNil("wrong") }},
 		{name: "blank group name", mutate: func(data *ExportData) {
 			data.Groups = []StoredGroup{{ID: 1, Name: " ", CreatedAt: now}}
 		}},
@@ -1403,7 +1493,7 @@ func TestStoreRejectsSearchQueriesBeyondTermLimit(t *testing.T) {
 	}
 	defer store.Close()
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "one two three four five six seven eight",
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "one two three four five six seven eight",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1422,8 +1512,8 @@ func TestBlankSearchDoesNotRevealSensitiveCount(t *testing.T) {
 	}
 	defer store.Close()
 	for _, item := range []ClipboardItem{
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "public"},
-		{Kind: "text", Format: "CF_UNICODETEXT", Text: "private", Sensitive: true},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "public"},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "private", Sensitive: true},
 	} {
 		if err := store.Save(ctx, item); err != nil {
 			t.Fatal(err)
@@ -1577,10 +1667,9 @@ func TestXLSXRoundTripPreservesSourceApplication(t *testing.T) {
 		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		Items: []StoredItem{{
-			ID: 1, CreatedAt: time.Now().UTC(), Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",
-			ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}", SourceExeName: "editor.exe",
-			SourceExePath: `C:\Apps\editor.exe`, SourceWindowTitle: "draft", SourceMethod: "foreground",
-			ContentAvailable: true,
+			ID: 1, CreatedAt: time.Now().UTC(), RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "hello",
+			ByteLen: 5, CharLen: 5, ContentSHA256: strPtrOrNil(hashString("hello")), MetaJSON: "{}", SourceExeName: "editor.exe",
+			SourceExePath: `C:\Apps\editor.exe`, SourceWindowTitle: "draft", SourceAttribution: "foreground",
 		}},
 	}
 	data, err := encodeExportXLSX(export)
@@ -1592,7 +1681,7 @@ func TestXLSXRoundTripPreservesSourceApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := decoded.Items[0]
-	if got.SourceExeName != "editor.exe" || got.SourceExePath != `C:\Apps\editor.exe` || got.SourceWindowTitle != "draft" || got.SourceMethod != "foreground" {
+	if got.SourceExeName != "editor.exe" || got.SourceExePath != `C:\Apps\editor.exe` || got.SourceWindowTitle != "draft" || got.SourceAttribution != "foreground" {
 		t.Fatalf("source metadata was not preserved: %+v", got)
 	}
 }
@@ -1605,7 +1694,7 @@ func TestEmailPartsRespectFinalEstimatedSize(t *testing.T) {
 	defer store.Close()
 	for i := 0; i < 3; i++ {
 		text := strings.Repeat(string(rune('a'+i)), 3000)
-		if err := store.Save(context.Background(), ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: text}); err != nil {
+		if err := store.Save(context.Background(), ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: text}); err != nil {
 			t.Fatal(err)
 		}
 	}

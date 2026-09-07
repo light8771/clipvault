@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // 历史清理（M1）：preview 与 delete 严格共用同一套条件构造，
@@ -71,6 +73,32 @@ func (s *Store) Cleanup(ctx context.Context, opts CleanupOptions) (int64, error)
 		return 0, err
 	}
 	defer tx.Rollback()
+	imageWhere := where
+	if imageWhere == "" {
+		imageWhere = " WHERE "
+	} else {
+		imageWhere += " AND "
+	}
+	imageArgs := append(append([]any{}, args...), domain.HistoryRecordContent, domain.FormatImageFile)
+	imageRows, err := tx.QueryContext(ctx, `SELECT DISTINCT text FROM clipboard_items`+imageWhere+`record_type = ? AND format = ?`, imageArgs...)
+	if err != nil {
+		return 0, err
+	}
+	var imagePaths []string
+	for imageRows.Next() {
+		var storedPath string
+		if err := imageRows.Scan(&storedPath); err != nil {
+			imageRows.Close()
+			return 0, err
+		}
+		imagePaths = append(imagePaths, storedPath)
+	}
+	if err := imageRows.Close(); err != nil {
+		return 0, err
+	}
+	if err := imageRows.Err(); err != nil {
+		return 0, err
+	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM item_groups WHERE item_id IN (SELECT id FROM clipboard_items`+where+`)`, args...); err != nil {
 		return 0, err
@@ -83,8 +111,16 @@ func (s *Store) Cleanup(ctx context.Context, opts CleanupOptions) (int64, error)
 	if err != nil {
 		return 0, err
 	}
+	if n > 0 {
+		if err := recomputeAllConsecutiveDuplicatesTx(ctx, tx); err != nil {
+			return 0, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
+	}
+	if err := s.removeManagedImagesIfUnreferenced(ctx, imagePaths); err != nil {
+		return n, err
 	}
 	return n, nil
 }

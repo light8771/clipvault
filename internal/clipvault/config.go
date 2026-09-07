@@ -3,7 +3,6 @@ package clipvault
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 )
 
 type Config struct {
@@ -66,31 +65,19 @@ type ImageCaptureConfig struct {
 	MaxBytes int `json:"maxBytes"`
 }
 
-// SearchPopupConfig 快速搜索弹窗行为配置。
-// 显示过滤（HideDuplicates/HideUnavailable）对免费版同样生效：免费版始终
-// 先在最新 100 条原始记录内过滤，不会向更早的记录补数量。
+// SearchPopupConfig configures quick-search visibility and actions.
 type SearchPopupConfig struct {
-	HideDuplicates  bool `json:"hideDuplicates"`  // 弹窗默认过滤重复事件（is_duplicate）
-	HideUnavailable bool `json:"hideUnavailable"` // 弹窗默认过滤无内容记录（content_available=false）
+	HideConsecutiveDuplicates bool `json:"hideConsecutiveDuplicates"`
 	// 三个动作的弹窗内快捷键，格式为 [Ctrl+][Shift+][Alt+]Enter。
 	KeyOpen    string `json:"keyOpen"`    // 在浏览器中打开，默认 Enter
 	KeyRestore string `json:"keyRestore"` // 仅恢复到 Windows 剪贴板，默认 Shift+Enter
 	KeyPaste   string `json:"keyPaste"`   // 恢复并粘贴到之前窗口，默认 Ctrl+Enter
 }
 
-// UnmarshalJSON enforces the complete security-sensitive configuration
-// contract. Newly introduced, non-security appearance fields may be defaulted
-// explicitly for upgrade compatibility; missing security fields must never
-// turn password protection off silently.
+// UnmarshalJSON enforces the complete current configuration contract. Missing
+// and unknown fields are rejected instead of being silently defaulted or
+// migrated from an obsolete schema.
 func (cfg *Config) UnmarshalJSON(data []byte) error {
-	// 一次性数据结构迁移：旧版本把全局外观、导航栏与历史页布局混在
-	// theme 对象里。检测到旧结构时拆分为 appearance/navigation/historyPage
-	// 并删除 theme 键；新结构配置直接跳过。
-	migrated, err := migrateLegacyThemeConfig(data)
-	if err != nil {
-		return err
-	}
-	data = migrated
 	type configWire Config
 	decoded := configWire(DefaultConfig())
 	if err := decodeStrictJSON(data, &decoded); err != nil {
@@ -119,7 +106,7 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		{"hotkey", []string{"enabled", "modifiers", "key"}},
 		{"searchHotkey", []string{"enabled", "modifiers", "key"}},
 		{"image", []string{"enabled", "maxBytes"}},
-		{"popup", []string{"hideDuplicates", "hideUnavailable", "keyOpen", "keyRestore", "keyPaste"}},
+		{"popup", []string{"hideConsecutiveDuplicates", "keyOpen", "keyRestore", "keyPaste"}},
 		{"dataApi", []string{"enabled", "listenAddr"}},
 		{"mcp", []string{"enabled", "listenAddr"}},
 		{"ui", []string{"language"}},
@@ -340,102 +327,6 @@ type DirBackupConfig struct {
 	Password         string      `json:"password"`         // 加密密码（所有格式必填；json/xlsx 会先打进 zip 再整体加密）
 	Scope            ExportScope `json:"scope"`            // 备份范围 full/range/incremental
 	FullFallbackDays int         `json:"fullFallbackDays"` // 距上次全量超过该天数后自动全量兜底，0=不自动兜底，默认7
-}
-
-// migrateLegacyThemeConfig 把旧版混合在 theme 对象里的配置一次性迁移为
-// appearance / navigation / historyPage 三个作用域对象，并删除 theme 键。
-// 输入不含 theme 键时原样返回；theme 键存在但不是对象时返回错误。
-// 迁移规则：
-//   - appearance：preset/mode/primary/accent/fontScale/surfaceOpacity 原样映射
-//   - navigation：navSticky→sticky、navBlur→blur、navOpacity→opacity、navBorder→divider
-//   - historyPage：layout vertical→top-bottom、sidebar→left-right；
-//     historyColumns "auto"→0、"1"-"4"→1-4；historyForceColumns→forceColumns；
-//     previewLines→previewLines；新增字段取默认值
-func migrateLegacyThemeConfig(data []byte) ([]byte, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return data, nil // 非对象 JSON 交给 decodeStrictJSON 报出规范错误
-	}
-	legacy, exists := raw["theme"]
-	if !exists {
-		return data, nil
-	}
-	var legacyTheme struct {
-		Preset              string `json:"preset"`
-		Mode                string `json:"mode"`
-		Primary             string `json:"primary"`
-		Accent              string `json:"accent"`
-		FontScale           int    `json:"fontScale"`
-		SurfaceOpacity      int    `json:"surfaceOpacity"`
-		Layout              string `json:"layout"`
-		HistoryColumns      string `json:"historyColumns"`
-		HistoryForceColumns bool   `json:"historyForceColumns"`
-		PreviewLines        int    `json:"previewLines"`
-		NavOpacity          int    `json:"navOpacity"`
-		NavBlur             int    `json:"navBlur"`
-		NavBorder           bool   `json:"navBorder"`
-		NavSticky           bool   `json:"navSticky"`
-	}
-	if err := json.Unmarshal(legacy, &legacyTheme); err != nil {
-		return nil, fmt.Errorf("config.theme legacy migration failed: %w", err)
-	}
-	if _, exists := raw["appearance"]; !exists {
-		raw["appearance"] = mustMarshalJSON(AppearanceSettings{
-			Preset:         legacyTheme.Preset,
-			Mode:           legacyTheme.Mode,
-			Primary:        legacyTheme.Primary,
-			Accent:         legacyTheme.Accent,
-			FontScale:      legacyTheme.FontScale,
-			SurfaceOpacity: legacyTheme.SurfaceOpacity,
-		})
-	}
-	if _, exists := raw["navigation"]; !exists {
-		raw["navigation"] = mustMarshalJSON(NavigationSettings{
-			Sticky:  legacyTheme.NavSticky,
-			Blur:    legacyTheme.NavBlur,
-			Opacity: legacyTheme.NavOpacity,
-			Divider: legacyTheme.NavBorder,
-		})
-	}
-	if _, exists := raw["historyPage"]; !exists {
-		def := DefaultConfig().HistoryPage
-		columns := 0
-		if n, err := strconv.Atoi(legacyTheme.HistoryColumns); err == nil && n >= 1 && n <= 4 {
-			columns = n
-		}
-		previewLines := legacyTheme.PreviewLines
-		if previewLines == 0 {
-			previewLines = def.PreviewLines
-		}
-		// layout 取值迁移：vertical → top-bottom，sidebar → left-right。
-		layout := def.Layout
-		switch legacyTheme.Layout {
-		case "sidebar":
-			layout = "left-right"
-		case "vertical":
-			layout = "top-bottom"
-		}
-		raw["historyPage"] = mustMarshalJSON(HistoryPageSettings{
-			Layout:            layout,
-			Columns:           columns,
-			ForceColumns:      columns > 0 && legacyTheme.HistoryForceColumns,
-			ContentWidthMode:  def.ContentWidthMode,
-			ContentWidth:      def.ContentWidth,
-			HorizontalPadding: def.HorizontalPadding,
-			CardGap:           def.CardGap,
-			PreviewLines:      previewLines,
-		})
-	}
-	delete(raw, "theme")
-	return json.Marshal(raw)
-}
-
-func mustMarshalJSON(value any) []byte {
-	data, err := json.Marshal(value)
-	if err != nil {
-		panic(fmt.Sprintf("marshal config value: %v", err))
-	}
-	return data
 }
 
 // EmailBackupConfig 定时发送备份邮件到指定邮箱。

@@ -10,17 +10,18 @@ import (
 func formatSuggestion(it StoredItem) string {
 	ts := it.CreatedAt.Local().Format("01-02 15:04")
 	kind := it.Kind
-	if kind == "" {
+	if it.RecordType == domain.HistoryRecordEvent {
+		kind = "event"
+	} else if kind == "" {
 		kind = "text"
 	}
 	displayKind := quickSearchKindLabel(kind)
-	if it.IsDuplicate {
-		displayKind += "·" + templateT("history.duplicate_tag", nil)
+	if it.RecordType == domain.HistoryRecordContent && it.ConsecutiveDuplicate {
+		displayKind += "·" + templateT("history.consecutive_duplicate_tag", nil)
 	}
-
 	var text string
-	if !it.ContentAvailable {
-		text = "[" + unavailableReasonLabel(it.UnavailableReason) + "]"
+	if it.RecordType == domain.HistoryRecordEvent {
+		text = "[" + clipboardEventCodeLabel(it.EventCode) + "]"
 	} else {
 		text = strings.ReplaceAll(it.Text, "\r\n", " ")
 		text = strings.ReplaceAll(text, "\n", " ")
@@ -39,21 +40,8 @@ func formatSuggestion(it StoredItem) string {
 	return fmt.Sprintf("%s  %s  %s", ts, displayKind, text)
 }
 
-func unavailableReasonLabel(reason string) string {
-	switch reason {
-	case domain.ReasonClipboardEmpty:
-		return templateT("history.unavail_clipboard_empty", nil)
-	case domain.ReasonUnsupportedFormat:
-		return templateT("history.unavail_format", nil)
-	case domain.ReasonTextLimitExceeded:
-		return templateT("history.unavail_text_limit", nil)
-	case domain.ReasonImageLimitExceeded:
-		return templateT("history.unavail_image_limit", nil)
-	case domain.ReasonReadFailed:
-		return templateT("history.unavail_read_failed", nil)
-	default:
-		return templateT("history.unavailable_content", nil)
-	}
+func clipboardEventCodeLabel(code domain.ClipboardEventCode) string {
+	return templateT(domain.EventTitleKey(code), nil)
 }
 
 func quickSearchKindLabel(kind string) string {
@@ -70,6 +58,8 @@ func quickSearchKindLabel(kind string) string {
 		return templateT("history.kind_office", nil)
 	case "files":
 		return templateT("history.kind_files", nil)
+	case "event":
+		return templateT("history.kind_events", nil)
 	default:
 		return kind
 	}
@@ -96,11 +86,11 @@ func (sw *searchWindow) restoreSelection(paste bool) {
 	if !ok {
 		return
 	}
-	if !item.ContentAvailable {
+	if item.RecordType != domain.HistoryRecordContent {
 		sw.showSearchStatus(sw.t("swindow.no_content", nil))
 		return
 	}
-	seq, err := restoreItemToClipboard(item, sw.dataDir)
+	seq, err := restoreItemToClipboard(sw.hwnd, item, sw.dataDir)
 	if err != nil {
 		if sw.logger != nil {
 			sw.logger.Warn("search_window_restore_failed", map[string]any{"error": err.Error(), "id": item.ID})

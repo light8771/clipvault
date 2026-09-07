@@ -38,7 +38,7 @@ func newExportTestStore(t *testing.T) *Store {
 	ctx := context.Background()
 	for _, text := range []string{"hello world", "你好世界"} {
 		if err := store.Save(ctx, ClipboardItem{
-			Kind: "text", Format: "CF_UNICODETEXT", Text: text, MetaJSON: "{}",
+			RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: text, MetaJSON: "{}",
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}

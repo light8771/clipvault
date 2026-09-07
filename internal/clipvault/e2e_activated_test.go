@@ -154,12 +154,12 @@ func TestActivatedExternalServiceE2E(t *testing.T) {
 
 	// 种子数据：一条普通 + 一条敏感剪贴板记录。
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "e2e-public-entry", SourceExeName: "Code.exe",
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "e2e-public-entry", SourceExeName: "Code.exe",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "e2e-secret-entry", SourceExeName: "Code.exe", Sensitive: true,
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "e2e-secret-entry", SourceExeName: "Code.exe", Sensitive: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

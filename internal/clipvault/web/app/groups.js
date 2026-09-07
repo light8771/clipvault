@@ -192,6 +192,19 @@ export function registerGroups() {
     html += '</div>';
     return html;
   };
+  app.activateGroupFilter = async function activateGroupFilter(id) {
+    app.currentGroupID = app.currentGroupID === id ? 0 : id;
+    const selectedGroupID = app.currentGroupID;
+    app.currentKind = '__group__';
+    document.querySelectorAll('.filter-chip').forEach(function (chip) {
+      chip.classList.remove('active');
+    });
+    app.GROUP_CHIP.classList.add('active');
+    app.closeGroupModal();
+    const loaded = await app.loadSourceExesForHistory('content');
+    if (!loaded || app.currentKind !== '__group__' || app.currentGroupID !== selectedGroupID) return;
+    app.resetSearch();
+  };
   app.bindGroupModalEvents = function bindGroupModalEvents(mode, opts, itemGroupIds) {
     const body = document.getElementById('groupModalBody');
     if (!body) return;
@@ -212,21 +225,9 @@ export function registerGroups() {
     if (mode === 'filter') {
       // Single-select: clicking a row selects the group
       body.querySelectorAll('.gt-row').forEach(function (row) {
-        row.addEventListener('click', function (e) {
+        row.addEventListener('click', async function (e) {
           if (e.target.closest('.gt-toggle')) return;
-          const id = parseInt(row.dataset.id);
-          if (app.currentGroupID === id) {
-            app.currentGroupID = 0;
-          } else {
-            app.currentGroupID = id;
-          }
-          app.currentKind = '__group__';
-          document.querySelectorAll('.filter-chip').forEach(function (c) {
-            c.classList.remove('active');
-          });
-          app.GROUP_CHIP.classList.add('active');
-          app.closeGroupModal();
-          app.resetSearch();
+          await app.activateGroupFilter(parseInt(row.dataset.id));
         });
       });
     } else if (mode === 'assign') {

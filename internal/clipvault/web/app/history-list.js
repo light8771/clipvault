@@ -1,5 +1,6 @@
 import { app } from "./app-context.js";
 import { renderClipboardEventDetails } from './clipboard-event-details.js';
+import { clampHistoryPage } from './history-pagination.js';
 const t = window.clipvaultI18n.t;
 
 export function registerHistoryList() {
@@ -28,7 +29,6 @@ export function registerHistoryList() {
     app.filePaths.clear();
     arr.forEach(i => app.items.set(i.id, i));
     // BADGE and RC updated by updatePagination()
-
     if (!arr.length) {
       app.LIST.innerHTML = `<div class="empty">
         <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -42,7 +42,8 @@ export function registerHistoryList() {
       return;
     }
     app.LIST.innerHTML = arr.map(it => {
-      const kindKey = it.kind || 'text';
+	  const isEvent = it.recordType === 'event';
+      const kindKey = isEvent ? 'event' : (it.kind || 'text');
       const isNonText = app.isNonTextKind(kindKey);
       const kindClass = 'mkind mkind-' + kindKey;
       const kindLabel = app.KIND_LABEL[kindKey] ? t(app.KIND_LABEL[kindKey]) : kindKey;
@@ -50,28 +51,29 @@ export function registerHistoryList() {
       const starHTML = it.starred ? app.starOnHTML : app.starOffHTML;
       const starTitle = it.starred ? t('history.unstar') : t('history.kind_starred');
       const sensHTML = it.sensitive ? '<span class="msens">' + t('history.sensitive_tag') + '</span>' : '';
+      const duplicateHTML = !isEvent && it.consecutiveDuplicate ? '<span class="mdup">' + t('history.consecutive_duplicate_tag') + '</span>' : '';
       const sensAttr = it.sensitive ? ' data-sensitive="1"' : '';
-      const dupHTML = it.isDuplicate ? '<span class="msep">·</span><span class="mdup">' + t('history.duplicate_tag') + '</span>' : '';
-      // 来源应用（前台窗口法）：ShowExe 缺省视为 true；标签用别名（若有），悬停看窗口标题与完整路径
+      // Attribution is explicit: foreground context is never presented as the clipboard owner.
       let srcHTML = '';
-      if (app.currentCfg?.source?.showExe !== false && it.sourceExeName) {
-        const srcLabel = app.sourceAliases[it.sourceExeName] || it.sourceExeName;
-        const srcTip = app.esc([it.sourceWindowTitle, it.sourceExePath].filter(Boolean).join('\n'));
-        srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${app.esc(srcLabel)}</span>`;
+      const showSource = app.currentCfg?.source?.showExe !== false;
+      const sourceDisplayName = it.source?.exeName
+        ? app.sourceAliases[it.source.exeName] || it.source.displayName || it.source.exeName
+        : '';
+      if (showSource && sourceDisplayName) {
+        const srcTip = app.esc([it.source.windowTitle, it.source.exePath].filter(Boolean).join('\n'));
+        srcHTML = `<span class="msep">·</span><span class="msource" title="${srcTip}">${app.esc(sourceDisplayName)}</span>`;
       }
       const managedImage = app.isManagedImage(it);
-      let bodyHTML, charText, showView, viewAction = 'view-item';
+      let bodyHTML, charText, showView;
+      let viewAction = managedImage ? 'view-managed-image' : 'view-item';
       if (it.sensitive && !app.authState.secondaryAuthed) {
         // 敏感内容未通过二次认证时显示遮蔽占位；字数与来源元数据一并遮蔽（旁信道）
         bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${t('history.sensitive_masked')}</pre>`;
         charText = t('history.hidden_count');
         showView = true;
-      } else if (it.contentAvailable === false) {
-        // 内容不可用事件直接展示持久化的结构化失败上下文。
-        const reasonKey = app.UNAVAILABLE_LABEL_KEY[it.unavailableReason];
-        const reasonLabel = reasonKey ? t(reasonKey) : t('history.unavailable_content');
-        bodyHTML = renderClipboardEventDetails(it, reasonLabel, t, app.esc);
-        charText = t('history.event_only');
+      } else if (isEvent) {
+        bodyHTML = renderClipboardEventDetails(it, t, app.esc, { showSource, sourceDisplayName });
+        charText = t('history.capture_event');
         showView = false;
       } else if (managedImage) {
         // 托管剪贴板图片（CLIPVAULT_IMAGE_FILE）：内联缩略图，点击查看大图
@@ -82,7 +84,6 @@ export function registerHistoryList() {
           if (meta.width && meta.height) charText = meta.width + '×' + meta.height;
         } catch (_) { /* 尺寸缺失时保持默认 */ }
         showView = true;
-        viewAction = 'view-managed-image';
       } else if (isNonText) {
         const paths = it.text.split('\n').filter(Boolean);
         bodyHTML = app.renderFileList(it);
@@ -94,16 +95,16 @@ export function registerHistoryList() {
         showView = preview.showView;
         charText = it.charLen >= 1000 ? t('history.char_count_k', { count: (it.charLen / 1000).toFixed(1) }) : t('history.char_count', { count: it.charLen });
       }
-      const canCopy = it.contentAvailable !== false && !managedImage;
-      return `<article data-id="${it.id}" data-kind="${kindKey}" data-starred="${it.starred ? '1' : '0'}"${sensAttr}>
+	  const canCopy = !isEvent && !managedImage;
+      return `<article data-id="${it.id}" data-kind="${kindKey}" data-record-type="${it.recordType}" data-starred="${it.starred ? '1' : '0'}"${sensAttr}>
         <div class="card-body">${bodyHTML}</div>
         <div class="card-foot">
           <div class="card-meta">
             <span class="mid">#${it.id}</span>
             <span class="msep">·</span>
             <span class="${kindClass}">${kindLabel}</span>
+            ${duplicateHTML ? '<span class="msep">·</span>' + duplicateHTML : ''}
             ${sensHTML ? '<span class="msep">·</span>' + sensHTML : ''}
-            ${dupHTML}
             <span class="msep">·</span>
             <span class="mtime" title="${fullTime}">${app.relTime(it.createdAt)}</span>
             <span class="msep">·</span>
@@ -112,18 +113,18 @@ export function registerHistoryList() {
           </div>
           <div class="card-acts">
             ${showView ? `<button class="ab exp" data-action="${viewAction}" data-item-id="${it.id}" title="${app.esc(t('history.view'))}" aria-label="${app.esc(t('history.view'))}">${app.viewHTML}</button>` : ''}
-            ${q ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="${t('history.locate')}">${app.locateHTML}</button>` : ''}
-            ${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}" title="${app.esc(t('common.copy'))}" aria-label="${app.esc(t('common.copy'))}">${app.cpHTML}</button>` : ''}
-            <button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
+			${q && !isEvent ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="${t('history.locate')}">${app.locateHTML}</button>` : ''}
+			${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}" title="${app.esc(t('common.copy'))}" aria-label="${app.esc(t('common.copy'))}">${app.cpHTML}</button>` : ''}
+            ${!isEvent ? `<button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
             <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? t('history.unmark_sensitive') : t('history.mark_sensitive')}">${app.sensBtnHTML}</button>
-            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="${t('groups.modal_assign')}">${app.groupBtnHTML}</button>
+            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="${t('groups.modal_assign')}">${app.groupBtnHTML}</button>` : ''}
             <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="${t('common.delete')}">${app.delHTML}</button>
           </div>
         </div>
       </article>`;
     }).join('');
     arr.forEach(it => {
-      if (app.isNonTextKind(it.kind || 'text') && it.format !== 'CLIPVAULT_IMAGE_FILE') app.checkFiles(it.id);
+	  if (it.recordType === 'content' && app.isNonTextKind(it.kind || 'text') && it.format !== 'CLIPVAULT_IMAGE_FILE') app.checkFiles(it.id);
       if (app.isManagedImage(it)) {
         const img = app.LIST.querySelector(`article[data-id="${it.id}"] .managed-image img`);
         if (img) app.loadManagedImage(img, it.id);
@@ -166,6 +167,7 @@ export function registerHistoryList() {
       const df = document.getElementById('dateFrom'), dt = document.getElementById('dateTo');
       if (df) df.value = ''; if (dt) dt.value = '';
       document.getElementById('clearDateBtn')?.classList.add('hidden');
+      await app.loadSourceExesForHistory('content');
       await app.search();
       app.locateActive = false;
       clearTimeout(app.debounce);
@@ -199,6 +201,8 @@ export function registerHistoryList() {
         p.set('starred', '1');
       } else if (app.currentKind === '__sensitive__') {
         url = '/api/v1/items/sensitive';
+	  } else if (app.currentKind === '__events__') {
+		p.set('record_type', 'event');
       } else if (app.currentKind && app.currentKind !== '__group__') {
         p.set('kind', app.currentKind);
       }
@@ -220,7 +224,14 @@ export function registerHistoryList() {
         app.toast(d.error || t('history.search_failed'), 'err');
         return;
       }
-      app.totalCount = d.total || 0;
+      const total = d.total || 0;
+      const validPage = clampHistoryPage(app.currentPage, total, pageSize);
+      if (validPage !== app.currentPage) {
+        app.currentPage = validPage;
+        await app.search();
+        return;
+      }
+      app.totalCount = total;
       app.fullTotalCount = d.fullTotal !== undefined ? d.fullTotal : app.totalCount;
       app.render(d.items || [], q);
       app.updatePagination();

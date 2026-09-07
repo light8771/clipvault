@@ -113,13 +113,11 @@ func TestPrepareEnvironmentForRunMovesClosedDatabase(t *testing.T) {
 	}
 	ctx := context.Background()
 	if err := store.Save(ctx, ClipboardItem{
-		Kind:     "text",
-		Format:   "CF_UNICODETEXT",
-		Text:     "migrated database record",
-		ByteLen:  24,
-		CharLen:  24,
-		SHA256:   "migrated-database-record",
-		MetaJSON: "{}",
+		RecordType: RecordTypeContent,
+		Kind:       "text",
+		Format:     "CF_UNICODETEXT",
+		Text:       "migrated database record",
+		MetaJSON:   "{}",
 	}); err != nil {
 		t.Fatal(err)
 	}

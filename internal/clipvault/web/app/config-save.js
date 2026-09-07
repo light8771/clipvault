@@ -102,8 +102,7 @@ export function registerConfigSave() {
         maxBytes: imageMaxMB * 1024 * 1024
       };
       popup = {
-        hideDuplicates: !!document.getElementById('cfg-popupHideDuplicates')?.checked,
-        hideUnavailable: !!document.getElementById('cfg-popupHideUnavailable')?.checked,
+        hideConsecutiveDuplicates: !!document.getElementById('cfg-popupHideConsecutiveDuplicates')?.checked,
         keyOpen: popupKeys[0] || 'Enter',
         keyRestore: popupKeys[1] || 'Shift+Enter',
         keyPaste: popupKeys[2] || 'Ctrl+Enter'

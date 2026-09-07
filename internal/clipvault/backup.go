@@ -53,6 +53,7 @@ type BackupService struct {
 
 	mu              sync.Mutex
 	execMu          sync.Mutex
+	timerCallbackMu sync.Mutex
 	dirTimer        *time.Timer
 	dirGeneration   uint64
 	dirState        backupTimerState
@@ -62,6 +63,7 @@ type BackupService struct {
 	startupOnce     sync.Once
 	startupWG       sync.WaitGroup
 	stopped         bool
+	stopDone        chan struct{}
 
 	statusMu    sync.RWMutex
 	dirStatus   BackupStatus
@@ -116,8 +118,13 @@ func (bs *BackupService) Start() {
 // operations, and is safe to call more than once.
 func (bs *BackupService) Stop() {
 	bs.mu.Lock()
+	if bs.stopDone == nil {
+		bs.stopDone = make(chan struct{})
+	}
+	stopDone := bs.stopDone
 	if bs.stopped {
 		bs.mu.Unlock()
+		<-stopDone
 		return
 	}
 	bs.stopped = true
@@ -135,9 +142,17 @@ func (bs *BackupService) Stop() {
 	bs.emailState = backupTimerState{}
 	bs.mu.Unlock()
 
+	// A timer may already have entered its callback when Timer.Stop reports
+	// false. Waiting on this gate prevents a callback that passed its initial
+	// generation check from touching runtime dependencies after Stop returns.
+	bs.timerCallbackMu.Lock()
+	bs.timerCallbackMu.Unlock()
 	bs.startupWG.Wait()
+	// Acquiring execMu is a shutdown barrier: every backup operation holds it
+	// for its full lifetime, so Stop does not return while one is still active.
 	bs.execMu.Lock()
 	bs.execMu.Unlock()
+	close(stopDone)
 }
 
 func (bs *BackupService) runStartupBackups(cfg Config) {
@@ -228,6 +243,8 @@ func emailBackupScheduleReady(backup EmailBackupConfig) bool {
 func (bs *BackupService) scheduleDirTimerLocked(intervalHours int, generation uint64) {
 	interval := time.Duration(intervalHours) * time.Hour
 	bs.dirTimer = time.AfterFunc(interval, func() {
+		bs.timerCallbackMu.Lock()
+		defer bs.timerCallbackMu.Unlock()
 		bs.dirBackupTick(generation)
 	})
 }
@@ -235,6 +252,8 @@ func (bs *BackupService) scheduleDirTimerLocked(intervalHours int, generation ui
 func (bs *BackupService) scheduleEmailTimerLocked(intervalHours int, generation uint64) {
 	interval := time.Duration(intervalHours) * time.Hour
 	bs.emailTimer = time.AfterFunc(interval, func() {
+		bs.timerCallbackMu.Lock()
+		defer bs.timerCallbackMu.Unlock()
 		bs.emailBackupTick(generation)
 	})
 }
@@ -335,8 +354,8 @@ func (bs *BackupService) recordBackupHistory(kind, trigger, mode string, ok bool
 // runDirBackupLocked 尝试获取执行锁并同步执行目录备份。
 // 已有备份在执行时返回 errBackupBusy（调用方决定跳过还是报错）。
 func (bs *BackupService) runDirBackupLocked(cfg Config, trigger string, forceFull bool) error {
-	if !bs.execMu.TryLock() {
-		return errBackupBusy
+	if err := bs.beginBackupExecution(); err != nil {
+		return err
 	}
 	defer bs.execMu.Unlock()
 	return bs.doDirBackup(cfg, trigger, forceFull)
@@ -344,11 +363,27 @@ func (bs *BackupService) runDirBackupLocked(cfg Config, trigger string, forceFul
 
 // runEmailBackupLocked 同 runDirBackupLocked，针对邮件备份。
 func (bs *BackupService) runEmailBackupLocked(cfg Config, trigger string, forceFull bool) error {
-	if !bs.execMu.TryLock() {
-		return errBackupBusy
+	if err := bs.beginBackupExecution(); err != nil {
+		return err
 	}
 	defer bs.execMu.Unlock()
 	return bs.doEmailBackup(cfg, trigger, forceFull)
+}
+
+// beginBackupExecution makes the stopped check and execution-lock acquisition
+// one operation with respect to Stop. Once it succeeds, Stop must wait for the
+// caller to release execMu; once Stop marks the service stopped, no caller can
+// report that a new backup was accepted.
+func (bs *BackupService) beginBackupExecution() error {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	if bs.stopped {
+		return errBackupStopped
+	}
+	if !bs.execMu.TryLock() {
+		return errBackupBusy
+	}
+	return nil
 }
 
 // RunDirBackup 异步启动一次目录备份（手动触发）。
@@ -363,8 +398,8 @@ func (bs *BackupService) RunDirBackup(forceFull bool) error {
 	if msg := validateDirBackupEnabled(cfg.Backup.DirBackup); msg != "" {
 		return fmt.Errorf("%s: %s", templateT("backup.incomplete_dir_prefix", nil), msg)
 	}
-	if !bs.execMu.TryLock() {
-		return errBackupBusy
+	if err := bs.beginBackupExecution(); err != nil {
+		return err
 	}
 	go func() {
 		defer bs.execMu.Unlock()
@@ -389,8 +424,8 @@ func (bs *BackupService) RunEmailBackup(forceFull bool) error {
 	if msg := validateEmailBackupEnabled(cfg.Backup.EmailBackup); msg != "" {
 		return fmt.Errorf("%s: %s", templateT("backup.incomplete_email_prefix", nil), msg)
 	}
-	if !bs.execMu.TryLock() {
-		return errBackupBusy
+	if err := bs.beginBackupExecution(); err != nil {
+		return err
 	}
 	go func() {
 		defer bs.execMu.Unlock()

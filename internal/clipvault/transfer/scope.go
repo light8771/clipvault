@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// ExportVersion 随导出契约递增。v5：条目新增 contentAvailable / isDuplicate /
-// unavailableReason 三个内容可用性字段。
-const ExportVersion = 5
+// ExportVersion 9 makes event fingerprints independent of per-session Windows
+// registered-format IDs. Earlier exports are intentionally not accepted.
+const ExportVersion = 9
 
 // Scope is the shared range contract for export and backup operations.
 type Scope struct {

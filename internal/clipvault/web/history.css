@@ -289,6 +289,9 @@ article[data-kind="files"],
 article[data-kind="binary"] {
   border-left-color: var(--muted);
 }
+article[data-kind="event"] { border-left-color: var(--muted); }
+article[data-kind="event"]:has(.capture-event-warning) { border-left-color: #D97706; }
+article[data-kind="event"]:has(.capture-event-error) { border-left-color: var(--danger); }
 
 article[data-kind="text"]:hover    { border-color: var(--p-border); }
 article[data-kind="image"]:hover   { border-color: var(--accent-border); box-shadow: 0 8px 32px var(--accent-dim), 0 3px 10px rgba(0,0,0,.07); }
@@ -385,6 +388,7 @@ mark {
 .mkind-office  { color: #2563EB;       background: rgba(59,130,246,.08);     border-color: rgba(59,130,246,.2); }
 .mkind-files   { color: var(--sub);    background: transparent;              border-color: var(--card-border); }
 .mkind-binary  { color: var(--sub);    background: transparent;              border-color: var(--card-border); }
+.mkind-event   { color: var(--sub);    background: rgba(100,116,139,.08);     border-color: var(--card-border); }
 [data-theme-mode="dark"] .mkind-archive { color: #FBBF24; }
 [data-theme-mode="dark"] .mkind-office  { color: #60A5FA; }
 

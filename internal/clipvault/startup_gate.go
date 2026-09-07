@@ -136,8 +136,10 @@ type StartupGate struct {
 	complete bool
 	success  bool
 	// i18n 在门禁期独立构建（store 已打开且官方词条已 Seed）；主服务
-	// 就绪后会用完整服务覆盖全局模板指针。
-	i18n *I18nService
+	// 就绪后使用自己的实例。门禁模板也绑定该实例，构造门禁不会改写主应用
+	// 的包级模板语言状态。
+	i18n         *I18nService
+	pageTemplate *template.Template
 
 	recordURL  string
 	recordDone chan struct{}
@@ -155,11 +157,16 @@ func NewStartupGate(store *Store, dataDir string, mode startupGateMode) *Startup
 	if store != nil {
 		if svc, err := NewI18nService(store, nil, nil); err == nil {
 			gate.i18n = svc
-			// 门禁页 {{T}} 渲染依赖包级服务指针；主流程随后会覆盖注册。
-			templateI18nService.Store(svc)
 		}
 	}
+	gate.pageTemplate = newStartupGateTemplate(gate.t)
 	return gate
+}
+
+func newStartupGateTemplate(translate func(string, map[string]any) string) *template.Template {
+	return template.Must(template.New("startup-gate").Funcs(template.FuncMap{
+		"T": func(key string) string { return translate(key, nil) },
+	}).Parse(startupGateTemplateHTML))
 }
 
 // t 门禁文案查询；i18n 构建失败的异常场景回退 key 原文。
@@ -316,7 +323,11 @@ func (g *StartupGate) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		lang = g.i18n.CurrentLanguage()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = startupGateTemplate.Execute(w, startupGatePageData{
+	pageTemplate := g.pageTemplate
+	if pageTemplate == nil {
+		pageTemplate = startupGateTemplate
+	}
+	_ = pageTemplate.Execute(w, startupGatePageData{
 		Title:             title,
 		Description:       description,
 		Button:            button,
@@ -512,7 +523,7 @@ func writeStandaloneError(w http.ResponseWriter, status int, code, message strin
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
 }
 
-var startupGateTemplate = template.Must(template.New("startup-gate").Funcs(templateFuncMap()).Parse(`<!doctype html>
+const startupGateTemplateHTML = `<!doctype html>
 <html lang="{{.Lang}}" data-theme-mode="{{.ThemeMode}}" data-p-light="{{.PrimaryLight}}" data-p-light-hover="{{.PrimaryLightHover}}" data-p-dark="{{.PrimaryDark}}" data-p-dark-hover="{{.PrimaryDarkHover}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}}</title><link rel="stylesheet" href="/startup.css"></head><body><main class="main" data-mode="{{.Mode}}" data-min-recovery-runes="{{.MinRecoveryRunes}}" data-max-recovery-bytes="{{.MaxRecoveryBytes}}" data-min-secondary-runes="{{.MinSecondaryRunes}}" data-max-secondary-bytes="{{.MaxSecondaryBytes}}">
 <div class="shell">
@@ -584,4 +595,6 @@ var startupGateTemplate = template.Must(template.New("startup-gate").Funcs(templ
 </div>
 </section>
 </div>
-</main><script src="/i18n-dict.js"></script><script src="/i18n.js"></script><script src="/startup.js" defer></script></body></html>`))
+</main><script src="/i18n-dict.js"></script><script src="/i18n.js"></script><script src="/startup.js" defer></script></body></html>`
+
+var startupGateTemplate = template.Must(template.New("startup-gate").Funcs(templateFuncMap()).Parse(startupGateTemplateHTML))

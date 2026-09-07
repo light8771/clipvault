@@ -53,8 +53,8 @@ func startMCPTestService(t *testing.T, items ...ClipboardItem) *mcpTestFixture {
 	store := openDataAPITestStore(t)
 	ctx := context.Background()
 	items = append(items,
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "mcp normal", SourceExeName: "Code.exe"},
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "mcp secret"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "mcp normal", SourceExeName: "Code.exe"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "mcp secret"},
 	)
 	for _, item := range items {
 		if err := store.Save(ctx, item); err != nil {
@@ -71,13 +71,14 @@ func startMCPTestService(t *testing.T, items ...ClipboardItem) *mcpTestFixture {
 		t.Fatal(err)
 	}
 	pngPath := filepath.Join(imageDir, "mcp-test.png")
-	if err := os.WriteFile(pngPath, []byte("\x89PNG-test-image-bytes"), 0o600); err != nil {
+	pngBytes := []byte("\x89PNG-test-image-bytes")
+	if err := os.WriteFile(pngPath, pngBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `INSERT INTO clipboard_items
-		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, content_available)
-		VALUES (?, 'image', 'CLIPVAULT_IMAGE_FILE', 'images/mcp-test.png', 21, 21, 'imgsha', '{}', true)`,
-		time.Now().UTC().UnixMilli()); err != nil {
+		(created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, meta_json)
+		VALUES (?, 'content', 'image', 'CLIPVAULT_IMAGE_FILE', 'images/mcp-test.png', ?, 0, ?, '{}')`,
+		time.Now().UTC().UnixMilli(), len(pngBytes), hashBytes(pngBytes)); err != nil {
 		t.Fatal(err)
 	}
 	// 最近 6 条按 id 升序：普通、敏感、图片。
@@ -214,6 +215,14 @@ func TestMCPServerDisabledByDefault(t *testing.T) {
 	}
 	if svc.Status().Running {
 		t.Fatal("mcp must be disabled by default")
+	}
+}
+
+func TestMCPStopClearsInactiveBindFailure(t *testing.T) {
+	svc := &MCPService{running: false, listen: "127.0.0.1:1", bindError: "address in use"}
+	svc.stopLocked()
+	if svc.running || svc.listen != "" || svc.bindError != "" {
+		t.Fatalf("stopped state retained runtime fields: running=%v listen=%q bindError=%q", svc.running, svc.listen, svc.bindError)
 	}
 }
 

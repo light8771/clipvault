@@ -137,6 +137,6 @@ func StartupErrorLogFile() string {
 
 // Config 是应用的完整配置结构，通过 Web 界面修改，存储在数据库中。
 const (
-	configVersion          = 1
+	configVersion          = 2
 	maxBackupIntervalHours = 720
 )

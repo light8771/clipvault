@@ -363,35 +363,8 @@ func (s *Store) ClearAPIAuditEvents(ctx context.Context, channel string) error {
 	return err
 }
 
-// ItemGroupIDs 批量返回每个条目的第一个分组 ID（无分组则不出现）。
-func (s *Store) ItemGroupIDs(ctx context.Context, ids []int64) (map[int64]int64, error) {
-	result := map[int64]int64{}
-	if len(ids) == 0 {
-		return result, nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT item_id, MIN(group_id) FROM item_groups WHERE item_id IN (`+placeholders+`) GROUP BY item_id`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var itemID, groupID int64
-		if err := rows.Scan(&itemID, &groupID); err != nil {
-			return nil, err
-		}
-		result[itemID] = groupID
-	}
-	return result, rows.Err()
-}
-
 // ItemAllGroupIDs 批量返回每个条目的全部分组 ID（升序；无分组则不出现）。
-// 供外部读取服务构造 GroupIDs 列表，避免逐条 N+1 查询。
+// 供所有外部读取协议构造 GroupIDs 列表，避免逐条 N+1 查询。
 func (s *Store) ItemAllGroupIDs(ctx context.Context, ids []int64) (map[int64][]int64, error) {
 	result := map[int64][]int64{}
 	if len(ids) == 0 {

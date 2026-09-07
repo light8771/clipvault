@@ -51,20 +51,8 @@ func clipboardURLFormats() []clipboardURLCandidate {
 	}
 }
 
-// readClipboardURL reads the Shell CFSTR_INETURLW/A representations used by
-// browsers, chat clients, and OLE data objects. The stored item remains normal
-// Unicode text so it can be searched and restored by the existing text path;
-// sourceFormat preserves the actual clipboard representation.
-func readClipboardURL() (*ClipboardSnapshot, bool, error) {
-	return readClipboardURLWith(clipboardURLAccess{
-		candidates: clipboardURLFormats(),
-		available:  isClipboardFormatAvailable,
-		readBytes:  readClipboardBytes,
-	})
-}
-
 func readClipboardURLWith(access clipboardURLAccess) (*ClipboardSnapshot, bool, error) {
-	var lastErr error
+	var failures clipboardCandidateErrors
 	found := false
 	for _, candidate := range access.candidates {
 		if candidate.formatID == 0 || !access.available(candidate.formatID) {
@@ -73,24 +61,21 @@ func readClipboardURLWith(access clipboardURLAccess) (*ClipboardSnapshot, bool, 
 		found = true
 		raw, err := access.readBytes(candidate.formatID)
 		if err != nil {
-			lastErr = err
+			failures.add(err)
 			continue
 		}
 		text, err := candidate.decode(raw)
 		if err != nil {
-			lastErr = &clipboardOperationError{stage: clipboardReadStageDecode, format: candidate.formatName, err: err}
+			failures.add(&clipboardOperationError{stage: clipboardReadStageDecode, format: candidate.formatName, err: err})
 			continue
 		}
 		if text == "" {
-			lastErr = &clipboardOperationError{stage: clipboardReadStageDecode, format: candidate.formatName, err: errors.New("clipboard URL payload is empty")}
+			failures.add(&clipboardOperationError{stage: clipboardReadStageDecode, format: candidate.formatName, err: errors.New("clipboard URL payload is empty")})
 			continue
 		}
 		return newURLClipboardSnapshot(text, candidate.formatName), true, nil
 	}
-	if lastErr != nil {
-		return nil, found, lastErr
-	}
-	return nil, found, nil
+	return nil, found, failures.err()
 }
 
 func newURLClipboardSnapshot(text, sourceFormat string) *ClipboardSnapshot {
@@ -123,6 +108,10 @@ func decodeUTF16ClipboardString(raw []byte) (string, error) {
 }
 
 func decodeANSIClipboardString(raw []byte) (string, error) {
+	return decodeANSIClipboardStringWithCodePage(raw, cpACP)
+}
+
+func decodeANSIClipboardStringWithCodePage(raw []byte, codePage uint32) (string, error) {
 	if nul := bytes.IndexByte(raw, 0); nul >= 0 {
 		raw = raw[:nul]
 	}
@@ -130,7 +119,7 @@ func decodeANSIClipboardString(raw []byte) (string, error) {
 		return "", nil
 	}
 	count, _, callErr := procMultiByteToWideChar.Call(
-		cpACP,
+		uintptr(codePage),
 		0,
 		uintptr(unsafe.Pointer(&raw[0])),
 		uintptr(len(raw)),
@@ -145,7 +134,7 @@ func decodeANSIClipboardString(raw []byte) (string, error) {
 	}
 	units := make([]uint16, int(count))
 	written, _, callErr := procMultiByteToWideChar.Call(
-		cpACP,
+		uintptr(codePage),
 		0,
 		uintptr(unsafe.Pointer(&raw[0])),
 		uintptr(len(raw)),

@@ -333,7 +333,7 @@ func createNewDatabaseGroup(dataDir string) error {
 		return err
 	}
 	targetDir := isolatedDatabaseDirectory(dataDir, targetID)
-	store, err := openStoreDirectory(targetDir, (*Store).initializeSchema)
+	store, err := openStoreDirectory(dataDir, targetDir, (*Store).initializeSchema)
 	if err != nil {
 		_ = os.RemoveAll(targetDir)
 		return fmt.Errorf("create new database: %w", err)

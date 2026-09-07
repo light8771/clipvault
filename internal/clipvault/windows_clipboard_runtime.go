@@ -1,6 +1,8 @@
 package clipvault
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,13 +21,14 @@ const clipWorkerSettleDelay = 25 * time.Millisecond
 // clipMailbox 只保留尚未读取的最新剪贴板状态。系统剪贴板是可变的全局
 // 状态；新 sequence 出现后，旧通知对应的内容已经无法恢复。
 type clipMailbox struct {
-	mu        sync.Mutex
-	pending   clipEvent
-	hasValue  bool
-	closed    bool
-	signal    chan struct{}
-	done      chan struct{}
-	closeOnce sync.Once
+	mu           sync.Mutex
+	pending      clipEvent
+	hasValue     bool
+	closed       bool
+	signal       chan struct{}
+	done         chan struct{}
+	closeOnce    sync.Once
+	activeCancel context.CancelCauseFunc
 }
 
 func newClipMailbox() *clipMailbox {
@@ -39,12 +42,32 @@ func (m *clipMailbox) put(ev clipEvent) {
 		m.mu.Unlock()
 		return
 	}
+	if m.activeCancel != nil {
+		m.activeCancel(ErrClipboardSuperseded)
+	}
 	m.pending = ev
 	m.hasValue = true
 	m.mu.Unlock()
 	select {
 	case m.signal <- struct{}{}:
 	default:
+	}
+}
+
+func (m *clipMailbox) beginCapture() (context.Context, context.CancelFunc) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	if m.hasValue {
+		cancel(ErrClipboardSuperseded)
+		return ctx, func() { cancel(context.Canceled) }
+	}
+	m.activeCancel = cancel
+	return ctx, func() {
+		m.mu.Lock()
+		m.activeCancel = nil
+		m.mu.Unlock()
+		cancel(context.Canceled)
 	}
 }
 
@@ -71,6 +94,9 @@ func (m *clipMailbox) close() {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
 		m.closed = true
+		if m.activeCancel != nil {
+			m.activeCancel(context.Canceled)
+		}
 		m.mu.Unlock()
 		close(m.done)
 		select {
@@ -116,7 +142,9 @@ func (r *WindowsRuntime) startClipWorker() {
 			}
 			mailbox.waitUntilSettled()
 			if ev, ok := mailbox.take(); ok {
-				r.recorder.ProcessClipboardUpdate(ev.source, ev.sequence, ev.capturedAtMS)
+				ctx, finish := mailbox.beginCapture()
+				r.recorder.ProcessClipboardUpdate(ctx, ev.source, ev.sequence, ev.capturedAtMS)
+				finish()
 			}
 			if mailbox.isClosedAndEmpty() {
 				return
@@ -205,16 +233,17 @@ func (r *WindowsRuntime) stopClipWorker() {
 }
 
 func (r *WindowsRuntime) cleanup() {
+	hwnd := r.hwnd.Load()
 	r.unregisterHotkey()
 	r.unregisterSearchHotkey()
-	procClipboardKillTimer.Call(r.hwnd, idClipboardPoll)
-	procRemoveClipboardFormatListener.Call(r.hwnd)
+	procClipboardKillTimer.Call(hwnd, idClipboardPoll)
+	procRemoveClipboardFormatListener.Call(hwnd)
 	nid := r.notifyIconData()
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&nid)))
-	if r.hIcon != 0 {
-		procDestroyIcon.Call(r.hIcon)
-		r.hIcon = 0
+	if icon := r.hIcon.Swap(0); icon != 0 {
+		procDestroyIcon.Call(icon)
 	}
+	r.hwnd.CompareAndSwap(hwnd, 0)
 }
 
 func (r *WindowsRuntime) doRegisterHotkey(id int, hk HotkeyConfig) error {
@@ -225,7 +254,7 @@ func (r *WindowsRuntime) doRegisterHotkey(id int, hk HotkeyConfig) error {
 		r.logger.Info("hotkey_disabled", map[string]any{"id": id})
 		return nil
 	}
-	ok, _, err := procRegisterHotKey.Call(r.hwnd, uintptr(id), uintptr(hk.Modifiers), uintptr(hk.Key))
+	ok, _, err := procRegisterHotKey.Call(r.hwnd.Load(), uintptr(id), uintptr(hk.Modifiers), uintptr(hk.Key))
 	if ok == 0 {
 		r.logger.Warn("hotkey_register_failed", map[string]any{"id": id, "error": err.Error()})
 		return &HotkeyError{Msg: fmt.Sprintf("hotkey registration failed (possibly conflicting with another app): %v", err)}
@@ -239,7 +268,7 @@ func (r *WindowsRuntime) registerHotkey() {
 }
 
 func (r *WindowsRuntime) unregisterHotkey() {
-	procUnregisterHotKey.Call(r.hwnd, idHotkeyToggle)
+	procUnregisterHotKey.Call(r.hwnd.Load(), idHotkeyToggle)
 }
 
 func (r *WindowsRuntime) registerSearchHotkey() {
@@ -247,7 +276,7 @@ func (r *WindowsRuntime) registerSearchHotkey() {
 }
 
 func (r *WindowsRuntime) unregisterSearchHotkey() {
-	procUnregisterHotKey.Call(r.hwnd, idHotkeySearch)
+	procUnregisterHotKey.Call(r.hwnd.Load(), idHotkeySearch)
 }
 
 // openQuickSearch 响应搜索快捷键，弹出桌面搜索窗口。
@@ -265,26 +294,49 @@ func (r *WindowsRuntime) openQuickSearch() {
 // 执行，避免向自己的消息队列发消息后阻塞等待造成消息泵冻结。
 // 返回 nil 表示成功，返回 *HotkeyError 表示注册失败。
 func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
-	if r.hwnd != 0 && r.onMessageThread() {
+	hwnd := r.hwnd.Load()
+	if hwnd != 0 && r.onMessageThread(hwnd) {
 		return r.applyHotkeyUpdate(&cfg.Hotkey, &cfg.SearchHotkey)
 	}
+	// Keep the single pending request slot from being overwritten if this
+	// method is ever called outside ConfigManager's serialized listener path.
+	r.hotkeyApplyMu.Lock()
+	defer r.hotkeyApplyMu.Unlock()
+
+	resultCh := make(chan error, 1)
 	r.hotkeyMu.Lock()
 	r.pendingHotkey = &cfg.Hotkey
 	r.pendingSearchHotkey = &cfg.SearchHotkey
-	r.pendingHotkeyResult = make(chan error, 1)
+	r.pendingHotkeyResult = resultCh
 	r.hotkeyMu.Unlock()
-	procPostMessageW.Call(r.hwnd, wmReregisterHotkey, 0, 0)
+	posted, _, postErr := procPostMessageW.Call(hwnd, wmReregisterHotkey, 0, 0)
+	if posted == 0 {
+		r.clearPendingHotkeyUpdate(resultCh)
+		return &HotkeyError{Msg: fmt.Sprintf("post hotkey registration request failed: %v", postErr)}
+	}
 	select {
-	case err := <-r.pendingHotkeyResult:
+	case err := <-resultCh:
 		return err
 	case <-time.After(3 * time.Second):
+		r.clearPendingHotkeyUpdate(resultCh)
 		return &HotkeyError{Msg: "hotkey registration timed out"}
 	}
 }
 
+func (r *WindowsRuntime) clearPendingHotkeyUpdate(resultCh chan error) {
+	r.hotkeyMu.Lock()
+	defer r.hotkeyMu.Unlock()
+	if r.pendingHotkeyResult != resultCh {
+		return
+	}
+	r.pendingHotkey = nil
+	r.pendingSearchHotkey = nil
+	r.pendingHotkeyResult = nil
+}
+
 // onMessageThread 报告当前线程是否为创建消息窗口的线程（即消息循环线程）。
-func (r *WindowsRuntime) onMessageThread() bool {
-	ownerTid, _, _ := procGetWindowThreadProcessId.Call(r.hwnd, 0)
+func (r *WindowsRuntime) onMessageThread(hwnd uintptr) bool {
+	ownerTid, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
 	if ownerTid == 0 {
 		return false
 	}
@@ -296,12 +348,16 @@ func (r *WindowsRuntime) onMessageThread() bool {
 func (r *WindowsRuntime) applyHotkeyUpdate(hk, shk *HotkeyConfig) error {
 	r.unregisterHotkey()
 	r.unregisterSearchHotkey()
-	var err error
+	var registrationErrors []error
 	if hk != nil {
-		err = r.doRegisterHotkey(idHotkeyToggle, *hk)
+		if err := r.doRegisterHotkey(idHotkeyToggle, *hk); err != nil {
+			registrationErrors = append(registrationErrors, err)
+		}
 	}
-	if shk != nil && err == nil {
-		err = r.doRegisterHotkey(idHotkeySearch, *shk)
+	if shk != nil {
+		if err := r.doRegisterHotkey(idHotkeySearch, *shk); err != nil {
+			registrationErrors = append(registrationErrors, err)
+		}
 	}
-	return err
+	return errors.Join(registrationErrors...)
 }

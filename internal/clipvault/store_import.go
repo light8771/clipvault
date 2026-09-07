@@ -18,41 +18,22 @@ func (s *Store) ImportFullJSON(ctx context.Context, data []byte) error {
 	return s.ImportFullJSONReader(ctx, bytes.NewReader(data))
 }
 
-// decodeImportJSON parses a ClipVault JSON export into the format-agnostic
-// ExportData carrier. It is the JSON half of the decoder/persister split and
-// mirrors decodeImportXLSX: format- and envelope-level validation happens here
-// (settings presence, app marker, export version), while data-semantic
-// validation stays in importExportData so both import formats keep sharing one
-// rule set.
-func decodeImportJSON(data []byte) (ExportData, error) {
-	var envelope struct {
-		Settings json.RawMessage `json:"settings"`
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return ExportData{}, fmt.Errorf("parse export JSON: %w", err)
-	}
-	if len(envelope.Settings) == 0 || string(envelope.Settings) == "null" {
-		return ExportData{}, errors.New("settings is required")
-	}
-	var export ExportData
-	if err := decodeStrictJSON(data, &export); err != nil {
-		return ExportData{}, fmt.Errorf("parse export JSON: %w", err)
-	}
-	if export.App != "ClipVault" {
-		return ExportData{}, fmt.Errorf("not a ClipVault export (app=%q)", export.App)
-	}
-	if export.ExportVersion != currentExportVersion {
-		return ExportData{}, fmt.Errorf("unsupported export version %d", export.ExportVersion)
-	}
-	return export, nil
-}
-
 // importExportData imports a validated complete export in one transaction.
 // JSON and XLSX both use this path so their restore behavior cannot diverge.
 func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 	if err := validateExportData(export); err != nil {
 		return err
 	}
+	prepared, err := s.prepareExportAssets(export.Items, export.Assets)
+	if err != nil {
+		return fmt.Errorf("prepare managed image assets: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = prepared.cleanup()
+		}
+	}()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -131,20 +112,33 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		}
 
 		var sb strings.Builder
-		sb.WriteString(`INSERT INTO clipboard_items (created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive, content_available, is_duplicate, unavailable_reason, source_exe_name, source_exe_path, source_window_title, source_method) VALUES `)
-		args := make([]any, 0, len(batch)*17)
+		sb.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution) VALUES `)
+		args := make([]any, 0, len(batch)*23)
 		for j, item := range batch {
+			item, err = rewriteImportedImageItem(item, prepared.storedPaths)
+			if err != nil {
+				return err
+			}
 			if j > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			eventFormats := encodeClipboardFormats(item.EventFormats)
+			var eventCode, eventFingerprint any
+			if item.RecordType == domain.HistoryRecordEvent {
+				eventCode, eventFingerprint = item.EventCode, item.EventFingerprint
+			}
+			attribution := item.SourceAttribution
+			if attribution == "" {
+				attribution = "unknown"
+			}
 			args = append(args,
 				item.CreatedAt.UTC().UnixMilli(),
-				item.Kind, item.Format, item.Text,
-				item.ByteLen, item.CharLen, item.SHA256, item.MetaJSON,
-				item.Starred, item.Sensitive,
-				item.ContentAvailable, item.IsDuplicate, item.UnavailableReason,
-				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceMethod,
+				item.RecordType, item.Kind, item.Format, item.Text,
+				item.ByteLen, item.CharLen, item.ContentSHA256, false, item.MetaJSON,
+				item.Starred, item.Sensitive, eventCode, eventFingerprint,
+				item.CaptureSequence, item.CaptureStage, item.CaptureAttempts, eventFormats, item.ErrorCategory,
+				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution,
 			)
 		}
 		if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
@@ -211,6 +205,9 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			return fmt.Errorf("import item_groups batch at offset %d: %w", i, err)
 		}
 	}
+	if err := recomputeAllConsecutiveDuplicatesTx(ctx, tx); err != nil {
+		return fmt.Errorf("recompute consecutive duplicates: %w", err)
+	}
 	for _, key := range []string{"config", "config.last_good"} {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO settings (key, value) VALUES (?, ?)
@@ -219,29 +216,34 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func validateExportData(export ExportData) error {
 	if err := validateSensitiveRules(export.Settings.Sensitive); err != nil {
 		return fmt.Errorf("invalid sensitive rule: %w", err)
 	}
-	itemIDs := make(map[int64]struct{}, len(export.Items))
+	itemTypes := make(map[int64]domain.HistoryRecordType, len(export.Items))
+	var previousID int64
 	for _, item := range export.Items {
-		if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
-			return fmt.Errorf("invalid item %d", item.ID)
+		if err := validateStoredHistoryItem(item); err != nil {
+			return err
 		}
-		if item.ByteLen != len([]byte(item.Text)) || item.CharLen != textRuneLen(item.Text) || item.SHA256 != hashString(item.Text) {
-			return fmt.Errorf("invalid item %d: content metadata mismatch", item.ID)
-		}
-		if item.ContentAvailable != (item.UnavailableReason == domain.ReasonNone) ||
-			!domain.ValidItemState(item.Kind, item.Format, item.UnavailableReason) {
-			return fmt.Errorf("invalid item %d: inconsistent content availability state", item.ID)
-		}
-		if _, exists := itemIDs[item.ID]; exists {
+		if _, exists := itemTypes[item.ID]; exists {
 			return fmt.Errorf("duplicate item ID %d", item.ID)
 		}
-		itemIDs[item.ID] = struct{}{}
+		if item.ID <= previousID {
+			return errors.New("items must be ordered by ascending ID")
+		}
+		previousID = item.ID
+		itemTypes[item.ID] = item.RecordType
+	}
+	if err := validateExportAssetSet(export.Items, export.Assets); err != nil {
+		return err
 	}
 	groupIDs := make(map[int64]struct{}, len(export.Groups))
 	for _, group := range export.Groups {
@@ -268,8 +270,12 @@ func validateExportData(export ExportData) error {
 	}
 	links := make(map[ItemGroupLink]struct{}, len(export.ItemGroups))
 	for _, link := range export.ItemGroups {
-		if _, exists := itemIDs[link.ItemID]; !exists {
+		recordType, exists := itemTypes[link.ItemID]
+		if !exists {
 			return fmt.Errorf("item-group link references missing item %d", link.ItemID)
+		}
+		if recordType != domain.HistoryRecordContent {
+			return fmt.Errorf("item-group link references event item %d", link.ItemID)
 		}
 		if _, exists := groupIDs[link.GroupID]; !exists {
 			return fmt.Errorf("item-group link references missing group %d", link.GroupID)
@@ -280,6 +286,67 @@ func validateExportData(export ExportData) error {
 		links[link] = struct{}{}
 	}
 	return nil
+}
+
+func validateStoredHistoryItem(item StoredItem) error {
+	if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
+		return fmt.Errorf("invalid item %d", item.ID)
+	}
+	if !validSourceAttribution(item.SourceAttribution) {
+		return fmt.Errorf("invalid item %d: invalid source attribution", item.ID)
+	}
+	switch item.RecordType {
+	case domain.HistoryRecordContent:
+		validHash := item.ContentSHA256 != nil && validContentSHA256(*item.ContentSHA256)
+		validLengths := item.ByteLen == len([]byte(item.Text)) && item.CharLen == textRuneLen(item.Text)
+		if item.Format == domain.FormatImageFile {
+			validLengths = item.ByteLen > 0 && item.CharLen == 0 && validateManagedImageStoredPath(item.Text) == nil
+		} else if validHash {
+			validHash = *item.ContentSHA256 == hashString(item.Text)
+		}
+		if !validHash || strings.IndexByte(item.Text, 0) >= 0 ||
+			!validLengths ||
+			!domain.ValidContentKindFormat(item.Kind, item.Format) || item.EventCode != "" ||
+			item.EventFingerprint != "" || item.CaptureSequence != 0 || item.CaptureStage != "" ||
+			item.CaptureAttempts != 0 || len(item.EventFormats) != 0 || item.ErrorCategory != "" ||
+			item.OccurrenceCount != 0 || !item.FirstOccurredAt.IsZero() || !item.LastOccurredAt.IsZero() {
+			return fmt.Errorf("invalid item %d: inconsistent content record", item.ID)
+		}
+	case domain.HistoryRecordEvent:
+		expectedFingerprint := buildEventFingerprintFromInfo(item.EventCode, item.EventFormats,
+			item.CaptureStage, item.ErrorCategory, item.SourceExeName)
+		if item.ContentSHA256 != nil || item.ConsecutiveDuplicate || item.Text != "" || item.Kind != "" || item.Format != "" ||
+			item.ByteLen != 0 || item.CharLen != 0 || item.Starred || item.Sensitive ||
+			!domain.ValidEventCode(item.EventCode) || item.EventFingerprint != expectedFingerprint || item.CaptureAttempts < 0 ||
+			!validImportedEventOccurrence(item) {
+			return fmt.Errorf("invalid item %d: inconsistent event record", item.ID)
+		}
+	default:
+		return fmt.Errorf("invalid item %d: invalid record type", item.ID)
+	}
+	return nil
+}
+
+// Event occurrence fields are a read-model projection. Raw XLSX rows omit
+// them, while the shared JSON history DTO renders a raw event as one
+// occurrence at CreatedAt. Neither representation is persisted during import;
+// reject every other shape so grouped API results cannot masquerade as raw
+// export rows.
+func validImportedEventOccurrence(item StoredItem) bool {
+	if item.OccurrenceCount == 0 {
+		return item.FirstOccurredAt.IsZero() && item.LastOccurredAt.IsZero()
+	}
+	return item.OccurrenceCount == 1 &&
+		item.FirstOccurredAt.Equal(item.CreatedAt) && item.LastOccurredAt.Equal(item.CreatedAt)
+}
+
+func validSourceAttribution(attribution string) bool {
+	switch attribution {
+	case "clipboard_owner", "foreground", "unknown":
+		return true
+	default:
+		return false
+	}
 }
 
 func escapeLike(s string) string {

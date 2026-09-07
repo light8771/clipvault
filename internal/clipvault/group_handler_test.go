@@ -90,7 +90,7 @@ func TestItemGroupHandlersRequireSecondaryAuthorizationForSensitiveItems(t *test
 	}
 	defer store.Close()
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "sensitive", Sensitive: true,
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "sensitive", Sensitive: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

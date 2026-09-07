@@ -103,13 +103,11 @@ func (sw *searchWindow) drawSearchButton(lParam uintptr) bool {
 		brush = sw.closeBrush
 		labelText = "X"
 		textColor = searchColorText
-	case idcSearchFilterDup, idcSearchFilterUnavail:
-		// 过滤开关：文本取自控件当前标题（含 ●/○ 状态前缀），开启时高亮。
+	case idcSearchFilterConsecutiveDuplicates:
 		labelText = windowTextString(item.hwndItem)
-		on := strings.HasPrefix(labelText, "●")
 		brush = sw.surfaceBrush
 		textColor = searchColorSubtle
-		if on {
+		if strings.HasPrefix(labelText, "●") {
 			textColor = searchColorAccent
 		}
 	default:

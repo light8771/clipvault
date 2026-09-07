@@ -181,6 +181,7 @@ func TestLayoutConfigRequiresStableFields(t *testing.T) {
 		{"appearance", []string{"preset", "mode", "primary", "accent", "fontScale", "surfaceOpacity"}},
 		{"navigation", []string{"sticky", "blur", "opacity", "divider"}},
 		{"historyPage", []string{"layout", "columns", "forceColumns", "contentWidthMode", "contentWidth", "horizontalPadding", "cardGap", "previewLines", "fixedPreview"}},
+		{"popup", []string{"hideConsecutiveDuplicates", "keyOpen", "keyRestore", "keyPaste"}},
 	} {
 		for _, key := range section.required {
 			var asMap map[string]any
@@ -206,29 +207,8 @@ func TestLayoutConfigRequiresStableFields(t *testing.T) {
 	}
 }
 
-// 旧版本把外观、导航栏与历史页布局混在 theme 对象里；加载旧配置时必须
-// 一次性迁移为 appearance/navigation/historyPage，且不再保留 theme 键。
-func TestLegacyThemeConfigMigration(t *testing.T) {
-	legacy := map[string]any{
-		"theme": map[string]any{
-			"preset":              "ocean",
-			"mode":                "dark",
-			"primary":             "#2563EB",
-			"accent":              "#F59E0B",
-			"fontScale":           120,
-			"surfaceOpacity":      90,
-			"layout":              "sidebar",
-			"historyColumns":      "3",
-			"historyForceColumns": true,
-			"previewLines":        5,
-			"navOpacity":          40,
-			"navBlur":             8,
-			"navBorder":           false,
-			"navSticky":           false,
-		},
-	}
-	base := DefaultConfig()
-	data, err := json.Marshal(base)
+func TestLegacyThemeConfigIsRejected(t *testing.T) {
+	data, err := json.Marshal(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,54 +216,15 @@ func TestLegacyThemeConfigMigration(t *testing.T) {
 	if err := json.Unmarshal(data, &asMap); err != nil {
 		t.Fatal(err)
 	}
-	asMap["theme"] = legacy["theme"]
-	delete(asMap, "appearance")
-	delete(asMap, "navigation")
-	delete(asMap, "historyPage")
+	asMap["theme"] = map[string]any{"preset": "ocean", "layout": "sidebar"}
 	legacyData, err := json.Marshal(asMap)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var cfg Config
-	if err := cfg.UnmarshalJSON(legacyData); err != nil {
-		t.Fatalf("legacy theme config rejected: %v", err)
-	}
-	if cfg.Appearance != (AppearanceSettings{Preset: "ocean", Mode: "dark", Primary: "#2563EB", Accent: "#F59E0B", FontScale: 120, SurfaceOpacity: 90}) {
-		t.Fatalf("appearance migration mismatch: %#v", cfg.Appearance)
-	}
-	if cfg.Navigation != (NavigationSettings{Sticky: false, Blur: 8, Opacity: 40, Divider: false}) {
-		t.Fatalf("navigation migration mismatch: %#v", cfg.Navigation)
-	}
-	if cfg.HistoryPage.Layout != "left-right" {
-		t.Fatalf("legacy sidebar layout must migrate to left-right: %#v", cfg.HistoryPage)
-	}
-	if cfg.HistoryPage.Columns != 3 || !cfg.HistoryPage.ForceColumns || cfg.HistoryPage.PreviewLines != 5 {
-		t.Fatalf("history page migration mismatch: %#v", cfg.HistoryPage)
-	}
-	def := base.HistoryPage
-	if cfg.HistoryPage.ContentWidthMode != def.ContentWidthMode || cfg.HistoryPage.ContentWidth != def.ContentWidth {
-		t.Fatalf("new history fields must default during migration: %#v", cfg.HistoryPage)
-	}
-
-	// 迁移后再序列化：不再输出 theme 键，且 reconfigure 循环保持稳定。
-	roundTripped, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var asMap2 map[string]any
-	if err := json.Unmarshal(roundTripped, &asMap2); err != nil {
-		t.Fatal(err)
-	}
-	if _, exists := asMap2["theme"]; exists {
-		t.Fatalf("theme key must not survive migration: %#v", asMap2)
-	}
-	var cfg2 Config
-	if err := cfg2.UnmarshalJSON(roundTripped); err != nil {
-		t.Fatalf("migrated config failed to reload: %v", err)
-	}
-	if cfg2.Appearance != cfg.Appearance || cfg2.Navigation != cfg.Navigation || cfg2.HistoryPage != cfg.HistoryPage {
-		t.Fatalf("migration round-trip mismatch: %#v", cfg2)
+	if err := cfg.UnmarshalJSON(legacyData); err == nil {
+		t.Fatal("obsolete theme config was accepted")
 	}
 }
 

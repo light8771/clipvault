@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // handleFileCheck checks if a file exists and returns its metadata.
@@ -117,7 +119,7 @@ func (s *SearchServer) handleItemImage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if item.Format != "CLIPVAULT_IMAGE_FILE" || !item.ContentAvailable {
+	if item.RecordType != domain.HistoryRecordContent || item.Format != domain.FormatImageFile {
 		s.writeAPIError(w, http.StatusBadRequest, "not_image", s.i18nT("api.error.not_managed_image", nil), nil)
 		return
 	}
@@ -148,8 +150,8 @@ func (s *SearchServer) handleItemCopyText(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if !item.ContentAvailable {
-		s.writeAPIError(w, http.StatusBadRequest, "content_unavailable", s.i18nT("history.unavailable_content", nil), nil)
+	if item.RecordType != domain.HistoryRecordContent {
+		s.writeAPIError(w, http.StatusBadRequest, "content_unavailable", s.i18nT("history.content_action_unavailable", nil), nil)
 		return
 	}
 	text := item.Text

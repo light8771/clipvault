@@ -85,6 +85,7 @@ type MCPService struct {
 	// auditMu 保证"向 auditCh 发送"与"关闭 auditCh"互斥（同 DataAPIService）。
 	auditMu     sync.RWMutex
 	auditClosed bool
+	lastUsed    *tokenLastUsedWorker
 
 	activeQueries  atomic.Int64
 	requestsTotal  atomic.Int64
@@ -110,6 +111,7 @@ func NewMCPService(cfgMgr *ConfigManager, readSvc *ExternalReadService, store *S
 		auditDone:   make(chan struct{}),
 	}
 	svc.activatedFn = func() bool { return !FreeTierRestriction(env) }
+	svc.lastUsed = newTokenLastUsedWorker(store.TouchAPITokenLastUsed)
 	go svc.auditWriterLoop()
 	return svc
 }
@@ -152,7 +154,7 @@ func (svc *MCPService) startLocked(addr string) error {
 	})
 	mux := http.NewServeMux()
 	mux.Handle(mcpEndpointPath, svc.wrapMCP(sdkHandler))
-	svc.server = &http.Server{
+	server := &http.Server{
 		Handler:           svc.recoverMiddleware(svc.secureHeaders(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -160,15 +162,18 @@ func (svc *MCPService) startLocked(addr string) error {
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    16 << 10,
 	}
+	svc.server = server
 	svc.listen = addr
 	svc.running = true
 	svc.bindError = ""
 	go func() {
-		if err := svc.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			svc.logger.Error("mcp_server_failed", err, map[string]any{"addr": addr})
 			svc.mu.Lock()
-			svc.running = false
-			svc.bindError = err.Error()
+			if svc.server == server {
+				svc.running = false
+				svc.bindError = err.Error()
+			}
 			svc.mu.Unlock()
 		}
 	}()
@@ -180,6 +185,8 @@ func (svc *MCPService) startLocked(addr string) error {
 func (svc *MCPService) stopLocked() {
 	if svc.server == nil {
 		svc.running = false
+		svc.listen = ""
+		svc.bindError = ""
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -190,6 +197,7 @@ func (svc *MCPService) stopLocked() {
 	svc.server = nil
 	svc.running = false
 	svc.listen = ""
+	svc.bindError = ""
 	svc.logger.Info("mcp_stopped", nil)
 }
 
@@ -224,6 +232,7 @@ func (svc *MCPService) Close() {
 	svc.mu.Lock()
 	svc.stopLocked()
 	svc.mu.Unlock()
+	svc.lastUsed.Close()
 	svc.auditClose.Do(func() {
 		svc.auditMu.Lock()
 		svc.auditClosed = true
@@ -350,12 +359,8 @@ func (svc *MCPService) authenticate(r *http.Request) (*APIToken, *mcpError) {
 			return nil, newMCPError(http.StatusInternalServerError, "internal_error", "Internal server error.")
 		}
 	}
-	// 最后访问时间异步更新，不阻塞请求。
-	go func(id int64, ts int64) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = svc.store.TouchAPITokenLastUsed(ctx, id, ts)
-	}(token.ID, time.Now().UTC().UnixMilli())
+	// 最后访问时间进入有界后台队列，不在请求量上派生 goroutine。
+	svc.lastUsed.Submit(token.ID, time.Now().UTC().UnixMilli())
 	return &token, nil
 }
 

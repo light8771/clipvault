@@ -26,6 +26,11 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	secondaryReadable := !s.auth.HasSecondaryPassword(cfg) || s.auth.HasSecondaryAuth(token)
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	kind := r.URL.Query().Get("kind")
+	recordType, includeAllRecords, err := parseRecordTypeFilter(r.URL.Query().Get("record_type"))
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_record_type", s.i18nT("api.error.invalid_search_parameters", nil), err)
+		return
+	}
 	starredOnly, err := parseOptionalFlag(r.URL.Query().Get("starred"), "starred")
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_starred_filter", s.i18nT("api.error.invalid_starred_filter", nil), err)
@@ -38,15 +43,20 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_date_range", s.i18nT("api.error.invalid_date_range", nil), err)
 		return
 	}
+	// Selecting a record projection is not a content oracle. In particular,
+	// record_type=content is exactly the default view and must not change
+	// sensitive-row visibility merely because the caller made it explicit.
 	hasContentOracleFilter := query != "" || kind != "" || starredOnly || dateFrom != "" || dateTo != "" || groupID != 0 || len(sourceExeNames) != 0
 	opts := SearchOptions{
-		Query:           query,
-		Limit:           limit,
-		Offset:          offset,
-		StarredOnly:     starredOnly,
-		Kind:            kind,
-		CreatedFromMS:   createdFromMS,
-		CreatedBeforeMS: createdBeforeMS,
+		Query:             query,
+		Limit:             limit,
+		Offset:            offset,
+		StarredOnly:       starredOnly,
+		Kind:              kind,
+		RecordType:        recordType,
+		IncludeAllRecords: includeAllRecords,
+		CreatedFromMS:     createdFromMS,
+		CreatedBeforeMS:   createdBeforeMS,
 
 		IncludeSensitive: secondaryReadable || !hasContentOracleFilter,
 		GroupID:          groupID,
@@ -57,7 +67,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
 		opts.RestrictToLatestN = FreeTierVisibleLimit
-		if ft, err := s.store.CountAll(r.Context()); err == nil {
+		if ft, err := s.store.CountHistoryProjection(r.Context(), recordType, includeAllRecords); err == nil {
 			resp["fullTotal"] = ft
 		}
 	}
@@ -69,6 +79,9 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
 		for i := range items {
+			// Adjacency to a hidden sensitive predecessor is itself sensitive:
+			// true would reveal that both rows have identical content.
+			items[i].ConsecutiveDuplicate = false
 			if !items[i].Sensitive {
 				continue
 			}
@@ -78,24 +91,24 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 			// 旁信道（例如"来自密码管理器的 24 字符记录"本身即泄露）。
 			items[i].Text = s.i18nT("api.error.sensitive_placeholder", nil)
 			items[i].MetaJSON = ""
-			items[i].SHA256 = ""
+			items[i].ContentSHA256 = nil
 			items[i].Format = ""
 			items[i].ByteLen = 0
 			items[i].CharLen = 0
 			items[i].SourceExeName = ""
 			items[i].SourceExePath = ""
 			items[i].SourceWindowTitle = ""
-			items[i].SourceMethod = ""
-			items[i].IsDuplicate = false
-			items[i].UnavailableReason = ""
-			items[i].ContentAvailable = true
+			items[i].SourceAttribution = ""
+			items[i].EventCode = ""
+			items[i].EventFingerprint = ""
+			items[i].EventFormats = nil
 		}
 	}
 	resp["items"] = items
 	resp["total"] = total
 	if query != "" && s.store != nil {
 		if err := s.store.LogSearchQuery(r.Context(), query,
-			searchHistoryFilters(kind, starredOnly, groupID, dateFrom, dateTo, sourceExeNames), int64(total)); err != nil {
+			searchHistoryFilters(kind, recordType, starredOnly, groupID, dateFrom, dateTo, sourceExeNames), int64(total)); err != nil {
 			s.logger.Warn("search_history_log_failed", map[string]any{"error": err.Error()})
 		}
 	}
@@ -105,7 +118,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 // searchHistoryFilters 把搜索条件汇总为「标签 key → 值 key/原始值」的
 // 展示用 map，与搜索历史记录一起落库。key 是 shlog.filter.* 词条 key，
 // 由前端展示时翻译——与操作记录同理由：持久化数据不落语言相关文案。
-func searchHistoryFilters(kind string, starredOnly bool, groupID int64, dateFrom, dateTo string, sourceExeNames []string) map[string]string {
+func searchHistoryFilters(kind string, recordType domain.HistoryRecordType, starredOnly bool, groupID int64, dateFrom, dateTo string, sourceExeNames []string) map[string]string {
 	filters := map[string]string{}
 	var kindTranslationKey string
 	switch kind {
@@ -121,13 +134,14 @@ func searchHistoryFilters(kind string, starredOnly bool, groupID int64, dateFrom
 		kindTranslationKey = "history.kind_office"
 	case domain.KindFiles:
 		kindTranslationKey = "history.kind_files"
-	case domain.KindOther:
-		kindTranslationKey = "history.kind_other"
 	}
 	if kindTranslationKey != "" {
 		filters["shlog.filter.kind"] = kindTranslationKey
 	} else if kind != "" {
 		filters["shlog.filter.kind"] = kind
+	}
+	if recordType == domain.HistoryRecordEvent {
+		filters["shlog.filter.kind"] = "history.kind_events"
 	}
 	if starredOnly {
 		filters["shlog.filter.starred"] = "shlog.filter.starred_only"
@@ -144,15 +158,38 @@ func searchHistoryFilters(kind string, starredOnly bool, groupID int64, dateFrom
 	return filters
 }
 
+func parseRecordTypeFilter(raw string) (domain.HistoryRecordType, bool, error) {
+	switch raw {
+	case "":
+		return "", false, nil
+	case string(domain.HistoryRecordContent):
+		return domain.HistoryRecordContent, false, nil
+	case string(domain.HistoryRecordEvent):
+		return domain.HistoryRecordEvent, false, nil
+	case "all":
+		return "", true, nil
+	default:
+		return "", false, fmt.Errorf("invalid record_type")
+	}
+}
+
 // handleSourceExes 返回所有来源应用（原始 exe 名）及其记录数，供搜索下拉与别名/白名单编辑使用。
 func (s *SearchServer) handleSourceExes(w http.ResponseWriter, r *http.Request) {
+	recordType, includeAllRecords, err := parseRecordTypeFilter(r.URL.Query().Get("record_type"))
+	if err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_record_type", s.i18nT("api.error.invalid_search_parameters", nil), err)
+		return
+	}
+	if recordType == "" && !includeAllRecords {
+		recordType = domain.HistoryRecordContent
+	}
 	cfg := s.cfgMgr.Get()
 	includeSensitive := !s.auth.HasSecondaryPassword(cfg) || s.auth.HasSecondaryAuth(GetSessionToken(r))
 	restrictToLatestN := 0
 	if s.license != nil && !s.license.CanUsePaidFeatures() {
 		restrictToLatestN = FreeTierVisibleLimit
 	}
-	stats, err := s.store.SourceExeStatsFiltered(r.Context(), includeSensitive, restrictToLatestN)
+	stats, err := s.store.SourceExeStatsFiltered(r.Context(), recordType, includeSensitive, restrictToLatestN)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -264,6 +301,7 @@ func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Requ
 		CreatedFromMS:   createdFromMS,
 		CreatedBeforeMS: createdBeforeMS,
 		SensitiveOnly:   true,
+		RecordType:      domain.HistoryRecordContent,
 		GroupID:         groupID,
 
 		SourceExeNames: sourceExeNames,

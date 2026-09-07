@@ -81,13 +81,11 @@ const (
 
 	gwlpWndProc = uintptr(^uintptr(0) - 3) // -4 as uintptr (two's complement)
 
-	idcSearchEdit  = 2001
-	idcSearchList  = 2002
-	idcSearchClose = 2004
-	idcSearchClear = 2005
-
-	idcSearchFilterDup     = 2006
-	idcSearchFilterUnavail = 2007
+	idcSearchEdit                        = 2001
+	idcSearchList                        = 2002
+	idcSearchClose                       = 2004
+	idcSearchClear                       = 2005
+	idcSearchFilterConsecutiveDuplicates = 2006
 
 	searchDebounceTimerID = 1
 	searchDebounceDelay   = 80
@@ -144,26 +142,24 @@ type searchWindow struct {
 	cfgMgr    *ConfigManager
 	dataDir   string
 
-	hwnd       uintptr
-	hEdit      uintptr
-	hList      uintptr
-	hHeader    uintptr
-	hEmpty     uintptr
-	hFilterDup uintptr
-	hFilterUn  uintptr
-	oldEdit    uintptr      // 原始 edit 控件 wndproc
-	items      []StoredItem // 当前 listbox 对应的搜索结果
-	prevHwnd   uintptr      // 弹窗打开前的前台窗口（粘贴目标）
+	hwnd                         uintptr
+	hEdit                        uintptr
+	hList                        uintptr
+	hHeader                      uintptr
+	hEmpty                       uintptr
+	hFilterConsecutiveDuplicates uintptr
+	oldEdit                      uintptr      // 原始 edit 控件 wndproc
+	items                        []StoredItem // 当前 listbox 对应的搜索结果
+	prevHwnd                     uintptr      // 弹窗打开前的前台窗口（粘贴目标）
 
-	// 弹窗内显示过滤与三动作快捷键（来自系统配置 popup.*）。
-	hideDuplicates  bool
-	hideUnavailable bool
-	keyOpenMods     int
-	keyRestoreMods  int
-	keyPasteMods    int
-	keyOpenLabel    string
-	keyRestoreLabel string
-	keyPasteLabel   string
+	// 弹窗内正文过滤与三动作快捷键（来自系统配置 popup.*）。
+	hideConsecutiveDuplicates bool
+	keyOpenMods               int
+	keyRestoreMods            int
+	keyPasteMods              int
+	keyOpenLabel              string
+	keyRestoreLabel           string
+	keyPasteLabel             string
 
 	mu              sync.Mutex
 	closed          bool
@@ -183,9 +179,8 @@ type searchResult struct {
 	query string
 }
 
-// filterToggleLabel 生成过滤开关按钮文本（开启时带 ● 前缀）。
-func (sw *searchWindow) filterToggleLabel(name string, on bool) string {
-	if on {
+func filterToggleLabel(name string, enabled bool) string {
+	if enabled {
 		return "● " + name
 	}
 	return "○ " + name
@@ -254,8 +249,7 @@ func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger, licen
 	}
 	if cfgMgr != nil {
 		popup := cfgMgr.Get().Popup
-		sw.hideDuplicates = popup.HideDuplicates
-		sw.hideUnavailable = popup.HideUnavailable
+		sw.hideConsecutiveDuplicates = popup.HideConsecutiveDuplicates
 		sw.keyOpenMods, _ = parsePopupKeyBinding(popup.KeyOpen)
 		sw.keyRestoreMods, _ = parsePopupKeyBinding(popup.KeyRestore)
 		sw.keyPasteMods, _ = parsePopupKeyBinding(popup.KeyPaste)
@@ -361,6 +355,17 @@ func (sw *searchWindow) run() {
 		528, 69, 24, 24,
 		hwnd, uintptr(idcSearchClear), instance, 0,
 	)
+	filterLabel, _ := syscall.UTF16PtrFromString(filterToggleLabel(
+		sw.t("swindow.filter_consecutive_duplicates", nil), sw.hideConsecutiveDuplicates,
+	))
+	sw.hFilterConsecutiveDuplicates, _, _ = procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(btnCls)),
+		uintptr(unsafe.Pointer(filterLabel)),
+		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		460, 12, 168, 24,
+		hwnd, uintptr(idcSearchFilterConsecutiveDuplicates), instance, 0,
+	)
 	procCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
@@ -368,25 +373,6 @@ func (sw *searchWindow) run() {
 		uintptr(wsChild|wsVisible|bsOwnerDraw),
 		568, 64, 92, 34,
 		hwnd, 2003, instance, 0,
-	)
-	// 显示过滤开关（重复事件 / 无内容记录），初始状态来自系统配置 popup.*。
-	dupLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_dup", nil), sw.hideDuplicates))
-	sw.hFilterDup, _, _ = procCreateWindowExW.Call(
-		0,
-		uintptr(unsafe.Pointer(btnCls)),
-		uintptr(unsafe.Pointer(dupLabel)),
-		uintptr(wsChild|wsVisible|bsOwnerDraw),
-		420, 12, 100, 24,
-		hwnd, uintptr(idcSearchFilterDup), instance, 0,
-	)
-	unLabel, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_unavail", nil), sw.hideUnavailable))
-	sw.hFilterUn, _, _ = procCreateWindowExW.Call(
-		0,
-		uintptr(unsafe.Pointer(btnCls)),
-		uintptr(unsafe.Pointer(unLabel)),
-		uintptr(wsChild|wsVisible|bsOwnerDraw),
-		528, 12, 100, 24,
-		hwnd, uintptr(idcSearchFilterUnavail), instance, 0,
 	)
 	sw.hList, _, _ = procCreateWindowExW.Call(
 		0,

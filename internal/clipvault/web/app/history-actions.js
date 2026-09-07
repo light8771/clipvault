@@ -44,24 +44,19 @@ export function registerHistoryActions() {
     }
   };
   app.doCopy = app.copyItemToClipboard;
-  app.doDelete = async function doDelete(id, art) {
+  app.doDelete = async function doDelete(id) {
+    const item = app.items.get(id);
+    if (!item) return;
     try {
       const res = await app.authorizedItemFetch(id, '/api/v1/items?id=' + id, {
         method: 'DELETE'
       });
       if (!res.ok) throw 0;
-      art.style.transition = 'opacity .18s, transform .18s';
-      art.style.opacity = '0';
-      art.style.transform = 'translateX(12px)';
-      setTimeout(() => art.remove(), 200);
-      app.items.delete(id);
-      // 同步递减计数并复用 updatePagination 统一刷新「N 条结果」、badge
-      // （badge 有 license 全量转化逻辑，不能手工赋值为当前页 items.size）
-      // 与分页按钮状态，避免删除后刷新前计数滞后。
-      app.totalCount = Math.max(0, app.totalCount - 1);
-      app.fullTotalCount = Math.max(0, app.fullTotalCount - 1);
-      app.updatePagination();
+      // Grouped events can keep, remove, or even split their projected row
+      // after one raw occurrence is deleted. Rebuild from the authoritative
+      // query instead of guessing the resulting total in the browser.
       app.toast(t('history.deleted'));
+      await app.search();
     } catch (_) {
       app.toast(t('common.delete_failed'), 'err');
     }
@@ -97,7 +92,7 @@ export function registerHistoryActions() {
     const item = app.items.get(id);
     if (!item) return;
     app.currentModalId = id;
-    const kindKey = item.kind || 'text';
+    let resolvedItem = item;
     let displayText = item.text;
     if (item.sensitive) {
       try {
@@ -105,14 +100,23 @@ export function registerHistoryActions() {
         const res = await app.authorizedItemFetch(id, url);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const d = await res.json();
-        if (d.item && d.item.text) {
-          displayText = d.item.text;
+        if (d.item) {
+          resolvedItem = d.item;
+          if (typeof d.item.text === 'string') displayText = d.item.text;
         }
       } catch (_) {
         app.toast(t('history.sensitive_load_failed'), 'err');
         return;
       }
     }
+    // The ordinary list response intentionally redacts a locked sensitive
+    // item's format. Decide whether it is a managed image only after the
+    // authorized item response restores the canonical format.
+    if (app.isManagedImage(resolvedItem)) {
+      await app.doViewManagedImage(id);
+      return;
+    }
+    const kindKey = resolvedItem.kind || 'text';
     if (app.isNonTextKind(kindKey)) {
       const paths = displayText.split('\n').filter(Boolean);
       app.MODAL_TITLE.textContent = t('history.file_list_title', { id: id });
@@ -179,19 +183,11 @@ export function registerHistoryActions() {
     archive: 'history.kind_archive',
     office: 'history.kind_office',
     files: 'history.kind_files',
-    other: 'history.kind_other'
-  };
-  // 内容不可用原因；值为 i18n key。
-  app.UNAVAILABLE_LABEL_KEY = {
-    clipboard_empty: 'history.unavail_clipboard_empty',
-    unsupported_format: 'history.unavail_format',
-    text_limit_exceeded: 'history.unavail_text_limit',
-    image_limit_exceeded: 'history.unavail_image_limit',
-    read_failed: 'history.unavail_read_failed'
+    event: 'history.kind_events'
   };
   app.sensBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
   app.isManagedImage = function isManagedImage(it) {
-    return !!it && it.format === 'CLIPVAULT_IMAGE_FILE' && it.contentAvailable !== false;
+    return !!it && it.recordType === 'content' && it.format === 'CLIPVAULT_IMAGE_FILE';
   };
   app.loadManagedImage = async function loadManagedImage(img, itemId) {
     if (!img) return;

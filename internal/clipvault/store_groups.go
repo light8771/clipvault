@@ -208,7 +208,7 @@ func (s *Store) AddItemToGroup(ctx context.Context, itemID, groupID int64) error
 	result, err := tx.ExecContext(ctx, `INSERT INTO item_groups (item_id, group_id)
 		SELECT items.id, groups.id
 		FROM clipboard_items AS items, groups
-		WHERE items.id = ? AND groups.id = ?
+		WHERE items.id = ? AND items.record_type = 'content' AND groups.id = ?
 		ON CONFLICT DO NOTHING`, itemID, groupID)
 	if err != nil {
 		return err

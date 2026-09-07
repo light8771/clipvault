@@ -19,8 +19,9 @@ import (
 )
 
 type Store struct {
-	db    *sql.DB
-	dbKey []byte
+	db      *sql.DB
+	dbKey   []byte
+	dataDir string
 }
 
 var (
@@ -37,6 +38,11 @@ const maxGroupNameRunes = 100
 // FreeTierVisibleLimit 是未激活（免费版）可浏览/检索的最近记录条数。
 // 数据照常录制入库；未激活时所有读取入口（列表、搜索、弹窗）只作用于这个窗口。
 const FreeTierVisibleLimit = domain.FreeTierVisibleLimit
+
+const (
+	RecordTypeContent = domain.HistoryRecordContent
+	RecordTypeEvent   = domain.HistoryRecordEvent
+)
 
 // 业务模型的唯一定义在 internal/clipvault/domain；根包只保留别名，
 // 历史调用点无需改动，也避免再次出现双份定义漂移。
@@ -71,22 +77,77 @@ type BackupHistory struct {
 // clipboardItemColumns 是 clipboard_items 行查询的统一列清单，
 // Search/GetByID/exportAll/exportItemsQuery 共用，防止多处列清单漂移。
 // 扫描顺序必须与 scanStoredItem 一致。
-const clipboardItemColumns = `id, created_at, kind, format, text, byte_len, char_len, sha256, CAST(meta_json AS VARCHAR), starred, sensitive, ` +
-	`content_available, is_duplicate, unavailable_reason, ` +
-	`source_exe_name, source_exe_path, source_window_title, source_method`
+const clipboardItemColumns = `id, created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, ` +
+	`CAST(meta_json AS VARCHAR), starred, sensitive, event_code, event_fingerprint, capture_sequence, ` +
+	`capture_stage, capture_attempts, CAST(event_formats AS VARCHAR), error_category, ` +
+	`source_exe_name, source_exe_path, source_window_title, source_attribution`
+
+const clipboardItemColumnsAliased = `i.id, i.created_at, i.record_type, i.kind, i.format, i.text, i.byte_len, i.char_len, i.content_sha256, i.consecutive_duplicate, ` +
+	`CAST(i.meta_json AS VARCHAR), i.starred, i.sensitive, i.event_code, i.event_fingerprint, i.capture_sequence, ` +
+	`i.capture_stage, i.capture_attempts, CAST(i.event_formats AS VARCHAR), i.error_category, ` +
+	`i.source_exe_name, i.source_exe_path, i.source_window_title, i.source_attribution`
 
 // rowScanner 同时抽象 *sql.Row 与 *sql.Rows 的 Scan。
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanStoredItem(row rowScanner, item *StoredItem) error {
-	var createdAtMS int64
-	if err := row.Scan(&item.ID, &createdAtMS, &item.Kind, &item.Format, &item.Text,
-		&item.ByteLen, &item.CharLen, &item.SHA256, &item.MetaJSON, &item.Starred, &item.Sensitive,
-		&item.ContentAvailable, &item.IsDuplicate, &item.UnavailableReason,
-		&item.SourceExeName, &item.SourceExePath, &item.SourceWindowTitle, &item.SourceMethod); err != nil {
+	state := storedItemScanState{}
+	if err := row.Scan(storedItemScanDest(item, &state)...); err != nil {
 		return err
 	}
-	item.CreatedAt = time.UnixMilli(createdAtMS).UTC()
+	return finishStoredItemScan(item, state)
+}
+
+type storedItemScanState struct {
+	createdAtMS      int64
+	contentHash      sql.NullString
+	eventCode        sql.NullString
+	eventFingerprint sql.NullString
+	captureSequence  uint64
+	eventFormatsJSON string
+}
+
+func storedItemScanDest(item *StoredItem, state *storedItemScanState) []any {
+	return []any{
+		&item.ID, &state.createdAtMS, &item.RecordType, &item.Kind, &item.Format, &item.Text,
+		&item.ByteLen, &item.CharLen, &state.contentHash, &item.ConsecutiveDuplicate,
+		&item.MetaJSON, &item.Starred, &item.Sensitive,
+		&state.eventCode, &state.eventFingerprint, &state.captureSequence, &item.CaptureStage,
+		&item.CaptureAttempts, &state.eventFormatsJSON, &item.ErrorCategory, &item.SourceExeName,
+		&item.SourceExePath, &item.SourceWindowTitle, &item.SourceAttribution,
+	}
+}
+
+func finishStoredItemScan(item *StoredItem, state storedItemScanState) error {
+	if state.contentHash.Valid {
+		item.ContentSHA256 = &state.contentHash.String
+	}
+	if state.eventCode.Valid {
+		item.EventCode = domain.ClipboardEventCode(state.eventCode.String)
+	}
+	if state.eventFingerprint.Valid {
+		item.EventFingerprint = state.eventFingerprint.String
+	}
+	item.CaptureSequence = uint32(state.captureSequence)
+	if err := json.Unmarshal([]byte(state.eventFormatsJSON), &item.EventFormats); err != nil {
+		return fmt.Errorf("decode event formats: %w", err)
+	}
+	item.CreatedAt = time.UnixMilli(state.createdAtMS).UTC()
+	return nil
+}
+
+func scanGroupedEvent(row rowScanner, item *StoredItem) error {
+	state := storedItemScanState{}
+	var firstOccurredMS, lastOccurredMS int64
+	dest := append(storedItemScanDest(item, &state), &item.OccurrenceCount, &firstOccurredMS, &lastOccurredMS)
+	if err := row.Scan(dest...); err != nil {
+		return err
+	}
+	if err := finishStoredItemScan(item, state); err != nil {
+		return err
+	}
+	item.FirstOccurredAt = time.UnixMilli(firstOccurredMS).UTC()
+	item.LastOccurredAt = time.UnixMilli(lastOccurredMS).UTC()
 	return nil
 }
 
@@ -103,14 +164,14 @@ type StoreOptions struct {
 // protects it with DPAPI, writes the key file, and creates the database.
 // On subsequent runs, it reads the key file, DPAPI-decrypts the key, and opens the db.
 func OpenStore(opts StoreOptions) (*Store, error) {
-	return openStoreDirectory(activeDatabaseDirectory(opts.DataDir), (*Store).initializeSchema)
+	return openStoreDirectory(opts.DataDir, activeDatabaseDirectory(opts.DataDir), (*Store).initializeSchema)
 }
 
 func openStore(opts StoreOptions, initializeSchema func(*Store) error) (_ *Store, err error) {
-	return openStoreDirectory(activeDatabaseDirectory(opts.DataDir), initializeSchema)
+	return openStoreDirectory(opts.DataDir, activeDatabaseDirectory(opts.DataDir), initializeSchema)
 }
 
-func openStoreDirectory(databaseDir string, initializeSchema func(*Store) error) (_ *Store, err error) {
+func openStoreDirectory(dataDir, databaseDir string, initializeSchema func(*Store) error) (_ *Store, err error) {
 	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir database dir: %w", err)
 	}
@@ -175,7 +236,7 @@ func openStoreDirectory(databaseDir string, initializeSchema func(*Store) error)
 		return nil, fmt.Errorf("USE vault: %w", err)
 	}
 
-	store := &Store{db: db, dbKey: dbKey}
+	store := &Store{db: db, dbKey: dbKey, dataDir: filepath.Clean(dataDir)}
 	if newStore {
 		err = initializeSchema(store)
 	} else {

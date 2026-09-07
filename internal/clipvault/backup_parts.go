@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"clipboard_ext/internal/clipvault/transfer"
 )
 
 // exportEmailParts exports data split into multiple self-contained parts (one per
@@ -111,6 +113,11 @@ func (bs *BackupService) exportEmailPartFilesSized(cfg EmailBackupConfig, scope 
 			partScope.MaxID = endID
 			candidate, err := bs.exportEmailPartFile(format, cfg.Password, partScope)
 			if err != nil {
+				// Format limits apply before compression, independently of MIME
+				// size. Shrink this candidate; a single row cannot be split further.
+				if rows > 1 && (errors.Is(err, transfer.ErrJSONTooLarge) || errors.Is(err, errXLSXSizeLimit)) {
+					return false, nil
+				}
 				return false, err
 			}
 			size, err := emailBackupFileMessageSize(cfg, ext, time.Unix(0, 0), maxEmailParts-1, maxEmailParts, candidate.path)

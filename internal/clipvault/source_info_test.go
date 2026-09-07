@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"clipboard_ext/internal/clipvault/domain"
 	"context"
 	"encoding/json"
 	"strings"
@@ -18,12 +19,11 @@ func TestSourceInfoRoundtrip(t *testing.T) {
 
 	ctx := context.Background()
 	item := ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "source test", ByteLen: 11, CharLen: 11,
-		SHA256: "src001", MetaJSON: "{}",
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "source test", MetaJSON: "{}",
 		SourceExeName:     "notepad.exe",
 		SourceExePath:     `C:\Windows\System32\notepad.exe`,
 		SourceWindowTitle: "无标题 - 记事本",
-		SourceMethod:      "foreground",
+		SourceAttribution: "foreground",
 	}
 	if err := store.Save(ctx, item); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -38,7 +38,7 @@ func TestSourceInfoRoundtrip(t *testing.T) {
 	}
 	got := items[0]
 	if got.SourceExeName != item.SourceExeName || got.SourceExePath != item.SourceExePath ||
-		got.SourceWindowTitle != item.SourceWindowTitle || got.SourceMethod != item.SourceMethod {
+		got.SourceWindowTitle != item.SourceWindowTitle || got.SourceAttribution != item.SourceAttribution {
 		t.Fatalf("Search source fields mismatch: %#v", got)
 	}
 
@@ -46,7 +46,7 @@ func TestSourceInfoRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if byID.SourceExeName != item.SourceExeName || byID.SourceMethod != item.SourceMethod {
+	if byID.SourceExeName != item.SourceExeName || byID.SourceAttribution != item.SourceAttribution {
 		t.Fatalf("GetByID source fields mismatch: %#v", byID)
 	}
 }
@@ -62,9 +62,8 @@ func TestExportCarriesSourceFields(t *testing.T) {
 
 	ctx := context.Background()
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "export source", ByteLen: 13, CharLen: 13,
-		SHA256: "exp001", MetaJSON: "{}",
-		SourceExeName: "msedge.exe", SourceMethod: "foreground",
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "export source", MetaJSON: "{}",
+		SourceExeName: "msedge.exe", SourceAttribution: "foreground",
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -73,7 +72,7 @@ func TestExportCarriesSourceFields(t *testing.T) {
 	if len(export.Items) != 1 {
 		t.Fatalf("expected 1 exported item, got %d", len(export.Items))
 	}
-	if export.Items[0].SourceExeName != "msedge.exe" || export.Items[0].SourceMethod != "foreground" {
+	if export.Items[0].SourceExeName != "msedge.exe" || export.Items[0].SourceAttribution != "foreground" {
 		t.Fatalf("exported source fields mismatch: %#v", export.Items[0])
 	}
 
@@ -81,7 +80,7 @@ func TestExportCarriesSourceFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal export: %v", err)
 	}
-	if !strings.Contains(string(data), `"sourceExeName":"msedge.exe"`) {
+	if !strings.Contains(string(data), `"exeName":"msedge.exe"`) || !strings.Contains(string(data), `"attribution":"foreground"`) {
 		t.Fatalf("export JSON missing sourceExeName: %s", data)
 	}
 }
@@ -120,12 +119,12 @@ func TestSourceExeStats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "a", ByteLen: 1, CharLen: 1, SHA256: "s1", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "b", ByteLen: 1, CharLen: 1, SHA256: "s2", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "c", ByteLen: 1, CharLen: 1, SHA256: "s3", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "d", ByteLen: 1, CharLen: 1, SHA256: "s4", MetaJSON: "{}", SourceExeName: ""}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "a", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "b", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "c", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "d", MetaJSON: "{}", SourceExeName: ""}))
 
-	stats, err := store.SourceExeStatsFiltered(ctx, true, 0)
+	stats, err := store.SourceExeStatsFiltered(ctx, domain.HistoryRecordContent, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +136,66 @@ func TestSourceExeStats(t *testing.T) {
 	}
 	if stats[1].Name != "msedge.exe" || stats[1].Count != 1 {
 		t.Fatalf("expected second = msedge.exe count 1, got %#v", stats[1])
+	}
+}
+
+func TestSourceExeStatsFreeWindowIgnoresCaptureEvents(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	for _, item := range []ClipboardItem{
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "older", SourceExeName: "old.exe"},
+		{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "newer", SourceExeName: "visible.exe"},
+		{RecordType: RecordTypeEvent, EventCode: domain.EventClipboardEmpty},
+		{RecordType: RecordTypeEvent, EventCode: domain.EventUnsupportedFormat},
+	} {
+		if err := store.Save(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stats, err := store.SourceExeStatsFiltered(ctx, domain.HistoryRecordContent, true, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 || stats[0].Name != "visible.exe" || stats[0].Count != 1 {
+		t.Fatalf("latest-content source window was displaced by events: %#v", stats)
+	}
+}
+
+func TestSourceExeStatsFollowRecordType(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	for _, item := range []ClipboardItem{
+		{RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "body", SourceExeName: "content.exe"},
+		{RecordType: RecordTypeEvent, EventCode: domain.EventClipboardEmpty, SourceExeName: "event-only.exe"},
+		{RecordType: RecordTypeEvent, EventCode: domain.EventUnsupportedFormat, SourceExeName: "event-only.exe"},
+	} {
+		if err := store.Save(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	events, err := store.SourceExeStatsFiltered(ctx, domain.HistoryRecordEvent, true, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0] != (ExeStat{Name: "event-only.exe", Count: 2}) {
+		t.Fatalf("event source stats = %#v", events)
+	}
+	all, err := store.SourceExeStatsFiltered(ctx, "", true, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("all source stats = %#v", all)
 	}
 }
 
@@ -153,9 +212,9 @@ func TestSearchSourceExeFilter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "n1", ByteLen: 2, CharLen: 2, SHA256: "n1", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "n2", ByteLen: 2, CharLen: 2, SHA256: "n2", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "e1", ByteLen: 2, CharLen: 2, SHA256: "e1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "n1", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "n2", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "e1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 
 	only, _, err := store.Search(ctx, SearchOptions{Limit: 50, SourceExeNames: []string{"notepad.exe"}})
 	if err != nil {
@@ -192,8 +251,8 @@ func TestSearchAliasMatch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "edge content", ByteLen: 12, CharLen: 12, SHA256: "m1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "notepad content", ByteLen: 15, CharLen: 15, SHA256: "n1", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "edge content", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "notepad content", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
 
 	aliases := map[string]string{"msedge.exe": "Edge浏览器"}
 
@@ -228,7 +287,7 @@ func TestSourceExeStatsEmpty(t *testing.T) {
 	ctx := context.Background()
 
 	// 1) 根本没有记录
-	stats, err := store.SourceExeStatsFiltered(ctx, true, 0)
+	stats, err := store.SourceExeStatsFiltered(ctx, domain.HistoryRecordContent, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,9 +304,9 @@ func TestSourceExeStatsEmpty(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "x", ByteLen: 1, CharLen: 1, SHA256: "z1", MetaJSON: "{}", SourceExeName: ""}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "y", ByteLen: 1, CharLen: 1, SHA256: "z2", MetaJSON: "{}", SourceExeName: ""}))
-	stats2, err := store.SourceExeStatsFiltered(ctx, true, 0)
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "x", MetaJSON: "{}", SourceExeName: ""}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "y", MetaJSON: "{}", SourceExeName: ""}))
+	stats2, err := store.SourceExeStatsFiltered(ctx, domain.HistoryRecordContent, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,10 +328,10 @@ func TestSearchSourceExeWithOtherFilters(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "A", ByteLen: 1, CharLen: 1, SHA256: "x1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "B", ByteLen: 1, CharLen: 1, SHA256: "x2", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "C", ByteLen: 1, CharLen: 1, SHA256: "x3", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "image", Format: "CF_HDROP", Text: "D", ByteLen: 1, CharLen: 1, SHA256: "x4", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "A", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "B", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "C", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "image", Format: "CF_HDROP", Text: "D", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 
 	// 回填 starred：A、C、D 为收藏
 	all, _, err := store.Search(ctx, SearchOptions{Limit: 100, IncludeSensitive: true})
@@ -335,8 +394,8 @@ func TestSearchAliasCaseInsensitive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "hello world", ByteLen: 11, CharLen: 11, SHA256: "m1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "hello world", ByteLen: 11, CharLen: 11, SHA256: "n1", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "hello world", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "hello world", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
 
 	// 1) 自定义别名子串（不在真实名/文本中）应命中：搜索 "浏览器" → msedge
 	r1, _, err := store.Search(ctx, SearchOptions{Limit: 50, Query: "浏览器", ExeAliases: map[string]string{"msedge.exe": "Edge浏览器"}})
@@ -381,9 +440,9 @@ func TestSearchMultiTermAnd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "Edge 笔记 meeting", ByteLen: 16, CharLen: 16, SHA256: "a1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "笔记本 notes", ByteLen: 12, CharLen: 12, SHA256: "b1", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
-	must(store.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "Edge browser", ByteLen: 12, CharLen: 12, SHA256: "c1", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "Edge 笔记 meeting", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "笔记本 notes", MetaJSON: "{}", SourceExeName: "notepad.exe"}))
+	must(store.Save(ctx, ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "Edge browser", MetaJSON: "{}", SourceExeName: "msedge.exe"}))
 
 	aliases := map[string]string{"msedge.exe": "Edge浏览器"}
 	// "Edge 笔记" 两词 AND：需同时满足 → 仅 item A

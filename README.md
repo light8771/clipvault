@@ -1,12 +1,12 @@
 # ClipVault
 
-ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘运行，**事件优先**记录每一次剪贴板变化，所有历史写入**加密的 DuckDB 数据库**，并提供内置 Web 搜索与配置界面。数据库密钥通过 Windows DPAPI 保护，支持恢复密码备份与跨设备恢复。
+ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘运行，将可用正文与无正文采集事件分开记录，所有历史写入**加密的 DuckDB 数据库**，并提供内置 Web 搜索与配置界面。数据库密钥通过 Windows DPAPI 保护，支持恢复密码备份与跨设备恢复。
 
 ## 功能
 
-- **事件优先录制**：每一次剪贴板变化都必然落库——连续复制相同内容会保存多条并标记「重复」；剪贴板被清空、内容被覆盖、格式不支持、文本/图片超限时保存「无内容」事件记录（含原因与剪贴板格式清单），任何分支都不静默丢事件
+- **内容/事件分离**：成功读取的文本、图片和文件保存为正文记录；剪贴板清空、读取期间被覆盖、格式不支持或文本/图片超限时保存结构化采集事件。事件没有伪正文或空内容哈希，同类短时事件仅在查询层合并展示
 - **图片捕获**：支持 Win+Shift+S 截图、浏览器 Copy Image、微信/QQ 图片（注册 PNG / CF_DIBV5 / CF_DIB / CF_BITMAP），统一转码为托管 PNG 保存，可在历史页内联预览并恢复到剪贴板
-- **快速搜索弹窗**：`Ctrl+Shift+Space` 呼出桌面弹窗，打开即展示最近 100 条；支持「过滤重复」「过滤无内容」开关（持久化到配置）；`Enter` 浏览器打开 / `Shift+Enter` 仅恢复到剪贴板 / `Ctrl+Enter` 恢复并粘贴到之前窗口，三个动作的快捷键可自定义；双击列表恒为恢复
+- **快速搜索弹窗**：`Ctrl+Shift+Space` 呼出桌面弹窗，打开即展示最近 100 条正文记录，并可隐藏与上一条正文完全相同的连续重复项；`Enter` 浏览器打开 / `Shift+Enter` 仅恢复到剪贴板 / `Ctrl+Enter` 恢复并粘贴到之前窗口，三个动作的快捷键可自定义；双击列表恒为恢复
 - **托盘后台运行**：右键菜单支持暂停/恢复、搜索历史/设置、打开数据目录/日志目录/软件目录、开机自启动、退出
 - **全局快捷键**：`Ctrl+Alt+P` 暂停/恢复、`Ctrl+Shift+Space` 搜索弹窗（均可在 Web 设置页配置）
 - **星标收藏**：点击卡片上的 ⭐ 按钮收藏条目，支持「收藏」筛选器快速查看
@@ -22,7 +22,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 - **便携模式**：exe 同目录放置 `portable.flag` 普通文件即可切换为便携模式，数据存放在 exe 目录下
 - **日志按日期分文件**：默认写入 `%LOCALAPPDATA%\ClipVault\logs\YYYY-MM-DD.log`，可在设置中更改日志目录（重启生效）；便携模式固定写入 exe 目录下的 `logs`
 - **诊断日志**：可导出最近 7 天、最多 8 MiB 的脱敏日志与运行环境信息，用于问题排查；不包含数据库、配置、密钥或剪贴板内容
-- **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用。未激活（免费版）可浏览/检索最近 100 条记录——所有读取入口先圈定最新 100 条原始记录再过滤，不向更早记录补数量
+- **永久离线授权**：机器码绑定的 Ed25519 激活码，一次激活后当前设备永久使用。未激活（免费版）可浏览/检索当前正文或事件视图最近 100 条原始记录——先圈定窗口再过滤，不向更早记录补数量；事件视图在窗口内按同一规则合并展示
 - **数据接口（Data API）**：可选启用的外部只读查询 API，独立监听 + Bearer Token 认证；白名单 DSL 查询、批量获取、内容下载；敏感数据按令牌显式授权（默认不可见），全量审计留痕
 - **MCP 只读服务**：可选启用 Model Context Protocol 服务（Streamable HTTP + Bearer Token），7 个只读工具 + 6 个资源，供 AI 客户端检索剪贴板历史；与数据接口共享令牌治理与审计
 
@@ -36,10 +36,10 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 |------|------|
 | 实时搜索 | 输入即搜，180ms 防抖 |
 | 关键词高亮 | 命中文本用橙色 `<mark>` 标注 |
-| 类型过滤 | 按 `文本` / `图片` / `视频` / `压缩包` / `Office` / `其他文件` 分类筛选 |
+| 类型过滤 | 按 `文本` / `图片` / `视频` / `压缩包` / `Office` / `其他文件` 分类筛选，也可单独查看采集事件 |
 | 收藏筛选 | 点击「收藏」chip，只显示已星标条目 |
 | 日期范围筛选 | 按设置中的系统/IANA 时区选择起止日期过滤历史记录（结束日包含全天） |
-| 事件状态展示 | 重复事件标注「重复」；无内容事件展示原因（剪贴板已清空/已被覆盖/不支持的格式/超长未保存/读取失败） |
+| 采集事件展示 | 以稳定事件代码展示剪贴板清空、读取时被覆盖、特殊格式、数据未就绪、剪贴板占用、解码失败和大小超限；相同短时事件合并显示出现次数，原始事件仍完整保留 |
 | 剪贴板图片 | 托管图片内联缩略图，点击查看大图 |
 | 分页 | 每页 20/50/100/200/500 条可选（10–500 可自定义），显示当前页范围与总数 |
 | 相对时间 | 显示「3 分钟前」，悬浮可看完整时间 |
@@ -58,7 +58,7 @@ ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘
 | 分区 | 可配置项 |
 |------|---------|
 | 基本 | 最大文字长度（0 = 不限）、最大文件路径数（0 = 不限）、来源应用采集与展示 |
-| 图片与弹窗 | 剪贴板图片捕获开关与单张大小上限；弹窗「过滤重复」「过滤无内容」默认开关；弹窗三个动作的快捷键（[Ctrl+][Shift+][Alt+]Enter，三者不能相同） |
+| 图片与弹窗 | 剪贴板图片捕获开关与单张大小上限；弹窗连续重复正文的默认隐藏开关；三个动作的快捷键（[Ctrl+][Shift+][Alt+]Enter，三者不能相同） |
 | 服务 | Web 监听地址、日期筛选时区；管理服务始终启动，避免配置死路 |
 | 数据接口 | 启用/停用外部数据 API、监听地址；令牌创建/重生成/撤销/敏感授权（需二次认证）、审计查询与 CSV 导出、清空 |
 | MCP 服务 | 启用/停用 MCP 只读服务、监听地址；令牌管理与数据接口一致；工具/资源能力清单展示、接入 JSON 示例复制、审计查询与 CSV 导出 |
@@ -115,7 +115,7 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 
 ## 构建
 
-> **前提**：需要 MinGW-w64（CGO 依赖，DuckDB 需要 C 编译器，`gcc --version` 必须可用）和 Go 1.25+。正式 Garble 发布构建需要 Go 1.26+
+> **前提**：需要 MinGW-w64（CGO 依赖，DuckDB 需要 C 编译器，`gcc --version` 必须可用）和 Go 1.26.6+。
 
 > **授权注入**：`internal/licensing/keys.go` 中 `builtinPublicKeyBase64` 默认为空字符串，未通过 `-ldflags -X` 注入公钥时，`BuiltinTrustedKeys()` 返回空 map，启动后 `Status=unconfigured` 且 `Enforced=true`，**录制、备份等付费功能全部禁用，也无法激活**。因此 `go run` / `go build` 开发调试时必须同时注入 `CLIPVAULT_LICENSE_KEY_ID` 和 `CLIPVAULT_LICENSE_PUBLIC_KEY`（与 `scripts/build-release.ps1` 同源）。
 
@@ -335,7 +335,7 @@ New-Item -ItemType File "portable.flag"
 
 数据接口与 MCP 服务的管理端点（`/api/v1/data-api/*` 与 `/api/v1/mcp/*`，各 10 条）见下方「数据接口」与「MCP 只读服务」章节。
 
-导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules` 五个工作表；`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存记录、事件状态（重复/无内容及原因）、来源程序名/路径/窗口标题/识别方法、敏感标记、分组及父子层级、记录分组关系和敏感规则。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
+导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules`、`Assets` 六个工作表；托管 PNG 以独立二进制条目存在 XLSX 包内，`Assets` 记录条目、长度和哈希的强绑定。`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存正文/事件判别类型、内容哈希或事件代码与指纹、采集阶段与格式集合、来源程序名/路径/窗口标题/归因方式、敏感标记、分组及父子层级、记录分组关系和敏感规则。JSON / cvexport 的 `assets` 字段同样完整携带图片字节。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
 所有 API 成功响应使用 `{ "data": ... }`，错误统一使用 `{ "error": { "code": "...", "message": "..." } }`。所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/v1/session/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
 
@@ -348,12 +348,13 @@ New-Item -ItemType File "portable.flag"
 | `offset` | 分页偏移 |
 | `starred=1` | 只返回已收藏条目 |
 | `kind` | 按类型筛选：`text` / `image` / `video` / `archive` / `office` / `files` |
+| `record_type` | 记录投影：默认或 `content` 为正文，`event` 为采集事件，`all` 为未分组的全部原始记录 |
 | `date_from` | 起始日期（`YYYY-MM-DD`，含） |
 | `date_to` | 结束日期（`YYYY-MM-DD`，含） |
 | `group_id` | 按正整数分组 ID 筛选 |
 | `source_exe` | 按来源程序名精确筛选；可重复，最多 50 个 |
 
-`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v5，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
+`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数，但只查询正文。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v9，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
 
 ## 数据接口（Data API）
 
@@ -471,11 +472,11 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
 
 
 
-配置存储在 DuckDB schema v7 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+配置存储在 DuckDB schema v11 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "maxTextChars": 0,
   "maxFileDropPaths": 0,
   "search": {
@@ -490,8 +491,7 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
     "maxBytes": 33554432
   },
   "popup": {
-    "hideDuplicates": false,
-    "hideUnavailable": false,
+    "hideConsecutiveDuplicates": false,
     "keyOpen": "Enter",
     "keyRestore": "Shift+Enter",
     "keyPaste": "Ctrl+Enter"
@@ -548,15 +548,14 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
 | 字段 | 说明 |
 |------|------|
 | `version` | 配置结构版本；必须与当前程序一致 |
-| `maxTextChars` | 超过此字符数的文本保存为「无内容」事件记录（不截断保存内容）；`0` 表示不限制 |
+| `maxTextChars` | 超过此字符数的文本保存为独立采集事件（不截断保存内容）；`0` 表示不限制 |
 | `maxFileDropPaths` | 文件拖放时最多记录的路径数；`0` 表示不限制 |
 | `search.listenAddr` | Web 服务监听地址；默认仅 localhost/回环地址，端口范围 1024–65535。开放局域网监听必须先设置锁屏密码并确认风险；修改地址时端口被占用会拒绝保存，启动时端口被占自动尝试下 5 个端口 |
 | `search.timeZone` | 日期筛选和范围导出的时区；`system` 表示 Windows 当前时区，也可填 IANA 时区名 |
 | `sensitive.customPatterns` | 自定义正则列表；匹配记录仍加密保存，搜索、查看和文件操作受二次认证保护。规则只在采集时生效，之后记录的敏感属性完全由用户手动控制 |
 | `image.enabled` | 是否捕获剪贴板图片（截图/浏览器 Copy Image 等），统一转码为托管 PNG |
-| `image.maxBytes` | 单张图片（转码后 PNG）的最大字节数，默认 32 MiB；超限保存为「无内容」事件记录 |
-| `popup.hideDuplicates` | 搜索弹窗默认过滤重复事件 |
-| `popup.hideUnavailable` | 搜索弹窗默认过滤无内容记录 |
+| `image.maxBytes` | 单张图片（转码后 PNG）的最大字节数，默认 32 MiB；超限保存为独立采集事件 |
+| `popup.hideConsecutiveDuplicates` | 快速搜索弹窗是否默认隐藏与上一条正文的类型、格式和内容哈希都相同的记录；弹窗内可临时切换 |
 | `popup.keyOpen` / `keyRestore` / `keyPaste` | 弹窗三个动作的快捷键：`[Ctrl+][Shift+][Alt+]Enter`，三者不能相同；双击列表恒为恢复 |
 | `autostart.enabled` | 是否开机自启动 |
 | `security.lockSessionTimeout` | 锁屏会话超时（分钟），0 = 关闭浏览器后失效 |
@@ -611,8 +610,8 @@ clipboard_ext/
 ├── internal/clipvault/         # 核心逻辑（适配层）
 │   ├── domain/                 # 业务模型唯一定义（记录/分组/搜索/清理、事件状态常量）
 │   ├── application/            # 运行时状态等应用层
-│   ├── storage/duckdb/         # schema v7（BIGINT Unix 毫秒 + 事件状态列 + 外部只读令牌/审计表）
-│   ├── transfer/               # 导入导出范围契约（export v5）
+│   ├── storage/duckdb/         # schema v11（正文/事件判别模型 + 稳定事件指纹 + 外部只读令牌/审计表）
+│   ├── transfer/               # 导入导出范围契约（export v9）
 │   ├── backup/                 # 增量备份策略（纯逻辑）
 │   ├── security/               # 密码散列与 DPAPI
 │   ├── transport/httpui/       # JSON envelope 与严格解码
@@ -636,7 +635,7 @@ clipboard_ext/
 │   ├── recovery.go             # 恢复逻辑（密码恢复 + 新建数据库）
 │   ├── recovery_password.go    # 恢复密码管理（设置/修改/安全重置/验证/强度检查）
 │   ├── recovery_server.go      # DPAPI 失效时的恢复 HTTP 服务
-│   ├── recorder.go             # 事件优先录制状态机（绝不丢事件）
+│   ├── recorder.go             # 可取消采集与正文/事件分流状态机
 │   ├── server.go               # HTTP 服务器（API 路由 + 嵌入式前端）
 │   ├── server_dataapi.go       # 数据接口管理端点（状态/配置/令牌/审计）
 │   ├── dataapi_service.go      # 外部数据 API 独立监听服务（Bearer Token + 治理）
@@ -652,7 +651,7 @@ clipboard_ext/
 │   ├── store.go                # DuckDB 存储层（记录 + 配置 + 分组 + 导入导出）
 │   ├── store_cleanup.go        # 精确历史清理（preview/delete 共用条件）
 │   ├── windows_runtime.go      # Win32 托盘/窗口/消息循环 + 恢复抑制水位
-│   ├── windows_clipboard_runtime.go # 无界 FIFO 剪贴板事件队列
+│   ├── windows_clipboard_runtime.go # 只保留最新状态的可取消串行采集邮箱
 │   └── web/                    # 前端静态资源（编译时嵌入）
 │       ├── app/                # 按历史页/设置页拆分的原生 ES 模块
 │       ├── pages/              # 服务端启动时编译的页面片段
@@ -667,7 +666,7 @@ clipboard_ext/
 
 ## 技术栈
 
-- **Go 1.25+** + CGO
+- **Go 1.26.6+** + CGO
 - **DuckDB**（`github.com/duckdb/duckdb-go/v2`）— 加密列式数据库
 - **Windows DPAPI** — 用户级密钥保护
 - **scrypt + AES-256-GCM** — 恢复密码和加密导出包

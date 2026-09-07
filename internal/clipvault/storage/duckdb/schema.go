@@ -1,6 +1,6 @@
 package duckdb
 
-const SchemaVersion = "8"
+const SchemaVersion = "11"
 
 // SchemaIdentity pins the exact supported schema shape. A database must match
 // both the version and this identity; every other shape is rejected.
@@ -11,36 +11,71 @@ const SchemaVersion = "8"
 //
 // v8（多语言 i18n）：新增 i18n_keys（官方语言 Schema）、i18n_languages
 // （官方与用户自定义语言）、i18n_translations（各语言对每个 Key 的译文）。
-const SchemaIdentity = "clipvault.duckdb.v8.i18n"
+//
+// v10（采集事件 + 正文连续重复）：正文与采集事件以 record_type 严格分型；
+// consecutive_duplicate 只属于正文，事件行由 CHECK 强制为 false。
+//
+// v11（稳定事件指纹）：注册剪贴板格式按规范化名称参与指纹，不再持久化
+// Windows 会话内动态分配的格式 ID 语义。
+const SchemaIdentity = "clipvault.duckdb.v11.stable-event-fingerprints"
 
 var SchemaStatements = []string{
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
 	`CREATE TABLE clipboard_items (
 		id BIGINT PRIMARY KEY DEFAULT nextval('seq_clipboard_items'),
 		created_at BIGINT NOT NULL,
-		kind VARCHAR NOT NULL,
-		format VARCHAR NOT NULL,
-		text VARCHAR NOT NULL,
+		record_type VARCHAR NOT NULL,
+		kind VARCHAR NOT NULL DEFAULT '',
+		format VARCHAR NOT NULL DEFAULT '',
+		text VARCHAR NOT NULL DEFAULT '',
 		byte_len BIGINT NOT NULL,
 		char_len BIGINT NOT NULL,
-		sha256 VARCHAR NOT NULL,
+		content_sha256 VARCHAR,
+		consecutive_duplicate BOOLEAN NOT NULL DEFAULT false,
 		meta_json JSON NOT NULL,
 		starred BOOLEAN NOT NULL DEFAULT false,
 		sensitive BOOLEAN NOT NULL DEFAULT false,
-		content_available BOOLEAN NOT NULL DEFAULT true,
-		is_duplicate BOOLEAN NOT NULL DEFAULT false,
-		unavailable_reason VARCHAR NOT NULL DEFAULT '',
+		event_code VARCHAR,
+		event_fingerprint VARCHAR,
+		capture_sequence UBIGINT NOT NULL DEFAULT 0,
+		capture_stage VARCHAR NOT NULL DEFAULT '',
+		capture_attempts BIGINT NOT NULL DEFAULT 0,
+		event_formats JSON NOT NULL DEFAULT '[]',
+		error_category VARCHAR NOT NULL DEFAULT '',
 		source_exe_name VARCHAR NOT NULL DEFAULT '',
 		source_exe_path VARCHAR NOT NULL DEFAULT '',
 		source_window_title VARCHAR NOT NULL DEFAULT '',
-		source_method VARCHAR NOT NULL DEFAULT ''
+		source_attribution VARCHAR NOT NULL DEFAULT 'unknown',
+		CHECK (record_type IN ('content', 'event')),
+		CHECK (source_attribution IN ('clipboard_owner', 'foreground', 'unknown')),
+		CHECK (byte_len >= 0 AND char_len >= 0 AND capture_attempts >= 0),
+		CHECK (capture_sequence <= 4294967295),
+		CHECK (json_type(event_formats) = 'ARRAY'),
+		CHECK (
+			(record_type = 'content'
+				AND ((kind = 'text' AND format = 'CF_UNICODETEXT')
+					OR (kind = 'image' AND format = 'CF_HDROP')
+					OR (kind = 'image' AND format = 'CLIPVAULT_IMAGE_FILE' AND byte_len > 0 AND char_len = 0)
+					OR (kind IN ('video', 'archive', 'office', 'files') AND format = 'CF_HDROP'))
+				AND content_sha256 IS NOT NULL AND event_code IS NULL AND event_fingerprint IS NULL
+				AND capture_sequence = 0 AND capture_stage = '' AND capture_attempts = 0
+				AND CAST(event_formats AS VARCHAR) = '[]' AND error_category = '')
+			OR
+			(record_type = 'event' AND kind = '' AND format = '' AND text = '' AND byte_len = 0 AND char_len = 0
+				AND content_sha256 IS NULL AND consecutive_duplicate = false AND event_code IN (
+					'clipboard_empty', 'virtual_file', 'unsupported_format', 'format_data_unavailable',
+					'clipboard_busy', 'clipboard_changed', 'decode_failed', 'capture_failed',
+					'text_limit_exceeded', 'image_limit_exceeded'
+				) AND event_fingerprint IS NOT NULL AND event_fingerprint <> '' AND starred = false AND sensitive = false)
+		)
 	)`,
 	`CREATE INDEX idx_clipboard_items_created_at ON clipboard_items(created_at DESC)`,
+	`CREATE INDEX idx_clipboard_items_record_type_created_at ON clipboard_items(record_type, created_at DESC)`,
 	`CREATE INDEX idx_clipboard_items_kind ON clipboard_items(kind)`,
-	`CREATE INDEX idx_clipboard_items_sha256 ON clipboard_items(sha256)`,
+	`CREATE INDEX idx_clipboard_items_content_sha256 ON clipboard_items(content_sha256)`,
+	`CREATE INDEX idx_clipboard_items_event_fingerprint ON clipboard_items(event_fingerprint, created_at DESC)`,
+	`CREATE INDEX idx_clipboard_items_event_code ON clipboard_items(event_code, created_at DESC)`,
 	`CREATE INDEX idx_clipboard_items_sensitive ON clipboard_items(sensitive)`,
-	`CREATE INDEX idx_clipboard_items_is_duplicate ON clipboard_items(is_duplicate)`,
-	`CREATE INDEX idx_clipboard_items_content_available ON clipboard_items(content_available)`,
 	`CREATE INDEX idx_clipboard_items_source_exe_name ON clipboard_items(source_exe_name)`,
 	`CREATE TABLE settings (key VARCHAR PRIMARY KEY, value JSON NOT NULL)`,
 	`CREATE SEQUENCE seq_groups START 1`,

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -46,13 +45,18 @@ var errItemContentUnavailable = errors.New(templateT("swindow.no_content", nil))
 // 恢复映射：CF_UNICODETEXT 原样恢复文本；CF_HDROP 重建 DROPFILES 结构；
 // CLIPVAULT_IMAGE_FILE 读取托管 PNG 并写入注册格式 "PNG"；
 // event-only 记录不可恢复，返回 errItemContentUnavailable。
-func restoreItemToClipboard(item StoredItem, dataDir string) (uint32, error) {
-	if !item.ContentAvailable {
-		return 0, errItemContentUnavailable
+func restoreItemToClipboard(owner uintptr, item StoredItem, dataDir string) (uint32, error) {
+	// EmptyClipboard requires a window owner for the subsequent write.
+	if owner == 0 {
+		return 0, errors.New("clipboard restore requires an owner window")
+	}
+	format, payload, err := prepareClipboardRestorePayload(item, dataDir)
+	if err != nil {
+		return 0, err
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	if _, err := openClipboardWithRetry(clipboardOpenAttempts); err != nil {
+	if _, err := openClipboardWithRetry(owner, clipboardOpenAttempts); err != nil {
 		return 0, fmt.Errorf("OpenClipboard: %w", err)
 	}
 	needClose := true
@@ -65,46 +69,76 @@ func restoreItemToClipboard(item StoredItem, dataDir string) (uint32, error) {
 		return 0, fmt.Errorf("EmptyClipboard: %w", err)
 	}
 
-	switch item.Format {
-	case domain.FormatUnicodeText:
-		if err := setClipboardText(item.Text); err != nil {
-			return 0, err
-		}
-	case domain.FormatFileDrop:
-		paths := splitNonEmptyLines(item.Text)
-		if len(paths) == 0 {
-			return 0, errItemContentUnavailable
-		}
-		if err := setClipboardFileDrop(paths); err != nil {
-			return 0, err
-		}
-	case domain.FormatImageFile:
-		relPath := item.Text
-		if relPath == "" {
-			return 0, errItemContentUnavailable
-		}
-		pngBytes, err := os.ReadFile(filepath.Join(dataDir, filepath.FromSlash(relPath)))
-		if err != nil {
-			return 0, fmt.Errorf("read managed image: %w", err)
-		}
-		pngID := clipboardPNGFormat()
-		if pngID == 0 {
-			return 0, errors.New("register PNG clipboard format failed")
-		}
-		if err := setClipboardDataBytes(pngID, pngBytes); err != nil {
-			return 0, err
-		}
-	default:
-		return 0, errItemContentUnavailable
+	if err := setClipboardDataBytes(format, payload); err != nil {
+		return 0, err
 	}
 
 	// 私有格式标记：录制链路据此识别「这是恢复写回，不是用户复制」。
 	if markerID := internalRestoreFormat(); markerID != 0 {
 		_ = setClipboardDataBytes(markerID, []byte{0x43, 0x56, 0x52, 0x31}) // "CVR1"
 	}
-	procCloseClipboard.Call()
+	if err := closeClipboard(); err != nil {
+		return 0, fmt.Errorf("CloseClipboard: %w", err)
+	}
 	needClose = false
 	return clipboardSequenceNumber(), nil
+}
+
+// prepareClipboardRestorePayload performs every fallible validation and file
+// read before EmptyClipboard. An invalid imported record or a missing managed
+// image therefore cannot destroy the user's current clipboard contents.
+func prepareClipboardRestorePayload(item StoredItem, dataDir string) (uint32, []byte, error) {
+	if item.RecordType != domain.HistoryRecordContent {
+		return 0, nil, errItemContentUnavailable
+	}
+	if strings.IndexByte(item.Text, 0) >= 0 {
+		return 0, nil, errors.New("clipboard content contains an embedded NUL")
+	}
+	switch item.Format {
+	case domain.FormatUnicodeText:
+		if payloadBytes := clipboardUTF16PayloadByteLen(item.Text); payloadBytes > maxClipboardTextPayloadBytes {
+			return 0, nil, &clipboardTextPayloadLimitError{ByteLen: payloadBytes, Limit: maxClipboardTextPayloadBytes}
+		}
+		return cfUnicodeText, encodeClipboardText(item.Text), nil
+	case domain.FormatFileDrop:
+		paths := splitNonEmptyLines(item.Text)
+		if len(paths) == 0 {
+			return 0, nil, errItemContentUnavailable
+		}
+		if err := validateClipboardFileDropRestore(paths); err != nil {
+			return 0, nil, err
+		}
+		return cfHDrop, encodeClipboardFileDrop(paths), nil
+	case domain.FormatImageFile:
+		full, err := resolveManagedImagePath(Environment{DataDir: dataDir}, item.Text)
+		if err != nil {
+			return 0, nil, fmt.Errorf("invalid managed image path: %w", err)
+		}
+		info, err := os.Lstat(full)
+		if err != nil {
+			return 0, nil, fmt.Errorf("stat managed image: %w", err)
+		}
+		if !info.Mode().IsRegular() || item.ByteLen <= 0 || item.ByteLen > maxImageMaxBytes || info.Size() != int64(item.ByteLen) {
+			return 0, nil, errors.New("managed image file size mismatch")
+		}
+		pngBytes, err := os.ReadFile(full)
+		if err != nil {
+			return 0, nil, fmt.Errorf("read managed image: %w", err)
+		}
+		if err := validateClipboardPNG(pngBytes); err != nil {
+			return 0, nil, fmt.Errorf("validate managed image: %w", err)
+		}
+		if item.ContentSHA256 == nil || hashBytes(pngBytes) != *item.ContentSHA256 {
+			return 0, nil, errors.New("managed image content hash mismatch")
+		}
+		pngID := clipboardPNGFormat()
+		if pngID == 0 {
+			return 0, nil, errors.New("register PNG clipboard format failed")
+		}
+		return pngID, pngBytes, nil
+	default:
+		return 0, nil, errItemContentUnavailable
+	}
 }
 
 var (
@@ -119,21 +153,43 @@ func internalRestoreFormat() uint32 {
 	return internalRestoreID
 }
 
-func setClipboardText(text string) error {
+func encodeClipboardText(text string) []byte {
 	u16 := utf16.Encode([]rune(text))
 	buf := make([]byte, (len(u16)+1)*2)
 	for i, c := range u16 {
 		buf[i*2] = byte(c)
 		buf[i*2+1] = byte(c >> 8)
 	}
-	if err := setClipboardDataBytes(cfUnicodeText, buf); err != nil {
-		return fmt.Errorf("SetClipboardData(CF_UNICODETEXT): %w", err)
+	return buf
+}
+
+func clipboardUTF16CodeUnitLen(value string) int {
+	units := 0
+	for _, value := range value {
+		units += utf16.RuneLen(value)
+	}
+	return units
+}
+
+func clipboardUTF16PayloadByteLen(value string) int {
+	return (clipboardUTF16CodeUnitLen(value) + 1) * 2
+}
+
+func validateClipboardFileDropRestore(paths []string) error {
+	if len(paths) > maxClipboardFileDropPaths {
+		return fmt.Errorf("file drop contains %d paths; limit is %d", len(paths), maxClipboardFileDropPaths)
+	}
+	for index, path := range paths {
+		if units := clipboardUTF16CodeUnitLen(path); units > maxFileDropPathUTF16Units {
+			return fmt.Errorf("file drop path %d contains %d UTF-16 units; limit is %d", index, units, maxFileDropPathUTF16Units)
+		}
 	}
 	return nil
 }
 
-// setClipboardFileDrop 构造 DROPFILES 结构写入 CF_HDROP（宽字符、双 NUL 结尾）。
-func setClipboardFileDrop(paths []string) error {
+// encodeClipboardFileDrop constructs a wide-character, double-NUL-terminated
+// DROPFILES payload.
+func encodeClipboardFileDrop(paths []string) []byte {
 	var u16 []uint16
 	for _, p := range paths {
 		u16 = append(u16, utf16.Encode([]rune(p))...)
@@ -148,10 +204,7 @@ func setClipboardFileDrop(paths []string) error {
 		buf[20+i*2] = byte(c)
 		buf[20+i*2+1] = byte(c >> 8)
 	}
-	if err := setClipboardDataBytes(cfHDrop, buf); err != nil {
-		return fmt.Errorf("SetClipboardData(CF_HDROP): %w", err)
-	}
-	return nil
+	return buf
 }
 
 // setClipboardDataBytes 通过 GMEM_MOVEABLE 全局内存写入剪贴板。

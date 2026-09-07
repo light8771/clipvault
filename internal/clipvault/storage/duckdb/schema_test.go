@@ -5,18 +5,20 @@ import (
 	"testing"
 )
 
-func TestSchemaV8I18n(t *testing.T) {
-	if SchemaVersion != "8" {
-		t.Fatalf("SchemaVersion = %q, want 8", SchemaVersion)
+func TestSchemaV10CaptureEventsAndContentDuplicates(t *testing.T) {
+	if SchemaVersion != "11" {
+		t.Fatalf("SchemaVersion = %q, want 11", SchemaVersion)
 	}
-	if SchemaIdentity != "clipvault.duckdb.v8.i18n" {
-		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v8.i18n", SchemaIdentity)
+	if SchemaIdentity != "clipvault.duckdb.v11.stable-event-fingerprints" {
+		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v11.stable-event-fingerprints", SchemaIdentity)
 	}
 	schema := strings.Join(SchemaStatements, "\n")
 	for _, fragment := range []string{
 		"id BIGINT", "meta_json JSON", "value JSON",
 		"created_at BIGINT", "searched_at BIGINT",
-		"content_available BOOLEAN", "is_duplicate BOOLEAN", "unavailable_reason VARCHAR",
+		"record_type VARCHAR", "content_sha256 VARCHAR", "consecutive_duplicate BOOLEAN", "event_code VARCHAR", "event_fingerprint VARCHAR",
+		"capture_sequence UBIGINT", "capture_stage VARCHAR", "capture_attempts BIGINT", "event_formats JSON",
+		"json_type(event_formats) = 'ARRAY'", "CAST(event_formats AS VARCHAR) = '[]'",
 		"config_change_log", "changed_at BIGINT", "changes JSON",
 		"search_history", "filters JSON", "result_count BIGINT",
 		"backup_history", "kind VARCHAR", "trigger VARCHAR", "mode VARCHAR",

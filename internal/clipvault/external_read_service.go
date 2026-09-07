@@ -58,7 +58,7 @@ func NewExternalReadService(store *Store, env Environment) *ExternalReadService 
 
 // queryExternalItems 执行条目查询（固定 created_at DESC, id DESC 排序），
 // limit+1 探测 hasMore；返回可见条目与下一页游标。
-func (s *ExternalReadService) queryExternalItems(ctx context.Context, where string, args []any, limit int) ([]StoredItem, bool, error) {
+func (s *ExternalReadService) queryExternalItems(ctx context.Context, access ReadAccess, where string, args []any, limit int) ([]StoredItem, bool, error) {
 	fetchArgs := append(append([]any{}, args...), limit+1)
 	rows, err := s.store.db.QueryContext(ctx,
 		"SELECT "+clipboardItemColumns+" FROM clipboard_items"+where+
@@ -82,7 +82,17 @@ func (s *ExternalReadService) queryExternalItems(ctx context.Context, where stri
 	if hasMore {
 		items = items[:limit]
 	}
+	redactSensitiveAdjacency(items, access)
 	return items, hasMore, nil
+}
+
+func redactSensitiveAdjacency(items []StoredItem, access ReadAccess) {
+	if access.AllowSensitive {
+		return
+	}
+	for index := range items {
+		items[index].ConsecutiveDuplicate = false
+	}
 }
 
 // externalSearchResult 把存储条目组装为 SearchResult（含分组与截断）。
@@ -128,7 +138,7 @@ func (s *ExternalReadService) Search(ctx context.Context, access ReadAccess, req
 		}
 		args = append(args, cursorMS, cursorMS, cursorID)
 	}
-	items, hasMore, err := s.queryExternalItems(ctx, where, args, limit)
+	items, hasMore, err := s.queryExternalItems(ctx, access, where, args, limit)
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -143,12 +153,15 @@ func (s *ExternalReadService) GetStoredItem(ctx context.Context, access ReadAcce
 	}
 	var item StoredItem
 	row := s.store.db.QueryRowContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items WHERE id = ?"+visibilityAnd(access), id)
+		"SELECT "+clipboardItemColumns+" FROM clipboard_items WHERE id = ?"+externalItemScopeAnd(access), id)
 	if err := scanStoredItem(row, &item); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return StoredItem{}, ErrExternalNotFound
 		}
 		return StoredItem{}, err
+	}
+	if !access.AllowSensitive {
+		item.ConsecutiveDuplicate = false
 	}
 	return item, nil
 }
@@ -216,7 +229,7 @@ func (s *ExternalReadService) GetStoredItems(ctx context.Context, access ReadAcc
 		args[i] = id
 	}
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items WHERE id IN ("+placeholders+")"+visibilityAnd(access), args...)
+		"SELECT "+clipboardItemColumns+" FROM clipboard_items WHERE id IN ("+placeholders+")"+externalItemScopeAnd(access), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -238,6 +251,7 @@ func (s *ExternalReadService) GetStoredItems(ctx context.Context, access ReadAcc
 			out = append(out, item)
 		}
 	}
+	redactSensitiveAdjacency(out, access)
 	return out, nil
 }
 
@@ -250,7 +264,7 @@ func (s *ExternalReadService) GetContent(ctx context.Context, access ReadAccess,
 		return ExternalContent{}, err
 	}
 	switch {
-	case item.Format == "CLIPVAULT_IMAGE_FILE" && item.ContentAvailable:
+	case item.RecordType == domain.HistoryRecordContent && item.Format == domain.FormatImageFile:
 		full, err := resolveManagedImagePath(s.env, item.Text)
 		if err != nil {
 			return ExternalContent{}, fmt.Errorf("%w: invalid image path", ErrExternalInvalid)
@@ -316,7 +330,7 @@ func (s *ExternalReadService) Stats(ctx context.Context, access ReadAccess, req 
 	if len(conds) > 0 {
 		where = " WHERE " + strings.Join(conds, " AND ")
 	}
-	where = applyVisibility(where, access)
+	where = applyExternalItemScope(where, access)
 
 	result := StatsResult{
 		Range:       statsRange{From: req.From, To: req.To},
@@ -472,8 +486,8 @@ func (s *ExternalReadService) ListGroupItems(ctx context.Context, access ReadAcc
 		where += " AND (created_at < ? OR (created_at = ? AND id < ?))"
 		args = append(args, cursorMS, cursorMS, cursorID)
 	}
-	where = applyVisibility(where, access)
-	items, hasMore, err := s.queryExternalItems(ctx, where, args, limit)
+	where = applyExternalItemScope(where, access)
+	items, hasMore, err := s.queryExternalItems(ctx, access, where, args, limit)
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -485,7 +499,7 @@ func (s *ExternalReadService) ListGroupItems(ctx context.Context, access ReadAcc
 // QueryItems 执行 HTTP Query DSL 的条目查询。协议层只负责解析 DSL；
 // 可见性策略（隐式敏感过滤）在此强制。
 func (s *ExternalReadService) QueryItems(ctx context.Context, access ReadAccess, plan *dataAPIQueryPlan) ([]StoredItem, bool, error) {
-	where := applyVisibility(plan.where, access)
+	where := applyExternalItemScope(plan.where, access)
 	args := append(append([]any{}, plan.args...), plan.cursorArgs()...)
 	fetchArgs := append(append([]any{}, args...), plan.limit+1)
 	rows, err := s.store.db.QueryContext(ctx,
@@ -510,13 +524,14 @@ func (s *ExternalReadService) QueryItems(ctx context.Context, access ReadAccess,
 	if hasMore {
 		items = items[:plan.limit]
 	}
+	redactSensitiveAdjacency(items, access)
 	return items, hasMore, nil
 }
 
 // QueryAggregate 执行 HTTP Query DSL 的 count 聚合。未授权时敏感行被
 // 隐式过滤，聚合结果只反映可见行。
 func (s *ExternalReadService) QueryAggregate(ctx context.Context, access ReadAccess, plan *dataAPIQueryPlan) ([]map[string]any, error) {
-	where := applyVisibility(plan.where, access)
+	where := applyExternalItemScope(plan.where, access)
 	args := append([]any{}, plan.args...)
 	fetchArgs := append(append([]any{}, args...), plan.limit)
 	rows, err := s.store.db.QueryContext(ctx,

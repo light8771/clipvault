@@ -12,15 +12,20 @@ var (
 	procGetForegroundWindow        = user32.NewProc("GetForegroundWindow")
 	procGetClipboardOwner          = user32.NewProc("GetClipboardOwner")
 	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
-	procIsHungAppWindow            = user32.NewProc("IsHungAppWindow")
-	procGetWindowTextLengthW       = user32.NewProc("GetWindowTextLengthW")
+	procSendMessageTimeoutW        = user32.NewProc("SendMessageTimeoutW")
 	procOpenProcess                = kernel32.NewProc("OpenProcess")
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
-	// procGetWindowTextW 复用 search_window_windows.go 的既有声明；
 	// procCloseHandle 复用 windows_runtime.go 的既有声明。
 )
 
-const processQueryLimitedInformation = 0x1000
+const (
+	processQueryLimitedInformation = 0x1000
+	smtoBlock                      = 0x0001
+	smtoAbortIfHung                = 0x0002
+	smtoErrorOnExit                = 0x0020
+	sourceWindowTitleMaxUTF16      = 512
+	sourceWindowTitleTimeoutMS     = 100
+)
 
 // captureForegroundSourceFast 在 WM_CLIPBOARDUPDATE 派发现场（消息循环线程）
 // 同步捕获前台窗口句柄与所属 PID。这两个调用都是纯句柄查询，不与目标进程
@@ -72,12 +77,10 @@ func (s *SourceInfo) resolveDetails() {
 		s.ExePath = path
 		s.ExeName = filepath.Base(path)
 	}
-	// GetWindowTextW 对其他进程窗口内部走 SendMessage，目标应用挂起时会
-	// 把调用线程一起卡住，所以先用 IsHungAppWindow 守卫，挂起就放弃标题。
+	// 窗口标题读取必须自带硬超时。先检查 IsHungAppWindow 再调用
+	// GetWindowTextW 仍有检查后挂起的竞态，会永久卡住串行剪贴板 worker。
 	if s.hwnd != 0 {
-		if hung, _, _ := procIsHungAppWindow.Call(s.hwnd); hung == 0 {
-			s.WindowTitle = getWindowTextSafe(s.hwnd)
-		}
+		s.WindowTitle = getWindowTextSafe(s.hwnd)
 	}
 }
 
@@ -102,17 +105,22 @@ func queryProcessImagePath(pid uint32) string {
 }
 
 func getWindowTextSafe(hwnd uintptr) string {
-	n, _, _ := procGetWindowTextLengthW.Call(hwnd)
-	if n == 0 {
+	buf := make([]uint16, sourceWindowTitleMaxUTF16+1)
+	var copied uintptr
+	ok, _, _ := procSendMessageTimeoutW.Call(
+		hwnd,
+		wmGetText,
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		smtoBlock|smtoAbortIfHung|smtoErrorOnExit,
+		sourceWindowTitleTimeoutMS,
+		uintptr(unsafe.Pointer(&copied)),
+	)
+	if ok == 0 || copied == 0 {
 		return ""
 	}
-	if n > 512 {
-		n = 512
+	if copied > sourceWindowTitleMaxUTF16 {
+		copied = sourceWindowTitleMaxUTF16
 	}
-	buf := make([]uint16, n+1)
-	read, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	if read == 0 {
-		return ""
-	}
-	return syscall.UTF16ToString(buf[:read])
+	return syscall.UTF16ToString(buf[:copied])
 }

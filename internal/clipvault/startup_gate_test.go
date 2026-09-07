@@ -20,6 +20,20 @@ func newGateForTest(t *testing.T) (*StartupGate, *Store) {
 	return NewStartupGate(store, dataDir, startupGateSetCredentials), store
 }
 
+func TestNewStartupGateDoesNotReplaceApplicationTemplateI18n(t *testing.T) {
+	previous := templateI18nService.Load()
+	gate, _ := newGateForTest(t)
+	if got := templateI18nService.Load(); got != previous {
+		t.Fatal("constructing a startup gate replaced the application template i18n service")
+	}
+
+	result := httptest.NewRecorder()
+	gate.handleIndex(result, httptest.NewRequest(http.MethodGet, "/", nil))
+	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), gate.t("startup_page.step_recovery", nil)) {
+		t.Fatalf("startup gate did not render with its own i18n service: status=%d", result.Code)
+	}
+}
+
 func postGateCredentials(t *testing.T, gate *StartupGate, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/startup/credentials", strings.NewReader(body))

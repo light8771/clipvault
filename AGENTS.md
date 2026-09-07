@@ -2,7 +2,7 @@
 
 ## Build & Test
 
-- Go: `C:\Program Files\Go\bin\go.exe` (Go 1.26.3, windows/amd64)
+- Go launcher: `C:\Program Files\Go\bin\go.exe` (GOTOOLCHAIN=auto; module baseline Go 1.26.6, windows/amd64)
 - gofmt: `C:\Program Files\Go\bin\gofmt.exe`
 - MinGW-w64 root: `D:\mingw64`
 - GCC: `D:\mingw64\bin\gcc.exe`
@@ -25,8 +25,7 @@
   - `HistoryPageSettings` (`cfg.historyPage`): history-page-only layout (layout `top-bottom`/`left-right`,
     columns 0=auto/1–4, forceColumns, contentWidthMode auto/custom, contentWidth 720–3200,
     horizontalPadding 0–80, cardGap 0–32, previewLines 0–20).
-  Legacy configs that still carry a `theme` object are migrated once in `Config.UnmarshalJSON`
-  (`migrateLegacyThemeConfig`).
+  `Config.UnmarshalJSON` accepts only this current split schema; obsolete `theme` objects are rejected.
 - Theme colors are defined as CSS custom properties on `:root` (light) and overridden in
   `@media (prefers-color-scheme: dark)` (dark), then re-set at runtime by `applyTheme()` in
   `internal/clipvault/web/app/appearance-theme.js` (consumes `appearance` + `navigation` only).

@@ -61,14 +61,12 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 			}
 		case 2003:
 			sw.confirmSelection()
-		case idcSearchFilterDup:
-			sw.toggleFilter(true)
-		case idcSearchFilterUnavail:
-			sw.toggleFilter(false)
 		case idcSearchClose:
 			sw.close()
 		case idcSearchClear:
 			sw.clearSearchInput()
+		case idcSearchFilterConsecutiveDuplicates:
+			sw.toggleConsecutiveDuplicateFilter()
 		}
 		return 0
 	case wmClose:
@@ -151,18 +149,12 @@ func (sw *searchWindow) dispatchEnterAction() {
 	}
 }
 
-// toggleFilter 切换显示过滤（重复事件 / 无内容记录），持久化到系统配置并重新搜索。
-func (sw *searchWindow) toggleFilter(duplicates bool) {
-	if duplicates {
-		sw.hideDuplicates = !sw.hideDuplicates
-	} else {
-		sw.hideUnavailable = !sw.hideUnavailable
-	}
-	sw.refreshFilterButtons()
+func (sw *searchWindow) toggleConsecutiveDuplicateFilter() {
+	sw.hideConsecutiveDuplicates = !sw.hideConsecutiveDuplicates
+	sw.refreshConsecutiveDuplicateFilterButton()
 	if sw.cfgMgr != nil {
 		cfg := sw.cfgMgr.Get()
-		cfg.Popup.HideDuplicates = sw.hideDuplicates
-		cfg.Popup.HideUnavailable = sw.hideUnavailable
+		cfg.Popup.HideConsecutiveDuplicates = sw.hideConsecutiveDuplicates
 		if err := sw.cfgMgr.Update(cfg); err != nil && sw.logger != nil {
 			sw.logger.Warn("search_window_filter_persist_failed", map[string]any{"error": err.Error()})
 		}
@@ -170,15 +162,14 @@ func (sw *searchWindow) toggleFilter(duplicates bool) {
 	sw.startSearch(sw.getEdit_text())
 }
 
-func (sw *searchWindow) refreshFilterButtons() {
-	if sw.hFilterDup != 0 {
-		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_dup", nil), sw.hideDuplicates))
-		procSetWindowTextW.Call(sw.hFilterDup, uintptr(unsafe.Pointer(label)))
+func (sw *searchWindow) refreshConsecutiveDuplicateFilterButton() {
+	if sw.hFilterConsecutiveDuplicates == 0 {
+		return
 	}
-	if sw.hFilterUn != 0 {
-		label, _ := syscall.UTF16PtrFromString(sw.filterToggleLabel(sw.t("swindow.filter_unavail", nil), sw.hideUnavailable))
-		procSetWindowTextW.Call(sw.hFilterUn, uintptr(unsafe.Pointer(label)))
-	}
+	label, _ := syscall.UTF16PtrFromString(filterToggleLabel(
+		sw.t("swindow.filter_consecutive_duplicates", nil), sw.hideConsecutiveDuplicates,
+	))
+	procSetWindowTextW.Call(sw.hFilterConsecutiveDuplicates, uintptr(unsafe.Pointer(label)))
 }
 
 func (sw *searchWindow) moveListSelection(delta int) {
@@ -242,6 +233,7 @@ func (sw *searchWindow) startSearch(q string) {
 	sw.searchSequence++
 	sequence := sw.searchSequence
 	hwnd := sw.hwnd
+	hideConsecutiveDuplicates := sw.hideConsecutiveDuplicates
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	sw.searchCancel = cancel
 	sw.mu.Unlock()
@@ -249,12 +241,11 @@ func (sw *searchWindow) startSearch(q string) {
 
 	go func() {
 		opts := SearchOptions{
-			Query:            q,
-			Limit:            quickSearchResultLimit,
-			IncludeSensitive: false,
-			SkipTotal:        true,
-			HideDuplicates:   sw.hideDuplicates,
-			HideUnavailable:  sw.hideUnavailable,
+			Query:                     q,
+			Limit:                     quickSearchResultLimit,
+			IncludeSensitive:          false,
+			SkipTotal:                 true,
+			HideConsecutiveDuplicates: hideConsecutiveDuplicates,
 		}
 		if sw.license != nil && !sw.license.CanUsePaidFeatures() {
 			// 免费版：先在最新 100 条原始记录内过滤，不向更早的记录补数量。
@@ -310,11 +301,8 @@ func (sw *searchWindow) recordSearchHistory(query string, resultCount int64) {
 	}
 	// filters 持久化词条 key（与 Web 端 searchHistoryFilters 同一约定）。
 	filters := map[string]string{}
-	if sw.hideDuplicates {
-		filters["shlog.filter.dup"] = "shlog.filter.on"
-	}
-	if sw.hideUnavailable {
-		filters["shlog.filter.unavail"] = "shlog.filter.on"
+	if sw.hideConsecutiveDuplicates {
+		filters["shlog.filter.consecutive_duplicates"] = "shlog.filter.hidden"
 	}
 	go func() {
 		if err := sw.store.LogSearchQuery(context.Background(), query, filters, resultCount); err != nil && sw.logger != nil {

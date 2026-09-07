@@ -54,13 +54,11 @@ func TestBackupDataCanBeImported(t *testing.T) {
 	defer source.Close()
 
 	if err := source.Save(ctx, ClipboardItem{
-		Kind:     "text",
-		Format:   "CF_UNICODETEXT",
-		Text:     "backup record",
-		ByteLen:  13,
-		CharLen:  13,
-		SHA256:   "backup-record",
-		MetaJSON: "{}",
+		RecordType: "content",
+		Kind:       "text",
+		Format:     "CF_UNICODETEXT",
+		Text:       "backup record",
+		MetaJSON:   "{}",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +261,8 @@ func TestSMTPDeliveryValidationRequiresEmailUsername(t *testing.T) {
 	if !strings.Contains(strings.Join(problems, "、"), "backup.missing_smtp_user_email") {
 		t.Fatalf("SMTP username validation = %v", problems)
 	}
-	if err := sendSMTPMessage(cfg, nil); err == nil || !strings.Contains(err.Error(), "backup.missing_smtp_user_email") {
+	// 发送入口必须复用同一校验；具体错误文案随当前语言变化。
+	if err := sendSMTPMessage(cfg, nil); err == nil {
 		t.Fatalf("send validation error = %v", err)
 	}
 
@@ -277,6 +276,7 @@ func TestSMTPDeliveryValidationRequiresEmailUsername(t *testing.T) {
 func TestBackupReloadIgnoresUnrelatedConfigChanges(t *testing.T) {
 	cfg := completeScheduledBackupConfig()
 	backup := &BackupService{}
+	t.Cleanup(backup.Stop)
 	backup.Reload(cfg)
 
 	backup.mu.Lock()
@@ -303,6 +303,7 @@ func TestBackupReloadIgnoresUnrelatedConfigChanges(t *testing.T) {
 func TestBackupReloadReschedulesOnlyChangedTarget(t *testing.T) {
 	cfg := completeScheduledBackupConfig()
 	backup := &BackupService{}
+	t.Cleanup(backup.Stop)
 	backup.Reload(cfg)
 
 	backup.mu.Lock()
@@ -338,6 +339,7 @@ func TestBackupReloadReschedulesOnlyChangedTarget(t *testing.T) {
 func TestBackupReloadPreventsStaleTimerRearm(t *testing.T) {
 	cfg := completeScheduledBackupConfig()
 	backup := &BackupService{}
+	t.Cleanup(backup.Stop)
 	backup.Reload(cfg)
 
 	backup.mu.Lock()
@@ -653,7 +655,7 @@ func TestEmailBackupZipPayloadRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer src.Close()
-	if err := src.Save(ctx, ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "zip-payload-record"}); err != nil {
+	if err := src.Save(ctx, ClipboardItem{RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "zip-payload-record"}); err != nil {
 		t.Fatal(err)
 	}
 	backup := &BackupService{store: src}

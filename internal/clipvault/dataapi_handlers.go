@@ -1,37 +1,38 @@
 package clipvault
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"time"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // ── 对外业务模型（与内部 DuckDB schema 解耦，DATA-03）──────
 
-// dataAPIItem 是 clipboardItems 资源的公开表示（保持既有 HTTP 契约不变）。
+// dataAPIItem 是 clipboardItems 资源的当前公开表示。
 // 敏感记录的可见性由 ExternalReadService 强制；托管图片的内部存储路径
 // 永不外泄，只给 contentUrl。
 type dataAPIItem struct {
-	ID               string    `json:"id"`
-	CreatedAt        time.Time `json:"createdAt"`
-	Kind             string    `json:"kind"`
-	Text             *string   `json:"text"`
-	TextTruncated    bool      `json:"textTruncated,omitempty"`
-	ByteLen          int       `json:"byteLen"`
-	SHA256           string    `json:"sha256,omitempty"`
-	SourceApp        *string   `json:"sourceApp"`
-	SourceWindow     *string   `json:"sourceWindow"`
-	Starred          bool      `json:"starred"`
-	Sensitive        bool      `json:"sensitive"`
-	GroupID          *string   `json:"groupId"`
-	ContentAvailable bool      `json:"contentAvailable"`
-	ContentURL       string    `json:"contentUrl,omitempty"`
+	ID                   string    `json:"id"`
+	CreatedAt            time.Time `json:"createdAt"`
+	Kind                 string    `json:"kind"`
+	Text                 *string   `json:"text"`
+	TextTruncated        bool      `json:"textTruncated,omitempty"`
+	ByteLen              int       `json:"byteLen"`
+	RecordType           string    `json:"recordType"`
+	ContentSHA256        *string   `json:"contentSha256"`
+	ConsecutiveDuplicate bool      `json:"consecutiveDuplicate"`
+	SourceApp            *string   `json:"sourceApp"`
+	SourceWindow         *string   `json:"sourceWindow"`
+	Starred              bool      `json:"starred"`
+	Sensitive            bool      `json:"sensitive"`
+	GroupIDs             []string  `json:"groupIds"`
+	ContentURL           string    `json:"contentUrl,omitempty"`
 }
 
 func strPtrOrNil(s string) *string {
@@ -43,30 +44,31 @@ func strPtrOrNil(s string) *string {
 
 // toDataAPIItem 把存储模型映射为公开模型。preview=true 时截断超长文本，
 // 完整文本经 /items/{id} 获取（限制单次响应资源消耗）。
-func toDataAPIItem(item StoredItem, groupID int64, preview bool) dataAPIItem {
+func toDataAPIItem(item StoredItem, groupIDs []int64, preview bool) dataAPIItem {
 	out := dataAPIItem{
-		ID:               fmt.Sprintf("%d", item.ID),
-		CreatedAt:        item.CreatedAt,
-		Kind:             item.Kind,
-		ByteLen:          item.ByteLen,
-		SourceApp:        strPtrOrNil(item.SourceExeName),
-		SourceWindow:     strPtrOrNil(item.SourceWindowTitle),
-		Starred:          item.Starred,
-		Sensitive:        item.Sensitive,
-		ContentAvailable: item.ContentAvailable,
+		ID:                   fmt.Sprintf("%d", item.ID),
+		CreatedAt:            item.CreatedAt,
+		Kind:                 item.Kind,
+		ByteLen:              item.ByteLen,
+		SourceApp:            strPtrOrNil(item.SourceExeName),
+		SourceWindow:         strPtrOrNil(item.SourceWindowTitle),
+		Starred:              item.Starred,
+		Sensitive:            item.Sensitive,
+		RecordType:           string(item.RecordType),
+		ContentSHA256:        item.ContentSHA256,
+		ConsecutiveDuplicate: item.ConsecutiveDuplicate,
+		GroupIDs:             make([]string, 0, len(groupIDs)),
 	}
-	if groupID > 0 {
-		id := fmt.Sprintf("%d", groupID)
-		out.GroupID = &id
+	for _, groupID := range groupIDs {
+		out.GroupIDs = append(out.GroupIDs, strconv.FormatInt(groupID, 10))
 	}
 	if item.Format == "CLIPVAULT_IMAGE_FILE" {
 		// 托管图片：不暴露内部路径，内容经 contentUrl 流式获取。
-		if item.ContentAvailable {
+		if item.RecordType == domain.HistoryRecordContent {
 			out.ContentURL = "/api/v1/items/" + out.ID + "/content"
 		}
 		return out
 	}
-	out.SHA256 = item.SHA256
 	text := item.Text
 	if preview {
 		runes := []rune(text)
@@ -105,14 +107,16 @@ func (svc *DataAPIService) handleMetadata(w http.ResponseWriter, _ *http.Request
 			"clipboardItems": map[string]any{
 				"fields": map[string]string{
 					"id": "string", "createdAt": "datetime", "kind": "string",
-					"text": "string|null", "byteLen": "integer", "sha256": "string",
-					"sourceApp": "string|null", "sourceWindow": "string|null",
-					"starred": "boolean", "sensitive": "boolean", "groupId": "string|null",
-					"contentAvailable": "boolean", "contentUrl": "string",
+					"text": "string|null", "byteLen": "integer", "recordType": "string", "contentSha256": "string|null",
+					"consecutiveDuplicate": "boolean",
+					"sourceApp":            "string|null", "sourceWindow": "string|null",
+					"starred": "boolean", "sensitive": "boolean", "groupIds": "array<string>",
+					"contentUrl": "string",
 				},
-				"filterable": []string{"id", "createdAt", "kind", "text", "sourceApp", "sourceWindow", "starred", "sensitive", "groupId"},
-				"sortable":   []string{"createdAt", "id"},
-				"groupable":  []string{"sourceApp", "kind", "starred", "sensitive"},
+				"filterable":       []string{"id", "createdAt", "kind", "text", "sourceApp", "sourceWindow", "starred", "sensitive", "groupId"},
+				"sortable":         []string{"createdAt", "id"},
+				"groupable":        []string{"sourceApp", "kind", "starred", "sensitive"},
+				"recordTypeValues": []string{"content"},
 			},
 		},
 		"limits": map[string]any{
@@ -150,9 +154,7 @@ func (svc *DataAPIService) handleQuery(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	var req dataAPIQueryRequest
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
+	if err := decodeStrictJSON(body, &req); err != nil {
 		apiErr := invalidQuery("Malformed query body.")
 		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
 		svc.writeError(w, apiErr)
@@ -183,7 +185,7 @@ func (svc *DataAPIService) runItemsQuery(w http.ResponseWriter, r *http.Request,
 	for i, item := range items {
 		ids[i] = item.ID
 	}
-	groups, err := svc.store.ItemGroupIDs(r.Context(), ids)
+	groups, err := svc.store.ItemAllGroupIDs(r.Context(), ids)
 	if err != nil {
 		svc.failQuery(w, r, audit, err)
 		return
@@ -258,7 +260,7 @@ func (svc *DataAPIService) handleGetItem(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	audit.ItemID = item.ID
-	groups, err := svc.store.ItemGroupIDs(r.Context(), []int64{item.ID})
+	groups, err := svc.store.ItemAllGroupIDs(r.Context(), []int64{item.ID})
 	if err != nil {
 		svc.failQuery(w, r, &audit, err)
 		return
@@ -289,9 +291,7 @@ func (svc *DataAPIService) handleBatchGet(w http.ResponseWriter, r *http.Request
 	var req struct {
 		IDs []string `json:"ids"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
+	if err := decodeStrictJSON(body, &req); err != nil {
 		apiErr := invalidQuery("Malformed request body.")
 		audit.StatusCode, audit.ErrorCode = apiErr.Status, apiErr.Code
 		svc.writeError(w, apiErr)
@@ -324,7 +324,7 @@ func (svc *DataAPIService) handleBatchGet(w http.ResponseWriter, r *http.Request
 	for i, item := range items {
 		itemIDs[i] = item.ID
 	}
-	groups, err := svc.store.ItemGroupIDs(r.Context(), itemIDs)
+	groups, err := svc.store.ItemAllGroupIDs(r.Context(), itemIDs)
 	if err != nil {
 		svc.failQuery(w, r, &audit, err)
 		return
@@ -364,6 +364,7 @@ func (svc *DataAPIService) handleItemContent(w http.ResponseWriter, r *http.Requ
 	audit.ItemID = id
 	audit.StatusCode = http.StatusOK
 	audit.ItemCount = 1
+	audit.SensitiveAccessed = content.Sensitive
 	if content.Kind == "image" {
 		http.ServeFile(w, r, content.ImagePath)
 		return

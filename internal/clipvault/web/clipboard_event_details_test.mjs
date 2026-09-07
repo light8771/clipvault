@@ -3,95 +3,120 @@ import test from 'node:test';
 
 import { clipboardEventDetailModel, renderClipboardEventDetails } from './app/clipboard-event-details.js';
 
-function translate(key, values = {}) {
-  const templates = {
+function translate(key) {
+  const values = {
+    'clipboard.event.clipboard_busy.title': 'Clipboard busy',
+    'clipboard.event.clipboard_busy.description': 'Another application temporarily owns the clipboard.',
+    'clipboard.event.unsupported_format.title': 'Unsupported format',
+    'clipboard.event.unsupported_format.description': 'No supported clipboard representation was found.',
+    'history.event_code': 'Event code',
+    'history.event_occurrences': 'Occurrences',
+    'history.event_first_occurred': 'First occurred',
+    'history.event_last_occurred': 'Last occurred',
+    'history.event_sequence': 'Sequence',
+    'history.event_error_category': 'Error category',
+    'history.event_technical_details': 'Technical details',
     'history.error_stage': 'Stage',
     'history.error_stage_open': 'Open clipboard',
-    'history.error_format': 'Format',
-    'history.error_win32': 'Win32 error',
     'history.error_attempts': 'Attempts',
-    'history.error_read_attempt': 'read attempt {count}',
-    'history.error_open_attempts': 'opened {count} times',
-    'history.error_clipboard_process': 'Clipboard process',
-    'history.error_pid': 'PID {pid}',
-    'history.error_duration': 'Duration',
-    'history.error_duration_ms': '{count} ms',
     'history.error_formats': 'Detected formats',
-    'history.error_formats_none': 'No formats detected'
+    'history.error_formats_none': 'No formats detected',
+    'history.source_clipboard_owner': 'Clipboard owner',
+    'history.source_foreground': 'Foreground application',
+    'history.source_unknown': 'Unknown source'
   };
-  return Object.entries(values).reduce(
-    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
-    templates[key] || key
-  );
+  return values[key] || key;
 }
 
-test('read failures expose the persisted message and structured Win32 context', () => {
+test('capture event details use the structural event and source DTOs', () => {
+  const first = '2026-09-03T01:00:00Z';
+  const last = '2026-09-03T01:01:00Z';
   const model = clipboardEventDetailModel({
-    metaJson: JSON.stringify({
-      formats: ['CF_DIB', 'CF_DIBV5'],
-      error: {
-        message: 'clipboard open failed for unknown: Access is denied.',
-        stage: 'open',
-        format: 'unknown',
-        attempt: 1,
-        openAttempts: 8,
-        clipboardOpenerPid: 13700,
-        durationMs: 1273,
-        win32Error: 5
-      }
-    })
+    event: {
+      code: 'clipboard_busy',
+      titleKey: 'clipboard.event.clipboard_busy.title',
+      descriptionKey: 'clipboard.event.clipboard_busy.description',
+      severity: 'warning',
+      sequence: 42,
+      stage: 'open',
+      attempts: 0,
+      errorCategory: 'clipboard_busy',
+      occurrenceCount: 2,
+      firstOccurredAt: first,
+      lastOccurredAt: last,
+      formats: [{ id: 13, name: 'CF_UNICODETEXT' }, { id: 49155, name: 'HTML Format' }]
+    },
+    source: { displayName: 'Editor', exeName: 'editor.exe', attribution: 'clipboard_owner' }
   }, translate);
 
-  assert.equal(model.message, 'clipboard open failed for unknown: Access is denied.');
+  assert.equal(model.title, 'Clipboard busy ×2');
+  assert.equal(model.description, 'Another application temporarily owns the clipboard.');
+  assert.equal(model.severity, 'warning');
   assert.deepEqual(model.rows, [
+    { label: 'Event code', value: 'clipboard_busy' },
+    { label: 'Occurrences', value: '2' },
+    { label: 'First occurred', value: new Date(first).toLocaleString() },
+    { label: 'Last occurred', value: new Date(last).toLocaleString() },
     { label: 'Stage', value: 'Open clipboard' },
-    { label: 'Format', value: 'unknown' },
-    { label: 'Win32 error', value: '5' },
-    { label: 'Attempts', value: 'read attempt 1 · opened 8 times' },
-    { label: 'Clipboard process', value: 'PID 13700' },
-    { label: 'Duration', value: '1273 ms' },
-    { label: 'Detected formats', value: 'CF_DIB, CF_DIBV5' }
+    { label: 'Attempts', value: '0' },
+    { label: 'Sequence', value: '42' },
+    { label: 'Error category', value: 'clipboard_busy' },
+    { label: 'Detected formats', value: 'CF_UNICODETEXT (#13), HTML Format (#49155)' },
+    { label: 'Clipboard owner', value: 'Editor' }
   ]);
 });
 
-test('unsupported formats are displayed even without an error object', () => {
+test('empty format lists are stated explicitly', () => {
   const model = clipboardEventDetailModel({
-    metaJson: JSON.stringify({ formats: ['FileGroupDescriptorW', 'FileContents'] })
+    event: {
+      code: 'unsupported_format',
+      titleKey: 'clipboard.event.unsupported_format.title',
+      descriptionKey: 'clipboard.event.unsupported_format.description',
+      occurrenceCount: 1,
+      attempts: 1,
+      formats: []
+    }
   }, translate);
 
-  assert.equal(model.message, '');
-  assert.deepEqual(model.rows, [
-    { label: 'Detected formats', value: 'FileGroupDescriptorW, FileContents' }
-  ]);
+  assert.ok(model.rows.some(row => row.label === 'Detected formats' && row.value === 'No formats detected'));
 });
 
-test('a cleared clipboard explicitly reports that no formats were detected', () => {
-  const model = clipboardEventDetailModel({
-    unavailableReason: 'clipboard_empty',
-    metaJson: '{}'
-  }, translate);
-
-  assert.equal(model.message, '');
-  assert.deepEqual(model.rows, [
-    { label: 'Detected formats', value: 'No formats detected' }
-  ]);
-});
-
-test('malformed metadata degrades to an empty detail model', () => {
-  assert.deepEqual(clipboardEventDetailModel({ metaJson: '{' }, translate), {
-    message: '',
-    rows: []
-  });
-});
-
-test('rendered details escape persisted messages and values', () => {
+test('rendered details escape event and source values', () => {
   const escapeHTML = value => String(value).replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const html = renderClipboardEventDetails({
-    metaJson: JSON.stringify({ error: { message: '<script>', format: '<img>' } })
-  }, '<reason>', translate, escapeHTML);
+    event: {
+      code: '<script>',
+      titleKey: 'clipboard.event.unsupported_format.title',
+      descriptionKey: 'clipboard.event.unsupported_format.description',
+      occurrenceCount: 1,
+      attempts: 1,
+      formats: [{ id: 49155, name: '<img>' }]
+    },
+    source: { exeName: '<owner>', attribution: 'unknown' }
+  }, translate, escapeHTML);
 
   assert.ok(html.includes('&lt;script&gt;'));
   assert.ok(html.includes('&lt;img&gt;'));
-  assert.ok(html.includes('&lt;reason&gt;'));
+  assert.ok(html.includes('&lt;owner&gt;'));
   assert.ok(!html.includes('<script>'));
+});
+
+test('event source rendering follows visibility and resolved display name', () => {
+  const item = {
+    event: {
+      code: 'unsupported_format',
+      titleKey: 'clipboard.event.unsupported_format.title',
+      descriptionKey: 'clipboard.event.unsupported_format.description',
+      occurrenceCount: 1,
+      attempts: 1,
+      formats: []
+    },
+    source: { displayName: 'raw.exe', exeName: 'raw.exe', attribution: 'foreground' }
+  };
+
+  const aliased = clipboardEventDetailModel(item, translate, { sourceDisplayName: 'Friendly App' });
+  assert.ok(aliased.rows.some(row => row.label === 'Foreground application' && row.value === 'Friendly App'));
+
+  const hidden = clipboardEventDetailModel(item, translate, { showSource: false, sourceDisplayName: 'Friendly App' });
+  assert.ok(!hidden.rows.some(row => row.label === 'Foreground application'));
 });

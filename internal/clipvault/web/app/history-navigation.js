@@ -24,6 +24,9 @@ export function registerHistoryNavigation() {
     chip.classList.add('active');
     app.currentKind = kind;
     app.currentGroupID = 0;
+    const recordType = kind === '__events__' ? 'event' : 'content';
+    const loaded = await app.loadSourceExesForHistory(recordType);
+    if (!loaded || app.currentKind !== kind) return;
     app.resetSearch();
   });
 }

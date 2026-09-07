@@ -28,9 +28,12 @@ func TestHandleItemCopyTextExpandsManagedImagePath(t *testing.T) {
 	defer store.Close()
 
 	if err := store.Save(context.Background(), ClipboardItem{
-		Kind:   "image",
-		Format: "CLIPVAULT_IMAGE_FILE",
-		Text:   storedPath,
+		RecordType:    RecordTypeContent,
+		Kind:          "image",
+		Format:        "CLIPVAULT_IMAGE_FILE",
+		Text:          storedPath,
+		ByteLen:       len("png"),
+		ContentSHA256: hashString("png"),
 	}); err != nil {
 		t.Fatal(err)
 	}

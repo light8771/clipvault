@@ -14,12 +14,15 @@ func TestSearchHistoryFiltersUseTranslationKeysForEveryClipboardKind(t *testing.
 		domain.KindArchive: "history.kind_archive",
 		domain.KindOffice:  "history.kind_office",
 		domain.KindFiles:   "history.kind_files",
-		domain.KindOther:   "history.kind_other",
 	}
 	for kind, want := range tests {
-		filters := searchHistoryFilters(kind, false, 0, "", "", nil)
+		filters := searchHistoryFilters(kind, "", false, 0, "", "", nil)
 		if got := filters["shlog.filter.kind"]; got != want {
 			t.Errorf("kind %q filter label = %q, want %q", kind, got, want)
 		}
+	}
+	filters := searchHistoryFilters("", domain.HistoryRecordEvent, false, 0, "", "", nil)
+	if got := filters["shlog.filter.kind"]; got != "history.kind_events" {
+		t.Fatalf("event filter label = %q", got)
 	}
 }

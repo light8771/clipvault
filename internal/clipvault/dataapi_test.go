@@ -113,6 +113,52 @@ func TestAPITokenLifecycle(t *testing.T) {
 	}
 }
 
+func TestDataAPIMetadataDescribesCurrentContentContract(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(&DataAPIService{}).handleMetadata(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/metadata", nil), &APIToken{})
+
+	var response struct {
+		Resources map[string]struct {
+			Fields           map[string]string `json:"fields"`
+			RecordTypeValues []string          `json:"recordTypeValues"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	resource, ok := response.Resources["clipboardItems"]
+	if !ok {
+		t.Fatalf("clipboardItems metadata missing: %s", recorder.Body.String())
+	}
+	wantFields := map[string]string{
+		"recordType":           "string",
+		"contentSha256":        "string|null",
+		"consecutiveDuplicate": "boolean",
+		"groupIds":             "array<string>",
+	}
+	for field, wantType := range wantFields {
+		if got := resource.Fields[field]; got != wantType {
+			t.Fatalf("metadata field %s = %q, want %q", field, got, wantType)
+		}
+	}
+	for _, removedField := range []string{"sha256", "contentAvailable", "groupId"} {
+		if _, exists := resource.Fields[removedField]; exists {
+			t.Fatalf("obsolete or wrong-projection metadata field %q retained", removedField)
+		}
+	}
+	if len(resource.RecordTypeValues) != 1 || resource.RecordTypeValues[0] != "content" {
+		t.Fatalf("recordTypeValues = %#v, want [content]", resource.RecordTypeValues)
+	}
+
+	payload, err := json.Marshal(toDataAPIItem(StoredItem{RecordType: domain.HistoryRecordContent}, []int64{3, 8}, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"groupIds":["3","8"]`) || strings.Contains(string(payload), `"groupId":`) {
+		t.Fatalf("multi-group response contract drifted: %s", payload)
+	}
+}
+
 // TestSetAPITokenSensitive 验证 SetAPITokenSensitive 的 store 语义：
 // 仅对未撤销、未过期且通道匹配的 Token 生效；幂等；其余情况一律 errAPITokenNotFound。
 func TestSetAPITokenSensitive(t *testing.T) {
@@ -386,6 +432,12 @@ func TestDataAPIQueryValidation(t *testing.T) {
 		`{"resource": "clipboardItems", "filter": {"createdAt": {"eq": "2026-08-18T00:00:00Z"}}}`,
 		`{"resource": "tables"}`,
 		`{"resource": "clipboardItems", "orderBy": [{"field": "text", "direction": "desc"}]}`,
+		`{"resource": "clipboardItems", "groupBy": ["kind"]}`,
+		`{"resource": "clipboardItems", "filter": {"id": {}}}`,
+		`{"resource": "clipboardItems", "filter": {"id": {"eq": [1, 2]}}}`,
+		`{"resource": "clipboardItems", "filter": {"id": {"in": 1}}}`,
+		`{"resource": "clipboardItems", "filter": {"id": {"eq": 0}}}`,
+		`{"resource": "clipboardItems", "filter": {"groupId": null}}`,
 	} {
 		if _, apiErr := parse(body); apiErr == nil {
 			t.Fatalf("invalid query accepted: %s", body)
@@ -404,6 +456,7 @@ func TestDataAPIQueryKeysetPagination(t *testing.T) {
 	for i := 0; i < 7; i++ {
 		if err := store.Save(ctx, ClipboardItem{
 			CapturedAtMS: 1700000000000 + int64(i)*1000,
+			RecordType:   RecordTypeContent,
 			Kind:         "text",
 			Format:       "CF_UNICODETEXT",
 			Text:         "entry",
@@ -479,12 +532,66 @@ func TestDataAPIQueryKeysetPagination(t *testing.T) {
 	}
 }
 
+func TestDataAPIGroupFilterUsesMembershipSemantics(t *testing.T) {
+	store := openDataAPITestStore(t)
+	ctx := context.Background()
+	for _, text := range []string{"only first", "both", "ungrouped"} {
+		if err := store.Save(ctx, ClipboardItem{CapturedAtMS: time.Now().UnixMilli(), RecordType: domain.HistoryRecordContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, _, err := store.Search(ctx, SearchOptions{Limit: 10, IncludeSensitive: true})
+	if err != nil || len(items) != 3 {
+		t.Fatalf("load items: count=%d err=%v", len(items), err)
+	}
+	byText := make(map[string]int64, len(items))
+	for _, item := range items {
+		byText[item.Text] = item.ID
+	}
+	first, err := store.CreateGroup(ctx, "first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateGroup(ctx, "second", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, membership := range []struct{ itemID, groupID int64 }{
+		{byText["only first"], first.ID}, {byText["both"], first.ID}, {byText["both"], second.ID},
+	} {
+		if err := store.AddItemToGroup(ctx, membership.itemID, membership.groupID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewExternalReadService(store, Environment{})
+	query := func(op string) []StoredItem {
+		req := dataAPIQueryRequest{Resource: "clipboardItems", Limit: 10, Filter: map[string]map[string]json.RawMessage{
+			"groupId": {op: json.RawMessage(strconv.FormatInt(first.ID, 10))},
+		}}
+		plan, apiErr := parseDataAPIQuery(&req)
+		if apiErr != nil {
+			t.Fatal(apiErr)
+		}
+		got, _, err := service.QueryItems(ctx, ReadAccess{AllowSensitive: true}, plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := query("eq"); len(got) != 2 {
+		t.Fatalf("group eq returned %d items, want 2", len(got))
+	}
+	if got := query("neq"); len(got) != 1 || got[0].Text != "ungrouped" {
+		t.Fatalf("group neq returned %#v, want only ungrouped", got)
+	}
+}
+
 func TestDataAPIAggregateQuery(t *testing.T) {
 	store := openDataAPITestStore(t)
 	ctx := context.Background()
 	for _, exe := range []string{"Code.exe", "Code.exe", "chrome.exe"} {
 		if err := store.Save(ctx, ClipboardItem{
-			Kind: "text", Format: "CF_UNICODETEXT", Text: "x", SourceExeName: exe,
+			RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "x", SourceExeName: exe,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -616,7 +723,7 @@ func startDataAPITestService(t *testing.T, items ...ClipboardItem) *dataAPITestF
 
 func TestDataAPIServiceEndToEnd(t *testing.T) {
 	fx := startDataAPITestService(t, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "hello from agent", SourceExeName: "Code.exe",
+		RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "hello from agent", SourceExeName: "Code.exe",
 	})
 	ctx := context.Background()
 
@@ -707,6 +814,14 @@ func TestDataAPIServiceEndToEnd(t *testing.T) {
 	}
 }
 
+func TestDataAPIStopClearsInactiveBindFailure(t *testing.T) {
+	svc := &DataAPIService{running: false, listen: "127.0.0.1:1", bindError: "address in use"}
+	svc.stopLocked()
+	if svc.running || svc.listen != "" || svc.bindError != "" {
+		t.Fatalf("stopped state retained runtime fields: running=%v listen=%q bindError=%q", svc.running, svc.listen, svc.bindError)
+	}
+}
+
 // TestDataAPIActivationGate 未激活时所有认证端点返回 403 activation_required。
 func TestDataAPIActivationGate(t *testing.T) {
 	fx := startDataAPITestService(t)
@@ -786,8 +901,8 @@ func TestDataAPIPanicRecovery(t *testing.T) {
 // TestDataAPIBatchGet 批量获取保持请求顺序，跳过缺失 ID。
 func TestDataAPIBatchGet(t *testing.T) {
 	fx := startDataAPITestService(t,
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "first"},
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "second"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "first"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "second"},
 	)
 	items, _, err := fx.store.Search(context.Background(), domain.SearchOptions{})
 	if err != nil {
@@ -824,11 +939,28 @@ func TestDataAPIBatchGet(t *testing.T) {
 	readResponseBody(t, resp)
 }
 
+func TestDataAPIRejectsTrailingJSONValues(t *testing.T) {
+	fx := startDataAPITestService(t)
+	for _, test := range []struct {
+		path string
+		body string
+	}{
+		{path: "/api/v1/query", body: `{"resource":"clipboardItems"}{"extra":true}`},
+		{path: "/api/v1/items/batch-get", body: `{"ids":["1"]}{"extra":true}`},
+	} {
+		resp := fx.authed(t, http.MethodPost, test.path, test.body)
+		body := readResponseBody(t, resp)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, `"error":"invalid_request"`) {
+			t.Fatalf("%s accepted trailing JSON: status=%d body=%s", test.path, resp.StatusCode, body)
+		}
+	}
+}
+
 // TestDataAPIItemContent 文本条目经 content 端点原样返回；无内容条目 404。
 func TestDataAPIItemContent(t *testing.T) {
 	fx := startDataAPITestService(t,
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "plain body"},
-		ClipboardItem{Kind: "files", Format: "CF_HDROP", Text: "C:\\some\\file.txt"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "plain body"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "files", Format: "CF_HDROP", Text: "C:\\some\\file.txt"},
 	)
 	items, _, err := fx.store.Search(context.Background(), domain.SearchOptions{})
 	if err != nil {
@@ -1036,8 +1168,8 @@ func TestDataAPIAuditEndpointsThroughHTTP(t *testing.T) {
 // （S1/S2/S3/S4 + metadata 权限报告）。
 func TestDataAPIHTTPSensitivePermission(t *testing.T) {
 	fx := startDataAPITestService(t,
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "normal entry"},
-		ClipboardItem{Kind: "text", Format: "CF_UNICODETEXT", Text: "secret entry"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "normal entry"},
+		ClipboardItem{RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT", Text: "secret entry"},
 	)
 	ctx := context.Background()
 	items, _, err := fx.store.Search(ctx, domain.SearchOptions{})
@@ -1139,6 +1271,31 @@ func TestDataAPIHTTPSensitivePermission(t *testing.T) {
 		t.Fatalf("granted token must fetch sensitive item: %d", grantedGetResp.StatusCode)
 	}
 	readResponseBody(t, grantedGetResp)
+	grantedContent, _ := http.NewRequest("GET", fx.base+"/api/v1/items/"+strconv.FormatInt(sensitiveID, 10)+"/content", nil)
+	grantedContent.Header.Set("Authorization", "Bearer "+rawGranted)
+	grantedContentResp, err := http.DefaultClient.Do(grantedContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grantedContentResp.StatusCode != http.StatusOK || readResponseBody(t, grantedContentResp) != "secret entry" {
+		t.Fatalf("granted token must fetch sensitive content: %d", grantedContentResp.StatusCode)
+	}
+
+	fx.svc.Close()
+	audits, _, err := fx.store.ListAPIAuditEvents(ctx, APIAuditFilter{Operations: []string{"get_content"}, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sensitiveContentAudit bool
+	for _, audit := range audits {
+		if audit.ItemID == sensitiveID && audit.StatusCode == http.StatusOK && audit.SensitiveAccessed {
+			sensitiveContentAudit = true
+			break
+		}
+	}
+	if !sensitiveContentAudit {
+		t.Fatalf("sensitive content access was not recorded: %+v", audits)
+	}
 }
 
 // TestDataAPIHTTPTokenChannelIsolation E2E：MCP 通道令牌不能调用 HTTP 数据接口（S7）。

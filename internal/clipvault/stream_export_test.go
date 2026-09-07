@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 // TestStreamExportMatchesFullExport 已随 ExportFullForJSON 一并移除：
@@ -110,6 +112,15 @@ func TestStreamExportRoundtripImport(t *testing.T) {
 	}
 	defer src.Close()
 	seedStoreForExport(t, src)
+	formats := ClipboardFormatSet{IDs: []uint32{13, 49161}, Names: []string{"CF_UNICODETEXT", "Rich Text Format"}}
+	fingerprint := buildEventFingerprint(domain.EventDecodeFailed, formats, "decode", "decode_failed", "editor.exe")
+	if err := src.Save(ctx, ClipboardItem{
+		RecordType: RecordTypeEvent, EventCode: domain.EventDecodeFailed,
+		CaptureSequence: 42, CaptureStage: "decode", CaptureAttempts: 2, EventFormats: formats.Info(),
+		ErrorCategory: "decode_failed", SourceExeName: "editor.exe", SourceAttribution: "foreground",
+	}); err != nil {
+		t.Fatalf("save event: %v", err)
+	}
 
 	var buf bytes.Buffer
 	if _, err := src.StreamExport(ctx, ExportScope{Mode: "full"}, &buf); err != nil {
@@ -141,7 +152,58 @@ func TestStreamExportRoundtripImport(t *testing.T) {
 			t.Fatalf("sensitive flag lost on 'beta'")
 		}
 	}
-	t.Logf("[OK] stream export -> import roundtrip (%d items, flags preserved)", total)
+	events, eventTotal, err := dst.Search(ctx, SearchOptions{
+		Limit: 100, IncludeSensitive: true, RecordType: RecordTypeEvent,
+	})
+	if err != nil {
+		t.Fatalf("Search events: %v", err)
+	}
+	if eventTotal != 1 || len(events) != 1 {
+		t.Fatalf("imported events = %d/%d, want 1/1", len(events), eventTotal)
+	}
+	if event := events[0]; event.EventCode != domain.EventDecodeFailed || event.EventFingerprint != fingerprint ||
+		event.CaptureSequence != 42 || event.SourceExeName != "editor.exe" {
+		t.Fatalf("event fields not preserved: %+v", event)
+	}
+	t.Logf("[OK] stream export -> import roundtrip (%d content items and %d event, fields preserved)", total, eventTotal)
+}
+
+func TestXLSXExportRoundtripImportPreservesEvent(t *testing.T) {
+	ctx := context.Background()
+	src, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	formats := ClipboardFormatSet{IDs: []uint32{49161}, Names: []string{"Rich Text Format"}}
+	fingerprint := buildEventFingerprint(domain.EventDecodeFailed, formats, "decode", "decode_failed", "editor.exe")
+	if err := src.Save(ctx, ClipboardItem{
+		RecordType: RecordTypeEvent, EventCode: domain.EventDecodeFailed,
+		CaptureStage: "decode", CaptureAttempts: 2, EventFormats: formats.Info(),
+		ErrorCategory: "decode_failed", SourceExeName: "editor.exe", SourceAttribution: "foreground",
+	}); err != nil {
+		t.Fatalf("save event: %v", err)
+	}
+
+	data, err := src.ExportXLSX(ctx)
+	if err != nil {
+		t.Fatalf("ExportXLSX: %v", err)
+	}
+	dst, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportXLSX(ctx, data); err != nil {
+		t.Fatalf("ImportXLSX: %v", err)
+	}
+	events, total, err := dst.Search(ctx, SearchOptions{RecordType: RecordTypeEvent, Limit: 10, IncludeSensitive: true})
+	if err != nil || total != 1 || len(events) != 1 {
+		t.Fatalf("imported events = %d/%d, err=%v", len(events), total, err)
+	}
+	if event := events[0]; event.EventFingerprint != fingerprint || event.EventCode != domain.EventDecodeFailed || len(event.EventFormats) != 1 {
+		t.Fatalf("event fields not preserved: %+v", event)
+	}
 }
 
 // TestStreamExportEmptyStore 验证空库导出产生合法的空数组 JSON（边界情况）。
@@ -209,13 +271,12 @@ func seedStoreForExport(t *testing.T, store *Store) {
 }
 
 // insertItem 直接插入一条完整记录（绕过 Save，用于精确控制 created_at/starred/sensitive）。
-// created_at 为 BIGINT Unix 毫秒；事件状态列使用表默认值
-// （content_available=true, is_duplicate=false, unavailable_reason=”）。
+// created_at is BIGINT Unix milliseconds; the discriminator is explicit.
 func insertItem(t *testing.T, store *Store, ts time.Time, text string, starred, sensitive bool) {
 	t.Helper()
 	_, err := store.db.ExecContext(context.Background(), `INSERT INTO clipboard_items
-		(created_at, kind, format, text, byte_len, char_len, sha256, meta_json, starred, sensitive)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, meta_json, starred, sensitive)
+		VALUES (?, 'content', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ts.UTC().UnixMilli(),
 		"text", "CF_UNICODETEXT", text, len([]byte(text)), textRuneLen(text),
 		hashString(text), "{}", starred, sensitive,
@@ -283,14 +344,16 @@ func TestImportMergesGroupsIdempotently(t *testing.T) {
 func TestImportDeduplicatesLinksAfterGroupMerge(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
+	contentSHA256 := hashString("hello")
 	export := ExportData{
 		ExportVersion: currentExportVersion,
 		App:           "ClipVault",
 		ExportedAt:    now.Format(time.RFC3339),
 		SourceEngine:  "duckdb",
+		Warning:       "test",
 		Items: []StoredItem{{
-			ID: 1, CreatedAt: now, Kind: "text", Format: "CF_UNICODETEXT",
-			Text: "hello", ByteLen: 5, CharLen: 5, SHA256: hashString("hello"), MetaJSON: "{}", ContentAvailable: true,
+			ID: 1, CreatedAt: now, RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT",
+			Text: "hello", ByteLen: 5, CharLen: 5, ContentSHA256: &contentSHA256, MetaJSON: "{}", SourceAttribution: "unknown",
 		}},
 		Groups: []StoredGroup{
 			{ID: 1, Name: "Dup", ParentID: 0, CreatedAt: now},

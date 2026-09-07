@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
+	"clipboard_ext/internal/clipvault/domain"
 	"clipboard_ext/internal/licensing"
 )
 
@@ -43,8 +45,7 @@ func saveFreeTierItems(t *testing.T, store *Store, texts []string) {
 	t.Helper()
 	for _, txt := range texts {
 		if err := store.Save(context.Background(), ClipboardItem{
-			Kind: "text", Format: "CF_UNICODETEXT", Text: txt,
-			ByteLen: len(txt), CharLen: len(txt), SHA256: hashString(txt), MetaJSON: "{}",
+			RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: txt, MetaJSON: "{}",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -156,6 +157,48 @@ func TestHandleSearchFreeTierWindow(t *testing.T) {
 	}
 }
 
+func TestHandleSearchFreeTierFullTotalMatchesRecordProjection(t *testing.T) {
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err := store.Save(ctx, ClipboardItem{
+		RecordType: RecordTypeContent, Kind: domain.KindText, Format: domain.FormatUnicodeText, Text: "content",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().UnixMilli()
+	for _, capturedAt := range []int64{base, base + 1000, base + eventGroupingWindowMS + 2000} {
+		if err := store.Save(ctx, ClipboardItem{
+			RecordType: RecordTypeEvent, EventCode: domain.EventClipboardEmpty, CapturedAtMS: capturedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := newFreeTierTestServer(t, store, newUnlicensedManager(t))
+	query := func(path string) map[string]any {
+		t.Helper()
+		result := httptest.NewRecorder()
+		server.handleSearch(result, httptest.NewRequest(http.MethodGet, path, nil))
+		if result.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, result.Code, result.Body.String())
+		}
+		var response map[string]any
+		if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	if response := query("/api/v1/items?record_type=event"); int(response["fullTotal"].(float64)) != 2 {
+		t.Fatalf("event fullTotal=%v, want two grouped events", response["fullTotal"])
+	}
+	if response := query("/api/v1/items?record_type=all"); int(response["fullTotal"].(float64)) != 4 {
+		t.Fatalf("all-record fullTotal=%v, want four raw rows", response["fullTotal"])
+	}
+}
+
 func TestHandleItemPositionFreeTier(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
@@ -224,13 +267,13 @@ func TestHandleSourceExesFreeTierUsesVisibleWindow(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 	if err := store.Save(ctx, ClipboardItem{
-		Kind: "text", Format: "CF_UNICODETEXT", Text: "old", SourceExeName: "old-only.exe",
+		RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "old", SourceExeName: "old-only.exe",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < FreeTierVisibleLimit; i++ {
 		if err := store.Save(ctx, ClipboardItem{
-			Kind: "text", Format: "CF_UNICODETEXT", Text: "new-" + strconv.Itoa(i), SourceExeName: "visible.exe",
+			RecordType: "content", Kind: "text", Format: "CF_UNICODETEXT", Text: "new-" + strconv.Itoa(i), SourceExeName: "visible.exe",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -270,8 +313,9 @@ func TestHandleExportDataFreeTierBlocked(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	// 服务器无 i18n 服务时消息回退词条 key；错误码已覆盖语义。
-	if resp["code"] != "license_required" || resp["error"] != "transfer.paywall_full" {
+	// 错误码是稳定契约；文案取决于当前进程语言，不应参与断言。
+	message, messageOK := resp["error"].(string)
+	if resp["code"] != "license_required" || !messageOK || message == "" {
 		t.Fatalf("unlicensed export error = %#v", resp)
 	}
 
@@ -307,8 +351,7 @@ func TestRecordedFileFreeTierWindow(t *testing.T) {
 	saveFileRecord := func() {
 		t.Helper()
 		if err := store.Save(ctx, ClipboardItem{
-			Kind: "image", Format: "CF_HDROP", Text: p,
-			ByteLen: len(p), CharLen: len(p), SHA256: hashString(p), MetaJSON: "{}",
+			RecordType: "content", Kind: "image", Format: "CF_HDROP", Text: p, MetaJSON: "{}",
 		}); err != nil {
 			t.Fatal(err)
 		}
