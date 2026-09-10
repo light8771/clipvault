@@ -2,6 +2,7 @@ import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
 import { createOperationState } from './operation-state.js';
 import { downloadProtectedFile } from './download.js';
+import { importRequestHeaders } from './transfer-request.js';
 
 const t = window.clipvaultI18n.t;
 
@@ -261,8 +262,7 @@ export function registerTransfer() {
     operation.begin(t('transfer.importing'));
     let imported = null;
     try {
-      const headers = { 'X-ClipVault-Import-Format': format };
-      if (pwd) headers['X-ClipVault-Import-Password'] = pwd;
+      const headers = importRequestHeaders(format, pwd);
       const res = await app.protectedFetch('/api/v1/transfer/import', {
         method: 'POST',
         headers,

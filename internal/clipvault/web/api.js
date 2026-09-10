@@ -18,7 +18,7 @@ async function csrfToken(forceRefresh = false) {
   if (!csrfTokenPromise) {
     const pending = nativeFetch('/api/v1/session/csrf', { cache: 'no-store' })
       .then(async response => {
-        if (!response.ok) throw new APIError('csrf_bootstrap_failed', 'CSRF bootstrap failed', response.status);
+        if (!response.ok) throw new APIError('csrf_bootstrap_failed', t('apijs.csrf_bootstrap_failed'), response.status);
         const envelope = await response.json();
         const token = envelope?.data?.token;
         if (typeof token !== 'string' || !token.trim()) {

@@ -3,6 +3,7 @@ package clipvault
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -908,7 +909,7 @@ func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := EncryptExport(exportJSON, "test-password")
+	data, err := EncryptExport(exportJSON, "中文🔐 password + / = é")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -930,7 +931,7 @@ func TestImportCVExportReloadsSensitiveSettings(t *testing.T) {
 	server := &SearchServer{store: target, cfgMgr: manager, logger: logger}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "cvexport")
-	request.Header.Set("X-ClipVault-Import-Password", "test-password")
+	request.Header.Set("X-ClipVault-Import-Password-Base64", base64.StdEncoding.EncodeToString([]byte("中文🔐 password + / = é")))
 	result := httptest.NewRecorder()
 	server.handleImportData(result, request)
 	if result.Code != http.StatusOK {
@@ -1008,23 +1009,25 @@ func TestImportDataRejectsInvalidCVExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
-	request.Header.Set("X-ClipVault-Import-Format", "cvexport")
-	request.Header.Set("X-ClipVault-Import-Password", "wrong-password")
-	result := httptest.NewRecorder()
-	server.handleImportData(result, request)
-	if result.Code != http.StatusBadRequest {
-		t.Fatalf("invalid cvexport status = %d, body = %s", result.Code, result.Body.String())
-	}
-	var response struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
-		t.Fatalf("invalid cvexport response is not JSON: %v", err)
-	}
-	if response.OK {
-		t.Fatalf("invalid cvexport should be rejected, got ok=true: %#v", response)
+	for _, encoded := range []string{base64.StdEncoding.EncodeToString([]byte("wrong-password")), "not%base64", "/w==", ""} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
+		request.Header.Set("X-ClipVault-Import-Format", "cvexport")
+		request.Header.Set("X-ClipVault-Import-Password-Base64", encoded)
+		result := httptest.NewRecorder()
+		server.handleImportData(result, request)
+		if result.Code != http.StatusBadRequest {
+			t.Fatalf("invalid cvexport status = %d, body = %s", result.Code, result.Body.String())
+		}
+		var response struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+			t.Fatalf("invalid cvexport response is not JSON: %v", err)
+		}
+		if response.OK {
+			t.Fatalf("invalid cvexport should be rejected, got ok=true: %#v", response)
+		}
 	}
 }
 
@@ -1046,7 +1049,7 @@ func TestImportDataRejectsMismatchedCVExportFormat(t *testing.T) {
 	server := &SearchServer{store: store, logger: logger}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/transfer/import", bytes.NewReader(data))
 	request.Header.Set("X-ClipVault-Import-Format", "json")
-	request.Header.Set("X-ClipVault-Import-Password", "test-password")
+	request.Header.Set("X-ClipVault-Import-Password-Base64", base64.StdEncoding.EncodeToString([]byte("test-password")))
 	result := httptest.NewRecorder()
 	server.handleImportData(result, request)
 	if result.Code != http.StatusBadRequest {

@@ -239,7 +239,7 @@ func TestI18nServiceEffectiveDictionary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dict := svc.EffectiveDictionary()
+	_, dict := svc.DictionarySnapshot()
 	if got := dict["dict.custom"]; got != "辞書" {
 		t.Errorf("dict[dict.custom] = %q, want 辞書", got)
 	}
@@ -304,5 +304,34 @@ func TestI18nServiceWithConfigManager(t *testing.T) {
 	}
 	if got := <-switched; got != I18nChinese {
 		t.Fatalf("hook saw %q, want zh-CN via config update", got)
+	}
+}
+
+func TestI18nDictionarySnapshotKeepsLanguageAndTextTogether(t *testing.T) {
+	svc := newI18nTestService(t, nil)
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			svc.applyConfigLanguage(I18nChinese)
+			svc.applyConfigLanguage(I18nEnglish)
+		}
+	}()
+	defer func() { close(stop); <-done }()
+	for i := 0; i < 200; i++ {
+		code, dict := svc.DictionarySnapshot()
+		want := "Save"
+		if code == I18nChinese {
+			want = "保存"
+		}
+		if dict["common.save"] != want {
+			t.Fatalf("language=%s, text=%q", code, dict["common.save"])
+		}
+		dict["common.save"] = "mutated client copy"
 	}
 }

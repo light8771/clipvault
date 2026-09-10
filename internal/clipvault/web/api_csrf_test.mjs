@@ -32,6 +32,9 @@ test('a failed CSRF bootstrap does not poison subsequent saves', async () => {
       apiFetch('/api/v1/groups', { method: 'POST' }),
     ]);
     assert.deepEqual(first.map(r => r.status), ['rejected', 'rejected'], name);
+    if (name === 'http') {
+      assert.equal(first[0].reason.message, 'apijs.csrf_bootstrap_failed');
+    }
     assert.equal(attempts, 1, name);
     assert.equal(writes, 0, name);
     assert.equal((await apiFetch('/api/v1/config', { method: 'PUT' })).ok, true, name);

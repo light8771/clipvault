@@ -18,6 +18,22 @@ var (
 	settingsGroupCardPattern = regexp.MustCompile(`class="sgroup-card" href="([^"]+)"`)
 )
 
+func TestApplicationModulesAreRegistered(t *testing.T) {
+	registered := make(map[string]bool)
+	for _, asset := range applicationModuleAssets {
+		registered[asset] = true
+	}
+	files, err := fs.ReadDir(webFS, "web/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".js") && !registered["/app/"+file.Name()] {
+			t.Errorf("application module %s is not served", file.Name())
+		}
+	}
+}
+
 func renderApplicationPage(t *testing.T, route string) string {
 	t.Helper()
 	result := httptest.NewRecorder()

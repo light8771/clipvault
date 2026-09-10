@@ -11674,5 +11674,54 @@
     "Description": "并发配置提交冲突",
     "ZhCN": "配置已被其他操作更新，本次修改未保存。请刷新页面后重试。",
     "EnUS": "Another operation updated the configuration. Your change was not saved. Refresh the page and retry."
+  },
+  {
+    "Key": "history.hash",
+    "Module": "history",
+    "Description": "文件哈希按钮",
+    "ZhCN": "哈希",
+    "EnUS": "Hash"
+  },
+  {
+    "Key": "apijs.csrf_bootstrap_failed",
+    "Module": "apijs",
+    "Description": "会话安全令牌初始化失败",
+    "ZhCN": "无法初始化安全会话，请重试",
+    "EnUS": "Could not initialize a secure session. Please try again."
+  },
+  {
+    "Key": "auth.password_whitespace",
+    "Module": "auth",
+    "Description": "密码首尾空格校验",
+    "ZhCN": "密码首尾不能有空格",
+    "EnUS": "The password cannot have leading or trailing spaces"
+  },
+  {
+    "Key": "auth.password_too_short",
+    "Module": "auth",
+    "Description": "密码最短长度校验",
+    "ZhCN": "密码至少需要 {n} 个字符",
+    "EnUS": "The password needs at least {n} characters"
+  },
+  {
+    "Key": "auth.password_too_long",
+    "Module": "auth",
+    "Description": "密码最大长度校验",
+    "ZhCN": "密码过长",
+    "EnUS": "The password is too long"
+  },
+  {
+    "Key": "api.error.invalid_parent_cycle",
+    "Module": "api",
+    "Description": "分组父级循环引用",
+    "ZhCN": "不能将分组自身或其子分组设为父分组",
+    "EnUS": "A group cannot have itself or one of its descendants as its parent"
+  },
+  {
+    "Key": "groups.load_failed",
+    "Module": "groups",
+    "Description": "分组列表加载失败",
+    "ZhCN": "分组加载失败，请重试",
+    "EnUS": "Could not load groups. Please try again."
   }
 ]

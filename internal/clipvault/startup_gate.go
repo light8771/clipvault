@@ -361,10 +361,7 @@ func (g *StartupGate) handleI18nDictJS(w http.ResponseWriter, _ *http.Request) {
 	lang := I18nChinese
 	dict := map[string]string{}
 	if g.i18n != nil {
-		lang = g.i18n.CurrentLanguage()
-		if effective := g.i18n.EffectiveDictionary(); effective != nil {
-			dict = effective
-		}
+		lang, dict = g.i18n.DictionarySnapshot()
 	}
 	payload, err := json.Marshal(map[string]any{"lang": lang, "dict": dict})
 	if err != nil {
@@ -463,13 +460,13 @@ func (g *StartupGate) setInitialCredentials(recoveryPassword, secondaryPassword,
 	}
 	secondaryHash, err := newPasswordHash(secondaryPassword)
 	if err != nil {
-		return err
+		return localizedPasswordError(err, g.t)
 	}
 	var lockHash string
 	if lockPassword != "" {
 		lockHash, err = newPasswordHash(lockPassword)
 		if err != nil {
-			return err
+			return localizedPasswordError(err, g.t)
 		}
 	}
 	cfg, err := g.store.GetConfig()

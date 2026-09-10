@@ -1,5 +1,5 @@
 import { app } from "./app-context.js";
-import { trapModalFocus } from './modal-controller.js';
+import { trapModalFocus, createRemovableModal } from './modal-controller.js';
 import { createOperationState } from './operation-state.js';
 
 const t = window.clipvaultI18n.t;
@@ -247,7 +247,7 @@ export function registerAuth() {
 
   // ── Password set/change dialog ───────────────────────────
   app.showPwdDialog = function (type, action) {
-    const trigger = document.activeElement;
+    if (document.getElementById('pwdDialogOverlay')) return;
     const isChange = action === 'change';
     const isRemove = action === 'remove';
     const nameKey = type === 'lock' ? 'auth.pwd_name_lock' : 'auth.pwd_name_secondary';
@@ -296,41 +296,21 @@ export function registerAuth() {
     const newInput = document.getElementById('pwdDlgNew');
     const confirmInput = document.getElementById('pwdDlgConfirm');
     const showInput = document.getElementById('pwdDlgShow');
-    setTimeout(() => (oldInput || newInput).focus(), 50);
-    app.closePwdDialog = function () {
-      overlay.remove();
-      if (trigger && trigger.focus) trigger.focus();
-    };
+    const operation = createOperationState(overlay, form.parentElement);
+    const modal = createRemovableModal(overlay, {
+      initialFocus: oldInput || newInput,
+      canClose: () => !operation.busy
+    });
+    app.closePwdDialog = modal.close;
     showInput.addEventListener('change', () => {
       const visible = showInput.checked;
       [oldInput, newInput, confirmInput].filter(Boolean).forEach(input => {
         input.type = visible ? 'text' : 'password';
       });
     });
-    overlay.addEventListener('keydown', e => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        app.closePwdDialog();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const focusable = Array.from(overlay.querySelectorAll('button:not([disabled]), input:not([disabled])')).filter(el => el.offsetParent !== null);
-      if (!focusable.length) return;
-      const first = focusable[0],
-        last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    });
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) app.closePwdDialog();
-    });
     form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (operation.busy) return;
       const oldPwd = oldInput ? oldInput.value : '';
       const newPwd = newInput ? newInput.value : '';
       const confirmPwd = confirmInput ? confirmInput.value : '';
@@ -345,6 +325,7 @@ export function registerAuth() {
         errEl.classList.remove('hidden');
         return;
       }
+      operation.begin(t('common.loading'));
       try {
         const res = await app.fetch('/api/v1/session/password', {
           method: 'POST',
@@ -359,8 +340,9 @@ export function registerAuth() {
           })
         });
         const d = await res.json();
-        if (d.ok) {
-          app.closePwdDialog();
+        if (res.ok && d.ok) {
+          operation.finish();
+          modal.close();
           const successMessage = t('auth.pwd_done', { verb: t(verbKey), name: passwordName });
           app.toast(d.runtimeError ? t('auth.pwd_done_runtime', { message: successMessage, error: d.runtimeError }) : successMessage, d.runtimeError ? 'err' : undefined);
           await app.checkAuthStatus();
@@ -372,6 +354,8 @@ export function registerAuth() {
       } catch (_) {
         errEl.textContent = t('common.network_error');
         errEl.classList.remove('hidden');
+      } finally {
+        if (operation.busy) operation.finish();
       }
     });
   };

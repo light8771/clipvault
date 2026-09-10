@@ -39,15 +39,21 @@ func HashPassword(password string) (string, error) {
 	return fmt.Sprintf("%sn=%d$r=%d$p=%d$%s$%s", hashPrefix, hashN, hashR, hashP, hex.EncodeToString(salt), hex.EncodeToString(derived)), nil
 }
 
+var (
+	ErrPasswordWhitespace = errors.New("password has leading or trailing whitespace")
+	ErrPasswordTooShort   = errors.New("password is too short")
+	ErrPasswordTooLong    = errors.New("password is too long")
+)
+
 func ValidatePassword(password string) error {
 	if strings.TrimSpace(password) != password {
-		return errors.New("密码首尾不能有空格")
+		return ErrPasswordWhitespace
 	}
 	if utf8.RuneCountInString(password) < MinPasswordRunes {
-		return fmt.Errorf("密码至少需要 %d 个字符", MinPasswordRunes)
+		return ErrPasswordTooShort
 	}
 	if len(password) > MaxPasswordBytes {
-		return errors.New("密码过长")
+		return ErrPasswordTooLong
 	}
 	return nil
 }

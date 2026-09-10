@@ -380,3 +380,103 @@ func TestI18nEntriesAPI(t *testing.T) {
 		t.Fatalf("builtin translation must be protected, got %q", got)
 	}
 }
+
+func TestCustomLanguageTranslatesMCPSidebarAndTitle(t *testing.T) {
+	server, svc := newI18nHTTPTestServer(t, false)
+	pack := sampleLanguagePack()
+	pack.Language = I18nPackLanguage{Code: "zhcn", Name: "Chinese custom", NativeName: "简体中文", BaseLanguageCode: I18nChinese}
+	pack.Translations = map[string]string{"app.title.mcp": "连接器"}
+	response := callJSON(t, server.handleI18nPackImport, http.MethodPost, "/api/v1/i18n/import", map[string]any{"pack": pack})
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Body.String())
+	}
+	if err := svc.SetLanguage("zhcn"); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range []string{"/settings/language", "/mcp", "/settings"} {
+		body := renderApplicationPage(t, route)
+		start := strings.Index(body, `href="/mcp"`)
+		if start < 0 {
+			t.Fatalf("%s has no MCP menu", route)
+		}
+		end := strings.Index(body[start:], "</a>")
+		if end < 0 || !strings.Contains(body[start:start+end], "连接器") {
+			t.Fatalf("%s sidebar did not use custom translation", route)
+		}
+		if route == "/mcp" && !strings.Contains(body, `<h1 class="sd-title">连接器</h1>`) {
+			t.Fatal("page title did not use custom translation")
+		}
+	}
+}
+
+func TestPasswordValidationUsesActiveLanguage(t *testing.T) {
+	server, svc := newI18nHTTPTestServer(t, false)
+	pack := sampleLanguagePack()
+	pack.Translations = map[string]string{
+		"auth.password_whitespace": "custom whitespace",
+		"auth.password_too_short":  "custom minimum {n}",
+		"auth.password_too_long":   "custom maximum",
+	}
+	response := callJSON(t, server.handleI18nPackImport, http.MethodPost, "/api/v1/i18n/import", map[string]any{"pack": pack})
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Body.String())
+	}
+	for _, language := range []struct{ code, whitespace, short, long string }{
+		{I18nChinese, "密码首尾不能有空格", "密码至少需要 8 个字符", "密码过长"},
+		{I18nEnglish, "The password cannot have leading or trailing spaces", "The password needs at least 8 characters", "The password is too long"},
+		{pack.Language.Code, "custom whitespace", "custom minimum 8", "custom maximum"},
+	} {
+		if err := svc.SetLanguage(language.code); err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct{ password, want string }{
+			{" password", language.whitespace},
+			{"short", language.short},
+			{strings.Repeat("x", maxAuthPasswordBytes+1), language.long},
+		} {
+			if err := validateAuthPassword(tc.password); err == nil || err.Error() != tc.want {
+				t.Fatalf("%s: got %v, want %q", language.code, err, tc.want)
+			}
+		}
+		if err := validateAuthPassword("valid-password"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestI18nReloadReconcilesDisabledCurrentLanguage(t *testing.T) {
+	server, svc := newI18nHTTPTestServer(t, true)
+	pack := sampleLanguagePack()
+	pack.Translations = map[string]string{"common.save": "custom-save"}
+	imported := callJSON(t, server.handleI18nPackImport, http.MethodPost, "/api/v1/i18n/import", map[string]any{"pack": pack})
+	if imported.Code != http.StatusOK {
+		t.Fatal(imported.Body.String())
+	}
+	if err := svc.SetLanguage(pack.Language.Code); err != nil {
+		t.Fatal(err)
+	}
+	var changes []string
+	svc.OnLanguageChanged(func() { changes = append(changes, svc.CurrentLanguage()+":"+svc.T("common.save", nil)) })
+	for _, enabled := range []bool{false, true} {
+		result := callJSON(t, server.handleI18nLanguagesUpdate, http.MethodPut, "/api/v1/i18n/languages?code="+pack.Language.Code, map[string]any{"isEnabled": enabled})
+		if result.Code != http.StatusOK {
+			t.Fatal(result.Body.String())
+		}
+		wantCode, wantText := I18nEnglish, "Save"
+		if enabled {
+			wantCode, wantText = pack.Language.Code, "custom-save"
+		}
+		if svc.CurrentLanguage() != wantCode || svc.T("common.save", nil) != wantText {
+			t.Fatalf("enabled=%v: current=%s text=%s", enabled, svc.CurrentLanguage(), svc.T("common.save", nil))
+		}
+		if code, dict := svc.DictionarySnapshot(); code != wantCode || dict["common.save"] != wantText {
+			t.Fatal("frontend dictionary disagrees with runtime")
+		}
+		if server.cfgMgr.Get().UI.Language != pack.Language.Code {
+			t.Fatal("fallback overwrote user's configured language")
+		}
+	}
+	if len(changes) != 2 {
+		t.Fatalf("language notifications=%v", changes)
+	}
+}

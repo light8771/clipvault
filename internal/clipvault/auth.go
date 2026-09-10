@@ -3,6 +3,7 @@ package clipvault
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -70,7 +71,22 @@ func newPasswordHash(password string) (string, error) {
 }
 
 func validateAuthPassword(password string) error {
-	return security.ValidatePassword(password)
+	return localizedPasswordError(security.ValidatePassword(password), templateT)
+}
+
+func localizedPasswordError(err error, translate func(string, map[string]any) string) error {
+	var key string
+	switch {
+	case errors.Is(err, security.ErrPasswordWhitespace):
+		key = "auth.password_whitespace"
+	case errors.Is(err, security.ErrPasswordTooShort):
+		key = "auth.password_too_short"
+	case errors.Is(err, security.ErrPasswordTooLong):
+		key = "auth.password_too_long"
+	default:
+		return err
+	}
+	return errors.New(translate(key, map[string]any{"n": minAuthPasswordRunes}))
 }
 
 func verifyPasswordHash(encoded, password string) bool {

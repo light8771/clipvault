@@ -27,6 +27,7 @@ export function registerSettingsLifecycle() {
       }
     }
     await Promise.all([app.loadSettings(), app.loadLicenseStatus(), app.loadGroups()]);
+    if (document.getElementById('groupsPageTree')) await app.renderGroupsPage();
     if (app.loadSystemInfo) app.loadSystemInfo();
   };
 

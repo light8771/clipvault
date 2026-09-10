@@ -30,8 +30,7 @@ func (s *SearchServer) handleI18nDictJS(w http.ResponseWriter, _ *http.Request) 
 	var lang string
 	dict := make(map[string]string)
 	if svc := s.i18n; svc != nil {
-		lang = svc.CurrentLanguage()
-		dict = svc.EffectiveDictionary()
+		lang, dict = svc.DictionarySnapshot()
 	} else {
 		lang = I18nChinese
 	}

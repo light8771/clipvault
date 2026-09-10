@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"clipboard_ext/internal/clipvault/transfer"
 )
@@ -194,11 +196,12 @@ func (s *SearchServer) handleImportData(w http.ResponseWriter, r *http.Request) 
 			s.writeImportError(w, errors.New("invalid encrypted export"))
 			return
 		}
-		password := r.Header.Get("X-ClipVault-Import-Password")
-		if password == "" {
-			s.writeImportError(w, errors.New("password is required to decrypt .cvexport file"))
+		passwordBytes, err := base64.StdEncoding.Strict().DecodeString(r.Header.Get("X-ClipVault-Import-Password-Base64"))
+		if err != nil || len(passwordBytes) == 0 || !utf8.Valid(passwordBytes) {
+			s.writeImportError(w, errors.New("encrypted import requires a base64-encoded UTF-8 password"))
 			return
 		}
+		password := string(passwordBytes)
 		plain, err := os.CreateTemp("", "clipvault-import-*.json")
 		if err != nil {
 			s.writeImportError(w, err)

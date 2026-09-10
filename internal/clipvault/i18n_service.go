@@ -16,10 +16,11 @@ type I18nService struct {
 	cfgMgr *ConfigManager
 	logger *DailyLogger
 
-	mu        sync.RWMutex
-	current   string                  // 已解析的当前语言 code（运行期永不为 "auto"）
-	languages map[string]I18nLanguage // code → 语言定义
-	cache     map[string]map[string]string
+	mu         sync.RWMutex
+	configured string                  // 用户选择；与临时回退后的 current 分开保存
+	current    string                  // 已解析的当前语言 code（运行期永不为 "auto"）
+	languages  map[string]I18nLanguage // code → 语言定义
+	cache      map[string]map[string]string
 
 	onChangeMu sync.Mutex
 	onChange   []func()
@@ -58,24 +59,30 @@ func (s *I18nService) configuredLanguage() string {
 // 解析规则："auto" → 系统语言；不存在/已禁用 → en-US 兜底（告警，
 // 不回写配置——避免与配置写入方形成循环）。
 func (s *I18nService) applyConfigLanguage(configured string) {
-	resolved := configured
-	if resolved == I18nAuto || resolved == "" {
-		resolved = detectSystemLanguage()
-	}
-	s.mu.RLock()
-	lang, ok := s.languages[resolved]
-	s.mu.RUnlock()
-	if !ok || !lang.IsEnabled {
-		s.logMissing(fmt.Sprintf("language %q unavailable, falling back to %s", resolved, I18nEnglish))
-		resolved = I18nEnglish
-	}
 	s.mu.Lock()
-	changed := s.current != resolved
-	s.current = resolved
+	s.configured = configured
+	changed := s.resolveCurrentLanguageLocked()
 	s.mu.Unlock()
 	if changed {
 		s.fireLanguageChanged()
 	}
+}
+
+// Cache replacement and language selection resolve under the same lock, so a
+// reload cannot retain a disabled language or overwrite a newer user choice.
+func (s *I18nService) resolveCurrentLanguageLocked() bool {
+	resolved := s.configured
+	if resolved == I18nAuto || resolved == "" {
+		resolved = detectSystemLanguage()
+	}
+	lang, ok := s.languages[resolved]
+	if !ok || !lang.IsEnabled {
+		s.logMissing(fmt.Sprintf("language %q unavailable, falling back to %s", resolved, I18nEnglish))
+		resolved = I18nEnglish
+	}
+	changed := s.current != resolved
+	s.current = resolved
+	return changed
 }
 
 // Reload 全量重建语言定义与译文缓存（启动、语言增删后调用）。
@@ -96,7 +103,11 @@ func (s *I18nService) Reload() error {
 	s.mu.Lock()
 	s.languages = byCode
 	s.cache = cache
+	changed := s.resolveCurrentLanguageLocked()
 	s.mu.Unlock()
+	if changed {
+		s.fireLanguageChanged()
+	}
 	return nil
 }
 
@@ -268,10 +279,10 @@ func (s *I18nService) ApplyTranslationDeleted(languageCode, key string) {
 	}
 }
 
-// EffectiveDictionary 返回前端字典：按回退链合成当前语言的完整有效
+// DictionarySnapshot 原子返回语言代码与前端字典：按回退链合成当前语言的完整有效
 // 字典（zh-CN 基底 ← en-US ← base ← 当前语言逐层覆盖），前端 t() 为
 // 纯查表，无需理解回退逻辑。
-func (s *I18nService) EffectiveDictionary() map[string]string {
+func (s *I18nService) DictionarySnapshot() (string, map[string]string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	effective := make(map[string]string, len(s.cache[I18nChinese]))
@@ -288,7 +299,7 @@ func (s *I18nService) EffectiveDictionary() map[string]string {
 	for k, v := range s.cache[s.current] {
 		effective[k] = v
 	}
-	return effective
+	return s.current, effective
 }
 
 // Languages 返回语言定义快照（语言管理页数据源）。

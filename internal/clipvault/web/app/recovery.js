@@ -1,5 +1,6 @@
 import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
+import { createOperationState } from './operation-state.js';
 
 const t = window.clipvaultI18n.t;
 
@@ -196,6 +197,7 @@ export function registerRecovery() {
     });
   };
   app.showRecoveryDialog = function (action) {
+    if (document.getElementById('recDialogOverlay')) return;
     const isChange = action === 'change';
     const isReset = action === 'reset';
     const title = isReset ? t('recovery.reset_title') : t('recovery.change_title');
@@ -231,11 +233,15 @@ export function registerRecovery() {
     const oldInput = document.getElementById('recDlgOld');
     const newInput = document.getElementById('recDlgNew');
     const confirmInput = document.getElementById('recDlgConfirm');
-    app.closeRecDialog = createRemovableModal(overlay, {
-      initialFocus: oldInput || newInput
-    }).close;
+    const operation = createOperationState(overlay, form.parentElement);
+    const modal = createRemovableModal(overlay, {
+      initialFocus: oldInput || newInput,
+      canClose: () => !operation.busy
+    });
+    app.closeRecDialog = modal.close;
     form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (operation.busy) return;
       const oldPwd = oldInput ? oldInput.value : '';
       const newPwd = newInput.value;
       const confirmPwd = confirmInput.value;
@@ -245,6 +251,7 @@ export function registerRecovery() {
         errEl.classList.remove('hidden');
         return;
       }
+      operation.begin(t('common.loading'));
       try {
         const baseUrl = isReset ? '/api/v1/recovery/reset' : '/api/v1/recovery/password';
         const body = isChange ? {
@@ -263,8 +270,9 @@ export function registerRecovery() {
           fresh: isReset
         });
         const d = await res.json();
-        if (d.ok) {
-          app.closeRecDialog();
+        if (res.ok && d.ok) {
+          operation.finish();
+          modal.close();
           app.toast(isReset ? t('recovery.reset_done') : t('recovery.change_done'));
           app.recoveryState.hasRecovery = true;
           app.updateRecoveryPwdUI();
@@ -275,6 +283,8 @@ export function registerRecovery() {
       } catch (_) {
         errEl.textContent = t('common.network_error');
         errEl.classList.remove('hidden');
+      } finally {
+        if (operation.busy) operation.finish();
       }
     });
   };

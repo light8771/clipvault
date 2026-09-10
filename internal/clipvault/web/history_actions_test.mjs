@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+const translations = {};
 globalThis.window = {
   fetch: async () => { throw new Error('unexpected native fetch'); },
   location: { origin: 'http://localhost' },
   clipvaultI18n: {
-    t: key => key
+    t: key => translations[key] ?? key
   }
 };
 
@@ -33,6 +34,17 @@ const { registerTextUtils } = await import('./app/text-utils.js');
 
 registerTextUtils();
 registerHistoryActions();
+
+test('file hash button uses and escapes the active translation', () => {
+  try {
+    translations['history.hash'] = '<custom hash>';
+    registerHistoryActions();
+    assert.ok(app.hashHTML.endsWith(' &lt;custom hash&gt;'));
+  } finally {
+    delete translations['history.hash'];
+    registerHistoryActions();
+  }
+});
 
 test('successful grouped-event deletion refreshes the server projection', async () => {
   const id = 17;

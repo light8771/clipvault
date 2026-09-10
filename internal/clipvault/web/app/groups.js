@@ -8,12 +8,20 @@ export function registerGroups() {
   app.GROUP_EXPAND = new Set();
   app.groupModalMode = null;
   app.groupModalOpts = {};
+  let loadGeneration = 0;
+  let modalGeneration = 0;
   app.loadGroups = async function loadGroups() {
+    const request = ++loadGeneration;
     try {
-      const d = await app.fetch('/api/v1/groups').then(r => r.json());
+      const response = await app.fetch('/api/v1/groups');
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const d = await response.json();
+      if (request !== loadGeneration) return false;
       app.allGroups = d.groups || [];
+      return true;
     } catch (_) {
-      app.allGroups = [];
+      if (request === loadGeneration) app.toast(t('groups.load_failed'), 'err');
+      return false;
     }
   };
   app.buildGroupTree = function buildGroupTree(parentID) {
@@ -72,6 +80,7 @@ export function registerGroups() {
     app.renderGroupModalContent();
   };
   app.closeGroupModal = function closeGroupModal() {
+    modalGeneration++;
     if (app.groupModalController) {
       app.groupModalController.close();
       return;
@@ -82,13 +91,16 @@ export function registerGroups() {
     app.groupModalOpts = {};
   };
   app.renderGroupModalContent = async function renderGroupModalContent() {
+    const request = ++modalGeneration;
     const body = document.getElementById('groupModalBody');
     if (!body) return;
+    const current = () => request === modalGeneration && document.getElementById('groupModalBody') === body;
     const mode = app.groupModalMode;
     const opts = app.groupModalOpts;
     if (app.allGroups.length === 0) {
       await app.loadGroups();
     }
+    if (!current()) return;
 
     // For assign mode, load item's current groups
     let itemGroupIds = [];
@@ -99,11 +111,13 @@ export function registerGroups() {
         const d = await res.json();
         itemGroupIds = d.groupIds || [];
       } catch (_) {
+        if (!current()) return;
         app.toast(t('groups.read_item_failed'), 'err');
         app.closeGroupModal();
         return;
       }
     }
+    if (!current()) return;
     let html = '';
     // Toolbar for manage mode
     if (mode === 'manage') {
@@ -346,16 +360,27 @@ export function registerGroups() {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'gm-name-input';
+    input.maxLength = 100;
     input.value = oldName;
     nameEl.replaceWith(input);
     input.focus();
     input.select();
+    let saving = false;
+    let settled = false;
+    const cancel = () => {
+      if (saving || settled) return;
+      settled = true;
+      input.replaceWith(nameEl);
+    };
     async function save() {
+      if (saving || settled) return;
       const newName = input.value.trim();
       if (!newName || newName === oldName) {
-        await app.refreshGroupViews(false);
+        cancel();
         return;
       }
+      saving = true;
+      input.readOnly = true;
       try {
         const res = await app.fetch('/api/v1/groups?id=' + id, {
           method: 'PUT',
@@ -368,26 +393,32 @@ export function registerGroups() {
           })
         });
         const d = await res.json();
-        if (d.ok) {
+        if (res.ok && d.ok) {
+          settled = true;
+          nameEl.textContent = newName;
+          input.replaceWith(nameEl);
           app.toast(t('groups.renamed'));
           await app.refreshGroupViews(true);
         } else {
           app.toast(d.error || t('groups.rename_failed'), 'err');
-          await app.refreshGroupViews(false);
         }
       } catch (_) {
         app.toast(t('groups.rename_failed'), 'err');
-        await app.refreshGroupViews(false);
+      } finally {
+        saving = false;
+        input.readOnly = false;
       }
     }
     input.addEventListener('blur', save);
     input.addEventListener('keydown', function (e) {
+      if (e.isComposing) return;
       if (e.key === 'Enter') {
         e.preventDefault();
-        input.blur();
+        void save();
       }
       if (e.key === 'Escape') {
-        void app.refreshGroupViews(false);
+        e.preventDefault();
+        cancel();
       }
     });
   };

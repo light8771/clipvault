@@ -7,10 +7,11 @@ const t = window.clipvaultI18n.t;
 export function registerGroupsPage() {
   // 内联编辑状态：非 null 表示正在 parentId（0=根）下创建新分组。
   app.groupCreatingUnder = null;
+  const submittedCreates = new WeakSet();
 
   // refreshGroupViews 统一刷新弹窗（若打开）与分组管理页（若存在）。
   app.refreshGroupViews = async function refreshGroupViews(reload) {
-    if (reload) await app.loadGroups();
+    if (reload && !await app.loadGroups()) return;
     if (app.groupModalMode) await app.renderGroupModalContent();
     if (document.getElementById('groupsPageTree')) await app.renderGroupsPage();
   };
@@ -50,7 +51,6 @@ export function registerGroupsPage() {
   app.renderGroupsPage = async function renderGroupsPage() {
     const tree = document.getElementById('groupsPageTree');
     if (!tree) return;
-    await app.loadGroups();
     const total = document.getElementById('groupsPageTotal');
     if (total) total.textContent = t('groups.page_total', { count: app.allGroups.length });
     let html = '';
@@ -101,6 +101,7 @@ export function registerGroupsPage() {
     const parentId = app.groupCreatingUnder || 0;
     input.focus();
     input.addEventListener('keydown', function (e) {
+      if (input.disabled || e.isComposing) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         void app.commitInlineCreate(input, parentId);
@@ -116,8 +117,10 @@ export function registerGroupsPage() {
   }
 
   app.commitInlineCreate = async function commitInlineCreate(input, parentId) {
+    if (submittedCreates.has(input)) return;
     const name = input.value.trim();
-    app.groupCreatingUnder = null;
+    submittedCreates.add(input);
+    input.disabled = true;
     if (name) {
       try {
         const res = await app.fetch('/api/v1/groups', {
@@ -131,17 +134,25 @@ export function registerGroupsPage() {
           })
         });
         const d = await res.json();
-        if (d.ok) {
+        if (res.ok && d.ok) {
           app.toast(parentId ? t('groups.child_created') : t('groups.created'));
           if (parentId) app.GROUP_EXPAND.add(parentId);
         } else {
           app.toast(d.error || t('groups.create_failed'), 'err');
+          submittedCreates.delete(input);
+          return;
         }
       } catch (_) {
         app.toast(t('groups.create_failed'), 'err');
+        submittedCreates.delete(input);
+        return;
+      } finally {
+        input.disabled = false;
       }
     }
-    await app.refreshGroupViews(true);
+    input.disabled = false;
+    app.groupCreatingUnder = null;
+    await app.refreshGroupViews(!!name);
   };
 
   // 删除为破坏性操作：第一次点击进入确认态，3 秒内再次点击才执行。
@@ -187,6 +198,5 @@ export function registerGroupsPage() {
       app.groupCreatingUnder = 0;
       void app.renderGroupsPage();
     });
-    void app.renderGroupsPage();
   }
 }
