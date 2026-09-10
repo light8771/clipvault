@@ -127,3 +127,63 @@ test('viewing a locked sensitive managed image dispatches after authorized forma
 
   assert.equal(viewedImage, 1);
 });
+
+for (const action of ['new preview', 'close']) {
+  test(`late sensitive preview cannot override ${action}`, async () => {
+    registerHistoryActions();
+    globalThis.requestAnimationFrame = fn => fn();
+    let visible = false;
+    modal.classList = { add: () => { visible = false; }, remove: () => { visible = true; } };
+    app.toast = () => {};
+    app.items.set(1, { id: 1, kind: 'text', sensitive: true, text: 'masked' });
+    app.items.set(2, { id: 2, kind: 'text', sensitive: false, text: 'new preview' });
+    let finish;
+    app.authorizedItemFetch = () => new Promise(resolve => { finish = resolve; });
+    const old = app.doView(1);
+    if (action === 'close') app.closeModal(); else await app.doView(2);
+    finish({ ok: true, json: async () => ({ item: { id: 1, kind: 'text', text: 'late sensitive text' } }) });
+    await old;
+    assert.equal(visible, action !== 'close');
+    assert.notEqual(app.MODAL_PRE.textContent, 'late sensitive text');
+    if (action === 'new preview') {
+      assert.equal(app.MODAL_PRE.textContent, 'new preview');
+      assert.equal(app.currentModalId, 2);
+    }
+  });
+}
+
+for (const kind of ['managed image', 'file image']) {
+  test(`late ${kind} response cannot reopen a closed preview`, async () => {
+    registerHistoryActions();
+    let visible = false;
+    modal.classList = { add: () => { visible = false; }, remove: () => { visible = true; } };
+    const preview = { style: {}, innerHTML: '', querySelector: () => ({}) };
+    elements.set('modalFilePreview', preview);
+    app.items.set(30, { id: 30, kind: 'image', sensitive: false });
+    app.filePaths.set(30, ['C:/image.png']);
+    let finish;
+    app.loadManagedImage = app.loadFileImage = () => new Promise(resolve => { finish = resolve; });
+    const viewing = kind === 'managed image' ? app.doViewManagedImage(30) : app.doFileView(30, 0);
+    app.closeModal();
+    finish();
+    await viewing;
+    assert.equal(visible, false);
+    assert.equal(app.currentModalId, 0);
+    elements.delete('modalFilePreview');
+  });
+}
+
+test('detached image responses do not create orphaned object URLs', async () => {
+  registerHistoryActions();
+  app.authorizedItemFetch = async () => ({ ok: true, blob: async () => new Blob(['image']) });
+  const image = { isConnected: false, style: {}, closest: () => null };
+  const original = URL.createObjectURL;
+  let created = 0;
+  URL.createObjectURL = () => { created++; return 'blob:test'; };
+  try {
+    await app.loadManagedImage(image, 30);
+    await app.loadFileImage(image, 30, 0);
+    assert.equal(created, 0);
+    assert.equal(app.fileObjectURLs.size, 0);
+  } finally { URL.createObjectURL = original; }
+});

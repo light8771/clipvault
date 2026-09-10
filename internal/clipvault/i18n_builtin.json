@@ -1606,8 +1606,8 @@
     "Key": "transfer.export_excel_desc",
     "Module": "transfer",
     "Description": "完整导出 Excel 说明",
-    "ZhCN": "包含 Manifest、Records、Groups、ItemGroups 和 SensitiveRules 五个工作表",
-    "EnUS": "Includes five worksheets: Manifest, Records, Groups, ItemGroups, and SensitiveRules"
+    "ZhCN": "包含完整记录、分组、敏感规则和图片；超长文本分段保存，导入时完整还原",
+    "EnUS": "Includes all records, groups, sensitive rules, and images. Long text is split into parts and restored in full on import."
   },
   {
     "Key": "transfer.export_encrypted_title",

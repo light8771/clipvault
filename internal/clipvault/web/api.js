@@ -16,12 +16,22 @@ export class APIError extends Error {
 async function csrfToken(forceRefresh = false) {
   if (forceRefresh) csrfTokenPromise = null;
   if (!csrfTokenPromise) {
-    csrfTokenPromise = nativeFetch('/api/v1/session/csrf', { cache: 'no-store' })
+    const pending = nativeFetch('/api/v1/session/csrf', { cache: 'no-store' })
       .then(async response => {
         if (!response.ok) throw new APIError('csrf_bootstrap_failed', 'CSRF bootstrap failed', response.status);
         const envelope = await response.json();
-        return envelope?.data?.token || '';
+        const token = envelope?.data?.token;
+        if (typeof token !== 'string' || !token.trim()) {
+          throw new APIError('csrf_bootstrap_failed', t('apijs.invalid_response'), response.status);
+        }
+        return token;
+      })
+      .catch(error => {
+        // An older request must not clear a newer forced refresh.
+        if (csrfTokenPromise === pending) csrfTokenPromise = null;
+        throw error;
       });
+    csrfTokenPromise = pending;
   }
   return csrfTokenPromise;
 }

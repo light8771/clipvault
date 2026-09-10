@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	currentXLSXVersion      = 8
 	xlsxManifestSheet       = "Manifest"
 	xlsxRecordsSheet        = "Records"
 	xlsxGroupsSheet         = "Groups"
@@ -41,7 +42,7 @@ var (
 )
 
 // ExportXLSX produces a complete, portable spreadsheet export. All six
-// sheets are required by ImportXLSX and map exactly to ExportData.
+// data sheets and the TextChunks sheet are required by ImportXLSX and map exactly to ExportData.
 func (s *Store) ExportXLSX(ctx context.Context) ([]byte, error) {
 	return s.ExportXLSXScope(ctx, ExportScope{Mode: "full"})
 }
@@ -83,14 +84,18 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 			return 0, fmt.Errorf("create %s sheet: %w", sheet, err)
 		}
 	}
+	chunks, err := newXLSXTextWriter(book)
+	if err != nil {
+		return 0, err
+	}
 	manifest, err := book.NewStreamWriter(xlsxManifestSheet)
 	if err != nil {
 		return 0, fmt.Errorf("open manifest stream: %w", err)
 	}
-	if err := writeXLSXStreamRow(manifest, xlsxManifestSheet, 1, xlsxManifestHeader); err != nil {
+	if err := chunks.writeStreamRow(manifest, xlsxManifestSheet, 1, xlsxManifestHeader); err != nil {
 		return 0, err
 	}
-	if err := writeXLSXStreamRow(manifest, xlsxManifestSheet, 2, []string{"ClipVault", strconv.Itoa(currentExportVersion)}); err != nil {
+	if err := chunks.writeStreamRow(manifest, xlsxManifestSheet, 2, []string{"ClipVault", strconv.Itoa(currentXLSXVersion)}); err != nil {
 		return 0, err
 	}
 	if err := manifest.Flush(); err != nil {
@@ -101,7 +106,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err != nil {
 		return 0, fmt.Errorf("open records stream: %w", err)
 	}
-	if err := writeXLSXStreamRow(records, xlsxRecordsSheet, 1, xlsxRecordsHeader); err != nil {
+	if err := chunks.writeStreamRow(records, xlsxRecordsSheet, 1, xlsxRecordsHeader); err != nil {
 		return 0, err
 	}
 	itemSQL, itemArgs, err := exportItemsQuery(scope)
@@ -129,7 +134,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 			strconv.FormatUint(uint64(item.CaptureSequence), 10), item.CaptureStage, strconv.Itoa(item.CaptureAttempts), eventFormats, item.ErrorCategory,
 			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceAttribution,
 		}
-		if err := writeXLSXStreamRow(records, xlsxRecordsSheet, rowNumber, values); err != nil {
+		if err := chunks.writeStreamRow(records, xlsxRecordsSheet, rowNumber, values); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -158,7 +163,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err != nil {
 		return 0, fmt.Errorf("open groups stream: %w", err)
 	}
-	if err := writeXLSXStreamRow(groups, xlsxGroupsSheet, 1, xlsxGroupsHeader); err != nil {
+	if err := chunks.writeStreamRow(groups, xlsxGroupsSheet, 1, xlsxGroupsHeader); err != nil {
 		return 0, err
 	}
 	groupRows, err := tx.QueryContext(ctx, `SELECT id, name, parent_id, created_at FROM groups ORDER BY id ASC`)
@@ -174,7 +179,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 			groupRows.Close()
 			return 0, fmt.Errorf("scan XLSX group: %w", err)
 		}
-		if err := writeXLSXStreamRow(groups, xlsxGroupsSheet, rowNumber, []string{strconv.FormatInt(id, 10), name, strconv.FormatInt(parentID, 10), time.UnixMilli(createdMS).UTC().Format(time.RFC3339Nano)}); err != nil {
+		if err := chunks.writeStreamRow(groups, xlsxGroupsSheet, rowNumber, []string{strconv.FormatInt(id, 10), name, strconv.FormatInt(parentID, 10), time.UnixMilli(createdMS).UTC().Format(time.RFC3339Nano)}); err != nil {
 			groupRows.Close()
 			return 0, err
 		}
@@ -194,7 +199,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err != nil {
 		return 0, fmt.Errorf("open item-groups stream: %w", err)
 	}
-	if err := writeXLSXStreamRow(links, xlsxItemGroupsSheet, 1, xlsxItemGroupsHeader); err != nil {
+	if err := chunks.writeStreamRow(links, xlsxItemGroupsSheet, 1, xlsxItemGroupsHeader); err != nil {
 		return 0, err
 	}
 	linkSQL, linkArgs, err := exportLinksQuery(scope)
@@ -212,7 +217,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 			linkRows.Close()
 			return 0, fmt.Errorf("scan XLSX item-group: %w", err)
 		}
-		if err := writeXLSXStreamRow(links, xlsxItemGroupsSheet, rowNumber, []string{strconv.FormatInt(itemID, 10), strconv.FormatInt(groupID, 10)}); err != nil {
+		if err := chunks.writeStreamRow(links, xlsxItemGroupsSheet, rowNumber, []string{strconv.FormatInt(itemID, 10), strconv.FormatInt(groupID, 10)}); err != nil {
 			linkRows.Close()
 			return 0, err
 		}
@@ -232,7 +237,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err != nil {
 		return 0, fmt.Errorf("open sensitive-rules stream: %w", err)
 	}
-	if err := writeXLSXStreamRow(rules, xlsxSensitiveRulesSheet, 1, xlsxSensitiveRulesHeader); err != nil {
+	if err := chunks.writeStreamRow(rules, xlsxSensitiveRulesSheet, 1, xlsxSensitiveRulesHeader); err != nil {
 		return 0, err
 	}
 	cfg, err := getConfig(ctx, tx)
@@ -240,7 +245,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 		return 0, fmt.Errorf("export XLSX settings: %w", err)
 	}
 	for index, pattern := range cfg.Sensitive.CustomPatterns {
-		if err := writeXLSXStreamRow(rules, xlsxSensitiveRulesSheet, index+2, []string{pattern}); err != nil {
+		if err := chunks.writeStreamRow(rules, xlsxSensitiveRulesSheet, index+2, []string{pattern}); err != nil {
 			return 0, err
 		}
 	}
@@ -252,11 +257,11 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	if err != nil {
 		return 0, fmt.Errorf("open assets stream: %w", err)
 	}
-	if err := writeXLSXStreamRow(assets, xlsxAssetsSheet, 1, xlsxAssetsHeader); err != nil {
+	if err := chunks.writeStreamRow(assets, xlsxAssetsSheet, 1, xlsxAssetsHeader); err != nil {
 		return 0, err
 	}
 	for index, asset := range assetFiles {
-		if err := writeXLSXStreamRow(assets, xlsxAssetsSheet, index+2, []string{
+		if err := chunks.writeStreamRow(assets, xlsxAssetsSheet, index+2, []string{
 			strconv.FormatInt(asset.ItemID, 10), asset.SHA256, strconv.Itoa(asset.ByteLen), exportAssetPackageEntry(asset.ItemID),
 		}); err != nil {
 			return 0, err
@@ -268,6 +273,9 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 	sources := make([]xlsxAssetSource, 0, len(assetFiles))
 	for _, asset := range assetFiles {
 		sources = append(sources, xlsxAssetSource{asset: asset.ExportAsset, fullPath: asset.fullPath})
+	}
+	if err := chunks.flush(); err != nil {
+		return 0, err
 	}
 	if err := writeGeneratedXLSXPackage(dst, book, sources); err != nil {
 		return 0, err
@@ -307,14 +315,18 @@ func encodeExportXLSX(export *ExportData) ([]byte, error) {
 			return nil, fmt.Errorf("create %s sheet: %w", sheet, err)
 		}
 	}
-	if err := writeXLSXRow(book, xlsxManifestSheet, 1, xlsxManifestHeader); err != nil {
+	chunks, err := newXLSXTextWriter(book)
+	if err != nil {
 		return nil, err
 	}
-	if err := writeXLSXRow(book, xlsxManifestSheet, 2, []string{"ClipVault", strconv.Itoa(currentExportVersion)}); err != nil {
+	if err := chunks.writeRow(book, xlsxManifestSheet, 1, xlsxManifestHeader); err != nil {
+		return nil, err
+	}
+	if err := chunks.writeRow(book, xlsxManifestSheet, 2, []string{"ClipVault", strconv.Itoa(currentXLSXVersion)}); err != nil {
 		return nil, err
 	}
 
-	if err := writeXLSXRow(book, xlsxRecordsSheet, 1, xlsxRecordsHeader); err != nil {
+	if err := chunks.writeRow(book, xlsxRecordsSheet, 1, xlsxRecordsHeader); err != nil {
 		return nil, err
 	}
 	for index, item := range export.Items {
@@ -326,52 +338,55 @@ func encodeExportXLSX(export *ExportData) ([]byte, error) {
 			strconv.FormatUint(uint64(item.CaptureSequence), 10), item.CaptureStage, strconv.Itoa(item.CaptureAttempts), eventFormats, item.ErrorCategory,
 			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceAttribution,
 		}
-		if err := writeXLSXRow(book, xlsxRecordsSheet, index+2, row); err != nil {
+		if err := chunks.writeRow(book, xlsxRecordsSheet, index+2, row); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := writeXLSXRow(book, xlsxGroupsSheet, 1, xlsxGroupsHeader); err != nil {
+	if err := chunks.writeRow(book, xlsxGroupsSheet, 1, xlsxGroupsHeader); err != nil {
 		return nil, err
 	}
 	for index, group := range export.Groups {
 		row := []string{strconv.FormatInt(group.ID, 10), group.Name, strconv.FormatInt(group.ParentID, 10), group.CreatedAt.UTC().Format(time.RFC3339Nano)}
-		if err := writeXLSXRow(book, xlsxGroupsSheet, index+2, row); err != nil {
+		if err := chunks.writeRow(book, xlsxGroupsSheet, index+2, row); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := writeXLSXRow(book, xlsxItemGroupsSheet, 1, xlsxItemGroupsHeader); err != nil {
+	if err := chunks.writeRow(book, xlsxItemGroupsSheet, 1, xlsxItemGroupsHeader); err != nil {
 		return nil, err
 	}
 	for index, link := range export.ItemGroups {
-		if err := writeXLSXRow(book, xlsxItemGroupsSheet, index+2, []string{strconv.FormatInt(link.ItemID, 10), strconv.FormatInt(link.GroupID, 10)}); err != nil {
+		if err := chunks.writeRow(book, xlsxItemGroupsSheet, index+2, []string{strconv.FormatInt(link.ItemID, 10), strconv.FormatInt(link.GroupID, 10)}); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := writeXLSXRow(book, xlsxSensitiveRulesSheet, 1, xlsxSensitiveRulesHeader); err != nil {
+	if err := chunks.writeRow(book, xlsxSensitiveRulesSheet, 1, xlsxSensitiveRulesHeader); err != nil {
 		return nil, err
 	}
 	for index, pattern := range export.Settings.Sensitive.CustomPatterns {
-		if err := writeXLSXRow(book, xlsxSensitiveRulesSheet, index+2, []string{pattern}); err != nil {
+		if err := chunks.writeRow(book, xlsxSensitiveRulesSheet, index+2, []string{pattern}); err != nil {
 			return nil, err
 		}
 	}
 	if err := validateExportAssetSet(export.Items, export.Assets); err != nil {
 		return nil, err
 	}
-	if err := writeXLSXRow(book, xlsxAssetsSheet, 1, xlsxAssetsHeader); err != nil {
+	if err := chunks.writeRow(book, xlsxAssetsSheet, 1, xlsxAssetsHeader); err != nil {
 		return nil, err
 	}
 	for index, asset := range export.Assets {
-		if err := writeXLSXRow(book, xlsxAssetsSheet, index+2, []string{
+		if err := chunks.writeRow(book, xlsxAssetsSheet, index+2, []string{
 			strconv.FormatInt(asset.ItemID, 10), asset.SHA256, strconv.Itoa(asset.ByteLen), exportAssetPackageEntry(asset.ItemID),
 		}); err != nil {
 			return nil, err
 		}
 	}
 
+	if err := chunks.flush(); err != nil {
+		return nil, err
+	}
 	data, err := book.WriteToBuffer()
 	if err != nil {
 		return nil, fmt.Errorf("write XLSX: %w", err)

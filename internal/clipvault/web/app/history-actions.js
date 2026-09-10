@@ -83,15 +83,25 @@ export function registerHistoryActions() {
       app.toast(t('common.action_failed'), 'err');
     }
   };
+  let previewGeneration = 0;
+  function beginPreview(id) {
+    app.viewModalTrigger = document.activeElement;
+    app.currentModalId = id;
+    app.VIEW_MODAL.classList.add('hidden');
+    document.body.style.overflow = '';
+    app.MODAL_PRE.textContent = '';
+    const preview = document.getElementById('modalFilePreview');
+    if (preview) preview.innerHTML = '';
+    return ++previewGeneration;
+  }
   app.currentModalId = 0;
   app.VIEW_MODAL = document.getElementById('viewModal');
   app.MODAL_PRE = document.getElementById('modalPre');
   app.MODAL_TITLE = document.getElementById('modalTitle');
   app.doView = async function doView(id) {
-    app.viewModalTrigger = document.activeElement;
     const item = app.items.get(id);
     if (!item) return;
-    app.currentModalId = id;
+    const request = beginPreview(id);
     let resolvedItem = item;
     let displayText = item.text;
     if (item.sensitive) {
@@ -105,10 +115,11 @@ export function registerHistoryActions() {
           if (typeof d.item.text === 'string') displayText = d.item.text;
         }
       } catch (_) {
-        app.toast(t('history.sensitive_load_failed'), 'err');
+        if (request === previewGeneration) app.toast(t('history.sensitive_load_failed'), 'err');
         return;
       }
     }
+    if (request !== previewGeneration) return;
     // The ordinary list response intentionally redacts a locked sensitive
     // item's format. Decide whether it is a managed image only after the
     // authorized item response restores the canonical format.
@@ -126,7 +137,7 @@ export function registerHistoryActions() {
         preview = document.createElement('div');
         preview.id = 'modalFilePreview';
         preview.className = 'modal-file-preview';
-        document.querySelector('.modal-body').appendChild(preview);
+        app.VIEW_MODAL.querySelector('.modal-body').appendChild(preview);
       }
       preview.style.display = 'flex';
       preview.innerHTML = paths.map((p, idx) => {
@@ -147,9 +158,12 @@ export function registerHistoryActions() {
     }
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
-    requestAnimationFrame(() => document.getElementById('modalCopyBtn')?.focus());
+    requestAnimationFrame(() => { if (request === previewGeneration) document.getElementById('modalCopyBtn')?.focus(); });
   };
   app.closeModal = function () {
+    previewGeneration++;
+    app.currentModalId = 0;
+    app.MODAL_PRE.textContent = '';
     app.VIEW_MODAL.classList.add('hidden');
     document.body.style.overflow = '';
     app.MODAL_PRE.style.display = 'block';
@@ -171,7 +185,7 @@ export function registerHistoryActions() {
     trapModalFocus(app.VIEW_MODAL, event);
   });
   app.modalCopy = async function () {
-    await app.copyItemToClipboard(app.currentModalId);
+    if (app.currentModalId) await app.copyItemToClipboard(app.currentModalId);
   };
 
   // ── Kind label map ────────────────────────────────
@@ -194,7 +208,9 @@ export function registerHistoryActions() {
     try {
       const res = await app.authorizedItemFetch(itemId, '/api/v1/items/image?id=' + itemId);
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      if (!img.isConnected) return;
+      const url = URL.createObjectURL(blob);
       app.fileObjectURLs.add(url);
       img.src = url;
     } catch (_) {
@@ -205,8 +221,7 @@ export function registerHistoryActions() {
   app.doViewManagedImage = async function doViewManagedImage(id) {
     const item = app.items.get(id);
     if (!item) return;
-    app.currentModalId = id;
-    app.viewModalTrigger = document.activeElement;
+    const request = beginPreview(id);
     app.MODAL_TITLE.textContent = t('history.image_title', { id: id }) + (item.sensitive ? ' · ' + t('history.sensitive_tag') : '');
     app.MODAL_PRE.style.display = 'none';
     let preview = document.getElementById('modalFilePreview');
@@ -214,11 +229,12 @@ export function registerHistoryActions() {
       preview = document.createElement('div');
       preview.id = 'modalFilePreview';
       preview.className = 'modal-file-preview';
-      document.querySelector('.modal-body').appendChild(preview);
+      app.VIEW_MODAL.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
     preview.innerHTML = '<img alt="' + app.esc(t('history.image_title', { id: id })) + '">';
     await app.loadManagedImage(preview.querySelector('img'), id);
+    if (request !== previewGeneration) return;
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   };
@@ -286,7 +302,9 @@ export function registerHistoryActions() {
     try {
       const res = await app.authorizedItemFetch(itemId, '/api/v1/files/content?item_id=' + itemId + '&file_index=' + idx);
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      if (!img.isConnected) return;
+      const url = URL.createObjectURL(blob);
       app.fileObjectURLs.add(url);
       img.src = url;
     } catch (_) {
@@ -343,7 +361,9 @@ export function registerHistoryActions() {
     try {
       const res = await app.authorizedItemFetch(itemId, '/api/v1/files/content?item_id=' + itemId + '&file_index=' + idx + '&download=1');
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      if (!img.isConnected) return;
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = app.getBaseName(paths[idx]);
@@ -410,7 +430,7 @@ export function registerHistoryActions() {
     if (!paths || !paths[idx]) return;
     const p = paths[idx];
     const name = app.getBaseName(p);
-    app.currentModalId = itemId;
+    const request = beginPreview(itemId);
     app.MODAL_TITLE.textContent = name;
     app.MODAL_PRE.style.display = 'none';
     let preview = document.getElementById('modalFilePreview');
@@ -418,11 +438,12 @@ export function registerHistoryActions() {
       preview = document.createElement('div');
       preview.id = 'modalFilePreview';
       preview.className = 'modal-file-preview';
-      document.querySelector('.modal-body').appendChild(preview);
+      app.VIEW_MODAL.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
     preview.innerHTML = app.getExt(name) === 'svg' ? '<div class="fmiss">' + app.esc(t('history.svg_no_preview')) + '</div>' : '<img alt="' + app.esc(name) + '">';
     if (app.getExt(name) !== 'svg') await app.loadFileImage(preview.querySelector('img'), itemId, idx);
+    if (request !== previewGeneration) return;
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   };

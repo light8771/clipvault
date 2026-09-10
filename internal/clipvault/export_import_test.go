@@ -685,8 +685,13 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	}
 
 	export.Items[0].Text = strings.Repeat("x", xlsxCellTextLimit+1)
-	if _, err := encodeExportXLSX(export); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized cell error = %v", err)
+	longData, err := encodeExportXLSX(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeImportXLSX(longData)
+	if err != nil || decoded.Items[0].Text != export.Items[0].Text {
+		t.Fatalf("long text round trip: %v", err)
 	}
 }
 
@@ -715,7 +720,7 @@ func TestXLSXExportEndpoint(t *testing.T) {
 		t.Fatalf("XLSX export is not a workbook: %v", err)
 	}
 	defer book.Close()
-	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxAssetsSheet, xlsxManifestSheet}) {
+	if !sameStrings(book.GetSheetList(), []string{xlsxRecordsSheet, xlsxGroupsSheet, xlsxItemGroupsSheet, xlsxSensitiveRulesSheet, xlsxAssetsSheet, xlsxManifestSheet, xlsxTextChunksSheet}) {
 		t.Fatalf("XLSX sheets = %#v", book.GetSheetList())
 	}
 	invalidFormat := httptest.NewRecorder()

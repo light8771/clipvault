@@ -470,7 +470,7 @@ export function registerHistoryList() {
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (!document.getElementById('sourceAppsModal')?.classList.contains('hidden')) {
+      if (document.getElementById('sourceAppsModal')?.classList.contains('hidden') === false) {
         app.closeSourceAppsDialog();
         return;
       }
@@ -478,7 +478,7 @@ export function registerHistoryList() {
         app.closeGroupModal();
         return;
       }
-      if (!app.VIEW_MODAL.classList.contains('hidden')) {
+      if (app.currentModalId || !app.VIEW_MODAL.classList.contains('hidden')) {
         app.closeModal();
         return;
       }

@@ -6,6 +6,7 @@ const t = window.clipvaultI18n.t;
 export function registerSettingsSources() {
   const sourceAppsModal = document.getElementById('sourceAppsModal');
   let sourceAppsTrigger = null;
+  let sourceAppsSaving = false;
   app.updateSourceAppsSummary = function updateSourceAppsSummary() {
     const summary = document.getElementById('sourceAppsSummary');
     if (!summary) return;
@@ -76,6 +77,7 @@ export function registerSettingsSources() {
     });
   };
   app.openSourceAppsDialog = function () {
+    if (sourceAppsSaving) return;
     sourceAppsTrigger = document.activeElement;
     const existing = app.sourceWhitelist?.length ? app.sourceWhitelist.slice() : app.allSourceExes.map(e => e.name);
     app.sourceAppsDraft = {
@@ -95,6 +97,7 @@ export function registerSettingsSources() {
     setTimeout(() => filter?.focus(), 50);
   };
   app.closeSourceAppsDialog = function () {
+    if (sourceAppsSaving) return;
     sourceAppsModal?.classList.add('hidden');
     app.sourceAppsDraft = null;
     if (sourceAppsTrigger?.isConnected && typeof sourceAppsTrigger.focus === 'function') sourceAppsTrigger.focus();
@@ -109,7 +112,7 @@ export function registerSettingsSources() {
     trapModalFocus(sourceAppsModal, event);
   });
   app.saveSourceAppsDialog = async function () {
-    if (!app.sourceAppsDraft) return;
+    if (!app.sourceAppsDraft || sourceAppsSaving) return;
     app.syncVisibleSourceAppsDraft();
     const knownNames = new Set(app.allSourceExes.map(e => e.name));
     const selectedKnown = (app.sourceAppsDraft.whitelist || []).filter(name => knownNames.has(name));
@@ -123,18 +126,26 @@ export function registerSettingsSources() {
       ...app.sourceAppsDraft.aliases
     };
     app.sourceWhitelist = app.sourceAppsDraft.mode === 'all' ? null : app.sourceAppsDraft.whitelist.slice();
-    const saveButton = document.getElementById('sourceAppsSaveBtn');
-    if (saveButton) saveButton.disabled = true;
-    app.pendingConfigRevision++;
-    clearTimeout(app.saveTimer);
-    app.saveTimer = 0;
-    const saved = await app.saveConfig();
-    if (!saved) {
-      app.sourceAliases = previousAliases;
-      app.sourceWhitelist = previousWhitelist;
-      if (saveButton) saveButton.disabled = false;
-      return;
+    const controls = Array.from(sourceAppsModal.querySelectorAll('button, input, select, textarea')).map(el => [el, el.disabled]);
+    sourceAppsSaving = true;
+    controls.forEach(([el]) => { el.disabled = true; });
+    let saved = false;
+    try {
+      app.pendingConfigRevision++;
+      clearTimeout(app.saveTimer);
+      app.saveTimer = 0;
+      saved = await app.saveConfig();
+    } catch (_) {
+      app.toast(t('common.save_failed'), 'err');
+    } finally {
+      if (!saved) {
+        app.sourceAliases = previousAliases;
+        app.sourceWhitelist = previousWhitelist;
+      }
+      controls.forEach(([el, disabled]) => { el.disabled = disabled; });
+      sourceAppsSaving = false;
     }
+    if (!saved) return;
     app.updateSourceAppsSummary();
     app.renderSrcExeDropdown?.();
     app.closeSourceAppsDialog();

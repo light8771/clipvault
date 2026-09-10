@@ -29,7 +29,7 @@ export function registerTransfer() {
               <span class="u-inline-26">${app.esc(t('transfer.range_sep'))}</span>
               <input type="date" id="exportTo" class="lock-input u-inline-27">
             </div>
-            <button class="lock-btn" data-action="confirm-export-scope">${app.esc(t('transfer.start_export'))}</button>
+            <button type="button" class="lock-btn export-start-btn" data-action="confirm-export-scope">${app.esc(t('transfer.start_export'))}</button>
           </div>
         </div>
       </div>

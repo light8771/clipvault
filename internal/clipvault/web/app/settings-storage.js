@@ -18,10 +18,10 @@ export function registerSettingsStorage() {
       const cfg = await response.json();
       if (request === app.configRequestSequence && revision === app.configRevision && !app.hasPendingConfigSave()) {
         app.replaceCurrentConfig(cfg, response.headers.get('X-ClipVault-Config-Version'));
+        app.applyConfigToForm(cfg);
         try {
           await app.loadSourceExes('all');
         } catch (_) {}
-        app.applyConfigToForm(cfg);
       }
     } catch (_) {
       if (request === app.configRequestSequence && revision === app.configRevision && !app.hasPendingConfigSave()) {

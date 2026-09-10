@@ -335,7 +335,7 @@ New-Item -ItemType File "portable.flag"
 
 数据接口与 MCP 服务的管理端点（`/api/v1/data-api/*` 与 `/api/v1/mcp/*`，各 10 条）见下方「数据接口」与「MCP 只读服务」章节。
 
-导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules`、`Assets` 六个工作表；托管 PNG 以独立二进制条目存在 XLSX 包内，`Assets` 记录条目、长度和哈希的强绑定。`Manifest` 固定声明 `ClipVault` 和当前导出协议版本，其余工作表完整保存正文/事件判别类型、内容哈希或事件代码与指纹、采集阶段与格式集合、来源程序名/路径/窗口标题/归因方式、敏感标记、分组及父子层级、记录分组关系和敏感规则。JSON / cvexport 的 `assets` 字段同样完整携带图片字节。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
+导出范围统一使用 `full`、半开时间区间 `range`（`[from,to)`）或带正整数 `sinceId` 的 `incremental`；Web 页面输入的日期会按 `search.timeZone` 转换为 RFC 3339 时刻后再交给存储层。Excel 工作簿使用固定的 `Manifest`、`Records`、`Groups`、`ItemGroups`、`SensitiveRules`、`Assets`、`TextChunks` 七个工作表；托管 PNG 以独立二进制条目存在 XLSX 包内，`Assets` 记录条目、长度和哈希的强绑定。超长单元格以引用标记指向 `TextChunks`，分段保留完整文本（包括中文、换行和 emoji），导入时严格检查分段顺序、数量与目标单元格并还原。`Manifest` 固定声明 `ClipVault` 和当前 XLSX 协议版本 8（JSON / cvexport 协议版本不变），其余工作表完整保存正文/事件判别类型、内容哈希或事件代码与指纹、采集阶段与格式集合、来源程序名/路径/窗口标题/归因方式、敏感标记、分组及父子层级、记录分组关系和敏感规则。JSON / cvexport 的 `assets` 字段同样完整携带图片字节。导入只接受当前协议版本，且不包含密码、恢复密钥、SMTP 凭据等秘密配置。
 
 所有 API 成功响应使用 `{ "data": ... }`，错误统一使用 `{ "error": { "code": "...", "message": "..." } }`。所有 `POST`、`PUT`、`PATCH` 和 `DELETE` 请求均必须携带 `GET /api/v1/session/csrf` 返回的 `X-ClipVault-CSRF` 请求头；浏览器发起的变更请求还必须保持同源。上表的认证列表示在此基础上还需要的锁屏或二次认证。
 
