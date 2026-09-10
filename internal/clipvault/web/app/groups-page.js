@@ -19,7 +19,7 @@ export function registerGroupsPage() {
     return '<div class="gm-row gm-create-row">' +
       '<span class="gm-toggle no-children">' + app.CHEVRON_SVG + '</span>' +
       '<span class="gm-icon">' + app.FOLDER_SVG + '</span>' +
-      '<input type="text" class="gm-name-input" id="groupCreateInput" placeholder="' + t('groups.inline_create_placeholder') + '" maxlength="100">' +
+      '<input type="text" class="gm-name-input" id="groupCreateInput" placeholder="' + app.esc(t('groups.inline_create_placeholder')) + '" maxlength="100">' +
       '</div>';
   }
 
@@ -33,9 +33,9 @@ export function registerGroupsPage() {
     html += '<span class="gm-icon">' + app.FOLDER_SVG + '</span>';
     html += '<span class="gm-name" data-id="' + node.id + '">' + app.esc(node.name) + '</span>';
     html += '<div class="gm-actions">';
-    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="' + t('groups.add_child') + '">' + app.PLUS_SVG + '</button>';
-    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="' + t('groups.rename') + '">' + app.EDIT_SVG + '</button>';
-    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="' + t('common.delete') + '">' + app.DEL_SVG + '</button>';
+    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="' + app.esc(t('groups.add_child')) + '">' + app.PLUS_SVG + '</button>';
+    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="' + app.esc(t('groups.rename')) + '">' + app.EDIT_SVG + '</button>';
+    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="' + app.esc(t('common.delete')) + '">' + app.DEL_SVG + '</button>';
     html += '</div></div>';
     if (hasChildren || creatingHere) {
       html += '<div class="gm-children' + (expanded || creatingHere ? ' expanded' : '') + '">';
@@ -56,7 +56,7 @@ export function registerGroupsPage() {
     let html = '';
     if (app.groupCreatingUnder === 0) html += groupCreateRowHTML();
     if (app.allGroups.length === 0) {
-      html += '<div class="group-modal-empty">' + t('groups.empty_page') + '</div>';
+      html += '<div class="group-modal-empty">' + app.esc(t('groups.empty_page')) + '</div>';
     } else {
       html += app.buildGroupTree(0).map(app.renderPageNode).join('');
     }

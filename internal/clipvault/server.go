@@ -163,6 +163,8 @@ func (s *SearchServer) Start() (string, error) {
 	api("PUT /api/v1/i18n/current-language", s.requireAuth(s.handleI18nCurrentLanguagePut))
 	api("GET /api/v1/i18n/entries", s.requireAuth(s.handleI18nEntriesGet))
 	api("PUT /api/v1/i18n/entries", s.requireSecondary(s.handleI18nEntriesPut))
+	api("GET /api/v1/i18n/export", s.requireAuth(s.handleI18nPackExport))
+	api("POST /api/v1/i18n/import", s.requireSecondary(s.handleI18nPackImport))
 
 	api("GET /api/v1/transfer/export", s.requireSecondary(s.handleExportData))
 	api("POST /api/v1/transfer/export", s.requireSecondary(s.handleExportData))

@@ -1,10 +1,32 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"regexp"
+	"strings"
 	"testing"
 )
+
+func TestBuiltinTranslationResourceHasCompleteRecords(t *testing.T) {
+	decoder := json.NewDecoder(bytes.NewReader(builtinTranslationsJSON))
+	decoder.DisallowUnknownFields()
+	var entries []BuiltinTranslation
+	if err := decoder.Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("embedded translation resource is empty")
+	}
+	for _, entry := range entries {
+		for field, value := range map[string]string{"Key": entry.Key, "Module": entry.Module, "Description": entry.Description, "ZhCN": entry.ZhCN, "EnUS": entry.EnUS} {
+			if strings.TrimSpace(value) == "" {
+				t.Errorf("translation %q has empty %s", entry.Key, field)
+			}
+		}
+	}
+}
 
 func TestI18nSeedInitializesOfficialData(t *testing.T) {
 	ctx := context.Background()

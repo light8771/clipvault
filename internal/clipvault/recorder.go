@@ -51,7 +51,7 @@ type ClipboardFormatSet struct {
 	IDs   []uint32
 }
 
-// ErrImageLimitExceeded 表示剪贴板图片超过 image.maxBytes 限制。
+// ErrImageLimitExceeded 表示图片超过文件大小或解码像素预算。
 var ErrImageLimitExceeded = errors.New("clipboard image exceeds configured size limit")
 
 // internalRestoreFormatName 是搜索弹窗恢复内容时写入剪贴板的私有注册格式名。

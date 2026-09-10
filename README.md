@@ -472,7 +472,7 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
 
 
 
-配置存储在 DuckDB schema v11 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+配置存储在 DuckDB schema v11 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写，并将 GET 响应头 `X-ClipVault-Config-Version` 原样放入 PUT 请求头。版本缺失或配置已被其他操作修改时返回 `409 config_conflict`，不会写入；调用方应重新读取配置并核对修改，不能直接重试旧请求。成功的 PUT 返回最新配置及版本响应头。Logo、图标和背景文件元数据由独立接口管理，不影响可编辑配置版本。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {

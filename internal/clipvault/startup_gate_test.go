@@ -76,10 +76,10 @@ func TestStartupGateSetsLockPassword(t *testing.T) {
 	if !auth.HasLockPassword(cfg) {
 		t.Fatal("lock password not set")
 	}
-	if !auth.VerifyLockPassword(cfg, "lock-screen-1") {
+	if !verifyPasswordHash(cfg.Security.LockPasswordHash, "lock-screen-1") {
 		t.Fatal("lock password does not verify")
 	}
-	if auth.VerifyLockPassword(cfg, "wrong") {
+	if verifyPasswordHash(cfg.Security.LockPasswordHash, "wrong") {
 		t.Fatal("wrong lock password accepted")
 	}
 }

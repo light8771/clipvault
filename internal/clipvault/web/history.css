@@ -304,6 +304,28 @@ article[data-kind="office"]:hover  { border-color: rgba(59,130,246,.25);  box-sh
   padding: 16px 18px 13px;
 }
 
+/* 行高只有一个定义，文本裁剪与所有类型的固定占位共用。 */
+html[data-app-page="history"] {
+  --history-preview-line-height: calc(15px * 1.7);
+}
+/* 长文件列表可在固定预览区内滚动。 */
+html[data-app-page="history"] .list > article > .card-body {
+  box-sizing: content-box;
+  height: var(--history-preview-height, auto);
+  overflow: auto;
+}
+html[data-app-page="history"] .list > article > .card-body > .managed-image {
+  height: var(--history-preview-height, auto);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+html[data-app-page="history"] .list > article > .card-body > .managed-image img {
+  min-height: 0;
+  object-fit: contain;
+  object-position: left top;
+}
+
 /* Card content */
 pre {
   white-space: pre-wrap;
@@ -311,12 +333,12 @@ pre {
   margin: 0;
   font: 15px/1.7 ui-monospace, Consolas, monospace;
   color: var(--tx);
-  /* 文本预览最大高度由「文本预览行数」配置驱动（applyHistoryPageLayout / theme-boot.css 写入 --preview-max-h） */
-  max-height: var(--preview-max-h, 3.4em);
-  /* 固定占位：开启时短内容也保持满行数高度（--preview-min-h，默认 0 关闭） */
-  min-height: var(--preview-min-h, 0);
   overflow: hidden;
   position: relative;
+}
+html[data-app-page="history"] .list > article > .card-body > pre {
+  line-height: var(--history-preview-line-height);
+  max-height: var(--preview-max-h);
 }
 pre::after {
   content: '';

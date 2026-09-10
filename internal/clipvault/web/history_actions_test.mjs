@@ -29,7 +29,9 @@ globalThis.document = {
 
 const { app } = await import('./app/app-context.js');
 const { registerHistoryActions } = await import('./app/history-actions.js');
+const { registerTextUtils } = await import('./app/text-utils.js');
 
+registerTextUtils();
 registerHistoryActions();
 
 test('successful grouped-event deletion refreshes the server projection', async () => {

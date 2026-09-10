@@ -19,7 +19,7 @@ export function registerSettingsSources() {
     const wrap = document.getElementById('srcAliases');
     if (!wrap || !app.sourceAppsDraft) return;
     if (!app.allSourceExes.length) {
-      wrap.innerHTML = '<p class="src-empty-hint">' + t('source_apps.empty') + '</p>';
+      wrap.innerHTML = '<p class="src-empty-hint">' + app.esc(t('source_apps.empty')) + '</p>';
       app.updateSourceAppsSelectionHint();
       return;
     }
@@ -33,12 +33,12 @@ export function registerSettingsSources() {
     wrap.innerHTML = visible.map(e => {
       const custom = app.sourceAppsDraft.aliases[e.name] || '';
       return `<div class="src-alias-row" data-raw="${app.esc(e.name)}">
-        <label class="src-app-check" title="${t('source_apps.check_title')}"><input type="checkbox"${selected.has(e.name) ? ' checked' : ''}${selectedMode ? '' : ' disabled'} aria-label="${app.esc(e.name)} ${t('source_apps.check_aria')}"></label>
+        <label class="src-app-check" title="${app.esc(t('source_apps.check_title'))}"><input type="checkbox"${selected.has(e.name) ? ' checked' : ''}${selectedMode ? '' : ' disabled'} aria-label="${app.esc(e.name)} ${app.esc(t('source_apps.check_aria'))}"></label>
         <span class="src-alias-raw" title="${app.esc(e.name)}">${app.esc(e.name)}</span>
-        <input type="text" class="src-alias-input" maxlength="40" placeholder="${t('source_apps.alias_placeholder')}" value="${app.esc(custom)}">
+        <input type="text" class="src-alias-input" maxlength="40" placeholder="${app.esc(t('source_apps.alias_placeholder'))}" value="${app.esc(custom)}">
       </div>`;
     }).join('');
-    if (!visible.length) wrap.innerHTML = '<p class="src-empty-hint">' + t('source_apps.no_match') + '</p>';
+    if (!visible.length) wrap.innerHTML = '<p class="src-empty-hint">' + app.esc(t('source_apps.no_match')) + '</p>';
     app.updateSourceAppsSelectionHint();
   };
   app.updateSourceAppsSelectionHint = function updateSourceAppsSelectionHint() {
@@ -180,13 +180,13 @@ export function registerSettingsSources() {
     const list = document.getElementById('patternList');
     if (!list) return;
     if (!patterns.length) {
-      list.innerHTML = '<p class="no-patterns">' + t('source_apps.no_patterns') + '</p>';
+      list.innerHTML = '<p class="no-patterns">' + app.esc(t('source_apps.no_patterns')) + '</p>';
       return;
     }
     list.innerHTML = patterns.map((p, i) => `
       <div class="pattern-row" data-idx="${i}">
-        <input type="text" class="pattern-input" value="${app.esc(p)}" placeholder="${t('source_apps.pattern_placeholder')}">
-        <button class="pattern-del" data-action="remove-pattern" data-index="${i}" title="${t('common.delete')}">
+        <input type="text" class="pattern-input" value="${app.esc(p)}" placeholder="${app.esc(t('source_apps.pattern_placeholder'))}">
+        <button class="pattern-del" data-action="remove-pattern" data-index="${i}" title="${app.esc(t('common.delete'))}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>

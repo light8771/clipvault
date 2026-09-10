@@ -3,6 +3,7 @@
 ## Build & Test
 
 - Go launcher: `C:\Program Files\Go\bin\go.exe` (GOTOOLCHAIN=auto; module baseline Go 1.26.6, windows/amd64)
+- Garble requires the standalone Go SDK outside GOMODCACHE. This workstation has the official `go1.26.6` launcher in the Go bin directory and SDK at `C:\Users\11759\sdk\go1.26.6`; the existing Go launcher selects it automatically. See `signing/README.md` for installation commands.
 - gofmt: `C:\Program Files\Go\bin\gofmt.exe`
 - MinGW-w64 root: `D:\mingw64`
 - GCC: `D:\mingw64\bin\gcc.exe`
@@ -15,6 +16,9 @@
   "build constraints exclude all Go files in .../duckdb-go-bindings/lib/windows-amd64".
 - To verify Go syntax without building: `gofmt -e <file.go>` (prints formatted code if syntax is valid).
 - To verify JS syntax (run from repo root): `Get-ChildItem -Recurse internal/clipvault/web -Filter *.js | ForEach-Object { node --check $_.FullName }`
+- Frontend acceptance: run `npm ci` once to install the locked development-only JavaScript parser, then `./scripts/check-web.ps1` (syntax, HTML/i18n analysis, rendering regressions, and theme checks).
+- Order-build regression: `./scripts/test-order-build.ps1` runs the real scripts in a temporary fixture with mocked Go/Garble commands; no production keys or executable are generated.
+- Built-in translations live in `internal/clipvault/i18n_builtin.json` and are embedded in the EXE. Keep public translation data out of Go literal tables so Garble does not expand it into expensive executable code. Existing i18n structure/seed tests validate the resource and database initialization.
 - CSS/HTML have no build step; verify by serving `internal/clipvault/web/` and loading in a browser.
 
 ## Frontend Appearance & Layout System

@@ -62,6 +62,14 @@ func (r *WindowsRuntime) showPauseNotification(paused bool) {
 			message = r.i18nT("notification.resumed.body", nil)
 		}
 	}
+	r.showNotification(title, message)
+}
+
+func (r *WindowsRuntime) showNotification(title, message string) {
+	hwnd := r.hwnd.Load()
+	if hwnd == 0 {
+		return
+	}
 	nid := notifyIconData{
 		Size:      uint32(unsafe.Sizeof(notifyIconData{})),
 		Hwnd:      hwnd,
@@ -212,7 +220,8 @@ func (r *WindowsRuntime) openPath(target string) {
 }
 
 func (r *WindowsRuntime) toggleAutostart() {
-	cfg := r.cfgMgr.Get()
+	before := r.cfgMgr.Get()
+	cfg := cloneConfig(before)
 	enabled, _, err := AutostartStatus(cfg.Autostart.AppName)
 	if err != nil {
 		r.logger.Warn("autostart_status_failed", map[string]any{"error": err.Error()})
@@ -220,7 +229,7 @@ func (r *WindowsRuntime) toggleAutostart() {
 	}
 	cfg.Autostart.Enabled = !enabled
 
-	if err := r.cfgMgr.Update(cfg); err != nil {
+	if err := r.cfgMgr.UpdateFrom(before, cfg); err != nil {
 		r.logger.Warn("config_save_failed", map[string]any{"error": err.Error()})
 		return
 	}

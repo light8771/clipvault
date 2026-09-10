@@ -288,13 +288,14 @@ export function registerConfigSave() {
       const res = await app.protectedFetch('/api/v1/config', {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-ClipVault-Config-Version': app.configVersion || ''
         },
         body: JSON.stringify(newCfg)
       });
       await app.requireOK(res, t('config.save_failed'));
       const d = await res.json();
-      app.replaceCurrentConfig(d.config);
+      app.replaceCurrentConfig(d.config, res.headers.get('X-ClipVault-Config-Version'));
       const runtimeWarning = d.runtimeError || d.hotkeyError;
       if (runtimeWarning) {
         app.toast(t('config.saved_with_warning', { warning: runtimeWarning }), 'err');

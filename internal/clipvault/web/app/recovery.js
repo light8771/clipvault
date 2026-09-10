@@ -124,19 +124,19 @@ export function registerRecovery() {
       <div class="modal-overlay" id="isolatedDatabaseOverlay">
         <div class="modal-box secondary-box isolated-database-modal" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${t('recovery.switch_title')}</span>
-            <button class="modal-close" type="button" data-action="close-isolated-database" aria-label="${t('common.close')}">
+            <span class="modal-title">${app.esc(t('recovery.switch_title'))}</span>
+            <button class="modal-close" type="button" data-action="close-isolated-database" aria-label="${app.esc(t('common.close'))}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
             <div class="migrate-notes">
-              <p>${t('recovery.switch_note')}</p>
+              <p>${app.esc(t('recovery.switch_note'))}</p>
             </div>
             <form id="isolatedDatabaseForm" class="lock-form">
-              <label class="migrate-label" for="isolatedDatabasePassword">${t('recovery.password_label')}</label>
-              <input type="password" id="isolatedDatabasePassword" class="lock-input" placeholder="${t('recovery.password_placeholder')}" autocomplete="current-password">
-              <button type="submit" class="lock-btn" id="isolatedDatabaseSubmit">${t('recovery.verify_and_prepare')}</button>
+              <label class="migrate-label" for="isolatedDatabasePassword">${app.esc(t('recovery.password_label'))}</label>
+              <input type="password" id="isolatedDatabasePassword" class="lock-input" placeholder="${app.esc(t('recovery.password_placeholder'))}" autocomplete="current-password">
+              <button type="submit" class="lock-btn" id="isolatedDatabaseSubmit">${app.esc(t('recovery.verify_and_prepare'))}</button>
             </form>
             <p class="lock-err hidden" id="isolatedDatabaseError"></p>
           </div>
@@ -204,18 +204,18 @@ export function registerRecovery() {
       <div class="modal-overlay" id="recDialogOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${title}</span>
-            <button class="modal-close" type="button" data-action="close-recovery" aria-label="${t('recovery.close_label')}">
+            <span class="modal-title">${app.esc(title)}</span>
+            <button class="modal-close" type="button" data-action="close-recovery" aria-label="${app.esc(t('recovery.close_label'))}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
             <form id="recDialogForm" class="lock-form">
               <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
-              ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${oldLabel}" autocomplete="current-password">` : ''}
-              <input type="password" id="recDlgNew" class="lock-input" placeholder="${t('recovery.new_password')}" autocomplete="new-password">
-              <input type="password" id="recDlgConfirm" class="lock-input" placeholder="${t('recovery.confirm_password')}" autocomplete="new-password">
-              <button type="submit" class="lock-btn">${t('common.confirm')}</button>
+              ${oldLabel ? `<input type="password" id="recDlgOld" class="lock-input" placeholder="${app.esc(oldLabel)}" autocomplete="current-password">` : ''}
+              <input type="password" id="recDlgNew" class="lock-input" placeholder="${app.esc(t('recovery.new_password'))}" autocomplete="new-password">
+              <input type="password" id="recDlgConfirm" class="lock-input" placeholder="${app.esc(t('recovery.confirm_password'))}" autocomplete="new-password">
+              <button type="submit" class="lock-btn">${app.esc(t('common.confirm'))}</button>
             </form>
             <p class="lock-err hidden" id="recDlgErr"></p>
           </div>

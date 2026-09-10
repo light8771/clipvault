@@ -13,9 +13,11 @@ export function registerSettingsStorage() {
     const request = ++app.configRequestSequence;
     const revision = app.configRevision;
     try {
-      const cfg = await app.fetch('/api/v1/config').then(r => r.json());
+      const response = await app.fetch('/api/v1/config');
+      await app.requireOK(response, t('config.load_failed'));
+      const cfg = await response.json();
       if (request === app.configRequestSequence && revision === app.configRevision && !app.hasPendingConfigSave()) {
-        app.replaceCurrentConfig(cfg);
+        app.replaceCurrentConfig(cfg, response.headers.get('X-ClipVault-Config-Version'));
         try {
           await app.loadSourceExes('all');
         } catch (_) {}
@@ -131,28 +133,28 @@ export function registerSettingsStorage() {
       <div class="modal-overlay" id="migrateOverlay">
         <div class="modal-box secondary-box migrate-modal" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${t('storage.migrate_title')}</span>
-            <button class="modal-close" type="button" data-action="close-migrate" aria-label="${t('storage.migrate_close_label')}">
+            <span class="modal-title">${app.esc(t('storage.migrate_title'))}</span>
+            <button class="modal-close" type="button" data-action="close-migrate" aria-label="${app.esc(t('storage.migrate_close_label'))}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
             <div class="migrate-notes">
-              <p>${t('storage.migrate_note')}</p>
+              <p>${app.esc(t('storage.migrate_note'))}</p>
             </div>
             <div class="migrate-field">
-              <label class="migrate-label">${t('storage.current_dir')}</label>
+              <label class="migrate-label">${app.esc(t('storage.current_dir'))}</label>
               <code class="migrate-dir" id="migrateOldDir"></code>
             </div>
             <div class="migrate-field">
-              <label class="migrate-label" for="migrateNewDir">${t('storage.migrate_new_dir')}</label>
-              <input type="text" id="migrateNewDir" class="field-input" autocomplete="off" placeholder="${t('storage.migrate_new_dir_placeholder')}">
+              <label class="migrate-label" for="migrateNewDir">${app.esc(t('storage.migrate_new_dir'))}</label>
+              <input type="text" id="migrateNewDir" class="field-input" autocomplete="off" placeholder="${app.esc(t('storage.migrate_new_dir_placeholder'))}">
             </div>
             <div class="migrate-progress hidden" id="migrateProgress"></div>
             <p class="lock-err hidden" id="migrateErr"></p>
             <div class="migrate-actions">
-              <button type="button" class="btn-export" id="migrateCancelBtn">${t('common.cancel')}</button>
-              <button type="button" class="lock-btn" id="migrateExecBtn">${t('storage.migrate_exec')}</button>
+              <button type="button" class="btn-export" id="migrateCancelBtn">${app.esc(t('common.cancel'))}</button>
+              <button type="button" class="lock-btn" id="migrateExecBtn">${app.esc(t('storage.migrate_exec'))}</button>
             </div>
           </div>
         </div>
@@ -187,7 +189,7 @@ export function registerSettingsStorage() {
       progressEl.innerHTML = steps.map((s, i) => {
         const st = states[i] || 'pending';
         const icon = st === 'done' ? '\u2713' : st === 'active' ? '\u25CF' : st === 'error' ? '\u2715' : '\u25CB';
-        return '<div class="migrate-step ms-' + st + '"><span class="ms-icon">' + icon + '</span><span class="ms-label">' + s.label + '</span></div>';
+        return '<div class="migrate-step ms-' + st + '"><span class="ms-icon">' + icon + '</span><span class="ms-label">' + app.esc(s.label) + '</span></div>';
       }).join('');
     }
     let completed = false;
@@ -233,7 +235,7 @@ export function registerSettingsStorage() {
         renderProgress(states);
         states[2] = 'done';
         renderProgress(states);
-        progressEl.insertAdjacentHTML('beforeend', '<div class="migrate-success">\u2713 ' + t('storage.migrate_submitted') + '</div>');
+        progressEl.insertAdjacentHTML('beforeend', '<div class="migrate-success">\u2713 ' + app.esc(t('storage.migrate_submitted')) + '</div>');
         execBtn.textContent = t('common.close');
         execBtn.disabled = false;
         cancelBtn.style.display = 'none';

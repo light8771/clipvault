@@ -289,7 +289,7 @@ func (s *Store) DeleteI18nTranslation(ctx context.Context, languageCode, key str
 	return err
 }
 
-// upsertI18nTranslations 幂等批量写入某语言的官方译文（Seed 专用）：
+// upsertI18nTranslations 在事务中幂等批量写入译文，供内置词条初始化和语言包导入使用：
 // 按 (language_code, translation_key) 冲突时覆盖译文。由调用方保证在事务内执行。
 func upsertI18nTranslations(ctx context.Context, tx *sql.Tx, languageCode string, entries []I18nKeyText) error {
 	nowMS := time.Now().UTC().UnixMilli()

@@ -1,5 +1,7 @@
 import { app } from "./app-context.js";
 import { createRemovableModal } from './modal-controller.js';
+import { createOperationState } from './operation-state.js';
+import { downloadProtectedFile } from './download.js';
 
 const t = window.clipvaultI18n.t;
 
@@ -7,57 +9,27 @@ const t = window.clipvaultI18n.t;
 const closeSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
 export function registerTransfer() {
-  app.authedDownload = async function authedDownload(baseUrl, fallbackFilename, requestInit) {
-    try {
-      const res = await app.protectedFetch(baseUrl, requestInit);
-      if (res.status === 402) {
-        // 付费墙：未激活
-        const d = await res.json().catch(() => ({}));
-        app.toast(d.error || t('transfer.paywall'), 'err');
-        app.openLicenseSettings();
-        return false;
-      }
-      if (!res.ok) {
-        app.toast(t('transfer.export_failed_status', { status: res.status }), 'err');
-        return false;
-      }
-      const blob = await res.blob();
-      const cd = res.headers.get('Content-Disposition') || '';
-      const m = cd.match(/filename="([^"]+)"/);
-      const filename = m ? m[1] : fallbackFilename;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
-      return true;
-    } catch (_) {
-      app.toast(t('transfer.export_network_error'), 'err');
-      return false;
-    }
-  };
+  app.authedDownload = downloadProtectedFile;
   // ── Export scope dialog (full / date range) ─────────────────
   app.showExportScopeDialog = function (performExport) {
     const html = `
       <div class="modal-overlay" id="exportScopeOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${t('transfer.scope_title')}</span>
-            <button class="modal-close" type="button" data-action="close-export-scope" aria-label="${t('transfer.scope_close_label')}">${closeSvg}</button>
+            <span class="modal-title">${app.esc(t('transfer.scope_title'))}</span>
+            <button class="modal-close" type="button" data-action="close-export-scope" aria-label="${app.esc(t('transfer.scope_close_label'))}">${closeSvg}</button>
           </div>
           <div class="modal-body u-inline-16">
             <div class="u-inline-22">
-              <label class="u-inline-23"><input type="radio" name="exportScopeMode" value="full" checked> ${t('transfer.scope_all')}</label>
-              <label class="u-inline-24"><input type="radio" name="exportScopeMode" value="range"> ${t('transfer.scope_range')}</label>
+              <label class="u-inline-23"><input type="radio" name="exportScopeMode" value="full" checked> ${app.esc(t('transfer.scope_all'))}</label>
+              <label class="u-inline-24"><input type="radio" name="exportScopeMode" value="range"> ${app.esc(t('transfer.scope_range'))}</label>
             </div>
             <div id="exportRangeFields" class="hidden u-inline-22">
               <input type="date" id="exportFrom" class="lock-input u-inline-25">
-              <span class="u-inline-26">${t('transfer.range_sep')}</span>
+              <span class="u-inline-26">${app.esc(t('transfer.range_sep'))}</span>
               <input type="date" id="exportTo" class="lock-input u-inline-27">
             </div>
-            <button class="lock-btn" data-action="confirm-export-scope">${t('transfer.start_export')}</button>
+            <button class="lock-btn" data-action="confirm-export-scope">${app.esc(t('transfer.start_export'))}</button>
           </div>
         </div>
       </div>
@@ -72,8 +44,10 @@ export function registerTransfer() {
         if (r.checked) rangeFields.classList.toggle('hidden', r.value !== 'range');
       });
     });
-    app.closeExportScopeDialog = createRemovableModal(overlay).close;
-    app.confirmExportScope = function () {
+    const operation = createOperationState(overlay.querySelector('[data-modal-panel]'), overlay.querySelector('.modal-body'));
+    app.closeExportScopeDialog = createRemovableModal(overlay, { canClose: () => !operation.busy }).close;
+    app.confirmExportScope = async function () {
+      if (operation.busy) return;
       const mode = document.querySelector('input[name=exportScopeMode]:checked').value;
       let params = '';
       if (mode === 'range') {
@@ -85,8 +59,16 @@ export function registerTransfer() {
         }
         params = '&mode=range&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
       }
-      app.closeExportScopeDialog();
-      performExport(params);
+      operation.begin(t('transfer.exporting'));
+      let ok = false;
+      try {
+        ok = await performExport(params);
+      } catch (err) {
+        app.toast(err.message || t('transfer.export_network_error'), 'err');
+      } finally {
+        operation.finish(ok ? '' : t('transfer.export_retry'), !ok);
+      }
+      if (ok) app.closeExportScopeDialog();
     };
   };
   app.doExport = async function (type) {
@@ -98,23 +80,12 @@ export function registerTransfer() {
     const fmt = type === 'data-xlsx' ? 'xlsx' : 'json';
     const fallback = 'clipvault-data.' + fmt;
     const label = t(type === 'data-xlsx' ? 'transfer.export_label_xlsx' : 'transfer.export_label_json');
-    if (fmt === 'xlsx') {
-      if (!window.confirm(t('transfer.plain_confirm_xlsx'))) return;
-      app.showExportScopeDialog(function (scopeParams) {
-        const baseUrl = '/api/v1/transfer/export?format=xlsx' + scopeParams;
-        app.authedDownload(baseUrl, fallback).then(ok => {
-          if (ok) app.toast(t('transfer.exported_with', { label: label }));
-        });
-      });
-    } else {
-      if (!window.confirm(t('transfer.plain_confirm'))) return;
-      app.showExportScopeDialog(function (scopeParams) {
-        const baseUrl = '/api/v1/transfer/export?format=json' + scopeParams;
-        app.authedDownload(baseUrl, fallback).then(ok => {
-          if (ok) app.toast(t('transfer.exported_with', { label: label }));
-        });
-      });
-    }
+    if (!window.confirm(t(fmt === 'xlsx' ? 'transfer.plain_confirm_xlsx' : 'transfer.plain_confirm'))) return;
+    app.showExportScopeDialog(async scopeParams => {
+      const ok = await app.authedDownload('/api/v1/transfer/export?format=' + fmt + scopeParams, fallback);
+      if (ok) app.toast(t('transfer.exported_with', { label }));
+      return ok;
+    });
   };
 
   // ── Encrypted export (.cvexport) ─────────────────────────────
@@ -128,26 +99,26 @@ export function registerTransfer() {
       <div class="modal-overlay" id="cvexportOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${t('transfer.export_encrypted_btn')}</span>
-            <button class="modal-close" type="button" data-action="close-encrypted-export" aria-label="${t('transfer.encrypted_close_label')}">${closeSvg}</button>
+            <span class="modal-title">${app.esc(t('transfer.export_encrypted_btn'))}</span>
+            <button class="modal-close" type="button" data-action="close-encrypted-export" aria-label="${app.esc(t('transfer.encrypted_close_label'))}">${closeSvg}</button>
           </div>
           <div class="modal-body u-inline-16">
             <p class="u-inline-28">
-              ${t('transfer.encrypted_note')}
+              ${app.esc(t('transfer.encrypted_note'))}
             </p>
             <div class="u-inline-22">
-              <label class="u-inline-23"><input type="radio" name="cvexportScopeMode" value="full" checked> ${t('transfer.scope_all')}</label>
-              <label class="u-inline-24"><input type="radio" name="cvexportScopeMode" value="range"> ${t('transfer.scope_range')}</label>
+              <label class="u-inline-23"><input type="radio" name="cvexportScopeMode" value="full" checked> ${app.esc(t('transfer.scope_all'))}</label>
+              <label class="u-inline-24"><input type="radio" name="cvexportScopeMode" value="range"> ${app.esc(t('transfer.scope_range'))}</label>
             </div>
             <div id="cvexportRangeFields" class="hidden u-inline-22">
               <input type="date" id="cvexportFrom" class="lock-input u-inline-25">
-              <span>${t('transfer.range_sep')}</span>
+              <span>${app.esc(t('transfer.range_sep'))}</span>
               <input type="date" id="cvexportTo" class="lock-input u-inline-27">
             </div>
             <form id="cvexportForm" class="lock-form">
-              <input type="password" id="cvexportPwd" class="lock-input" placeholder="${t('backup.encryption_password')}" autocomplete="new-password">
-              <input type="password" id="cvexportConfirm" class="lock-input" placeholder="${t('auth.pwd_confirm')}" autocomplete="new-password">
-              <button type="submit" class="lock-btn">${t('transfer.export_encrypted_btn')}</button>
+              <input type="password" id="cvexportPwd" class="lock-input" placeholder="${app.esc(t('backup.encryption_password'))}" autocomplete="new-password">
+              <input type="password" id="cvexportConfirm" class="lock-input" placeholder="${app.esc(t('auth.pwd_confirm'))}" autocomplete="new-password">
+              <button type="submit" class="lock-btn">${app.esc(t('transfer.export_encrypted_btn'))}</button>
             </form>
             <p class="lock-err hidden" id="cvexportErr"></p>
           </div>
@@ -162,7 +133,8 @@ export function registerTransfer() {
     const errEl = document.getElementById('cvexportErr');
     const pwdInput = document.getElementById('cvexportPwd');
     const confirmInput = document.getElementById('cvexportConfirm');
-    app.closeCvexportDialog = createRemovableModal(overlay, { initialFocus: pwdInput }).close;
+    const operation = createOperationState(overlay.querySelector('[data-modal-panel]'), overlay.querySelector('.modal-body'));
+    app.closeCvexportDialog = createRemovableModal(overlay, { initialFocus: pwdInput, canClose: () => !operation.busy }).close;
     const rangeFields = document.getElementById('cvexportRangeFields');
     document.querySelectorAll('input[name=cvexportScopeMode]').forEach(r => {
       r.addEventListener('change', () => {
@@ -171,6 +143,7 @@ export function registerTransfer() {
     });
     form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (operation.busy) return;
       const pwd = pwdInput.value;
       const confirm = confirmInput.value;
       errEl.classList.add('hidden');
@@ -196,19 +169,23 @@ export function registerTransfer() {
         }
         scopeParams = '&mode=range&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
       }
-      const ok = await app.authedDownload('/api/v1/transfer/export?format=cvexport' + scopeParams, 'clipvault-data.cvexport', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          password: pwd
-        })
-      });
-      pwdInput.value = '';
-      confirmInput.value = '';
-      app.closeCvexportDialog();
-      if (ok) app.toast(t('transfer.encrypted_done'));
+      operation.begin(t('transfer.exporting'));
+      let ok = false;
+      try {
+        ok = await app.authedDownload('/api/v1/transfer/export?format=cvexport' + scopeParams, 'clipvault-data.cvexport', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+      } finally {
+        operation.finish(ok ? '' : t('transfer.export_retry'), !ok);
+      }
+      if (ok) {
+        pwdInput.value = '';
+        confirmInput.value = '';
+        app.closeCvexportDialog();
+        app.toast(t('transfer.encrypted_done'));
+      }
     });
   };
 
@@ -218,17 +195,17 @@ export function registerTransfer() {
       <div class="modal-overlay" id="importOverlay">
         <div class="modal-box secondary-box" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title">${t('transfer.import_data_title')}</span>
-            <button class="modal-close" type="button" data-action="close-import" aria-label="${t('transfer.import_close_label')}">${closeSvg}</button>
+            <span class="modal-title">${app.esc(t('transfer.import_data_title'))}</span>
+            <button class="modal-close" type="button" data-action="close-import" aria-label="${app.esc(t('transfer.import_close_label'))}">${closeSvg}</button>
           </div>
           <div class="modal-body u-inline-16">
             <p class="u-inline-29">
-              ${t('transfer.import_note')}
+              ${app.esc(t('transfer.import_note'))}
             </p>
             <form id="importForm" class="lock-form">
               <input type="file" id="importFile" accept=".json,.xlsx,.cvexport" class="u-inline-30">
-              <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="${t('transfer.import_pwd_placeholder')}" autocomplete="off">
-              <button class="lock-btn" type="submit">${t('transfer.start_import')}</button>
+              <input type="password" id="importPwd" class="lock-input u-inline-31" placeholder="${app.esc(t('transfer.import_pwd_placeholder'))}" autocomplete="off">
+              <button class="lock-btn" type="submit">${app.esc(t('transfer.start_import'))}</button>
             </form>
             <p class="lock-err hidden u-inline-32" id="importErr"></p>
           </div>
@@ -239,8 +216,10 @@ export function registerTransfer() {
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
     const overlay = document.getElementById('importOverlay');
+    const operation = createOperationState(overlay.querySelector('[data-modal-panel]'), overlay.querySelector('.modal-body'));
+    overlay.transferOperation = operation;
     app.closeImportDialog = createRemovableModal(overlay, {
-      initialFocus: document.getElementById('importFile')
+      initialFocus: document.getElementById('importFile'), canClose: () => !operation.busy
     }).close;
     document.getElementById('importForm').addEventListener('submit', event => {
       event.preventDefault();
@@ -248,6 +227,8 @@ export function registerTransfer() {
     });
   };
   app.doImport = async function doImport() {
+    const operation = document.getElementById('importOverlay')?.transferOperation;
+    if (!operation || operation.busy) return;
     const fileInput = document.getElementById('importFile');
     const pwdInput = document.getElementById('importPwd');
     const errEl = document.getElementById('importErr');
@@ -277,6 +258,8 @@ export function registerTransfer() {
       errEl.classList.remove('hidden');
       return;
     }
+    operation.begin(t('transfer.importing'));
+    let imported = null;
     try {
       const headers = { 'X-ClipVault-Import-Format': format };
       if (pwd) headers['X-ClipVault-Import-Password'] = pwd;
@@ -286,9 +269,8 @@ export function registerTransfer() {
         body: file
       });
       const d = await app.readImportResponse(res);
-      if (d.ok) {
-        app.closeImportDialog();
-        app.notifyImportSuccess(d);
+      if (res.ok && d.ok) {
+        imported = d;
       } else {
         errEl.textContent = d.error || t('transfer.import_failed');
         errEl.classList.remove('hidden');
@@ -296,6 +278,13 @@ export function registerTransfer() {
     } catch (e) {
       errEl.textContent = t('common.network_error') + ': ' + e.message;
       errEl.classList.remove('hidden');
+    } finally {
+      operation.finish();
+    }
+    if (imported) {
+      pwdInput.value = '';
+      app.closeImportDialog();
+      app.notifyImportSuccess(imported);
     }
   };
   app.notifyImportSuccess = function notifyImportSuccess(data) {
@@ -475,19 +464,19 @@ export function registerTransfer() {
       const target = record.mode === 'skipped' ? '' : (record.target || '');
       return `<tr><td>${app.esc(time)}</td><td>${app.esc(trigger)}</td><td>${app.esc(result)}</td><td>${app.esc(format)}</td><td title="${app.esc(record.target || '')}">${app.esc(target)}</td></tr>`;
     }).join('');
-    const content = rows || '<tr><td colspan="5" class="backup-history-empty">' + t('transfer.history_empty', { label: label }) + '</td></tr>';
+    const content = rows || '<tr><td colspan="5" class="backup-history-empty">' + app.esc(t('transfer.history_empty', { label: label })) + '</td></tr>';
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'backupHistoryOverlay';
     overlay.innerHTML = `
       <div class="modal-box backup-history-modal" role="dialog" aria-modal="true" aria-labelledby="backupHistoryTitle" data-modal-panel>
         <div class="modal-head">
-          <span class="modal-title" id="backupHistoryTitle">${label}${t('transfer.history_title_suffix')}</span>
-          <button class="modal-close" type="button" aria-label="${t('common.close')}">&times;</button>
+          <span class="modal-title" id="backupHistoryTitle">${app.esc(label)}${app.esc(t('transfer.history_title_suffix'))}</span>
+          <button class="modal-close" type="button" aria-label="${app.esc(t('common.close'))}">&times;</button>
         </div>
         <div class="modal-body backup-history-body">
           <table class="backup-history-table">
-            <thead><tr><th>${t('mcp.col_time')}</th><th>${t('transfer.trigger_col')}</th><th>${t('mcp.col_result')}</th><th>${t('transfer.format_col')}</th><th>${t('transfer.target_col')}</th></tr></thead>
+            <thead><tr><th>${app.esc(t('mcp.col_time'))}</th><th>${app.esc(t('transfer.trigger_col'))}</th><th>${app.esc(t('mcp.col_result'))}</th><th>${app.esc(t('transfer.format_col'))}</th><th>${app.esc(t('transfer.target_col'))}</th></tr></thead>
             <tbody>${content}</tbody>
           </table>
         </div>

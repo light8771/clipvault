@@ -7,6 +7,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"net/http"
@@ -299,19 +300,75 @@ func TestBackgroundMediaValidation(t *testing.T) {
 	if !isValidBackgroundMedia(pngData.Bytes(), "image/png") {
 		t.Fatal("valid PNG background rejected")
 	}
-	validMP4 := []byte{0, 0, 0, 20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}
+	validMP4 := []byte{0, 0, 0, 20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 0, 'm', 'p', '4', '1'}
 	if !isValidBackgroundMedia(validMP4, "video/mp4") {
 		t.Fatal("valid MP4 container header rejected")
 	}
 	if isValidBackgroundMedia([]byte("not a video"), "video/mp4") {
 		t.Fatal("invalid MP4 container header accepted")
 	}
-	validWebM := []byte{0x1A, 0x45, 0xDF, 0xA3, 0x9F}
+	validWebM := []byte{0x1A, 0x45, 0xDF, 0xA3, 0x87, 0x42, 0x82, 0x84, 'w', 'e', 'b', 'm'}
 	if !isValidBackgroundMedia(validWebM, "video/webm") {
 		t.Fatal("valid WebM container header rejected")
 	}
 	if isValidBackgroundMedia(validWebM, "video/mp4") {
 		t.Fatal("WebM accepted as MP4")
+	}
+}
+
+func TestBackgroundHighResolutionImageUpload(t *testing.T) {
+	for _, tc := range []struct {
+		name, contentType string
+		width, height     int
+	}{
+		{"5k-jpeg", "image/jpeg", 5120, 2880},
+		{"8k-jpeg", "image/jpeg", 8640, 4860},
+		{"tall-png", "image/png", 32, 8640},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var data bytes.Buffer
+			img := image.NewGray(image.Rect(0, 0, tc.width, tc.height))
+			var err error
+			if tc.contentType == "image/jpeg" {
+				err = jpeg.Encode(&data, img, nil)
+			} else {
+				err = png.Encode(&data, img)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertBackgroundImageUploadRoundTrip(t, data.Bytes(), tc.contentType)
+		})
+	}
+}
+
+func assertBackgroundImageUploadRoundTrip(t *testing.T, data []byte, contentType string) {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/appearance/background", bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	res := httptest.NewRecorder()
+	server.handleBackgroundMediaUpload(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("upload status = %d: %s", res.Code, res.Body.String())
+	}
+	if got := manager.Get().Background.ContentType; got != contentType {
+		t.Fatalf("stored content type = %q, want %q", got, contentType)
+	}
+	served := httptest.NewRecorder()
+	server.handleBackgroundMedia(served, httptest.NewRequest(http.MethodGet, "/background/media", nil))
+	if served.Code != http.StatusOK || served.Header().Get("Content-Type") != contentType || !bytes.Equal(served.Body.Bytes(), data) {
+		t.Fatalf("background did not round-trip unchanged: status %d, content type %q", served.Code, served.Header().Get("Content-Type"))
 	}
 }
 
@@ -356,7 +413,7 @@ func TestBackgroundVideoUploadExceedsImageLimit(t *testing.T) {
 	}
 	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
 
-	body := append([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}, bytes.Repeat([]byte{0}, maxBackgroundImageBytes)...)
+	body := append([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 0, 'm', 'p', '4', '1'}, bytes.Repeat([]byte{0}, maxBackgroundImageBytes)...)
 	req := httptest.NewRequest(http.MethodPut, "http://clipvault.local/api/v1/appearance/background", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "video/mp4")
 	res := httptest.NewRecorder()
@@ -504,8 +561,8 @@ func TestBrandUploadRejectsFilesOverTenMegabytes(t *testing.T) {
 	req.Header.Set("Content-Type", "image/png")
 	res := httptest.NewRecorder()
 	server.handleBrandLogoUpload(res, req)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("oversized upload status = %d, want %d", res.Code, http.StatusBadRequest)
+	if res.Code != http.StatusRequestEntityTooLarge || !bytes.Contains(res.Body.Bytes(), []byte("image_too_large")) {
+		t.Fatalf("oversized upload status = %d, body %s", res.Code, res.Body.String())
 	}
 	files, err := filepath.Glob(filepath.Join(dir, brandLogoAsset+"-*"))
 	if err != nil || len(files) != 0 {
@@ -726,22 +783,22 @@ func TestBrandImageValidation(t *testing.T) {
 	if err := png.Encode(&pngData, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatalf("encode png: %v", err)
 	}
-	if !isValidBrandImage(pngData.Bytes(), "image/png") {
+	if detectBrandImageType(pngData.Bytes()) != "image/png" {
 		t.Fatal("valid PNG rejected")
 	}
-	if isValidBrandImage(pngData.Bytes(), "image/jpeg") {
+	if detectBrandImageType(pngData.Bytes()) == "image/jpeg" {
 		t.Fatal("PNG accepted as JPEG")
 	}
 	validICO := append([]byte{0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0, 1, 0, 0, 0, 22, 0, 0, 0}, 0)
-	if !isValidBrandImage(validICO, "image/x-icon") {
+	if detectBrandImageType(validICO) != "image/x-icon" {
 		t.Fatal("valid ICO structure rejected")
 	}
-	if isValidBrandImage([]byte{0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0, 10, 0, 0, 0, 22, 0, 0, 0}, "image/x-icon") {
+	if detectBrandImageType([]byte{0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0, 10, 0, 0, 0, 22, 0, 0, 0}) != "" {
 		t.Fatal("invalid ICO structure accepted")
 	}
 }
 
-func TestBrandUploadRejectsMismatchedContentType(t *testing.T) {
+func TestBrandUploadDetectsActualContentType(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(StoreOptions{DataDir: dir})
 	if err != nil {
@@ -764,7 +821,42 @@ func TestBrandUploadRejectsMismatchedContentType(t *testing.T) {
 	req.Header.Set("Content-Type", "image/jpeg")
 	res := httptest.NewRecorder()
 	server.handleBrandLogoUpload(res, req)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("mismatched content type status = %d, want %d", res.Code, http.StatusBadRequest)
+	if res.Code != http.StatusOK || manager.Get().Brand.LogoContentType != "image/png" {
+		t.Fatalf("actual PNG type not detected: status %d, type %q", res.Code, manager.Get().Brand.LogoContentType)
+	}
+}
+func TestBrandHighResolutionUploadWithMissingMIME(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager, err := NewConfigManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &SearchServer{cfgMgr: manager, env: Environment{DataDir: dir}}
+	for _, kind := range []string{"logo", "favicon"} {
+		for _, mimeHint := range []string{"", "application/octet-stream", "image/jpeg"} {
+			t.Run(kind+"/"+mimeHint, func(t *testing.T) {
+				var data bytes.Buffer
+				if err := png.Encode(&data, image.NewGray(image.Rect(0, 0, 32, 8640))); err != nil {
+					t.Fatal(err)
+				}
+				req := httptest.NewRequest(http.MethodPut, "/api/v1/appearance/"+kind, bytes.NewReader(data.Bytes()))
+				req.Header.Set("Content-Type", mimeHint)
+				res := httptest.NewRecorder()
+				server.handleBrandAssetUpload(res, req, kind)
+				if res.Code != http.StatusOK {
+					t.Fatalf("upload failed: %d %s", res.Code, res.Body.String())
+				}
+				served := httptest.NewRecorder()
+				server.serveBrandAsset(served, httptest.NewRequest(http.MethodGet, "/brand/"+kind, nil), kind)
+				if served.Code != http.StatusOK || served.Header().Get("Content-Type") != "image/png" || !bytes.Equal(served.Body.Bytes(), data.Bytes()) {
+					t.Fatal("uploaded image did not round-trip")
+				}
+			})
+		}
 	}
 }

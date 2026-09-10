@@ -93,10 +93,10 @@ func TestSecondaryTokenIsSessionBoundOneTimeAndExpiring(t *testing.T) {
 
 func TestPasswordRateLimitsAreSeparatedByPurpose(t *testing.T) {
 	auth := NewAuthManager()
-	auth.RecordFailedAttemptFor(ratePurposeSecondary)
-	auth.ResetRateLimitFor(ratePurposeLock)
-	if got := auth.CheckRateLimitFor(ratePurposeSecondary).Remaining; got != rateLimitThreshold-1 {
-		t.Fatalf("secondary failures were reset by lock success: remaining=%d", got)
+	auth.verifyPasswordAttempt(ratePurposeSecondary, "192.0.2.1", func() bool { return false })
+	auth.verifyPasswordAttempt(ratePurposeLock, "192.0.2.1", func() bool { return true })
+	if _, status := auth.verifyPasswordAttempt(ratePurposeSecondary, "192.0.2.1", func() bool { return false }); status.Remaining != rateLimitThreshold-2 {
+		t.Fatalf("secondary failures were reset by lock success: remaining=%d", status.Remaining)
 	}
 }
 
@@ -263,7 +263,7 @@ func TestPasswordChangeRevokesSecondaryAuthAfterRuntimeApplyFailure(t *testing.T
 	if auth.HasSecondaryAuth(session) {
 		t.Fatal("secondary authentication survived a committed password change")
 	}
-	if !auth.VerifySecondaryPassword(manager.Get(), "new-secondary-password") {
+	if !verifyPasswordHash(manager.Get().Security.SecondaryPasswordHash, "new-secondary-password") {
 		t.Fatal("new secondary password was not committed")
 	}
 }
@@ -300,7 +300,7 @@ func TestPutConfigRefreshesAuthTimeoutsAfterRuntimeApplyFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body))
+	request := configUpdateRequest(server, bytes.NewReader(body))
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
 	result := httptest.NewRecorder()
 	server.handlePutConfig(result, request)
@@ -369,7 +369,7 @@ func TestPutConfigEnablesSecondaryCacheImmediatelyFromOneTimeAuthorization(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body))
+	request := configUpdateRequest(server, bytes.NewReader(body))
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
 	request.Header.Set("X-ClipVault-Secondary-Token", oneTimeToken)
 	result := httptest.NewRecorder()
@@ -1137,7 +1137,7 @@ func TestConfigEndpointCannotReplacePasswordHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 	}

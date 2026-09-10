@@ -3,10 +3,10 @@ package clipvault
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,7 +21,7 @@ const I18nSchemaVersion = 11
 const i18nSeedVersionSettingKey = "i18n.seed_version"
 
 // BuiltinTranslation 是一条官方词条的完整定义。开发者新增用户可见文案时
-// 只维护这一个结构（Key + 模块 + 说明 + 中英文），启动时由 ensureI18nSeed
+// 维护 i18n_builtin.json 中的记录（Key + 模块 + 说明 + 中英文），启动时由 ensureI18nSeed
 // 幂等入库。
 type BuiltinTranslation struct {
 	Key         string
@@ -31,13 +31,22 @@ type BuiltinTranslation struct {
 	EnUS        string
 }
 
-// BuiltinTranslations 是全量官方词条。Key 是 UI 与多语言系统之间的唯一
-// 稳定契约，一经发布不可变更；文案可随版本修正（Seed 覆盖官方译文）。
+// Public UI text is embedded as data instead of expanded into executable code
+// by garble -literals. The resource is compiled into the EXE, never read from disk.
+//
+//go:embed i18n_builtin.json
+var builtinTranslationsJSON []byte
 
-// BuiltinTranslations 聚合全部模块词条（顺序不影响运行，仅保证 diff 稳定）。
-var BuiltinTranslations = slices.Concat(
-	i18nSeedCore, i18nSeedSettings, i18nSeedStorage, i18nSeedAppearance, i18nSeedLayout, i18nSeedHistory, i18nSeedChannels, i18nSeedI18n, i18nSeedConfig,
-)
+// BuiltinTranslations 是全量官方词条，顺序与嵌入资源一致。
+var BuiltinTranslations = loadBuiltinTranslations()
+
+func loadBuiltinTranslations() []BuiltinTranslation {
+	var entries []BuiltinTranslation
+	if err := json.Unmarshal(builtinTranslationsJSON, &entries); err != nil {
+		panic(fmt.Errorf("invalid embedded translations: %w", err))
+	}
+	return entries
+}
 
 // builtinI18nLanguages 返回官方语言定义。base 仅供编辑页参考展示；
 // 运行时 fallback 链固定为 当前语言 → base → en-US → zh-CN → Key。

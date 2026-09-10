@@ -193,11 +193,8 @@ func validateClipboardPNG(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("invalid PNG header: %w", err)
 	}
-	if config.Width <= 0 || config.Height <= 0 || config.Width > 16384 || config.Height > 16384 {
-		return fmt.Errorf("unsupported PNG dimensions %dx%d", config.Width, config.Height)
-	}
-	if int64(config.Width)*int64(config.Height) > maxClipboardImagePixels {
-		return ErrImageLimitExceeded
+	if err := validateDecodedImageDimensions(config.Width, config.Height); err != nil {
+		return err
 	}
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("invalid PNG payload: %w", err)
@@ -234,11 +231,8 @@ func dibToPNG(dib []byte) ([]byte, error) {
 	if topDown {
 		height = -height
 	}
-	if width <= 0 || height <= 0 || width > 16384 || height > 16384 {
-		return nil, fmt.Errorf("unsupported DIB dimensions %dx%d", width, height)
-	}
-	if int64(width)*int64(height) > maxClipboardImagePixels {
-		return nil, ErrImageLimitExceeded
+	if err := validateDecodedImageDimensions(width, height); err != nil {
+		return nil, err
 	}
 	if bitCount != 24 && bitCount != 32 {
 		return nil, fmt.Errorf("unsupported DIB bit count %d", bitCount)
@@ -367,11 +361,8 @@ func captureClipboardBitmap() (*clipboardBitmapCapture, error) {
 		return nil, errors.New("GetObjectW(CF_BITMAP) failed")
 	}
 	width, height := int(bm.Width), int(bm.Height)
-	if width > 16384 || height > 16384 {
-		return nil, fmt.Errorf("bitmap too large %dx%d", width, height)
-	}
-	if int64(width)*int64(height) > maxClipboardImagePixels {
-		return nil, ErrImageLimitExceeded
+	if err := validateDecodedImageDimensions(width, height); err != nil {
+		return nil, err
 	}
 
 	hdc, _, _ := procGetDC.Call(0)

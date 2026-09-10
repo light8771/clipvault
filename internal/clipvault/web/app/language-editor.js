@@ -1,4 +1,7 @@
 import { app } from './app-context.js';
+import { bindTranslationSave } from './translation-save.js';
+import { createLanguageLoader, createLanguageEntriesLoader } from './language-data.js';
+import { addLanguagePackExport, registerLanguagePackImport } from './language-transfer.js';
 
 // 语言管理页：当前语言切换、官方/自定义语言分区展示、新建/删除；
 // 翻译编辑视图：搜索、状态/模块筛选、分页、失焦自动保存（空白即删除）。
@@ -39,19 +42,16 @@ export function registerLanguageEditor() {
 
   // 语言显示名缓存（从 API 的 languages 数据构建，避免硬编码文案）。
   const languageNames = {};
-  const editorState = { code: '', canEdit: true, page: 1, pageSize: 100, total: 0, status: '', module: '', query: '', pending: new Set() };
+  let languageList = [];
+  const editorState = { code: '', canEdit: true, page: 1, pageSize: 100, total: 0, status: '', module: '', query: '' };
   let searchTimer = 0;
 
   // ─── 数据加载 ───
-  async function loadLanguages() {
-    try {
-      const d = await app.fetch('/api/v1/i18n/languages').then(r => r.json());
-      renderLanguages(d);
-    } catch (_) {}
-  }
+  const loadLanguages = createLanguageLoader(renderLanguages);
 
   function renderLanguages(d) {
     const languages = d.languages || [];
+    languageList = languages;
     const configured = d.configuredValue || 'auto';
     // 当前语言下拉：跟随系统 + 全部启用语言。
     elCurrentSelect.textContent = '';
@@ -208,6 +208,7 @@ export function registerLanguageEditor() {
       actions.appendChild(deleteBtn);
     }
     row.appendChild(actions);
+    addLanguagePackExport(lang, row, actions);
     return row;
   }
 
@@ -281,6 +282,9 @@ export function registerLanguageEditor() {
 
   // ─── 翻译编辑视图 ───
   function openEditor(code) {
+    window.clearTimeout(searchTimer);
+    elEditorBody.textContent = '';
+    elEditorTitle.textContent = code;
     editorState.code = code;
     editorState.page = 1;
     editorState.status = '';
@@ -333,23 +337,7 @@ export function registerLanguageEditor() {
     if (editorState.page * editorState.pageSize < editorState.total) { editorState.page++; loadEntries(); }
   });
 
-  async function loadEntries() {
-    const params = new URLSearchParams({
-      lang: editorState.code,
-      page: String(editorState.page),
-      pageSize: String(editorState.pageSize)
-    });
-    if (editorState.query) params.set('q', editorState.query);
-    if (editorState.module) params.set('module', editorState.module);
-    if (editorState.status) params.set('status', editorState.status);
-    let d;
-    try {
-      d = await app.fetch('/api/v1/i18n/entries?' + params.toString()).then(r => r.json());
-    } catch (_) {
-      return;
-    }
-    renderEntries(d);
-  }
+  const loadEntries = createLanguageEntriesLoader(() => editorState, () => !elEditorView.hidden, renderEntries);
 
   function renderEntries(d) {
     const lang = d.language || {};
@@ -421,8 +409,8 @@ export function registerLanguageEditor() {
 
     const translation = document.createElement('div');
     translation.className = 'lang-col-translation';
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement('textarea');
+    input.rows = 2;
     input.className = 'lang-entry-input' + (entry.customText ? '' : ' lang-untranslated');
     input.value = entry.customText || '';
     input.placeholder = editorState.canEdit ? t('i18n.editor.untranslated_hint') : '—';
@@ -435,53 +423,12 @@ export function registerLanguageEditor() {
     row.appendChild(translation);
 
     if (editorState.canEdit) {
-      const initialValue = entry.customText || '';
-      let saveTimer = 0;
-      const showStatus = (kind) => {
-        status.className = 'lang-entry-status ' + (kind === 'ok' ? 'is-saved' : 'is-error');
-        status.textContent = kind === 'ok' ? '✓' : '!';
-        window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => {
-          status.className = 'lang-entry-status';
-          status.textContent = '';
-        }, 1800);
-      };
-      // 失焦保存：内容变化才提交；空白 = 删除（空翻译语义）。
-      input.addEventListener('blur', async () => {
-        const value = input.value.trim();
-        if (value === initialValue) return;
-        const key = entry.key;
-        if (editorState.pending.has(key)) return;
-        editorState.pending.add(key);
-        try {
-          const res = await app.protectedFetch('/api/v1/i18n/entries?lang=' + encodeURIComponent(editorState.code) + '&key=' + encodeURIComponent(key), {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ value: value })
-          });
-          if (!res.ok) {
-            const failure = await app.readAPIError(res);
-            app.toast(failure.message, 'err');
-            showStatus('err');
-            input.value = initialValue;
-            return;
-          }
-          entry.customText = value;
-          row.classList.toggle('lang-entry-untranslated', !value);
-          input.classList.toggle('lang-untranslated', !value);
-          showStatus('ok');
-        } catch (err) {
-          app.toast(String(err && err.message || err), 'err');
-          showStatus('err');
-          input.value = initialValue;
-        } finally {
-          editorState.pending.delete(key);
-        }
-      });
+      bindTranslationSave({ input, row, status, entry, languageCode: editorState.code });
     }
     return row;
   }
 
   // 页面进入时加载（服务端模板保证 langPage 只在语言页渲染）。
+  registerLanguagePackImport(() => languageList, loadLanguages);
   loadLanguages();
 }

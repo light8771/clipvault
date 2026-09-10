@@ -53,7 +53,12 @@ func (s *SearchServer) handleBackgroundMedia(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 	w.Header().Set("Content-Type", cfg.ContentType)
 	w.Header().Set("Cache-Control", assetCacheControl(r))
-	http.ServeContent(w, r, fileName, time.Time{}, file)
+	controller := http.NewResponseController(w)
+	if err := setWriteDeadlineIfSupported(controller, time.Now().Add(mediaTransferIdleTimeout)); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	http.ServeContent(mediaResponseWriter{w, controller}, r, fileName, time.Time{}, file)
 }
 
 func (s *SearchServer) serveBrandAsset(w http.ResponseWriter, r *http.Request, kind string) {
@@ -105,8 +110,20 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 		s.writeError(w, err)
 		return
 	}
-	size, copyErr := io.Copy(temp, r.Body)
+	controller := http.NewResponseController(w)
+	// The response starts only after the upload completes; a fixed write deadline
+	// would otherwise expire while a large upload is still making progress.
+	if err := setWriteDeadlineIfSupported(controller, time.Time{}); err != nil {
+		temp.Close()
+		s.writeError(w, err)
+		return
+	}
+	size, copyErr := io.Copy(temp, mediaUploadReader{r.Body, controller})
 	closeErr := temp.Close()
+	if err := setWriteDeadlineIfSupported(controller, time.Now().Add(mediaTransferIdleTimeout)); err != nil {
+		s.writeError(w, err)
+		return
+	}
 	if copyErr != nil || closeErr != nil || size == 0 {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_media", s.i18nT("api.error.invalid_media", nil), nil)
 		return
@@ -126,7 +143,8 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	}
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
-	cfg := s.cfgMgr.Get()
+	before := s.cfgMgr.Get()
+	cfg := cloneConfig(before)
 	previousVersion := cfg.Background.Version
 	version := nextAssetVersion(previousVersion)
 	fileName := assetFileName(backgroundMediaAsset, version)
@@ -136,7 +154,7 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 	}
 	cfg.Background.ContentType = contentType
 	cfg.Background.Version = version
-	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(before, cfg)
 	if err != nil {
 		_ = os.Remove(filepath.Join(s.env.DataDir, fileName))
 		s.writeError(w, err)
@@ -153,21 +171,24 @@ func (s *SearchServer) handleBackgroundMediaUpload(w http.ResponseWriter, r *htt
 func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Request, kind string) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBrandAssetBytes)
 	data, err := io.ReadAll(r.Body)
+	var sizeErr *http.MaxBytesError
+	if errors.As(err, &sizeErr) {
+		s.writeAPIError(w, http.StatusRequestEntityTooLarge, "image_too_large", s.i18nT("appearance.asset_too_large", nil), nil)
+		return
+	}
 	if err != nil || len(data) == 0 {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_image", s.i18nT("api.error.invalid_image", nil), nil)
 		return
 	}
-	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
-	if contentType == "image/vnd.microsoft.icon" {
-		contentType = "image/x-icon"
-	}
-	if !isBrandContentType(contentType, kind) || !isValidBrandImage(data, contentType) {
+	contentType := detectBrandImageType(data)
+	if !isBrandContentType(contentType, kind) {
 		s.writeAPIError(w, http.StatusBadRequest, "unsupported_image", s.i18nT("api.error.unsupported_image", nil), nil)
 		return
 	}
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
-	cfg := s.cfgMgr.Get()
+	before := s.cfgMgr.Get()
+	cfg := cloneConfig(before)
 	assetKind := brandLogoAsset
 	previousVersion := cfg.Brand.LogoVersion
 	if kind == "favicon" {
@@ -187,7 +208,7 @@ func (s *SearchServer) handleBrandAssetUpload(w http.ResponseWriter, r *http.Req
 		cfg.Brand.LogoContentType = contentType
 		cfg.Brand.LogoVersion = version
 	}
-	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(before, cfg)
 	if err != nil {
 		_ = os.Remove(filepath.Join(s.env.DataDir, fileName))
 		s.writeError(w, err)
@@ -212,11 +233,12 @@ func (s *SearchServer) handleBrandFaviconReset(w http.ResponseWriter, r *http.Re
 func (s *SearchServer) handleBackgroundMediaReset(w http.ResponseWriter, r *http.Request) {
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
-	cfg := s.cfgMgr.Get()
+	before := s.cfgMgr.Get()
+	cfg := cloneConfig(before)
 	previousVersion := cfg.Background.Version
 	cfg.Background.ContentType = ""
 	cfg.Background.Version = 0
-	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(before, cfg)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -232,7 +254,8 @@ func (s *SearchServer) handleBackgroundMediaReset(w http.ResponseWriter, r *http
 func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string) {
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
-	cfg := s.cfgMgr.Get()
+	before := s.cfgMgr.Get()
+	cfg := cloneConfig(before)
 	assetKind := brandLogoAsset
 	previousVersion := cfg.Brand.LogoVersion
 	if kind == "favicon" {
@@ -244,7 +267,7 @@ func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string)
 		cfg.Brand.LogoContentType = ""
 		cfg.Brand.LogoVersion = 0
 	}
-	runtimeError, hotkeyError, err := s.updateAssetConfig(cfg)
+	runtimeError, hotkeyError, err := s.updateAssetConfig(before, cfg)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -259,8 +282,8 @@ func (s *SearchServer) handleBrandAssetReset(w http.ResponseWriter, kind string)
 
 // updateAssetConfig distinguishes persistence failures from post-commit runtime
 // listener failures so callers never delete an asset referenced by saved config.
-func (s *SearchServer) updateAssetConfig(cfg Config) (runtimeError, hotkeyError string, err error) {
-	err = s.cfgMgr.Update(cfg)
+func (s *SearchServer) updateAssetConfig(before, cfg Config) (runtimeError, hotkeyError string, err error) {
+	err = s.cfgMgr.UpdateFrom(before, cfg)
 	if err == nil {
 		return "", "", nil
 	}
@@ -284,15 +307,27 @@ func addRuntimeWarnings(response map[string]any, runtimeError, hotkeyError strin
 	}
 }
 
-func isValidBrandImage(data []byte, contentType string) bool {
-	if contentType == "image/x-icon" {
-		return isValidICO(data)
+func detectBrandImageType(data []byte) string {
+	if isValidICO(data) {
+		return "image/x-icon"
 	}
-	config, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > 4096 || config.Height > 4096 {
-		return false
+	return detectRasterImageType(bytes.NewReader(data))
+}
+
+// Appearance images are served as uploaded; dimensions do not allocate a bitmap.
+func detectRasterImageType(r io.Reader) string {
+	config, format, err := image.DecodeConfig(r)
+	if err != nil || config.Width <= 0 || config.Height <= 0 {
+		return ""
 	}
-	return (contentType == "image/png" && format == "png") || (contentType == "image/jpeg" && format == "jpeg")
+	switch format {
+	case "png":
+		return "image/png"
+	case "jpeg":
+		return "image/jpeg"
+	default:
+		return ""
+	}
 }
 
 func isValidBackgroundMedia(data []byte, contentType string) bool {
@@ -318,27 +353,13 @@ func detectBackgroundFileType(path string) (string, error) {
 }
 
 func detectBackgroundMediaType(r io.ReadSeeker) string {
-	if config, format, err := image.DecodeConfig(r); err == nil && config.Width > 0 && config.Height > 0 && config.Width <= 4096 && config.Height <= 4096 {
-		switch format {
-		case "png":
-			return "image/png"
-		case "jpeg":
-			return "image/jpeg"
-		}
+	if contentType := detectRasterImageType(r); contentType != "" {
+		return contentType
 	}
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return ""
 	}
-	head := make([]byte, 12)
-	n, _ := io.ReadFull(r, head)
-	head = head[:n]
-	if len(head) >= 12 && bytes.Equal(head[4:8], []byte("ftyp")) {
-		return "video/mp4"
-	}
-	if len(head) >= 4 && bytes.Equal(head[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) {
-		return "video/webm"
-	}
-	return ""
+	return detectVideoContentType(r)
 }
 
 func isValidICO(data []byte) bool {

@@ -38,6 +38,21 @@
 
 `build-for-order.ps1` 完成全部构建步骤：生成 UUID 作为 KeyID → 生成密钥对 → 烧录公钥到 exe → 输出订单清单。
 
+### 构建工具链
+
+使用与 `go.mod` 一致的完整 Go SDK，并用该版本编译 Garble。Garble 需要通过 overlay 构建修改后的链接器，Go 自动下载到 `GOMODCACHE` 内的 SDK 不能用于这一步。当前验收环境的安装命令为：
+
+```powershell
+go install golang.org/dl/go1.26.6@latest
+go1.26.6 download
+go install mvdan.cc/garble@v0.16.0
+go env GOROOT GOVERSION
+```
+
+确保 Go 的 bin 目录在 PATH 中。项目目录内 `go env GOROOT` 应指向独立 SDK（例如用户目录下 `sdk/go1.26.6`），而非模块缓存；Go 的自动工具链选择会优先使用 PATH 上的 `go1.26.6`。升级 Go 后重新编译 Garble。
+
+公开的内置翻译保存在 `internal/clipvault/i18n_builtin.json`，编译时嵌入 EXE，不需要随程序分发 JSON。它们作为数据保留，避免 `-literals` 将大量词条展开为昂贵的 Go 初始化代码；程序逻辑仍按原构建参数混淆。
+
 ### 用法
 
 ```powershell
@@ -72,7 +87,7 @@ signing\orders\ORDER-2026-000001\
 ### 安全说明
 
 - **KeyID 是 UUID**：每个订单唯一，格式 `cv-<uuid>`，符合 `^[a-z0-9][a-z0-9-]{2,63}$`
-- **Garble seed 随机**：每次构建用随机 32 字节 Base64 seed，记录在 manifest.json
+- **Garble seed 随机**：每次构建用随机 8 字节 Base64 seed，记录在 manifest.json
 - **私钥+口令不进 Git**：`.gitignore` 拦截 `*.ed25519`、`*passphrase*.txt`、`orders/`
 - **公钥可公开**：公钥不是秘密，客户端用公钥验签
 

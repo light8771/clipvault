@@ -87,6 +87,30 @@ Object.values(els).forEach(el=>{if(el)el.addEventListener('input',validate);});
 validate();
 establishStartupSession();
 
+function renderStartupDone(card, descriptionKey, warningKey) {
+  const shell = document.createElement('div');
+  shell.className = 'shell';
+  const panel = document.createElement('div');
+  panel.className = 'done-panel';
+  const title = document.createElement('h1');
+  title.textContent = t('startup.done_title');
+  const description = document.createElement('p');
+  description.className = 'desc';
+  description.textContent = t(descriptionKey);
+  const warning = document.createElement('div');
+  warning.className = 'warn';
+  const warningTitle = document.createElement('p');
+  warningTitle.className = 'warn-title';
+  warningTitle.textContent = t(warningKey);
+  const copy = document.createElement('p');
+  copy.className = 'warn-copy';
+  copy.textContent = t('startup.manual_copy');
+  warning.append(warningTitle, copy);
+  panel.append(title, description, warning);
+  shell.append(panel);
+  card.replaceChildren(shell);
+}
+
 async function submitCredentials(e){
   if(e)e.preventDefault();
   if(submit.disabled)return;
@@ -96,8 +120,8 @@ async function submitCredentials(e){
     let data={};try{data=await res.json();}catch(_){data={};}
     if(!res.ok){errBox.textContent=res.status===403?t('startup.session_expired'):(data.error?.message||t('startup.local_request_failed'));submit.disabled=false;return;}
     const card=document.querySelector('.main');
-    card.innerHTML='<div class="shell"><div class="done-panel"><h1>'+t('startup.done_title')+'</h1><p class="desc">'+t('startup.opening')+'</p><div class="warn"><p class="warn-title">'+t('startup.manual_title')+'</p><p class="warn-copy">'+t('startup.manual_copy')+'</p></div></div></div>';
-    let polled=0;const poll=async()=>{try{const r=await fetch('/api/v1/startup/status');const d=await r.json();if(d.data?.ready&&d.data.recordURL){location.href=d.data.recordURL;return;}}catch(_){}if(++polled>30){card.innerHTML='<div class="shell"><div class="done-panel"><h1>'+t('startup.done_title')+'</h1><p class="desc">'+t('startup.not_opened')+'</p><div class="warn"><p class="warn-title">'+t('startup.manual_continue')+'</p><p class="warn-copy">'+t('startup.manual_copy')+'</p></div></div></div>';return;}setTimeout(poll,500);};poll();
+    renderStartupDone(card, 'startup.opening', 'startup.manual_title');
+    let polled=0;const poll=async()=>{try{const r=await fetch('/api/v1/startup/status');const d=await r.json();if(d.data?.ready&&d.data.recordURL){location.href=d.data.recordURL;return;}}catch(_){}if(++polled>30){renderStartupDone(card, 'startup.not_opened', 'startup.manual_continue');return;}setTimeout(poll,500);};poll();
   }catch(_){errBox.textContent=t('startup.connect_failed');submit.disabled=false;}
 }
 document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',submitCredentials));

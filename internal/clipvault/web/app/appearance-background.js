@@ -50,8 +50,11 @@ export function registerAppearanceBackground() {
       video.load();
     } else if (isVideo && video) {
       image.removeAttribute('src');
-      video.src = url;
-      video.play().catch(() => {});
+      // 调整视觉参数时保留当前播放位置与状态，只在替换视频时加载。
+      if (video.getAttribute('src') !== url) {
+        video.src = url;
+        video.play().catch(() => {});
+      }
     } else {
       image.removeAttribute('src');
       video.pause();

@@ -19,7 +19,7 @@ export function registerHistoryList() {
   app.filterDateFrom = '';
   app.filterDateTo = '';
   app.currentGroupID = 0;
-  app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span class="ab-label">' + t('history.view') + '</span>';
+  app.viewHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span class="ab-label">' + app.esc(t('history.view')) + '</span>';
   app.delHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   app.groupBtnHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 12h6M9 16h4"/></svg>';
   app.locateHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
@@ -37,7 +37,7 @@ export function registerHistoryList() {
           <line x1="9" y1="12" x2="15" y2="12"/>
           <line x1="9" y1="16" x2="13" y2="16"/>
         </svg>
-        <span>${t('history.empty')}</span>
+        <span>${app.esc(t('history.empty'))}</span>
       </div>`;
       return;
     }
@@ -50,8 +50,8 @@ export function registerHistoryList() {
       const fullTime = app.esc(new Date(it.createdAt).toLocaleString(window.clipvaultI18n.locale()));
       const starHTML = it.starred ? app.starOnHTML : app.starOffHTML;
       const starTitle = it.starred ? t('history.unstar') : t('history.kind_starred');
-      const sensHTML = it.sensitive ? '<span class="msens">' + t('history.sensitive_tag') + '</span>' : '';
-      const duplicateHTML = !isEvent && it.consecutiveDuplicate ? '<span class="mdup">' + t('history.consecutive_duplicate_tag') + '</span>' : '';
+      const sensHTML = it.sensitive ? '<span class="msens">' + app.esc(t('history.sensitive_tag')) + '</span>' : '';
+      const duplicateHTML = !isEvent && it.consecutiveDuplicate ? '<span class="mdup">' + app.esc(t('history.consecutive_duplicate_tag')) + '</span>' : '';
       const sensAttr = it.sensitive ? ' data-sensitive="1"' : '';
       // Attribution is explicit: foreground context is never presented as the clipboard owner.
       let srcHTML = '';
@@ -68,7 +68,7 @@ export function registerHistoryList() {
       let viewAction = managedImage ? 'view-managed-image' : 'view-item';
       if (it.sensitive && !app.authState.secondaryAuthed) {
         // 敏感内容未通过二次认证时显示遮蔽占位；字数与来源元数据一并遮蔽（旁信道）
-        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${t('history.sensitive_masked')}</pre>`;
+        bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${app.esc(t('history.sensitive_masked'))}</pre>`;
         charText = t('history.hidden_count');
         showView = true;
       } else if (isEvent) {
@@ -77,7 +77,7 @@ export function registerHistoryList() {
         showView = false;
       } else if (managedImage) {
         // 托管剪贴板图片（CLIPVAULT_IMAGE_FILE）：内联缩略图，点击查看大图
-        bodyHTML = `<div class="managed-image"><img data-action="view-managed-image" data-item-id="${it.id}" loading="lazy" alt="${t('history.clipboard_image')}"></div>`;
+        bodyHTML = `<div class="managed-image"><img data-action="view-managed-image" data-item-id="${it.id}" loading="lazy" alt="${app.esc(t('history.clipboard_image'))}"></div>`;
         charText = t('history.kind_image');
         try {
           const meta = JSON.parse(it.metaJson || '{}');
@@ -102,23 +102,23 @@ export function registerHistoryList() {
           <div class="card-meta">
             <span class="mid">#${it.id}</span>
             <span class="msep">·</span>
-            <span class="${kindClass}">${kindLabel}</span>
+            <span class="${kindClass}">${app.esc(kindLabel)}</span>
             ${duplicateHTML ? '<span class="msep">·</span>' + duplicateHTML : ''}
             ${sensHTML ? '<span class="msep">·</span>' + sensHTML : ''}
             <span class="msep">·</span>
-            <span class="mtime" title="${fullTime}">${app.relTime(it.createdAt)}</span>
+            <span class="mtime" title="${fullTime}">${app.esc(app.relTime(it.createdAt))}</span>
             <span class="msep">·</span>
-            <span class="mchars">${charText}</span>
+            <span class="mchars">${app.esc(charText)}</span>
             ${srcHTML}
           </div>
           <div class="card-acts">
             ${showView ? `<button class="ab exp" data-action="${viewAction}" data-item-id="${it.id}" title="${app.esc(t('history.view'))}" aria-label="${app.esc(t('history.view'))}">${app.viewHTML}</button>` : ''}
-			${q && !isEvent ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="${t('history.locate')}">${app.locateHTML}</button>` : ''}
+			${q && !isEvent ? `<button class="ab locate-btn" data-action="locate-item" data-item-id="${it.id}" title="${app.esc(t('history.locate'))}">${app.locateHTML}</button>` : ''}
 			${canCopy ? `<button class="ab cp" data-action="copy-item" data-item-id="${it.id}" title="${app.esc(t('common.copy'))}" aria-label="${app.esc(t('common.copy'))}">${app.cpHTML}</button>` : ''}
-            ${!isEvent ? `<button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${starTitle}">${starHTML}</button>
-            <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? t('history.unmark_sensitive') : t('history.mark_sensitive')}">${app.sensBtnHTML}</button>
-            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="${t('groups.modal_assign')}">${app.groupBtnHTML}</button>` : ''}
-            <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="${t('common.delete')}">${app.delHTML}</button>
+            ${!isEvent ? `<button class="ab star${it.starred ? ' on' : ''}" data-action="star-item" data-item-id="${it.id}" title="${app.esc(starTitle)}">${starHTML}</button>
+            <button class="ab sens${it.sensitive ? ' on' : ''}" data-action="toggle-sensitive" data-item-id="${it.id}" title="${it.sensitive ? app.esc(t('history.unmark_sensitive')) : app.esc(t('history.mark_sensitive'))}">${app.sensBtnHTML}</button>
+            <button class="ab group-btn" data-action="assign-group" data-item-id="${it.id}" title="${app.esc(t('groups.modal_assign'))}">${app.groupBtnHTML}</button>` : ''}
+            <button class="ab del" data-action="delete-item" data-item-id="${it.id}" title="${app.esc(t('common.delete'))}">${app.delHTML}</button>
           </div>
         </div>
       </article>`;
@@ -260,7 +260,7 @@ export function registerHistoryList() {
     const recordingOn = cfg.recordSourceInfo !== false;
     if (!recordingOn) {
       wrap.classList.add('disabled');
-      list.innerHTML = '<p class="src-exe-empty">' + t('history.src_recording_off') + '</p>';
+      list.innerHTML = '<p class="src-exe-empty">' + app.esc(t('history.src_recording_off')) + '</p>';
       return;
     }
     wrap.classList.remove('disabled');
@@ -276,7 +276,7 @@ export function registerHistoryList() {
       });
     }
     if (!items.length) {
-      list.innerHTML = '<p class="src-exe-empty">' + t('history.src_no_match') + '</p>';
+      list.innerHTML = '<p class="src-exe-empty">' + app.esc(t('history.src_no_match')) + '</p>';
     } else {
       list.innerHTML = items.map(e => {
         const label = app.sourceAliases[e.name] || e.name;

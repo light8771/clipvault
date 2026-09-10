@@ -2,6 +2,7 @@ package clipvault
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"syscall"
 	"time"
@@ -33,10 +34,19 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 	case wmActivate:
 
 		if uint16(loword(wParam)) == waInactive {
+			// Only our requested handoff may keep the popup alive while
+			// waiting for foreground activation. Any other switch cancels it.
+			if p := sw.pendingPaste; p != nil && p.acceptsDeactivation(lParam) {
+				return 0
+			}
 			sw.close()
 		}
 		return 0
 	case wmTimer:
+		if wParam == searchPasteTimerID {
+			sw.advancePaste()
+			return 0
+		}
 		if wParam == searchDebounceTimerID {
 			procKillTimer.Call(hwnd, searchDebounceTimerID)
 			sw.startSearch(sw.getEdit_text())
@@ -46,6 +56,9 @@ func (sw *searchWindow) wndProc(hwnd uintptr, message uint32, wParam, lParam uin
 		sw.handleSearchResult(uint64(wParam))
 		return 0
 	case wmCommand:
+		if sw.pendingPaste != nil && loword(wParam) != idcSearchClose {
+			return 0
+		}
 		ctlID := uint16(loword(wParam))
 		notify := uint16(hiword(wParam))
 		switch ctlID {
@@ -90,27 +103,41 @@ func (sw *searchWindow) clearSearchInput() {
 	sw.onEditChange()
 }
 
-// editProc 子类化的 edit 控件过程，拦截 Up/Down/Return/Esc
-func (sw *searchWindow) editProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
-	switch message {
-	case wmKeydown:
-		switch wParam {
-		case vkReturn:
-			sw.dispatchEnterAction()
-			return 0
-		case vkEscape:
+// handleActionKey runs before TranslateMessage for every popup control, so
+// clicking the list does not disable shortcuts. Alt+Enter uses WM_SYSKEYDOWN.
+func (sw *searchWindow) handleActionKey(message uint32, key, flags uintptr) bool {
+	if message != wmKeydown && message != wmSysKeydown {
+		return false
+	}
+	if key != vkReturn && key != vkEscape {
+		return false
+	}
+	// Consume auto-repeat without executing the action again.
+	if flags&(1<<30) == 0 {
+		if key == vkEscape {
 			sw.close()
-			return 0
-		case vkDown:
-			sw.moveListSelection(1)
-			return 0
-		case vkUp:
-			sw.moveListSelection(-1)
-			return 0
+		} else if sw.pendingPaste == nil {
+			sw.dispatchEnterAction()
 		}
 	}
-	ret, _, _ := procCallWindowProcW.Call(sw.oldEdit, hwnd, uintptr(message), wParam, lParam)
-	return ret
+	return true
+}
+
+// Search arrows share the pre-translation path with action shortcuts; no
+// per-window subclass callback is allocated or retained after the popup closes.
+func (sw *searchWindow) handleSearchArrow(message uint32, key uintptr) bool {
+	switch message {
+	case wmKeydown:
+		switch key {
+		case vkDown:
+			sw.moveListSelection(1)
+			return true
+		case vkUp:
+			sw.moveListSelection(-1)
+			return true
+		}
+	}
+	return false
 }
 
 var procGetKeyState = user32.NewProc("GetKeyState")
@@ -153,10 +180,18 @@ func (sw *searchWindow) toggleConsecutiveDuplicateFilter() {
 	sw.hideConsecutiveDuplicates = !sw.hideConsecutiveDuplicates
 	sw.refreshConsecutiveDuplicateFilterButton()
 	if sw.cfgMgr != nil {
-		cfg := sw.cfgMgr.Get()
+		before := sw.cfgMgr.Get()
+		cfg := cloneConfig(before)
 		cfg.Popup.HideConsecutiveDuplicates = sw.hideConsecutiveDuplicates
-		if err := sw.cfgMgr.Update(cfg); err != nil && sw.logger != nil {
-			sw.logger.Warn("search_window_filter_persist_failed", map[string]any{"error": err.Error()})
+		if err := sw.cfgMgr.UpdateFrom(before, cfg); err != nil {
+			if sw.logger != nil {
+				sw.logger.Warn("search_window_filter_persist_failed", map[string]any{"error": err.Error()})
+			}
+			var runtimeErr *ConfigRuntimeApplyError
+			if !errors.As(err, &runtimeErr) {
+				sw.hideConsecutiveDuplicates = sw.cfgMgr.Get().Popup.HideConsecutiveDuplicates
+				sw.refreshConsecutiveDuplicateFilterButton()
+			}
 		}
 	}
 	sw.startSearch(sw.getEdit_text())

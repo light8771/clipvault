@@ -8,6 +8,31 @@
 
       <!-- ── 列表视图 ── -->
       <div id="langListView">
+        <section class="ssec" id="s-lang-transfer">
+          <div class="fsec">
+            <h3 class="fsec-title">{{T "i18n.pack.title"}}</h3>
+            <p class="fsec-desc">{{T "i18n.pack.description"}}</p>
+          </div>
+          <div class="ssec-fields">
+            <form id="langPackForm" class="lang-pack-form">
+              <label class="lang-new-field">
+                <span>{{T "i18n.pack.choose"}}</span>
+                <input id="langPackFile" type="file" accept=".json,application/json" required>
+              </label>
+              <div id="langPackPreview" hidden>
+                <p id="langPackSummary" class="fsec-desc"></p>
+                <div class="lang-new-grid">
+                  <label class="lang-new-field"><span>{{T "i18n.code"}}</span><input id="langPackCode" maxlength="16" required autocomplete="off" placeholder="ja-JP"></label>
+                  <label class="lang-new-field"><span>{{T "i18n.name"}}</span><input id="langPackName" maxlength="64" required autocomplete="off"></label>
+                  <label class="lang-new-field"><span>{{T "i18n.native_name"}}</span><input id="langPackNative" maxlength="64" required autocomplete="off"></label>
+                  <label class="lang-new-field"><span>{{T "i18n.base_language"}}</span><select id="langPackBase" class="lang-select" required></select></label>
+                </div>
+                <label class="lang-pack-merge"><input type="checkbox" id="langPackMerge"> <span>{{T "i18n.pack.merge"}}</span></label>
+                <button type="submit" class="btn btn-primary">{{T "i18n.pack.import"}}</button>
+              </div>
+            </form>
+          </div>
+        </section>
         <section class="ssec" id="s-lang-current">
           <div class="fsec">
             <h3 class="fsec-title">{{T "i18n.current_language"}}</h3>

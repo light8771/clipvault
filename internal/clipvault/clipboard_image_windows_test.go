@@ -378,3 +378,24 @@ func onePixelDIB() []byte {
 	dib[40], dib[41], dib[42] = 0x33, 0x22, 0x11
 	return dib
 }
+func TestClipboardAcceptsLongScreenshots(t *testing.T) {
+	for _, size := range [][2]int{{32, 20000}, {20000, 32}} {
+		width, height := size[0], size[1]
+		dib := make([]byte, 40+width*height*4)
+		binary.LittleEndian.PutUint32(dib[0:4], 40)
+		binary.LittleEndian.PutUint32(dib[4:8], uint32(width))
+		binary.LittleEndian.PutUint32(dib[8:12], uint32(height))
+		binary.LittleEndian.PutUint16(dib[12:14], 1)
+		binary.LittleEndian.PutUint16(dib[14:16], 32)
+		data, err := dibToPNG(dib)
+		if err != nil {
+			t.Fatalf("long DIB %v rejected: %v", size, err)
+		}
+		if err := validateClipboardPNG(data); err != nil {
+			t.Fatalf("long PNG %v rejected: %v", size, err)
+		}
+		if w, h := pngDimensions(data); w != width || h != height {
+			t.Fatalf("dimensions changed to %dx%d", w, h)
+		}
+	}
+}

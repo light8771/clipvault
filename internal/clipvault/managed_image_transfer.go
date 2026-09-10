@@ -151,9 +151,8 @@ func validateManagedImagePNGReader(src io.Reader) error {
 	}
 	width := int(binary.BigEndian.Uint32(prefix[16:20]))
 	height := int(binary.BigEndian.Uint32(prefix[20:24]))
-	if width <= 0 || height <= 0 || width > 16384 || height > 16384 ||
-		int64(width)*int64(height) > maxDecodedImagePixels {
-		return fmt.Errorf("unsupported PNG dimensions %dx%d", width, height)
+	if err := validateDecodedImageDimensions(width, height); err != nil {
+		return err
 	}
 	decoded, err := png.Decode(io.MultiReader(bytes.NewReader(prefix[:]), src))
 	if err != nil {

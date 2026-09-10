@@ -1,9 +1,13 @@
 package clipvault
 
 import (
+	"crypto/rand"
 	"errors"
+	"reflect"
 	"sync"
 )
+
+var ErrConfigConflict = errors.New("configuration changed before commit")
 
 // ConfigRuntimeApplyError means the configuration is already persisted and
 // cached, but one or more runtime listeners could not apply it completely.
@@ -30,6 +34,7 @@ type ConfigManager struct {
 	mu       sync.RWMutex
 	updateMu sync.Mutex
 	cfg      Config
+	version  string
 	store    ConfigStore
 	onChange []func(Config) error
 }
@@ -40,7 +45,7 @@ func NewConfigManager(store ConfigStore) (*ConfigManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ConfigManager{cfg: cloneConfig(cfg), store: store}, nil
+	return &ConfigManager{cfg: cloneConfig(cfg), version: rand.Text(), store: store}, nil
 }
 
 // Get 返回当前配置的快照（并发安全）。
@@ -55,12 +60,35 @@ func (cm *ConfigManager) Get() Config {
 func (cm *ConfigManager) Update(cfg Config) error {
 	cm.updateMu.Lock()
 	defer cm.updateMu.Unlock()
+	return cm.commit(cfg)
+}
+
+// UpdateFrom commits only if the snapshot used for validation and mutation is
+// still current. A conflicting writer must reread instead of restoring stale
+// passwords, asset metadata or unrelated settings.
+func (cm *ConfigManager) UpdateFrom(expected, cfg Config) error {
+	cm.updateMu.Lock()
+	defer cm.updateMu.Unlock()
+	cm.mu.RLock()
+	current := reflect.DeepEqual(cm.cfg, expected)
+	cm.mu.RUnlock()
+	if !current {
+		return ErrConfigConflict
+	}
+	return cm.commit(cfg)
+}
+
+// commit requires updateMu and keeps persistence, cache and listeners ordered.
+func (cm *ConfigManager) commit(cfg Config) error {
 	cfg = cloneConfig(cfg)
 	normalizeConfig(&cfg)
 	if err := cm.store.SaveConfig(cfg); err != nil {
 		return err
 	}
 	cm.mu.Lock()
+	if !sameEditableConfig(cm.cfg, cfg) {
+		cm.version = rand.Text()
+	}
 	cm.cfg = cloneConfig(cfg)
 	listeners := append([]func(Config) error{}, cm.onChange...)
 	cm.mu.Unlock()
@@ -88,6 +116,9 @@ func (cm *ConfigManager) Reload() error {
 		return err
 	}
 	cm.mu.Lock()
+	if !sameEditableConfig(cm.cfg, cfg) {
+		cm.version = rand.Text()
+	}
 	cm.cfg = cloneConfig(cfg)
 	listeners := append([]func(Config) error{}, cm.onChange...)
 	cm.mu.Unlock()
@@ -112,4 +143,19 @@ func (cm *ConfigManager) OnChange(fn func(Config) error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.onChange = append(cm.onChange, fn)
+}
+
+// GetVersioned returns one atomic snapshot. Asset metadata is owned by separate
+// endpoints and cannot be overwritten by a settings PUT, so it does not advance
+// the editable configuration version.
+func (cm *ConfigManager) GetVersioned() (Config, string) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cloneConfig(cm.cfg), cm.version
+}
+
+func sameEditableConfig(a, b Config) bool {
+	preserveAssetMetadata(&a, Config{})
+	preserveAssetMetadata(&b, Config{})
+	return reflect.DeepEqual(a, b)
 }

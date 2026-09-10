@@ -50,7 +50,7 @@ export function registerMCPAudit() {
       renderAudit(d.entries || []);
     } catch (_) {
       el('mcpAuditTotal').textContent = t('logs.load_failed');
-      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' + t('audit.load_failed') + '</td></tr>';
+      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' + app.esc(t('audit.load_failed')) + '</td></tr>';
     }
   };
 
@@ -75,7 +75,7 @@ export function registerMCPAudit() {
     const resource = entry.resourceUri || '';
     const expanded = state.expanded.has(String(entry.id));
     const sensitive = entry.sensitiveAccessed
-      ? '<span class="dapi-tag warn">' + t('audit.sensitive_yes') + '</span>'
+      ? '<span class="dapi-tag warn">' + app.esc(t('audit.sensitive_yes')) + '</span>'
       : '<span class="dapi-muted">—</span>';
     let row = '<tr class="dapi-audit-row' + (expanded ? ' is-open' : '') + '" data-audit-id="' + entry.id + '" data-action="mcp-audit-toggle">' +
       '<td class="col-time">' + app.esc(app.formatLogTime(entry.timestamp)) + '</td>' +
@@ -86,20 +86,20 @@ export function registerMCPAudit() {
       '</span></td>' +
       '<td class="col-summary">' + sensitive + '</td>' +
       '<td class="col-result"><span class="dapi-result-cell">' + auditResultBadge(entry) +
-      '<span class="dapi-result-count">' + (entry.itemCount ? t('audit.item_count', { count: entry.itemCount }) : (entry.itemId ? '#' + entry.itemId : '—')) + '</span></span></td>' +
+      '<span class="dapi-result-count">' + (entry.itemCount ? app.esc(t('audit.item_count', { count: entry.itemCount })) : (entry.itemId ? '#' + entry.itemId : '—')) + '</span></span></td>' +
       '<td class="col-ms">' + entry.durationMs + 'ms</td>' +
       '<td class="col-ip">' + app.esc(entry.remoteIP || '—') + '</td>' +
       '</tr>';
     if (expanded) {
       row += '<tr class="dapi-audit-detail"><td colspan="7">' +
         '<div class="dapi-detail-grid">' +
-        '<span class="dapi-detail-label">' + t('audit.detail_operation') + '</span><code>' + app.esc(op) + '</code>' +
-        (resource ? '<span class="dapi-detail-label">' + t('audit.detail_resource') + '</span><code>' + app.esc(resource) + '</code>' : '') +
-        '<span class="dapi-detail-label">' + t('audit.detail_returned') + '</span><code>' + t('audit.detail_result', { count: entry.itemCount || 0, duration: entry.durationMs }) + '</code>' +
-        (entry.itemId ? '<span class="dapi-detail-label">' + t('audit.detail_item') + '</span><code>#' + entry.itemId + '</code>' : '') +
-        (entry.errorCode ? '<span class="dapi-detail-label">' + t('audit.detail_error_code') + '</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
-        '<span class="dapi-detail-label">' + t('audit.detail_sensitive') + '</span><code>' + (entry.sensitiveAccessed ? t('audit.yes') : t('audit.no')) + '</code>' +
-        (entry.tokenName ? '<span class="dapi-detail-label">' + t('audit.detail_token') + '</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + app.esc(t('audit.detail_operation')) + '</span><code>' + app.esc(op) + '</code>' +
+        (resource ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_resource')) + '</span><code>' + app.esc(resource) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + app.esc(t('audit.detail_returned')) + '</span><code>' + app.esc(t('audit.detail_result', { count: entry.itemCount || 0, duration: entry.durationMs })) + '</code>' +
+        (entry.itemId ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_item')) + '</span><code>#' + entry.itemId + '</code>' : '') +
+        (entry.errorCode ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_error_code')) + '</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + app.esc(t('audit.detail_sensitive')) + '</span><code>' + (entry.sensitiveAccessed ? app.esc(t('audit.yes')) : app.esc(t('audit.no'))) + '</code>' +
+        (entry.tokenName ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_token')) + '</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
         '</div>' +
         '</td></tr>';
     }
@@ -115,7 +115,7 @@ export function registerMCPAudit() {
       : t('audit.total', { count: state.total });
     if (!entries.length) {
       list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' +
-        (state.page > 0 ? t('audit.empty_page') : (filtering ? t('audit.empty_filtered') : t('audit.empty'))) + '</td></tr>';
+        (state.page > 0 ? app.esc(t('audit.empty_page')) : (filtering ? app.esc(t('audit.empty_filtered')) : app.esc(t('audit.empty')))) + '</td></tr>';
     } else {
       list.innerHTML = entries.map(auditRowHTML).join('');
     }
@@ -226,7 +226,7 @@ export function registerMCPAudit() {
     if (!select) return;
     const current = select.value;
     const tokens = app.mcpTokens || [];
-    select.innerHTML = '<option value="">' + t('audit.all_tokens') + '</option>' +
+    select.innerHTML = '<option value="">' + app.esc(t('audit.all_tokens')) + '</option>' +
       tokens.map(token =>
         '<option value="' + app.esc(token.id) + '">' + app.esc(token.name) + '</option>').join('');
     if (Array.from(select.options).some(option => option.value === current)) select.value = current;

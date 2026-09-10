@@ -1,7 +1,7 @@
 // i18n.js — 前端翻译模块。
 // 字典由服务端按回退链合成后经 /i18n-dict.js 注入（页面 head 中先于
 // bootstrap 模块加载），t() 为纯查表：缺失词条回退 Key 原文并打 Debug
-// 日志；{name} 参数缺失时保留占位符。渲染一律 textContent（纯文本契约）。
+// 日志；{name} 参数缺失时保留占位符。译文为纯文本：使用 textContent；HTML 模板必须在插入时转义（app.esc）。
 
 (function () {
   'use strict';

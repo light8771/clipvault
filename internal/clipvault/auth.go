@@ -44,7 +44,7 @@ type AuthManager struct {
 	sessions        map[string]*Session
 	secondaryTokens map[string]secondaryToken
 	rateMu          sync.Mutex
-	rateBuckets     map[string]*rateBucket // 凭据类别 -> 失败记录
+	rateBuckets     map[rateBucketKey]*rateBucket // 凭据类别 + 来源 IP -> 失败记录
 
 	stopCh    chan struct{} // startSessionCleaner 的退出信号（Close 关闭）
 	closeOnce sync.Once     // 防 Close 重复关闭 stopCh panic
@@ -60,7 +60,7 @@ func NewAuthManager() *AuthManager {
 	return &AuthManager{
 		sessions:        make(map[string]*Session),
 		secondaryTokens: make(map[string]secondaryToken),
-		rateBuckets:     make(map[string]*rateBucket),
+		rateBuckets:     make(map[rateBucketKey]*rateBucket),
 		stopCh:          make(chan struct{}),
 	}
 }
@@ -91,22 +91,6 @@ func generateToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
-}
-
-// VerifyLockPassword 验证锁屏密码。
-func (am *AuthManager) VerifyLockPassword(cfg Config, password string) bool {
-	if cfg.Security.LockPasswordHash == "" {
-		return true
-	}
-	return verifyPasswordHash(cfg.Security.LockPasswordHash, password)
-}
-
-// VerifySecondaryPassword 验证二次密码。
-func (am *AuthManager) VerifySecondaryPassword(cfg Config, password string) bool {
-	if cfg.Security.SecondaryPasswordHash == "" {
-		return true
-	}
-	return verifyPasswordHash(cfg.Security.SecondaryPasswordHash, password)
 }
 
 // HasLockPassword 检查是否已设置锁屏密码。
@@ -382,13 +366,18 @@ func ClearSessionCookie(w http.ResponseWriter, secure bool) {
 	})
 }
 
-// rateBucket 记录全局密码失败尝试。
-type rateBucket struct {
-	failures    []time.Time // 失败时间戳
-	lockedUntil time.Time   // 锁定截止时间
+type rateBucketKey struct {
+	purpose  string
+	clientIP string
 }
 
-// RateLimitStatus 描述当前密码尝试额度。
+// rateBucket owns one credential/source allowance. Only rateMu accesses it.
+type rateBucket struct {
+	failures  []time.Time
+	verifying bool
+}
+
+// RateLimitStatus describes the allowance after an attempt or admission check.
 type RateLimitStatus struct {
 	Allowed    bool
 	Remaining  int
@@ -404,74 +393,68 @@ func pruneRateFailures(b *rateBucket, now time.Time) {
 		}
 	}
 	b.failures = kept
-	if !b.lockedUntil.IsZero() && !now.Before(b.lockedUntil) {
-		b.lockedUntil = time.Time{}
-	}
 }
 
 func rateLimitStatus(b *rateBucket, now time.Time) RateLimitStatus {
-	remaining := rateLimitThreshold - len(b.failures)
-	if remaining < 0 {
-		remaining = 0
-	}
-	status := RateLimitStatus{Allowed: true, Remaining: remaining}
-	if now.Before(b.lockedUntil) {
-		status.Allowed = false
-		status.Remaining = 0
-		status.RetryAfter = b.lockedUntil.Sub(now)
-	}
-	return status
-}
-
-// CheckRateLimitFor 检查指定凭据类别的密码尝试额度。锁屏密码与二次密码
-// 使用独立桶，任一凭据验证成功都不会替另一凭据清空失败次数。
-func (am *AuthManager) CheckRateLimitFor(purpose string) RateLimitStatus {
-	am.rateMu.Lock()
-	defer am.rateMu.Unlock()
-	b, ok := am.rateBuckets[purpose]
-	if !ok {
-		return RateLimitStatus{Allowed: true, Remaining: rateLimitThreshold}
-	}
-	now := time.Now()
-	pruneRateFailures(b, now)
-	return rateLimitStatus(b, now)
-}
-
-// RecordFailedAttempt 记录一次密码验证失败并返回剩余额度。
-func (am *AuthManager) RecordFailedAttemptFor(purpose string) RateLimitStatus {
-	am.rateMu.Lock()
-	defer am.rateMu.Unlock()
-	now := time.Now()
-	b, ok := am.rateBuckets[purpose]
-	if !ok {
-		b = &rateBucket{}
-		am.rateBuckets[purpose] = b
-	}
-	pruneRateFailures(b, now)
-	b.failures = append(b.failures, now)
 	if len(b.failures) >= rateLimitThreshold {
-		// 滚动窗口：直到最早一次失败离开 5 分钟窗口后恢复额度。
-		b.lockedUntil = b.failures[0].Add(rateLimitWindow)
+		return RateLimitStatus{RetryAfter: b.failures[0].Add(rateLimitWindow).Sub(now)}
 	}
-	return rateLimitStatus(b, now)
+	if b.verifying {
+		return RateLimitStatus{RetryAfter: time.Second}
+	}
+	return RateLimitStatus{Allowed: true, Remaining: rateLimitThreshold - len(b.failures)}
 }
 
-// ResetRateLimit 清除失败记录（密码验证成功后调用）。
-func (am *AuthManager) ResetRateLimitFor(purpose string) {
+// verifyPasswordAttempt atomically admits one verification per credential/source.
+// The expensive verifier runs outside the map lock so other peers remain usable.
+// No separate check/record/reset API is exposed: callers cannot skip accounting.
+func (am *AuthManager) verifyPasswordAttempt(purpose, clientIP string, verify func() bool) (valid bool, status RateLimitStatus) {
+	key := rateBucketKey{purpose, clientIP}
 	am.rateMu.Lock()
-	defer am.rateMu.Unlock()
-	delete(am.rateBuckets, purpose)
+	b := am.rateBuckets[key]
+	if b == nil {
+		b = &rateBucket{}
+		am.rateBuckets[key] = b
+	}
+	now := time.Now()
+	pruneRateFailures(b, now)
+	status = rateLimitStatus(b, now)
+	if !status.Allowed {
+		am.rateMu.Unlock()
+		return false, status
+	}
+	b.verifying = true
+	am.rateMu.Unlock()
+
+	// Release the reservation even if the verifier panics. A failed verifier must
+	// not leave a permanently blocked source or silently restore its allowance.
+	defer func() {
+		am.rateMu.Lock()
+		defer am.rateMu.Unlock()
+		b.verifying = false
+		now := time.Now()
+		pruneRateFailures(b, now)
+		if valid {
+			delete(am.rateBuckets, key)
+			status = RateLimitStatus{Allowed: true, Remaining: rateLimitThreshold}
+		} else {
+			b.failures = append(b.failures, now)
+			status = rateLimitStatus(b, now)
+		}
+	}()
+	valid = verify()
+	return
 }
 
-// CleanExpiredRateBuckets 清理过期的限流桶。
+// CleanExpiredRateBuckets removes idle sources with no failures in the window.
 func (am *AuthManager) CleanExpiredRateBuckets() {
 	am.rateMu.Lock()
 	defer am.rateMu.Unlock()
 	now := time.Now()
-	for purpose, b := range am.rateBuckets {
+	for key, b := range am.rateBuckets {
 		pruneRateFailures(b, now)
-		if now.After(b.lockedUntil) && len(b.failures) == 0 {
-			delete(am.rateBuckets, purpose)
+		if !b.verifying && len(b.failures) == 0 {
+			delete(am.rateBuckets, key)
 		}
 	}
 }

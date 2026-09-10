@@ -9,10 +9,18 @@ export function registerAppearanceMedia() {
     background: Promise.resolve()
   };
   app.updateCurrentConfig = function updateCurrentConfig(update) {
-    app.replaceCurrentConfig({
-      ...app.currentCfg,
-      ...update
-    });
+    const cfg = { ...app.currentCfg };
+    // Asset responses own metadata only; never replace editable values or
+    // advance the version of the settings snapshot held by this page.
+    if (update.brand) {
+      const { logoContentType, logoVersion, faviconContentType, faviconVersion } = update.brand;
+      cfg.brand = { ...cfg.brand, logoContentType, logoVersion, faviconContentType, faviconVersion };
+    }
+    if (update.background) {
+      const { contentType, version } = update.background;
+      cfg.background = { ...cfg.background, contentType, version };
+    }
+    app.replaceCurrentConfig(cfg);
   };
   app.reserveAssetOperation = async function reserveAssetOperation(kind) {
     const previous = app.assetOperationTail[kind];
@@ -38,17 +46,13 @@ export function registerAppearanceMedia() {
       app.toast(t('appearance.asset_too_large'), 'err');
       return;
     }
-    const accepted = kind === 'logo' ? ['image/png', 'image/jpeg'] : ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon'];
-    if (!accepted.includes(file.type)) {
-      app.toast(kind === 'logo' ? t('appearance.logo_type_invalid') : t('appearance.favicon_type_invalid'), 'err');
-      return;
-    }
+    // 文件类型由服务端根据内容识别，浏览器 MIME 可能为空或不准确。
     const complete = await app.reserveAssetOperation(kind);
     try {
       const res = await app.protectedFetch(`/api/v1/appearance/${kind}`, {
         method: 'PUT',
         headers: {
-          'Content-Type': file.type
+          'Content-Type': file.type || 'application/octet-stream'
         },
         body: file
       });
@@ -57,7 +61,7 @@ export function registerAppearanceMedia() {
       app.updateCurrentConfig({
         brand: data.brand
       });
-      app.applyBrandFormState(data.brand);
+      app.applyBrand(app.currentCfg?.brand);
       if (data.runtimeError || data.hotkeyError) {
         app.toast(t('appearance.asset_saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
@@ -80,7 +84,7 @@ export function registerAppearanceMedia() {
       app.updateCurrentConfig({
         brand: data.brand
       });
-      app.applyBrandFormState(data.brand);
+      app.applyBrand(app.currentCfg?.brand);
       if (data.runtimeError || data.hotkeyError) {
         app.toast(t('config.saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
@@ -155,11 +159,7 @@ export function registerAppearanceMedia() {
   };
   app.saveBackgroundMedia = async function saveBackgroundMedia(file) {
     if (!file) return;
-    const isVideo = String(file.type || '').startsWith('video/') || /\.(mp4|webm)$/i.test(file.name || '');
-    if (!isVideo && file.size > 10 * 1024 * 1024) {
-      app.toast(t('appearance.background_too_large'), 'err');
-      return;
-    }
+    // 后台按实际内容区分图片和视频，避免把 MIME 缺失的视频套用图片大小限制。
     const complete = await app.reserveAssetOperation('background');
     try {
       const res = await app.protectedFetch('/api/v1/appearance/background', {
@@ -174,7 +174,7 @@ export function registerAppearanceMedia() {
       app.updateCurrentConfig({
         background: data.background
       });
-      app.applyBackgroundFormState(data.background);
+      app.applyBackground(app.backgroundFromForm());
       if (data.runtimeError || data.hotkeyError) {
         app.toast(t('appearance.background_saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;
@@ -197,7 +197,7 @@ export function registerAppearanceMedia() {
       app.updateCurrentConfig({
         background: data.background
       });
-      app.applyBackgroundFormState(data.background);
+      app.applyBackground(app.backgroundFromForm());
       if (data.runtimeError || data.hotkeyError) {
         app.toast(t('config.saved_with_warning', { warning: data.runtimeError || data.hotkeyError }), 'err');
         return;

@@ -27,7 +27,7 @@ var applicationModuleAssets = []string{
 	"/app/logs.js", "/app/groups-page.js", "/app/settings-navigation.js", "/app/settings-system.js", "/app/settings-bootstrap.js",
 	"/app/data-api.js", "/app/data-api-audit.js", "/app/confirm-arm.js",
 	"/app/mcp.js", "/app/mcp-audit.js",
-	"/app/language-editor.js",
+	"/app/language-editor.js", "/app/language-data.js", "/app/language-transfer.js", "/app/translation-save.js", "/app/operation-state.js", "/app/download.js",
 }
 
 type applicationPage struct {

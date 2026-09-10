@@ -149,8 +149,6 @@
   font: 15px/1.7 ui-monospace, Consolas, monospace;
   color: var(--tx);
   max-height: none;
-  /* 内容预览弹窗始终完整展示，不受固定占位约束 */
-  min-height: 0;
   overflow: visible;
 }
 pre.modal-pre::after {
@@ -318,4 +316,17 @@ pre.modal-pre::after {
 
 @keyframes mOverlayIn { from { opacity:0 } to { opacity:1 } }
 @keyframes mBoxIn     { from { transform:translateY(10px) scale(.97); opacity:0 } to { transform:translateY(0) scale(1); opacity:1 } }
+
+.operation-status { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.operation-status[hidden] { display: none; }
+.operation-status.is-error { color: var(--danger); }
+.operation-status.is-running { display: flex; align-items: center; gap: 8px; }
+.operation-status.is-running::before {
+  content: ''; width: 14px; height: 14px; flex: 0 0 14px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: operation-spin .8s linear infinite;
+}
+[aria-busy="true"] button:disabled { cursor: wait; opacity: .6; }
+@keyframes operation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .operation-status.is-running::before { animation: none; } }
 

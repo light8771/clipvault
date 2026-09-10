@@ -92,6 +92,10 @@ func (s *SearchServer) writeInternalError(w http.ResponseWriter, err error) {
 }
 
 func (s *SearchServer) writeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrConfigConflict) {
+		s.writeAPIError(w, http.StatusConflict, "config_conflict", s.i18nT("config.conflict", nil), err)
+		return
+	}
 	s.writeInternalError(w, err)
 }
 

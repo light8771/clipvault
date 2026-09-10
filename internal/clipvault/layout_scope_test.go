@@ -32,7 +32,7 @@ func TestHistoryPageRendersLayoutAttributes(t *testing.T) {
 	}
 	// 首帧主题样式表（themeBootCSS）必须包含历史页容器变量。
 	boot := themeBootCSS(DefaultConfig().Appearance, DefaultConfig().Navigation, DefaultConfig().HistoryPage)
-	for _, want := range []string{"--history-content-max-width", "--history-horizontal-padding", "--history-card-gap", "--preview-max-h", "--preview-min-h"} {
+	for _, want := range []string{"--history-content-max-width", "--history-horizontal-padding", "--history-card-gap", "--preview-max-h", "--history-preview-height"} {
 		if !strings.Contains(boot, want+":") {
 			t.Errorf("theme boot CSS missing variable %s", want)
 		}

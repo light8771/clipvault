@@ -104,7 +104,7 @@ func (s *SearchServer) handleI18nLanguagesCreate(w http.ResponseWriter, r *http.
 	case validateI18nLanguageCode(lang.Code) != nil:
 		s.writeAPIError(w, http.StatusBadRequest, "i18n_code_invalid", s.i18nT("i18n.error.code_invalid", nil), nil)
 		return
-	case validateI18nLanguageName(lang.Name) != nil:
+	case validateI18nLanguageName(lang.Name) != nil || (lang.NativeName != "" && validateI18nLanguageName(lang.NativeName) != nil):
 		s.writeAPIError(w, http.StatusBadRequest, "i18n_name_invalid", s.i18nT("i18n.error.name_invalid", nil), nil)
 		return
 	case isI18nBuiltinLanguageCode(lang.Code):
@@ -179,6 +179,10 @@ func (s *SearchServer) handleI18nLanguagesUpdate(w http.ResponseWriter, r *http.
 	nativeName := strings.TrimSpace(req.NativeName)
 	if nativeName == "" {
 		nativeName = current.NativeName
+	}
+	if validateI18nLanguageName(nativeName) != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "i18n_name_invalid", s.i18nT("i18n.error.name_invalid", nil), nil)
+		return
 	}
 	base := strings.TrimSpace(req.BaseLanguageCode)
 	if base == "" {
@@ -408,8 +412,8 @@ func (s *SearchServer) handleI18nEntriesPut(w http.ResponseWriter, r *http.Reque
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_json", s.i18nT("common.error", nil), err)
 		return
 	}
-	value := strings.TrimSpace(req.Value)
-	if value == "" {
+	value := req.Value
+	if strings.TrimSpace(value) == "" {
 		if err := s.store.DeleteI18nTranslation(r.Context(), langCode, key); err != nil {
 			s.writeError(w, err)
 			return

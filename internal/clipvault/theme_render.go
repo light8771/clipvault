@@ -272,22 +272,21 @@ func themeNavPosition(nav NavigationSettings) string {
 	return "sticky"
 }
 
-// themePreviewMaxH 生成历史卡片文本预览的最大高度（N 行 × 1.7em 行高），0 为不限制。
+// themePreviewMaxH 输出行数表达式；实际行高由 CSS 统一定义，0 为不限制。
 func themePreviewMaxH(previewLines int) string {
 	lines := max(0, min(20, previewLines))
 	if lines == 0 {
 		return "none"
 	}
-	return strconv.FormatFloat(float64(lines)*1.7, 'f', -1, 64) + "em"
+	return "calc(" + strconv.Itoa(lines) + " * var(--history-preview-line-height))"
 }
 
-// themePreviewMinH 生成固定占位模式下的预览最小高度：开启时与最大高度一致
-// （内容不足也撑满行数，卡片高度整齐）；关闭或行数不限时为 0。
-func themePreviewMinH(page HistoryPageSettings) string {
+// historyPreviewHeight 只控制卡片预览区，文本不再单独占位。
+func historyPreviewHeight(page HistoryPageSettings) string {
 	if page.FixedPreview && page.PreviewLines > 0 {
-		return themePreviewMaxH(page.PreviewLines)
+		return "var(--preview-max-h)"
 	}
-	return "0em"
+	return "auto"
 }
 
 // historyContentMaxWidth 解析历史页内容区最大宽度：auto 模式充分使用可用空间。
@@ -326,7 +325,7 @@ func themeRootVars(appearance AppearanceSettings, nav NavigationSettings, page H
 	write("--nav-border-bottom", themeNavBorderBottom(nav, colors.Border))
 	write("--nav-position", themeNavPosition(nav))
 	write("--preview-max-h", themePreviewMaxH(page.PreviewLines))
-	write("--preview-min-h", themePreviewMinH(page))
+	write("--history-preview-height", historyPreviewHeight(page))
 	write("--history-content-max-width", historyContentMaxWidth(page))
 	write("--history-horizontal-padding", strconv.Itoa(max(0, min(80, page.HorizontalPadding)))+"px")
 	write("--history-card-gap", strconv.Itoa(max(0, min(32, page.CardGap)))+"px")

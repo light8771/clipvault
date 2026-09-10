@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -22,7 +21,8 @@ var (
 	procGlobalAlloc        = kernel32.NewProc("GlobalAlloc")
 	procGlobalFree         = kernel32.NewProc("GlobalFree")
 	procSendInput          = user32.NewProc("SendInput")
-	procAttachThreadInput  = user32.NewProc("AttachThreadInput")
+	procGetAsyncKeyState   = user32.NewProc("GetAsyncKeyState")
+	procPasteIsWindow      = user32.NewProc("IsWindow")
 	procGetCurrentThreadId = kernel32.NewProc("GetCurrentThreadId")
 )
 
@@ -248,45 +248,42 @@ type keybdInput struct {
 	Flags     uint32
 	Time      uint32
 	ExtraInfo uintptr
-	_         [12]byte
+	_         [8]byte // INPUT union extends to 32 bytes; total x64 size is 40, not 48.
 }
 
-// pasteIntoPreviousWindow 把焦点切回弹窗打开前的前台窗口并发送 Ctrl+V。
-func pasteIntoPreviousWindow(prevHwnd uintptr) error {
-	if prevHwnd == 0 {
-		return errors.New("no previous window")
-	}
-	foreground, _, _ := procGetForegroundWindow.Call()
-	var fgPID uint32
-	fgThread, _, _ := procGetWindowThreadProcessId.Call(foreground, uintptr(unsafe.Pointer(&fgPID)))
-	curThread, _, _ := procGetCurrentThreadId.Call()
-	attached := false
-	if fgThread != 0 && fgThread != curThread {
-		if ok, _, _ := procAttachThreadInput.Call(curThread, fgThread, 1); ok != 0 {
-			attached = true
+func pasteShortcutKeysDown() bool {
+	for _, key := range [...]uintptr{vkReturn, vkControlKey, vkShiftKey, vkMenuKey, 0x5B, 0x5C} {
+		state, _, _ := procGetAsyncKeyState.Call(key)
+		if state&0x8000 != 0 {
+			return true
 		}
 	}
-	if attached {
-		defer procAttachThreadInput.Call(curThread, fgThread, 0)
-	}
-	procSetForegroundWindow.Call(prevHwnd)
-	procBringWindowToTop.Call(prevHwnd)
-	// 等目标窗口真正进入前台再注入按键；30ms 对本地切换足够，失败也只是粘贴不到。
-	time.Sleep(30 * time.Millisecond)
+	return false
+}
 
+func sendPasteInput() error {
 	inputs := [4]keybdInput{
 		{Type: inputKeyboard, Vk: vkControl},
 		{Type: inputKeyboard, Vk: vkV},
 		{Type: inputKeyboard, Vk: vkV, Flags: keyEventFKeyUp},
 		{Type: inputKeyboard, Vk: vkControl, Flags: keyEventFKeyUp},
 	}
-	sent, _, _ := procSendInput.Call(
+	sent, _, sendErr := procSendInput.Call(
 		uintptr(len(inputs)),
 		uintptr(unsafe.Pointer(&inputs[0])),
 		unsafe.Sizeof(inputs[0]),
 	)
 	if sent != uintptr(len(inputs)) {
-		return errors.New("SendInput did not deliver all key events")
+		// A partial insertion can leave our Ctrl/V down. Release only keys
+		// from the inserted prefix, without retrying the paste itself.
+		if sent > 0 {
+			release := inputs[2:]
+			if sent == 1 {
+				release = inputs[3:]
+			}
+			procSendInput.Call(uintptr(len(release)), uintptr(unsafe.Pointer(&release[0])), unsafe.Sizeof(release[0]))
+		}
+		return fmt.Errorf("SendInput delivered %d/%d key events: %v", sent, len(inputs), sendErr)
 	}
 	return nil
 }

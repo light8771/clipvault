@@ -17,7 +17,7 @@ export function registerHistoryActions() {
     if (d < 604800) return t('history.rel_days', { n: Math.floor(d / 86400) });
     return new Date(s).toLocaleString(window.clipvaultI18n.locale());
   };
-  app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="ab-label">' + t('common.copy') + '</span>';
+  app.cpHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="ab-label">' + app.esc(t('common.copy')) + '</span>';
   app.fetchItemCopyText = async function fetchItemCopyText(id) {
     const res = await app.authorizedItemFetch(id, '/api/v1/items/copy-text?id=' + id);
     await app.requireOK(res, t('common.copy_failed'));
@@ -217,7 +217,7 @@ export function registerHistoryActions() {
       document.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
-    preview.innerHTML = '<img alt="' + t('history.image_title', { id: id }) + '">';
+    preview.innerHTML = '<img alt="' + app.esc(t('history.image_title', { id: id })) + '">';
     await app.loadManagedImage(preview.querySelector('img'), id);
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
@@ -263,8 +263,8 @@ export function registerHistoryActions() {
   app.fileIconHTML = function fileIconHTML() {
     return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   };
-  app.dlHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ' + t('history.download');
-  app.dirHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> ' + t('history.directory');
+  app.dlHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ' + app.esc(t('history.download'));
+  app.dirHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> ' + app.esc(t('history.directory'));
   app.hashHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> Hash';
   app.fileObjectURLs = new Set();
   app.revokeFileObjectURLs = function revokeFileObjectURLs() {
@@ -300,7 +300,7 @@ export function registerHistoryActions() {
       const name = app.getBaseName(p);
       const ext = app.getExt(name);
       const isImg = app.IMAGE_EXTS.includes(ext);
-      return '<div class="file-row" id="frow-' + it.id + '-' + idx + '">' + (isImg ? '<div class="file-thumb" id="fthumb-' + it.id + '-' + idx + '"></div>' : '<div class="file-icon">' + app.fileIconHTML() + '</div>') + '<div class="file-info">' + '<div class="file-name">' + app.esc(name) + '</div>' + '<div class="file-path">' + app.esc(p) + '</div>' + '<div class="file-status" id="fstat-' + it.id + '-' + idx + '"><span class="fcheck">' + t('history.checking') + '</span></div>' + '<div class="file-hash" id="fhash-' + it.id + '-' + idx + '"></div>' + '</div>' + '<div class="file-actions">' + '<button class="ab dl" data-action="file-download" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdl-' + it.id + '-' + idx + '" disabled>' + app.dlHTML + '</button>' + '<button class="ab dir" data-action="file-open-directory" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdir-' + it.id + '-' + idx + '" disabled>' + app.dirHTML + '</button>' + '<button class="ab hash" data-action="file-hash" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fhashbtn-' + it.id + '-' + idx + '" disabled>' + app.hashHTML + '</button>' + '</div>' + '</div>';
+      return '<div class="file-row" id="frow-' + it.id + '-' + idx + '">' + (isImg ? '<div class="file-thumb" id="fthumb-' + it.id + '-' + idx + '"></div>' : '<div class="file-icon">' + app.fileIconHTML() + '</div>') + '<div class="file-info">' + '<div class="file-name">' + app.esc(name) + '</div>' + '<div class="file-path">' + app.esc(p) + '</div>' + '<div class="file-status" id="fstat-' + it.id + '-' + idx + '"><span class="fcheck">' + app.esc(t('history.checking')) + '</span></div>' + '<div class="file-hash" id="fhash-' + it.id + '-' + idx + '"></div>' + '</div>' + '<div class="file-actions">' + '<button class="ab dl" data-action="file-download" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdl-' + it.id + '-' + idx + '" disabled>' + app.dlHTML + '</button>' + '<button class="ab dir" data-action="file-open-directory" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fdir-' + it.id + '-' + idx + '" disabled>' + app.dirHTML + '</button>' + '<button class="ab hash" data-action="file-hash" data-item-id="' + it.id + '" data-file-index="' + idx + '" id="fhashbtn-' + it.id + '-' + idx + '" disabled>' + app.hashHTML + '</button>' + '</div>' + '</div>';
     }).join('') + '</div>';
   };
   app.checkFiles = async function checkFiles(itemId) {
@@ -329,11 +329,11 @@ export function registerHistoryActions() {
             }
           }
         } else {
-          if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 ' + t('history.file_missing') + '</span>';
+          if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 ' + app.esc(t('history.file_missing')) + '</span>';
         }
       } catch (_) {
         const stat = document.getElementById('fstat-' + itemId + '-' + idx);
-        if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 ' + t('history.file_check_failed') + '</span>';
+        if (stat) stat.innerHTML = '<span class="fmiss">\u26a0 ' + app.esc(t('history.file_check_failed')) + '</span>';
       }
     }
   };
@@ -389,7 +389,7 @@ export function registerHistoryActions() {
     if (btn) {
       btn.disabled = true;
     }
-    if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">' + t('history.hash_computing') + '</span>';
+    if (hashDiv) hashDiv.innerHTML = '<span class="fcheck">' + app.esc(t('history.hash_computing')) + '</span>';
     try {
       const d = await app.authorizedItemFetch(itemId, '/api/v1/files/hash?item_id=' + itemId + '&file_index=' + idx).then(r => r.json());
       if (d.ok) {
@@ -398,7 +398,7 @@ export function registerHistoryActions() {
         if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 ' + app.esc(d.error || t('history.hash_failed')) + '</span>';
       }
     } catch (e) {
-      if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 ' + t('history.hash_failed') + '</span>';
+      if (hashDiv) hashDiv.innerHTML = '<span class="fmiss">\u26a0 ' + app.esc(t('history.hash_failed')) + '</span>';
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -421,7 +421,7 @@ export function registerHistoryActions() {
       document.querySelector('.modal-body').appendChild(preview);
     }
     preview.style.display = 'flex';
-    preview.innerHTML = app.getExt(name) === 'svg' ? '<div class="fmiss">' + t('history.svg_no_preview') + '</div>' : '<img alt="' + app.esc(name) + '">';
+    preview.innerHTML = app.getExt(name) === 'svg' ? '<div class="fmiss">' + app.esc(t('history.svg_no_preview')) + '</div>' : '<img alt="' + app.esc(name) + '">';
     if (app.getExt(name) !== 'svg') await app.loadFileImage(preview.querySelector('img'), itemId, idx);
     app.VIEW_MODAL.classList.remove('hidden');
     document.body.style.overflow = 'hidden';

@@ -90,24 +90,28 @@ func (sw *searchWindow) restoreSelection(paste bool) {
 		sw.showSearchStatus(sw.t("swindow.no_content", nil))
 		return
 	}
+	if paste {
+		sw.beginPaste(item)
+		return
+	}
+	if sw.restoreClipboardItem(item) {
+		sw.close()
+	}
+}
+
+func (sw *searchWindow) restoreClipboardItem(item StoredItem) bool {
 	seq, err := restoreItemToClipboard(sw.hwnd, item, sw.dataDir)
 	if err != nil {
 		if sw.logger != nil {
 			sw.logger.Warn("search_window_restore_failed", map[string]any{"error": err.Error(), "id": item.ID})
 		}
 		sw.showSearchStatus(sw.t("swindow.restore_failed", map[string]any{"error": err.Error()}))
-		return
+		return false
 	}
 	if activeRuntime != nil {
 		activeRuntime.suppressClipboardSequencesThrough(seq)
 	}
-	prevHwnd := sw.prevHwnd
-	sw.close()
-	if paste && prevHwnd != 0 {
-		if err := pasteIntoPreviousWindow(prevHwnd); err != nil && sw.logger != nil {
-			sw.logger.Warn("search_window_paste_failed", map[string]any{"error": err.Error()})
-		}
-	}
+	return true
 }
 
 // confirmSelection 当用户按下回车或点击搜索按钮时触发。
@@ -163,6 +167,7 @@ func urlQueryEscape(s string) string {
 }
 
 func (sw *searchWindow) close() {
+	sw.pendingPaste = nil
 	sw.mu.Lock()
 	if sw.closed || sw.hwnd == 0 {
 		sw.mu.Unlock()
@@ -179,6 +184,7 @@ func (sw *searchWindow) close() {
 	sw.mu.Unlock()
 
 	procKillTimer.Call(hwnd, searchDebounceTimerID)
+	procKillTimer.Call(hwnd, searchPasteTimerID)
 	procShowWindow.Call(hwnd, swHide)
 	destroyed, _, _ := procDestroyWindow.Call(hwnd)
 
@@ -189,6 +195,7 @@ func (sw *searchWindow) close() {
 }
 
 func (sw *searchWindow) onDestroy() {
+	sw.pendingPaste = nil
 	sw.mu.Lock()
 	sw.closed = true
 	sw.hwnd = 0

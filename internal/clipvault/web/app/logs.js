@@ -28,7 +28,7 @@ export function registerLogs() {
       renderConfigChangeLog(d.entries || []);
     } catch (_) {
       document.getElementById('oplogTotal').textContent = t('logs.load_failed');
-      list.innerHTML = '<p class="log-empty">' + t('logs.oplog_read_failed') + '</p>';
+      list.innerHTML = '<p class="log-empty">' + app.esc(t('logs.oplog_read_failed')) + '</p>';
     }
   };
 
@@ -37,7 +37,7 @@ export function registerLogs() {
     const state = app.oplogState;
     document.getElementById('oplogTotal').textContent = t('logs.oplog_total', { count: state.total });
     if (!entries.length) {
-      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? t('logs.page_empty') : t('logs.oplog_empty')) + '</p>';
+      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? app.esc(t('logs.page_empty')) : app.esc(t('logs.oplog_empty'))) + '</p>';
     } else {
       list.innerHTML = entries.map(entry => {
         // 操作记录持久化的是词条 key（config_field.* / config_value.*），
@@ -58,7 +58,7 @@ export function registerLogs() {
         return '<div class="log-entry">' +
           '<div class="log-entry-head">' +
           '<span class="log-time">' + app.esc(app.formatLogTime(entry.changedAt)) + '</span>' +
-          '<span class="log-count">' + t('logs.change_count', { count: (entry.changes || []).length }) + '</span>' +
+          '<span class="log-count">' + app.esc(t('logs.change_count', { count: (entry.changes || []).length })) + '</span>' +
           '</div>' +
           '<ul class="log-changes">' + changes + '</ul>' +
           '</div>';
@@ -96,7 +96,7 @@ export function registerLogs() {
       renderSearchHistory(d.entries || []);
     } catch (_) {
       document.getElementById('shlogTotal').textContent = t('logs.load_failed');
-      list.innerHTML = '<p class="log-empty">' + t('logs.shlog_read_failed') + '</p>';
+      list.innerHTML = '<p class="log-empty">' + app.esc(t('logs.shlog_read_failed')) + '</p>';
     }
   };
 
@@ -105,7 +105,7 @@ export function registerLogs() {
     const state = app.shlogState;
     document.getElementById('shlogTotal').textContent = t('logs.shlog_total', { count: state.total });
     if (!entries.length) {
-      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? t('logs.page_empty') : t('logs.shlog_empty')) + '</p>';
+      list.innerHTML = '<p class="log-empty">' + (state.page > 0 ? app.esc(t('logs.page_empty')) : app.esc(t('logs.shlog_empty'))) + '</p>';
     } else {
       list.innerHTML = entries.map(entry => {
         // filters 持久化为「词条 key → 词条 key 或原始值」，展示时翻译
@@ -122,10 +122,10 @@ export function registerLogs() {
         return '<div class="log-entry">' +
           '<div class="log-entry-head">' +
           '<span class="log-time">' + app.esc(app.formatLogTime(entry.searchedAt)) + '</span>' +
-          '<span class="log-count">' + t('logs.result_count', { count: entry.resultCount }) + '</span>' +
+          '<span class="log-count">' + app.esc(t('logs.result_count', { count: entry.resultCount })) + '</span>' +
           '</div>' +
           '<div class="log-search-main">' +
-          '<a class="log-query" href="/?q=' + encodeURIComponent(entry.query) + '" title="' + t('logs.research') + '">' + app.esc(entry.query) + '</a>' +
+          '<a class="log-query" href="/?q=' + encodeURIComponent(entry.query) + '" title="' + app.esc(t('logs.research')) + '">' + app.esc(entry.query) + '</a>' +
           (filters ? '<div class="log-chips">' + filters + '</div>' : '') +
           '</div>' +
           '</div>';

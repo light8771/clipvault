@@ -37,7 +37,7 @@ func TestPasswordHashRejectsWeakOrOversizedPasswords(t *testing.T) {
 func TestPasswordRateLimitAllowsTenAttemptsPerFiveMinutes(t *testing.T) {
 	auth := NewAuthManager()
 	for attempt := 1; attempt <= rateLimitThreshold; attempt++ {
-		status := auth.RecordFailedAttemptFor(ratePurposeLock)
+		_, status := auth.verifyPasswordAttempt(ratePurposeLock, "192.0.2.1", func() bool { return false })
 		wantRemaining := rateLimitThreshold - attempt
 		if status.Remaining != wantRemaining {
 			t.Fatalf("attempt %d: remaining=%d, want %d", attempt, status.Remaining, wantRemaining)
@@ -54,12 +54,8 @@ func TestPasswordRateLimitAllowsTenAttemptsPerFiveMinutes(t *testing.T) {
 			}
 		}
 	}
-	if status := auth.CheckRateLimitFor(ratePurposeLock); status.Allowed || status.Remaining != 0 {
+	if _, status := auth.verifyPasswordAttempt(ratePurposeLock, "192.0.2.1", func() bool { t.Fatal("blocked verifier ran"); return false }); status.Allowed || status.Remaining != 0 {
 		t.Fatalf("rate limit not retained: %+v", status)
-	}
-	auth.ResetRateLimitFor(ratePurposeLock)
-	if status := auth.CheckRateLimitFor(ratePurposeLock); !status.Allowed || status.Remaining != rateLimitThreshold {
-		t.Fatalf("rate limit not reset: %+v", status)
 	}
 }
 

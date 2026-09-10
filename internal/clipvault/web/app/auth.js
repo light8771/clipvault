@@ -1,5 +1,6 @@
 import { app } from "./app-context.js";
 import { trapModalFocus } from './modal-controller.js';
+import { createOperationState } from './operation-state.js';
 
 const t = window.clipvaultI18n.t;
 
@@ -20,6 +21,8 @@ export function registerAuth() {
   app.SECONDARY_FORM = document.getElementById('secondaryForm');
   app.SECONDARY_INPUT = document.getElementById('secondaryPassword');
   app.SECONDARY_ERR = document.getElementById('secondaryErr');
+  const secondaryOperation = createOperationState(app.SECONDARY_FORM);
+  let secondaryGeneration = 0;
   app.checkAuthStatus = async function checkAuthStatus() {
     try {
       const d = await app.fetch('/api/v1/session').then(r => r.json());
@@ -142,6 +145,7 @@ export function registerAuth() {
         } catch (_) {}
       }
       return new Promise(resolve => {
+        secondaryGeneration++;
         app.secondaryTrigger = document.activeElement;
         app.secondaryResolve = resolve;
         app.SECONDARY_MODAL.classList.remove('hidden');
@@ -156,6 +160,9 @@ export function registerAuth() {
     return app.secondaryAuthPromise;
   };
   app.closeSecondaryModal = function () {
+    secondaryGeneration++;
+    secondaryOperation.finish();
+    app.SECONDARY_INPUT.value = '';
     app.SECONDARY_MODAL.classList.add('hidden');
     if (app.secondaryResolve) {
       app.secondaryResolve(false);
@@ -166,8 +173,11 @@ export function registerAuth() {
   };
   app.SECONDARY_FORM.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!app.secondaryResolve || secondaryOperation.busy) return;
+    const generation = secondaryGeneration;
     const pwd = app.SECONDARY_INPUT.value;
     app.SECONDARY_ERR.classList.add('hidden');
+    secondaryOperation.begin(t('auth.verifying'));
     try {
       const res = await app.fetch('/api/v1/session/secondary', {
         method: 'POST',
@@ -179,7 +189,10 @@ export function registerAuth() {
         })
       });
       const d = await res.json();
-      if (d.ok) {
+      if (generation !== secondaryGeneration) return;
+      secondaryOperation.finish();
+      if (res.ok && d.ok) {
+        app.SECONDARY_INPUT.value = '';
         app.SECONDARY_MODAL.classList.add('hidden');
         app.authState.secondaryAuthed = d.secondaryCached === true;
         app.appStore.update({
@@ -213,8 +226,11 @@ export function registerAuth() {
         app.SECONDARY_INPUT.focus();
       }
     } catch (_) {
+      if (generation !== secondaryGeneration) return;
       app.SECONDARY_ERR.textContent = t('common.network_error');
       app.SECONDARY_ERR.classList.remove('hidden');
+    } finally {
+      if (generation === secondaryGeneration) secondaryOperation.finish();
     }
   });
   app.SECONDARY_MODAL.addEventListener('click', e => {
@@ -247,23 +263,23 @@ export function registerAuth() {
       <div class="modal-overlay" id="pwdDialogOverlay">
         <div class="modal-box secondary-box" role="dialog" aria-modal="true" aria-labelledby="pwdDialogTitle" data-modal-panel>
           <div class="modal-head">
-            <span class="modal-title" id="pwdDialogTitle">${title}</span>
-            <button class="modal-close" type="button" aria-label="${t('auth.pwd_close_label')}" data-action="close-password">
+            <span class="modal-title" id="pwdDialogTitle">${app.esc(title)}</span>
+            <button class="modal-close" type="button" aria-label="${app.esc(t('auth.pwd_close_label'))}" data-action="close-password">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
           <div class="modal-body u-inline-16">
             <form id="pwdDialogForm" class="lock-form">
               <input type="text" name="username" autocomplete="username" value="clipvault" class="u-inline-11" aria-hidden="true">
-              ${oldLabel ? `<label class="field-label" for="pwdDlgOld">${oldLabel}</label><input type="password" id="pwdDlgOld" class="lock-input" autocomplete="current-password">` : ''}
-              ${isRemove ? `<p class="password-remove-warning" role="note">${removeWarning}</p>` : `
-              <label class="field-label" for="pwdDlgNew">${t('auth.pwd_new')}</label>
+              ${oldLabel ? `<label class="field-label" for="pwdDlgOld">${app.esc(oldLabel)}</label><input type="password" id="pwdDlgOld" class="lock-input" autocomplete="current-password">` : ''}
+              ${isRemove ? `<p class="password-remove-warning" role="note">${app.esc(removeWarning)}</p>` : `
+              <label class="field-label" for="pwdDlgNew">${app.esc(t('auth.pwd_new'))}</label>
               <input type="password" id="pwdDlgNew" class="lock-input" autocomplete="new-password" aria-describedby="pwdDlgHint">
-              <p class="field-hint" id="pwdDlgHint">${t('auth.pwd_rule_hint')}</p>
-              <label class="field-label" for="pwdDlgConfirm">${t('auth.pwd_confirm')}</label>
+              <p class="field-hint" id="pwdDlgHint">${app.esc(t('auth.pwd_rule_hint'))}</p>
+              <label class="field-label" for="pwdDlgConfirm">${app.esc(t('auth.pwd_confirm'))}</label>
               <input type="password" id="pwdDlgConfirm" class="lock-input" autocomplete="new-password">`}
-              <label class="password-show"><input type="checkbox" id="pwdDlgShow"> ${t('auth.pwd_show')}</label>
-              <button type="submit" class="lock-btn${isRemove ? ' danger' : ''}">${submitLabel}</button>
+              <label class="password-show"><input type="checkbox" id="pwdDlgShow"> ${app.esc(t('auth.pwd_show'))}</label>
+              <button type="submit" class="lock-btn${isRemove ? ' danger' : ''}">${app.esc(submitLabel)}</button>
             </form>
             <p class="lock-err hidden" id="pwdDlgErr" role="alert" aria-live="assertive"></p>
           </div>

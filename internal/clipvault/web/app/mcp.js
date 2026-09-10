@@ -184,14 +184,14 @@ export function registerMCP() {
       // 审计筛选栏的令牌下拉随之刷新（mcp-audit.js 提供）。
       if (app.renderMCPTokenFilter) app.renderMCPTokenFilter();
     } catch (_) {
-      list.innerHTML = '<p class="dapi-empty">' + t('channel.tokens_load_failed') + '</p>';
+      list.innerHTML = '<p class="dapi-empty">' + app.esc(t('channel.tokens_load_failed')) + '</p>';
     }
   };
 
   function renderTokens(tokens) {
     const list = el('mcpTokenList');
     if (!tokens.length) {
-      list.innerHTML = '<p class="dapi-empty">' + t('channel.tokens_empty') + '</p>';
+      list.innerHTML = '<p class="dapi-empty">' + app.esc(t('channel.tokens_empty')) + '</p>';
       return;
     }
     list.innerHTML = tokens.map(token => {
@@ -199,20 +199,20 @@ export function registerMCP() {
       const expiry = token.expiresAt ? t('channel.token_valid_until', { time: app.formatLogTime(token.expiresAt) }) : t('mcp.expiry_never');
       const lastUsed = token.lastUsedAt ? t('channel.token_last_used', { time: app.formatLogTime(token.lastUsedAt) }) : t('channel.token_never_used');
       const sensitive = token.allowSensitive
-        ? '<span class="dapi-tag warn" title="' + t('channel.sensitive_on_tip') + '">' + t('channel.sensitive_on') + '</span>'
-        : '<span class="dapi-tag" title="' + t('channel.sensitive_off_tip') + '">' + t('channel.sensitive_off') + '</span>';
+        ? '<span class="dapi-tag warn" title="' + app.esc(t('channel.sensitive_on_tip')) + '">' + app.esc(t('channel.sensitive_on')) + '</span>'
+        : '<span class="dapi-tag" title="' + app.esc(t('channel.sensitive_off_tip')) + '">' + app.esc(t('channel.sensitive_off')) + '</span>';
       const inactive = token.state !== 'active';
       const actions = !inactive
         ? '<div class="dapi-actions">' +
-          '<button type="button" class="dapi-btn' + (token.allowSensitive ? '' : ' primary') + '" data-action="mcp-token-sensitive" data-id="' + token.id + '" data-allow="' + (token.allowSensitive ? 'false' : 'true') + '">' + (token.allowSensitive ? t('channel.sensitive_disable') : t('channel.sensitive_enable')) + '</button>' +
-          '<button type="button" class="dapi-btn" data-action="mcp-token-regenerate" data-id="' + token.id + '">' + t('channel.regenerate') + '</button>' +
-          '<button type="button" class="dapi-btn danger" data-action="mcp-token-revoke" data-id="' + token.id + '">' + t('channel.revoke') + '</button>' +
+          '<button type="button" class="dapi-btn' + (token.allowSensitive ? '' : ' primary') + '" data-action="mcp-token-sensitive" data-id="' + token.id + '" data-allow="' + (token.allowSensitive ? 'false' : 'true') + '">' + (token.allowSensitive ? app.esc(t('channel.sensitive_disable')) : app.esc(t('channel.sensitive_enable'))) + '</button>' +
+          '<button type="button" class="dapi-btn" data-action="mcp-token-regenerate" data-id="' + token.id + '">' + app.esc(t('channel.regenerate')) + '</button>' +
+          '<button type="button" class="dapi-btn danger" data-action="mcp-token-revoke" data-id="' + token.id + '">' + app.esc(t('channel.revoke')) + '</button>' +
           '</div>'
         : '';
       return '<div class="dapi-card' + (inactive ? ' is-inactive' : '') + '">' +
         '<div class="dapi-card-head">' +
         '<span class="dapi-card-name">' + app.esc(token.name) + '</span>' +
-        '<span class="dapi-badge ' + token.state + '">' + stateLabel + '</span>' +
+        '<span class="dapi-badge ' + token.state + '">' + app.esc(stateLabel) + '</span>' +
         '</div>' +
         '<div class="dapi-meta">' +
         '<span class="dapi-tag' + (token.state === 'expired' ? ' warn' : '') + '">' + app.esc(expiry) + '</span>' +

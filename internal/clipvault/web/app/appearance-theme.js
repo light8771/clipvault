@@ -3,7 +3,8 @@ export function registerAppearanceTheme() {
   app.currentCfg = null;
   app.configRevision = 0;
   app.configRequestSequence = 0;
-  app.replaceCurrentConfig = function replaceCurrentConfig(config) {
+  app.replaceCurrentConfig = function replaceCurrentConfig(config, version = app.configVersion) {
+    app.configVersion = version;
     app.configRevision++;
     app.currentCfg = config;
   };

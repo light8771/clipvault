@@ -112,8 +112,8 @@ func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
 		"--nav-backdrop:blur(16px) saturate(180%)",
 		"--nav-border-bottom:1px solid ",
 		"--nav-position:sticky",
-		"--preview-max-h:3.4em",
-		"--preview-min-h:0em",
+		"--preview-max-h:calc(2 * var(--history-preview-line-height))",
+		"--history-preview-height:auto",
 		"--history-content-max-width:none",
 		"--history-horizontal-padding:24px",
 		"--history-card-gap:12px",
@@ -134,24 +134,24 @@ func TestThemeBootCSSNavAndPreviewOptions(t *testing.T) {
 		"--nav-border-bottom:none",
 		"--nav-position:static",
 		"--preview-max-h:none",
-		"--preview-min-h:0em",
+		"--history-preview-height:auto",
 	} {
 		if !strings.Contains(explicit, want) {
 			t.Errorf("explicit nav/preview boot missing %q:\n%s", want, explicit)
 		}
 	}
 
-	// 固定占位：min-h 与 max-h 一致（短内容也撑满行数）；行数不限时固定语义不生效。
+	// 固定占位引用统一预览高度；行数不限时恢复自然高度。
 	fixed := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
 		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
 		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1600, HorizontalPadding: 24, CardGap: 12, PreviewLines: 4, FixedPreview: true})
-	if !strings.Contains(fixed, "--preview-max-h:6.8em") || !strings.Contains(fixed, "--preview-min-h:6.8em") {
-		t.Errorf("fixed preview boot must keep min-h equal to max-h:\n%s", fixed)
+	if !strings.Contains(fixed, "--preview-max-h:calc(4 * var(--history-preview-line-height))") || !strings.Contains(fixed, "--history-preview-height:var(--preview-max-h)") {
+		t.Errorf("fixed preview boot must reference the shared preview height:\n%s", fixed)
 	}
 	unlimitedFixed := themeBootCSS(AppearanceSettings{Preset: "mint", Mode: "light", FontScale: 100, SurfaceOpacity: 100},
 		NavigationSettings{Sticky: true, Blur: 16, Opacity: -1, Divider: true},
 		HistoryPageSettings{Layout: "top-bottom", Columns: 0, ContentWidthMode: "auto", ContentWidth: 1600, HorizontalPadding: 24, CardGap: 12, PreviewLines: 0, FixedPreview: true})
-	if !strings.Contains(unlimitedFixed, "--preview-min-h:0em") {
+	if !strings.Contains(unlimitedFixed, "--history-preview-height:auto") {
 		t.Errorf("fixed preview must not apply when lines are unlimited:\n%s", unlimitedFixed)
 	}
 }
@@ -181,7 +181,7 @@ func TestThemeRootVarsMatchFrontendApplyTheme(t *testing.T) {
 	for _, name := range []string{
 		"--p", "--p2", "--on-p", "--on-p2", "--accent", "--on-accent", "--bg", "--bg2", "--card",
 		"--card-border", "--card-rgba", "--nav-bg", "--nav-backdrop", "--nav-border-bottom",
-		"--nav-position", "--preview-max-h", "--preview-min-h", "--history-content-max-width", "--history-horizontal-padding",
+		"--nav-position", "--preview-max-h", "--history-preview-height", "--history-content-max-width", "--history-horizontal-padding",
 		"--history-card-gap", "--tx", "--sub", "--muted",
 		"--p-dim", "--p-glow", "--p-border", "--accent-dim", "--accent-glow", "--accent-border",
 		"--shadow-md", "--shadow-lg",

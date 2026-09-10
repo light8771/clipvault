@@ -16,7 +16,7 @@
 /* 语言列表（官方/自定义分区共用） */
 .lang-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
 .lang-row {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
   padding: 10px 14px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
@@ -42,6 +42,10 @@
 .lang-completion-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--p2), var(--p)); transition: width .25s ease; }
 .lang-completion-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .lang-row-actions { flex: none; display: flex; gap: 6px; }
+.lang-row > .operation-status { flex-basis: 100%; }
+.lang-pack-form { padding: 14px; }
+.lang-pack-merge { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; font-size: 13px; color: var(--sub); }
+#s-lang-transfer .operation-status { padding: 0 14px 14px; }
 
 /* 新建表单 */
 .lang-new-form { border: 1px dashed var(--p-border); border-radius: var(--radius-md); padding: 14px; margin-bottom: 10px; }
@@ -76,7 +80,7 @@
 .lang-btn-new:focus-visible { outline: none; border-color: var(--p); box-shadow: 0 0 0 3px var(--p-dim); }
 
 /* 按钮基础（若 components.css 未覆盖） */
-.lang-row-actions .btn, .lang-new-actions .btn, .lang-editor .btn {
+.lang-row-actions .btn, .lang-new-actions .btn, .lang-editor .btn, .lang-pack-form .btn {
   padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--card-border);
   background: var(--card-rgba); color: var(--tx); font: inherit; font-size: 12px; cursor: pointer;
   transition: border-color .15s ease, background .15s ease;
@@ -155,6 +159,7 @@
 .lang-source-key { font-size: 11px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
 .lang-col-translation { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .lang-entry-input {
+  resize: vertical;
   flex: 1; min-width: 0; padding: 6px 10px;
   border: 1px solid var(--card-border); border-radius: var(--radius-sm);
   background: var(--card-rgba); color: var(--tx); font: inherit; font-size: 13px;

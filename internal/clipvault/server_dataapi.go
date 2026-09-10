@@ -82,7 +82,7 @@ func (s *SearchServer) updateExternalServiceConfig(w http.ResponseWriter, r *htt
 	target.ListenAddr = req.ListenAddr
 	changes := diffConfigChanges(curCfg, cfg)
 	response := map[string]any{"ok": true}
-	if err := s.cfgMgr.Update(cfg); err != nil {
+	if err := s.cfgMgr.UpdateFrom(curCfg, cfg); err != nil {
 		var runtimeErr *ConfigRuntimeApplyError
 		if !errors.As(err, &runtimeErr) {
 			s.writeError(w, err)

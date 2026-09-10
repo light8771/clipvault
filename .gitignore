@@ -2,6 +2,7 @@
 bin/
 dist/
 build/
+node_modules/
 *.exe
 
 # 截图（调试用临时文件）
@@ -22,7 +23,7 @@ $coverPath
 .catpaw/
 .workbuddy/
 .playwright-cli/
-output/playwright/
+/output/
 
 # Windows
 Thumbs.db

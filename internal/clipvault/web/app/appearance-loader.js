@@ -5,9 +5,11 @@ export function registerAppearanceLoader() {
     const request = ++app.configRequestSequence;
     const revision = app.configRevision;
     try {
-      const cfg = await app.fetch('/api/v1/config').then(response => response.json());
+      const response = await app.fetch('/api/v1/config');
+      if (!response.ok) throw new Error('config load failed');
+      const cfg = await response.json();
       if (request !== app.configRequestSequence || revision !== app.configRevision) return;
-      app.replaceCurrentConfig(cfg);
+      app.replaceCurrentConfig(cfg, response.headers.get('X-ClipVault-Config-Version'));
       app.sourceAliases = cfg.source.exeAliases;
       app.sourceWhitelist = cfg.source.exeWhitelist?.length ? cfg.source.exeWhitelist.slice() : null;
       app.applyTheme({ appearance: cfg.appearance, navigation: cfg.navigation });

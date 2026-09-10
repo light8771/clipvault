@@ -53,7 +53,7 @@ function parseHistoryPageSettings(page) {
 //   --history-horizontal-padding     页面左右边距
 //   --history-card-gap               卡片横向/纵向间距
 //   --preview-max-h                  文本预览行数对应的最大高度
-//   --preview-min-h                  固定占位高度（开启时同 --preview-max-h，否则 0）
+//   --history-preview-height        统一预览区高度（固定时引用最大高度，否则 auto）
 function applyHistoryPageLayout(page) {
   const settings = parseHistoryPageSettings(page);
   const root = document.documentElement;
@@ -68,10 +68,9 @@ function applyHistoryPageLayout(page) {
     settings.contentWidthMode === 'custom' ? `${settings.contentWidth}px` : 'none');
   root.style.setProperty('--history-horizontal-padding', `${settings.horizontalPadding}px`);
   root.style.setProperty('--history-card-gap', `${settings.cardGap}px`);
-  const previewMaxH = settings.previewLines > 0 ? `${settings.previewLines * 1.7}em` : 'none';
-  const previewMinH = settings.fixedPreview ? previewMaxH : '0em';
-  root.style.setProperty('--preview-max-h', previewMaxH);
-  root.style.setProperty('--preview-min-h', previewMinH);
+  root.style.setProperty('--preview-max-h', settings.previewLines > 0
+    ? `calc(${settings.previewLines} * var(--history-preview-line-height))` : 'none');
+  root.style.setProperty('--history-preview-height', settings.fixedPreview ? 'var(--preview-max-h)' : 'auto');
   // 文本截断工具在渲染卡片时读取行数（0 为不限制）。
   app.previewLines = settings.previewLines;
   app.historyPageSettings = settings;

@@ -54,7 +54,7 @@ export function registerGroups() {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'groupModalOverlay';
-    overlay.innerHTML = '<div class="modal-box ' + boxClass + '" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + titles[mode] + '</span>' + '<button class="modal-close" id="groupModalCloseBtn" type="button" aria-label="' + t('groups.close_label') + '">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body group-modal-body" id="groupModalBody"></div>' + '</div>';
+    overlay.innerHTML = '<div class="modal-box ' + boxClass + '" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + app.esc(titles[mode]) + '</span>' + '<button class="modal-close" id="groupModalCloseBtn" type="button" aria-label="' + app.esc(t('groups.close_label')) + '">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body group-modal-body" id="groupModalBody"></div>' + '</div>';
     document.body.appendChild(overlay);
     document.body.style.overflow = 'hidden';
     app.groupModalController = createRemovableModal(overlay, {
@@ -107,11 +107,11 @@ export function registerGroups() {
     let html = '';
     // Toolbar for manage mode
     if (mode === 'manage') {
-      html += '<div class="group-modal-toolbar">' + '<button class="btn-add-group" id="gmAddRootBtn">' + app.PLUS_SVG + ' ' + t('groups.create') + '</button>' + '</div>';
+      html += '<div class="group-modal-toolbar">' + '<button class="btn-add-group" id="gmAddRootBtn">' + app.PLUS_SVG + ' ' + app.esc(t('groups.create')) + '</button>' + '</div>';
     }
     if (app.allGroups.length === 0) {
       const msg = mode === 'manage' ? t('groups.empty_manage') : t('groups.empty_other');
-      html += '<div class="group-modal-empty">' + msg + '</div>';
+      html += '<div class="group-modal-empty">' + app.esc(msg) + '</div>';
     } else {
       const rootNodes = app.buildGroupTree(0);
       if (mode === 'filter') {
@@ -179,9 +179,9 @@ export function registerGroups() {
     html += '<span class="gm-icon">' + app.FOLDER_SVG + '</span>';
     html += '<span class="gm-name" data-id="' + node.id + '">' + app.esc(node.name) + '</span>';
     html += '<div class="gm-actions">';
-    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="' + t('groups.add_child') + '">' + app.PLUS_SVG + '</button>';
-    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="' + t('groups.rename') + '">' + app.EDIT_SVG + '</button>';
-    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="' + t('common.delete') + '">' + app.DEL_SVG + '</button>';
+    html += '<button class="gm-act" data-action="add-child" data-id="' + node.id + '" title="' + app.esc(t('groups.add_child')) + '">' + app.PLUS_SVG + '</button>';
+    html += '<button class="gm-act" data-action="rename" data-id="' + node.id + '" title="' + app.esc(t('groups.rename')) + '">' + app.EDIT_SVG + '</button>';
+    html += '<button class="gm-act danger" data-action="delete" data-id="' + node.id + '" title="' + app.esc(t('common.delete')) + '">' + app.DEL_SVG + '</button>';
     html += '</div>';
     html += '</div>';
     if (hasChildren) {
@@ -415,7 +415,7 @@ export function registerGroups() {
   };
   app.showGroupEditDialog = function showGroupEditDialog(mode, parentId, defaultName, onConfirm) {
     const title = mode === 'create' ? t('groups.create') : t('groups.rename_group');
-    const html = '<div class="modal-overlay" id="groupEditOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + title + '</span>' + '<button class="modal-close" type="button" aria-label="' + t('groups.close_edit_label') + '" data-action="close-group-edit">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body u-inline-16">' + '<form id="groupEditForm" class="lock-form">' + '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="' + t('groups.name_placeholder') + '" value="' + app.esc(defaultName) + '" autofocus>' + '<button type="submit" class="lock-btn">' + t('common.confirm') + '</button>' + '</form>' + '</div>' + '</div>' + '</div>';
+    const html = '<div class="modal-overlay" id="groupEditOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head">' + '<span class="modal-title">' + app.esc(title) + '</span>' + '<button class="modal-close" type="button" aria-label="' + app.esc(t('groups.close_edit_label')) + '" data-action="close-group-edit">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' + '</button>' + '</div>' + '<div class="modal-body u-inline-16">' + '<form id="groupEditForm" class="lock-form">' + '<input type="text" id="groupEditInput" class="lock-input u-inline-33" placeholder="' + app.esc(t('groups.name_placeholder')) + '" value="' + app.esc(defaultName) + '" autofocus>' + '<button type="submit" class="lock-btn">' + app.esc(t('common.confirm')) + '</button>' + '</form>' + '</div>' + '</div>' + '</div>';
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);
@@ -434,7 +434,7 @@ export function registerGroups() {
     });
   };
   app.showConfirmDialog = function showConfirmDialog(title, message, onConfirm) {
-    const html = '<div class="modal-overlay" id="confirmDialogOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head"><span class="modal-title">' + title + '</span></div>' + '<div class="modal-body u-inline-16">' + '<p class="u-inline-34">' + app.esc(message) + '</p>' + '<div class="u-inline-19">' + '<button class="btn-cancel" data-action="close-confirm">' + t('common.cancel') + '</button>' + '<button class="lock-btn u-inline-35" id="confirmDialogBtn">' + t('common.delete') + '</button>' + '</div>' + '</div>' + '</div>' + '</div>';
+    const html = '<div class="modal-overlay" id="confirmDialogOverlay">' + '<div class="modal-box secondary-box" data-modal-panel>' + '<div class="modal-head"><span class="modal-title">' + app.esc(title) + '</span></div>' + '<div class="modal-body u-inline-16">' + '<p class="u-inline-34">' + app.esc(message) + '</p>' + '<div class="u-inline-19">' + '<button class="btn-cancel" data-action="close-confirm">' + app.esc(t('common.cancel')) + '</button>' + '<button class="lock-btn u-inline-35" id="confirmDialogBtn">' + app.esc(t('common.delete')) + '</button>' + '</div>' + '</div>' + '</div>' + '</div>';
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     document.body.appendChild(wrapper.firstElementChild);

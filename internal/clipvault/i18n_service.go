@@ -124,9 +124,10 @@ func (s *I18nService) SetLanguage(code string) error {
 		}
 	}
 	if s.cfgMgr != nil {
-		cfg := s.cfgMgr.Get()
+		before := s.cfgMgr.Get()
+		cfg := cloneConfig(before)
 		cfg.UI.Language = code
-		return s.cfgMgr.Update(cfg)
+		return s.cfgMgr.UpdateFrom(before, cfg)
 	}
 	// 无 ConfigManager（仅测试）：直接切换。
 	s.applyConfigLanguage(code)

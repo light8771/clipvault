@@ -22,8 +22,8 @@ export function registerTextUtils() {
   // 文本预览按「文本预览行数」配置裁剪（app.previewLines 由 applyHistoryPageLayout
   // 写入，0 为不限制；默认 3 与后端 HistoryPageSettings.PreviewLines 一致）。
   // 裁剪模式下先一律按可溢出渲染，渲染后由 releaseFittingPreviews 实测放开未溢出的卡片。
-  // 固定占位（fixedPreview）纯 CSS 实现：--preview-min-h 使短内容也保持满行数高度，
-  // 放开（open）只去掉渐隐与「查看」按钮，不改变占位高度。
+  // 固定占位由外层 card-body 统一负责，
+  // open 只去掉渐隐与「查看」按钮，不改变预览区高度。
   app.textPreviewBody = function textPreviewBody(it, q) {
     const previewLines = Number.isFinite(app.previewLines) ? app.previewLines : 3;
     if (previewLines > 0) {

@@ -20,6 +20,7 @@ const (
 	wsCaption         = 0x00C00000
 	wsSysMenu         = 0x00080000
 	wsChild           = 0x40000000
+	wsTabStop         = 0x00010000
 	wsVscroll         = 0x00200000
 	wsHscroll         = 0x00100000
 	wsExTopmost       = 0x00000008
@@ -39,6 +40,7 @@ const (
 	wmClose           = 0x0010
 	wmActivate        = 0x0006
 	wmKeydown         = 0x0100
+	wmSysKeydown      = 0x0104
 	wmChar            = 0x0102
 	wmTimer           = 0x0113
 	wmDrawItem        = 0x002B
@@ -79,8 +81,6 @@ const (
 	vkUp     = 0x26
 	vkDown   = 0x28
 
-	gwlpWndProc = uintptr(^uintptr(0) - 3) // -4 as uintptr (two's complement)
-
 	idcSearchEdit                        = 2001
 	idcSearchList                        = 2002
 	idcSearchClose                       = 2004
@@ -89,6 +89,7 @@ const (
 
 	searchDebounceTimerID = 1
 	searchDebounceDelay   = 80
+	searchPasteTimerID    = 2
 	// quickSearchResultLimit 是弹窗展示条数上限。
 	// 免费版：先在最新 100 条原始记录内过滤（不回溯补数量）；激活版：过滤后取前 100 条。
 	quickSearchResultLimit = 100
@@ -106,9 +107,7 @@ var (
 	procShowWindow          = user32.NewProc("ShowWindow")
 	procUpdateWindow        = user32.NewProc("UpdateWindow")
 	procSetFocus            = user32.NewProc("SetFocus")
-	procGetWindowLongPtrW   = user32.NewProc("GetWindowLongPtrW")
-	procSetWindowLongPtrW   = user32.NewProc("SetWindowLongPtrW")
-	procCallWindowProcW     = user32.NewProc("CallWindowProcW")
+	procIsDialogMessageW    = user32.NewProc("IsDialogMessageW")
 	procSendMessageW        = user32.NewProc("SendMessageW")
 	procGetWindowTextW      = user32.NewProc("GetWindowTextW")
 	procSetWindowTextW      = user32.NewProc("SetWindowTextW")
@@ -148,7 +147,6 @@ type searchWindow struct {
 	hHeader                      uintptr
 	hEmpty                       uintptr
 	hFilterConsecutiveDuplicates uintptr
-	oldEdit                      uintptr      // 原始 edit 控件 wndproc
 	items                        []StoredItem // 当前 listbox 对应的搜索结果
 	prevHwnd                     uintptr      // 弹窗打开前的前台窗口（粘贴目标）
 
@@ -160,6 +158,7 @@ type searchWindow struct {
 	keyOpenLabel              string
 	keyRestoreLabel           string
 	keyPasteLabel             string
+	pendingPaste              *searchPaste
 
 	mu              sync.Mutex
 	closed          bool
@@ -247,8 +246,11 @@ func ShowSearchWindow(store *Store, searchURL string, logger *DailyLogger, licen
 		prevHwnd:       prevHwnd,
 		pendingResults: make(map[uint64]searchResult),
 	}
-	if cfgMgr != nil {
-		popup := cfgMgr.Get().Popup
+	{
+		popup := DefaultConfig().Popup
+		if cfgMgr != nil {
+			popup = cfgMgr.Get().Popup
+		}
 		sw.hideConsecutiveDuplicates = popup.HideConsecutiveDuplicates
 		sw.keyOpenMods, _ = parsePopupKeyBinding(popup.KeyOpen)
 		sw.keyRestoreMods, _ = parsePopupKeyBinding(popup.KeyRestore)
@@ -330,7 +332,7 @@ func (sw *searchWindow) run() {
 		0,
 		uintptr(unsafe.Pointer(editCls)),
 		0,
-		uintptr(wsChild|wsVisible|wsBorder|esAutoHscroll),
+		uintptr(wsChild|wsVisible|wsTabStop|wsBorder|esAutoHscroll),
 		20, 64, 502, 34,
 		hwnd, uintptr(idcSearchEdit), instance, 0,
 	)
@@ -342,7 +344,7 @@ func (sw *searchWindow) run() {
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
 		uintptr(unsafe.Pointer(closeText)),
-		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		uintptr(wsChild|wsVisible|wsTabStop|bsOwnerDraw),
 		636, 12, 24, 24,
 		hwnd, uintptr(idcSearchClose), instance, 0,
 	)
@@ -351,7 +353,7 @@ func (sw *searchWindow) run() {
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
 		uintptr(unsafe.Pointer(clearText)),
-		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		uintptr(wsChild|wsVisible|wsTabStop|bsOwnerDraw),
 		528, 69, 24, 24,
 		hwnd, uintptr(idcSearchClear), instance, 0,
 	)
@@ -362,7 +364,7 @@ func (sw *searchWindow) run() {
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
 		uintptr(unsafe.Pointer(filterLabel)),
-		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		uintptr(wsChild|wsVisible|wsTabStop|bsOwnerDraw),
 		460, 12, 168, 24,
 		hwnd, uintptr(idcSearchFilterConsecutiveDuplicates), instance, 0,
 	)
@@ -370,7 +372,7 @@ func (sw *searchWindow) run() {
 		0,
 		uintptr(unsafe.Pointer(btnCls)),
 		uintptr(unsafe.Pointer(btnText)),
-		uintptr(wsChild|wsVisible|bsOwnerDraw),
+		uintptr(wsChild|wsVisible|wsTabStop|bsOwnerDraw),
 		568, 64, 92, 34,
 		hwnd, 2003, instance, 0,
 	)
@@ -378,7 +380,7 @@ func (sw *searchWindow) run() {
 		0,
 		uintptr(unsafe.Pointer(listCls)),
 		0,
-		uintptr(wsChild|wsVisible|wsBorder|lbsNotify|lbsHasStrings|wsVscroll),
+		uintptr(wsChild|wsVisible|wsTabStop|wsBorder|lbsNotify|lbsHasStrings|wsVscroll),
 		20, 112, 640, 308,
 		hwnd, uintptr(idcSearchList), instance, 0,
 	)
@@ -411,12 +413,6 @@ func (sw *searchWindow) run() {
 		hwnd, 0, instance, 0,
 	)
 
-	if sw.hEdit != 0 {
-		orig, _, _ := procGetWindowLongPtrW.Call(sw.hEdit, gwlpWndProc)
-		sw.oldEdit = orig
-		procSetWindowLongPtrW.Call(sw.hEdit, gwlpWndProc, syscall.NewCallback(sw.editProc))
-	}
-
 	procShowWindow.Call(hwnd, swShow)
 	procUpdateWindow.Call(hwnd)
 	procSetForegroundWindow.Call(hwnd)
@@ -437,6 +433,16 @@ func (sw *searchWindow) run() {
 		case 0:
 			return
 		default:
+			if m.Hwnd == sw.hEdit && sw.handleSearchArrow(m.Message, m.WParam) {
+				continue
+			}
+			if sw.handleActionKey(m.Message, m.WParam, m.LParam) {
+				continue
+			}
+			// Native Tab/Shift+Tab navigation covers edit, list and buttons.
+			if handled, _, _ := procIsDialogMessageW.Call(hwnd, uintptr(unsafe.Pointer(&m))); handled != 0 {
+				continue
+			}
 			procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 			procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 		}

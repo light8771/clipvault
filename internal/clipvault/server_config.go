@@ -185,10 +185,13 @@ func (s *SearchServer) handleSensitiveMark(w http.ResponseWriter, r *http.Reques
 	s.writeJSON(w, map[string]any{"ok": true, "sensitive": sensitive})
 }
 
+const configVersionHeader = "X-ClipVault-Config-Version"
+
 // handleGetConfig 返回当前完整配置（用于设置页面初始化）。
 // 敏感过滤规则（customPatterns）在未通过二次认证时被遮蔽，需要二次认证后通过 /api/v1/config/sensitive-rules 获取。
 func (s *SearchServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := s.cfgMgr.Get()
+	cfg, version := s.cfgMgr.GetVersioned()
+	w.Header().Set(configVersionHeader, version)
 	token := GetSessionToken(r)
 	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
 		masked := make([]string, len(cfg.Sensitive.CustomPatterns))
@@ -261,7 +264,11 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
-	curCfg := s.cfgMgr.Get()
+	curCfg, version := s.cfgMgr.GetVersioned()
+	if r.Header.Get(configVersionHeader) != version || version == "" {
+		s.writeError(w, ErrConfigConflict)
+		return
+	}
 	preserveAssetMetadata(&cfg, curCfg)
 	listenHost, listenPort, err := validateListenAddr(cfg.Search.ListenAddr)
 	if err != nil {
@@ -322,7 +329,7 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	changes := diffConfigChanges(curCfg, cfg)
 	response := map[string]any{"ok": true}
-	if err := s.cfgMgr.Update(cfg); err != nil {
+	if err := s.cfgMgr.UpdateFrom(curCfg, cfg); err != nil {
 		var runtimeErr *ConfigRuntimeApplyError
 		if !errors.As(err, &runtimeErr) {
 			s.writeError(w, err)
@@ -356,7 +363,9 @@ func (s *SearchServer) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn("config_change_log_failed", map[string]any{"error": err.Error()})
 		}
 	}
-	response["config"] = stripSecrets(s.cfgMgr.Get())
+	saved, version := s.cfgMgr.GetVersioned()
+	w.Header().Set(configVersionHeader, version)
+	response["config"] = stripSecrets(saved)
 	s.writeJSON(w, response)
 }
 

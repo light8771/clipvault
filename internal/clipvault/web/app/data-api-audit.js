@@ -60,7 +60,7 @@ export function registerDataAPIAudit() {
       renderAudit(d.entries || []);
     } catch (_) {
       el('dapiAuditTotal').textContent = t('logs.load_failed');
-      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' + t('audit.load_failed') + '</td></tr>';
+      list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' + app.esc(t('audit.load_failed')) + '</td></tr>';
     }
   };
 
@@ -96,7 +96,7 @@ export function registerDataAPIAudit() {
       : t('audit.total', { count: state.total });
     if (!entries.length) {
       list.innerHTML = '<tr><td colspan="7" class="dapi-empty">' +
-        (state.page > 0 ? t('audit.empty_page') : (filtering ? t('audit.empty_filtered') : t('audit.empty'))) + '</td></tr>';
+        (state.page > 0 ? app.esc(t('audit.empty_page')) : (filtering ? app.esc(t('audit.empty_filtered')) : app.esc(t('audit.empty')))) + '</td></tr>';
     } else {
       list.innerHTML = entries.map(auditRowHTML).join('');
     }
@@ -111,7 +111,7 @@ export function registerDataAPIAudit() {
     const summaryShort = summary.length > 64 ? summary.slice(0, 64) + '…' : summary;
     const hasBody = !!entry.requestBody;
     const sensitiveTag = entry.sensitiveAccessed
-      ? ' <span class="dapi-tag warn" title="' + t('audit.sensitive_returned_tip') + '">' + t('audit.sensitive_yes') + '</span>'
+      ? ' <span class="dapi-tag warn" title="' + app.esc(t('audit.sensitive_returned_tip')) + '">' + app.esc(t('audit.sensitive_yes')) + '</span>'
       : '';
     // 展开集合以字符串 id 为键（dataset.auditId 是字符串，entry.id 是数字）。
     const expanded = state.expanded.has(String(entry.id));
@@ -123,7 +123,7 @@ export function registerDataAPIAudit() {
       '<span class="dapi-op-endpoint"><span class="dapi-method ' + app.esc(entry.method.toLowerCase()) + '">' + app.esc(entry.method) + '</span><code>' + app.esc(entry.endpoint) + '</code></span>' +
       '</span></td>' +
       '<td class="col-summary">' + (hasBody
-        ? '<span class="dapi-summary dapi-summary-link" title="' + t('audit.click_to_view_body') + '">' + app.esc(summaryShort || t('audit.click_to_view_body')) + '</span>'
+        ? '<span class="dapi-summary dapi-summary-link" title="' + app.esc(t('audit.click_to_view_body')) + '">' + app.esc(summaryShort || t('audit.click_to_view_body')) + '</span>'
         : (summaryShort ? '<code class="dapi-summary">' + app.esc(summaryShort) + '</code>' : '<span class="dapi-muted">—</span>')) + sensitiveTag + '</td>' +
       '<td class="col-result"><span class="dapi-result-cell">' + auditResultBadge(entry) + '<span class="dapi-result-count">' + app.esc(auditResultText(entry)) + '</span></span></td>' +
       '<td class="col-ms">' + entry.durationMs + 'ms</td>' +
@@ -132,12 +132,12 @@ export function registerDataAPIAudit() {
     if (expanded) {
       row += '<tr class="dapi-audit-detail"><td colspan="7">' +
         '<div class="dapi-detail-grid">' +
-        '<span class="dapi-detail-label">' + t('audit.detail_request') + '</span><code>' + app.esc(entry.method + ' ' + entry.endpoint) + '</code>' +
-        '<span class="dapi-detail-label">' + t('audit.detail_response') + '</span><code>' + app.esc(auditResultText(entry)) + ' · ' + entry.durationMs + 'ms</code>' +
-        '<span class="dapi-detail-label">' + t('audit.detail_sensitive') + '</span><code>' + (entry.sensitiveAccessed ? t('audit.yes') : t('audit.no')) + '</code>' +
-        (entry.itemId ? '<span class="dapi-detail-label">' + t('audit.detail_item') + '</span><code>#' + entry.itemId + '</code>' : '') +
-        (entry.errorCode ? '<span class="dapi-detail-label">' + t('audit.detail_error_code') + '</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
-        (entry.tokenName ? '<span class="dapi-detail-label">' + t('audit.detail_token') + '</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
+        '<span class="dapi-detail-label">' + app.esc(t('audit.detail_request')) + '</span><code>' + app.esc(entry.method + ' ' + entry.endpoint) + '</code>' +
+        '<span class="dapi-detail-label">' + app.esc(t('audit.detail_response')) + '</span><code>' + app.esc(auditResultText(entry)) + ' · ' + entry.durationMs + 'ms</code>' +
+        '<span class="dapi-detail-label">' + app.esc(t('audit.detail_sensitive')) + '</span><code>' + (entry.sensitiveAccessed ? app.esc(t('audit.yes')) : app.esc(t('audit.no'))) + '</code>' +
+        (entry.itemId ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_item')) + '</span><code>#' + entry.itemId + '</code>' : '') +
+        (entry.errorCode ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_error_code')) + '</span><code>' + app.esc(entry.errorCode) + '</code>' : '') +
+        (entry.tokenName ? '<span class="dapi-detail-label">' + app.esc(t('audit.detail_token')) + '</span><code>' + app.esc(entry.tokenName) + '</code>' : '') +
         '</div>' +
         (hasBody ? auditBodyHTML(entry) : '') +
         '</td></tr>';
@@ -152,7 +152,7 @@ export function registerDataAPIAudit() {
       text = JSON.stringify(JSON.parse(entry.requestBody), null, 2);
     } catch (_) { /* 保留原文（截断的 JSON 或非 JSON 内容） */ }
     return '<div class="dapi-detail-body">' +
-      '<span class="dapi-detail-label">' + t('audit.detail_request_body') + '</span>' +
+      '<span class="dapi-detail-label">' + app.esc(t('audit.detail_request_body')) + '</span>' +
       '<pre class="dapi-body-pre">' + app.esc(text) + '</pre>' +
       '</div>';
   }
@@ -263,7 +263,7 @@ export function registerDataAPIAudit() {
     if (!select) return;
     const current = select.value;
     const tokens = app.dapiTokens || [];
-    select.innerHTML = '<option value="">' + t('audit.all_tokens') + '</option>' +
+    select.innerHTML = '<option value="">' + app.esc(t('audit.all_tokens')) + '</option>' +
       tokens.map(token =>
         '<option value="' + app.esc(token.id) + '">' + app.esc(token.name) + '</option>').join('');
     if (Array.from(select.options).some(option => option.value === current)) select.value = current;

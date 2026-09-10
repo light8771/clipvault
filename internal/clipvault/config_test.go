@@ -74,7 +74,7 @@ func TestPutConfigLANAccessUsesPersistedLockPassword(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := httptest.NewRecorder()
-		server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+		server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 		if result.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 		}
@@ -97,7 +97,7 @@ func TestPutConfigLANAccessUsesPersistedLockPassword(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := httptest.NewRecorder()
-		server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+		server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 		if result.Code != http.StatusBadRequest {
 			t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 		}
@@ -140,7 +140,7 @@ func TestPutConfigListenPortAvailability(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := httptest.NewRecorder()
-		server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+		server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 		return result
 	}
 
@@ -370,7 +370,7 @@ func TestInvalidHotkeyConfigIsRejectedBeforePersistence(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := httptest.NewRecorder()
-			server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+			server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 			if result.Code != http.StatusBadRequest {
 				t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 			}
@@ -430,7 +430,7 @@ func TestPutConfigPreservesAssetMetadata(t *testing.T) {
 		t.Fatalf("marshal config: %v", err)
 	}
 	result := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body))
+	request := configUpdateRequest(server, bytes.NewReader(body))
 	server.handlePutConfig(result, request)
 	if result.Code != http.StatusOK {
 		t.Fatalf("config update status = %d, want %d: %s", result.Code, http.StatusOK, result.Body.String())
@@ -491,7 +491,7 @@ func TestInvalidSensitiveRulesAreRejectedBeforeConfigPersistence(t *testing.T) {
 	}
 	server := &SearchServer{cfgMgr: manager, logger: logger}
 	result := httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("invalid sensitive rule status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -609,7 +609,7 @@ func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	result := httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("incomplete dir backup status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -624,7 +624,7 @@ func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("incomplete email backup status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -640,7 +640,7 @@ func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal incomplete SMTP authentication: %v", err)
 	}
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("incomplete SMTP authentication status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -661,7 +661,7 @@ func TestPutConfigRejectsIncompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal invalid SMTP username: %v", err)
 	}
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	// 无 i18n 服务时消息回退 key 原文；断言错误码即可覆盖语义。
 	if result.Code != http.StatusBadRequest || !strings.Contains(result.Body.String(), "invalid_backup_config") {
 		t.Fatalf("invalid SMTP username status = %d, body=%s", result.Code, result.Body.String())
@@ -708,7 +708,7 @@ func TestPutConfigAcceptsCompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal invalid email template: %v", err)
 	}
 	result := httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("invalid email template status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -717,7 +717,7 @@ func TestPutConfigAcceptsCompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("complete backup status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -731,7 +731,7 @@ func TestPutConfigAcceptsCompleteBackupWhenEnabled(t *testing.T) {
 		t.Fatalf("marshal unauthenticated relay: %v", err)
 	}
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("unauthenticated relay status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -771,7 +771,7 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	result := httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("seed save status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -784,7 +784,7 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 	keep.Backup.DirBackup.Password = "__set__"
 	body, _ = json.Marshal(keep)
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("keep save status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -797,7 +797,7 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 	keep.Backup.DirBackup.Password = ""
 	body, _ = json.Marshal(keep)
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("empty save status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -811,7 +811,7 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 	clear.Backup.DirBackup.Password = "__clear__"
 	body, _ = json.Marshal(clear)
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("clear save status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -826,7 +826,7 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 	reject.Backup.DirBackup.Password = "__clear__"
 	body, _ = json.Marshal(reject)
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusBadRequest {
 		t.Fatalf("clear with empty password should be rejected, status = %d, body=%s", result.Code, result.Body.String())
 	}
@@ -838,7 +838,7 @@ func TestPutConfigClearsBackupPassword(t *testing.T) {
 	replace.Backup.DirBackup.Password = "brand-new-pw"
 	body, _ = json.Marshal(replace)
 	result = httptest.NewRecorder()
-	server.handlePutConfig(result, httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body)))
+	server.handlePutConfig(result, configUpdateRequest(server, bytes.NewReader(body)))
 	if result.Code != http.StatusOK {
 		t.Fatalf("replace save status = %d, body=%s", result.Code, result.Body.String())
 	}

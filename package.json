@@ -1,0 +1,8 @@
+{
+  "name": "clipvault-web-checks",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "acorn": "8.18.0"
+  }
+}

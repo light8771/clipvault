@@ -175,7 +175,7 @@ var configDiffMaskedPaths = map[string]bool{
 }
 
 // configFieldLabels 把点分配置路径映射为操作记录展示用的词条 key
-// （config_field.*，双语词条见 i18n_seed_config.go）；未收录的路径回退
+// （config_field.*，双语词条见 i18n_builtin.json）；未收录的路径回退
 // 为路径本身（新增字段未登记词条时仍有可读的兜底）。
 var configFieldLabels = map[string]string{
 	"maxTextChars":                        "config_field.max_text_chars",

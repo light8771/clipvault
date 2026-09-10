@@ -26,8 +26,7 @@
     用户备注（邮箱、昵称等），写入 manifest.json 便于追溯。可选。
 
 .PARAMETER GarbleSeed
-    Garble 混淆 seed（Base64）。未传时用固定调试 seed。
-    正式发布建议每次用随机 seed（脚本默认会生成随机 seed）。
+    Garble 混淆 seed（Base64）。未传时生成随机 seed。
 
 .PARAMETER Output
     exe 输出路径。默认 signing\orders\<OrderID>\ClipVault.exe。
@@ -141,15 +140,13 @@ Write-Host "  输出       : $Output"
 
 $env:CGO_ENABLED = "1"
 $env:PATH = "D:\mingw64\bin;" + $env:PATH
-$env:CLIPVAULT_LICENSE_KEY_ID = $KeyID
-$env:CLIPVAULT_LICENSE_PUBLIC_KEY = $PublicKey
-$env:CLIPVAULT_GARBLE_SEED = $GarbleSeed
 
 Push-Location $ProjectRoot
 try {
     # build-release.ps1 内部设了 $ErrorActionPreference="Stop"，garble 的 warning
     # 会输出到 stderr，这里用 2>&1 合并流，避免触发外层 try/catch
-    $buildOutput = & .\scripts\build-release.ps1 -Output $Output 2>&1
+    $buildOutput = & .\scripts\build-release.ps1 -Output $Output -Obfuscate `
+        -KeyId $KeyID -PublicKey $PublicKey -GarbleSeed $GarbleSeed 2>&1
     $buildOutput | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { throw "build-release.ps1 失败，退出码 $LASTEXITCODE" }
 } finally {

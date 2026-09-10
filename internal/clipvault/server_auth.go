@@ -4,8 +4,32 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/netip"
 	"time"
 )
+
+// authClientIP uses only the connection peer, never untrusted proxy headers.
+// Unmap IPv4-mapped IPv6 so alternate address spellings share an allowance.
+func authClientIP(r *http.Request) string {
+	if addr, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
+		return addr.Addr().Unmap().WithZone("").String()
+	}
+	if addr, err := netip.ParseAddr(r.RemoteAddr); err == nil {
+		return addr.Unmap().WithZone("").String()
+	}
+	return "unknown"
+}
+
+// verifyRequestPassword is the single HTTP password-verification boundary.
+func (s *SearchServer) verifyRequestPassword(w http.ResponseWriter, r *http.Request, purpose, hash, password, errorKey string) bool {
+	valid, status := s.auth.verifyPasswordAttempt(purpose, authClientIP(r), func() bool {
+		return hash == "" || verifyPasswordHash(hash, password)
+	})
+	if !valid {
+		s.writePasswordFailure(w, s.i18nT(errorKey, nil), status)
+	}
+	return valid
+}
 
 // requireAuth 确保请求已通过锁屏认证。如果未设置锁屏密码，则直接放行。
 func (s *SearchServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -117,15 +141,9 @@ func (s *SearchServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, map[string]any{"ok": true, "message": "no lock password set"})
 		return
 	}
-	if status := s.auth.CheckRateLimitFor(ratePurposeLock); !status.Allowed {
-		s.writeRateLimitBlocked(w, status)
+	if !s.verifyRequestPassword(w, r, ratePurposeLock, cfg.Security.LockPasswordHash, req.Password, "api.error.wrong_password") {
 		return
 	}
-	if !s.auth.VerifyLockPassword(cfg, req.Password) {
-		s.writePasswordFailure(w, s.i18nT("api.error.wrong_password", nil), s.auth.RecordFailedAttemptFor(ratePurposeLock))
-		return
-	}
-	s.auth.ResetRateLimitFor(ratePurposeLock)
 	token, err := s.auth.CreateSession(cfg.Security.LockSessionTimeout)
 	if err != nil {
 		s.writeError(w, err)
@@ -158,10 +176,6 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 		s.writeJSON(w, map[string]any{"ok": true, "message": "no secondary password set"})
 		return
 	}
-	if status := s.auth.CheckRateLimitFor(ratePurposeSecondary); !status.Allowed {
-		s.writeRateLimitBlocked(w, status)
-		return
-	}
 	token := GetSessionToken(r)
 	sess := s.auth.GetSession(token)
 	if sess == nil || !sess.Authenticated {
@@ -170,11 +184,9 @@ func (s *SearchServer) handleAuthSecondary(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	if !s.auth.VerifySecondaryPassword(cfg, req.Password) {
-		s.writePasswordFailure(w, s.i18nT("api.error.wrong_secondary_password", nil), s.auth.RecordFailedAttemptFor(ratePurposeSecondary))
+	if !s.verifyRequestPassword(w, r, ratePurposeSecondary, cfg.Security.SecondaryPasswordHash, req.Password, "api.error.wrong_secondary_password") {
 		return
 	}
-	s.auth.ResetRateLimitFor(ratePurposeSecondary)
 	if sess == nil || !sess.Authenticated {
 		// 无锁屏密码时，只在二次密码验证成功后创建会话。失败尝试不应
 		// 留下最长存活 24 小时的无用会话。
@@ -238,26 +250,17 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	cfg := s.cfgMgr.Get()
+	before := s.cfgMgr.Get()
+	cfg := cloneConfig(before)
 
 	if req.Action == "change" || req.Action == "remove" {
-		purpose := req.Type
-		if status := s.auth.CheckRateLimitFor(purpose); !status.Allowed {
-			s.writeRateLimitBlocked(w, status)
+		hash, errorKey := cfg.Security.LockPasswordHash, "api.error.wrong_current_lock_password"
+		if req.Type == ratePurposeSecondary {
+			hash, errorKey = cfg.Security.SecondaryPasswordHash, "api.error.wrong_current_secondary_password"
+		}
+		if !s.verifyRequestPassword(w, r, req.Type, hash, req.OldPassword, errorKey) {
 			return
 		}
-		if req.Type == "lock" {
-			if !s.auth.VerifyLockPassword(cfg, req.OldPassword) {
-				s.writePasswordFailure(w, s.i18nT("api.error.wrong_current_lock_password", nil), s.auth.RecordFailedAttemptFor(purpose))
-				return
-			}
-		} else {
-			if !s.auth.VerifySecondaryPassword(cfg, req.OldPassword) {
-				s.writePasswordFailure(w, s.i18nT("api.error.wrong_current_secondary_password", nil), s.auth.RecordFailedAttemptFor(purpose))
-				return
-			}
-		}
-		s.auth.ResetRateLimitFor(purpose)
 	} else if req.Action == "set" {
 
 		if s.auth.HasLockPassword(cfg) {
@@ -273,7 +276,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		cfg.Security.LockPasswordHash = ""
-		updateErr := s.cfgMgr.Update(cfg)
+		updateErr := s.cfgMgr.UpdateFrom(before, cfg)
 		var runtimeErr *ConfigRuntimeApplyError
 		if updateErr != nil && !errors.As(updateErr, &runtimeErr) {
 			s.writeError(w, updateErr)
@@ -304,7 +307,7 @@ func (s *SearchServer) handleAuthSetPassword(w http.ResponseWriter, r *http.Requ
 	} else {
 		cfg.Security.SecondaryPasswordHash = hash
 	}
-	updateErr := s.cfgMgr.Update(cfg)
+	updateErr := s.cfgMgr.UpdateFrom(before, cfg)
 	var runtimeErr *ConfigRuntimeApplyError
 	if updateErr != nil && !errors.As(updateErr, &runtimeErr) {
 		s.writeError(w, updateErr)
