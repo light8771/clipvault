@@ -23,7 +23,17 @@
   }
 
   function locale() {
-    return state.lang || 'zh-CN';
+    // Translation-pack IDs (for example "zhcn") need not be BCP 47 tags.
+    // Keep the dictionary ID intact, but only pass valid tags to Intl/Date.
+    var candidates = [state.lang, ...(window.navigator?.languages || []), 'zh-CN'];
+    for (var candidate of candidates) {
+      if (typeof candidate !== 'string' || !candidate) continue;
+      try {
+        var supported = Intl.DateTimeFormat.supportedLocalesOf(candidate);
+        if (supported.length) return supported[0];
+      } catch (_) { /* Try the browser language for custom pack IDs. */ }
+    }
+    return 'zh-CN';
   }
 
   // localeNumber 数字本地化：当前语言映射 Intl locale（zh-CN → zh，其余 → en）。

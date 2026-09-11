@@ -1,6 +1,7 @@
 import { app } from "./app-context.js";
 import { renderClipboardEventDetails } from './clipboard-event-details.js';
 import { clampHistoryPage } from './history-pagination.js';
+import { showHistoryLoadError } from './history-load-error.js';
 const t = window.clipvaultI18n.t;
 
 export function registerHistoryList() {
@@ -221,8 +222,7 @@ export function registerHistoryList() {
       const d = await response.json();
       if (revision !== app.searchRevision) return;
       if (!response.ok) {
-        app.toast(d.error || t('history.search_failed'), 'err');
-        return;
+        throw new app.APIError(d.code, d.error || t('history.search_failed'), response.status);
       }
       const total = d.total || 0;
       const validPage = clampHistoryPage(app.currentPage, total, pageSize);
@@ -236,7 +236,8 @@ export function registerHistoryList() {
       app.render(d.items || [], q);
       app.updatePagination();
     } catch (e) {
-      if (e && e.name === 'AbortError') return;
+      if (revision !== app.searchRevision || e?.name === 'AbortError') return;
+      showHistoryLoadError(e);
     }
   };
   app.renderSrcExeDropdown = function renderSrcExeDropdown() {
@@ -494,6 +495,4 @@ export function registerHistoryList() {
       app.Q.blur();
     }
   });
-
-  // ── Settings sidebar nav ───────────────────────────────────
 }
