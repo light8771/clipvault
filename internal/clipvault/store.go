@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"clipboard_ext/internal/clipvault/domain"
@@ -217,23 +216,9 @@ func openStoreDirectory(dataDir, databaseDir string, initializeSchema func(*Stor
 
 	keyHex := hex.EncodeToString(dbKey)
 
-	db, err := sql.Open("duckdb", "")
+	db, err := duckdbstorage.OpenEncrypted(dbPath, keyHex)
 	if err != nil {
-		return nil, fmt.Errorf("sql.Open(duckdb): %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0)
-
-	escapedPath := escapeSQLPath(dbPath)
-	attachSQL := fmt.Sprintf("ATTACH '%s' AS vault (ENCRYPTION_KEY '%s')", escapedPath, keyHex)
-	if _, err := db.Exec(attachSQL); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("ATTACH with ENCRYPTION_KEY: %w", err)
-	}
-	if _, err := db.Exec("USE vault"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("USE vault: %w", err)
+		return nil, err
 	}
 
 	store := &Store{db: db, dbKey: dbKey, dataDir: filepath.Clean(dataDir)}
@@ -285,29 +270,6 @@ func pathExists(path string) (bool, error) {
 // DBKey returns an ownership-independent copy of the database encryption key
 // for recovery-file operations.
 func (s *Store) DBKey() []byte { return slices.Clone(s.dbKey) }
-
-// escapeSQLPath escapes single quotes in a file path for safe embedding in SQL.
-func escapeSQLPath(path string) string {
-	return strings.ReplaceAll(path, "'", "''")
-}
-
-// verifyDuckDBKeyInternal opens a DuckDB file with the given key to verify correctness.
-func verifyDuckDBKeyInternal(dbPath, keyHex string) error {
-	db, err := sql.Open("duckdb", "")
-	if err != nil {
-		return fmt.Errorf("sql.Open(duckdb): %w", err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
-	escapedPath := escapeSQLPath(dbPath)
-	attachSQL := fmt.Sprintf("ATTACH '%s' AS vault (ENCRYPTION_KEY '%s')", escapedPath, keyHex)
-	if _, err := db.Exec(attachSQL); err != nil {
-		return fmt.Errorf("ATTACH failed (wrong key?): %w", err)
-	}
-	return nil
-}
 
 func (s *Store) Close() error {
 	return s.db.Close()

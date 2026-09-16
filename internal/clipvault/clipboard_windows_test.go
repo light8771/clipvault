@@ -114,6 +114,24 @@ func TestClipboardRetryScheduleReservesDelayedAttemptForUnavailableData(t *testi
 	}
 }
 
+func TestClipboardNotOpenRetriesCompleteCaptureWithinFastSchedule(t *testing.T) {
+	for _, err := range []error{
+		&clipboardReadError{stage: clipboardReadStageClose, err: errorClipboardNotOpen},
+		&clipboardReadError{stage: clipboardReadStageGetData, err: errorClipboardNotOpen},
+		&clipboardReadError{stage: clipboardReadStageDecode, err: errors.New("decode failed"), closeErr: errorClipboardNotOpen},
+	} {
+		for completed := 1; completed < len(clipboardCaptureSchedule); completed++ {
+			want := completed < len(clipboardCaptureSchedule)-1
+			if got := shouldRetryClipboardCapture(err, completed); got != want {
+				t.Fatalf("retry %v after attempt %d = %v, want %v", err, completed, got, want)
+			}
+		}
+	}
+	if shouldRetryClipboardCapture(&clipboardReadError{stage: clipboardReadStageClose, err: syscall.Errno(5)}, 1) {
+		t.Fatal("unrelated close errors must not be retried")
+	}
+}
+
 func TestReadOpenedClipboardFallsBackFromUnavailableFileDropToURL(t *testing.T) {
 	want := newURLClipboardSnapshot("https://example.com/from-weixin", clipboardURLFormatUnicodeName)
 	access := openedClipboardAccess{

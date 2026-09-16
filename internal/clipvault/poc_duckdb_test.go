@@ -51,7 +51,7 @@ func openDuckDBEncrypted(t *testing.T, dbPath, keyHex string) *sql.DB {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	escapedPath := escapeSQLPath(dbPath)
+	escapedPath := strings.ReplaceAll(dbPath, "'", "''")
 	attachSQL := fmt.Sprintf("ATTACH '%s' AS vault (ENCRYPTION_KEY '%s')", escapedPath, keyHex)
 	if _, err := db.Exec(attachSQL); err != nil {
 		t.Fatalf("ATTACH with ENCRYPTION_KEY: %v", err)
@@ -115,7 +115,7 @@ func TestPOC1_EncryptionBasic(t *testing.T) {
 	}
 	defer db2.Close()
 	db2.SetMaxOpenConns(1)
-	escapedPath := escapeSQLPath(dbPath)
+	escapedPath := strings.ReplaceAll(dbPath, "'", "''")
 	wrongAttach := fmt.Sprintf("ATTACH '%s' AS vault (ENCRYPTION_KEY '%s')", escapedPath, wrongKey)
 	_, err = db2.Exec(wrongAttach)
 	if err == nil {

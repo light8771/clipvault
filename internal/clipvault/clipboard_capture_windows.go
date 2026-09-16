@@ -12,7 +12,8 @@ var clipboardCaptureSchedule = [...]time.Duration{0, 20 * time.Millisecond, 80 *
 
 func isRetryableClipboardReadError(err error) bool {
 	var readErr *clipboardReadError
-	return errors.As(err, &readErr) && (readErr.stage == clipboardReadStageOpen || errors.Is(err, errClipboardDataUnavailable))
+	return errors.As(err, &readErr) && (readErr.stage == clipboardReadStageOpen ||
+		errors.Is(err, errClipboardDataUnavailable) || errors.Is(err, errorClipboardNotOpen))
 }
 
 func shouldRetryClipboardCapture(err error, completedAttempts int) bool {

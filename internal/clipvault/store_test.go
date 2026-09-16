@@ -2,10 +2,50 @@ package clipvault
 
 import (
 	"context"
+	"database/sql/driver"
+	"errors"
 	"testing"
 
 	"clipboard_ext/internal/clipvault/domain"
 )
+
+func TestStoreSurvivesConnectionReplacement(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.CreateGroup(ctx, "retained group", 0); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		conn, err := store.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// database/sql also discards connections after cancelled transactions.
+		if err := conn.Raw(func(any) error { return driver.ErrBadConn }); !errors.Is(err, driver.ErrBadConn) {
+			t.Fatalf("discard connection: %v", err)
+		}
+		_ = conn.Close()
+		if err := store.Save(ctx, ClipboardItem{
+			RecordType: RecordTypeContent, Kind: "text", Format: "CF_UNICODETEXT",
+			Text: "survives replacement", MetaJSON: "{}", SourceExeName: "Weixin.exe",
+		}); err != nil {
+			t.Fatalf("save after replacement %d: %v", i, err)
+		}
+		if items, total, err := store.Search(ctx, SearchOptions{Limit: 10}); err != nil || total != i+1 || len(items) != i+1 {
+			t.Fatalf("search after replacement: items=%d total=%d err=%v", len(items), total, err)
+		}
+		if sources, err := store.SourceExeStatsFiltered(ctx, RecordTypeContent, true, 0); err != nil || len(sources) != 1 {
+			t.Fatalf("sources after replacement: %v, %v", sources, err)
+		}
+		if groups, err := store.ListGroups(ctx); err != nil || len(groups) != 1 {
+			t.Fatalf("groups after replacement: %v, %v", groups, err)
+		}
+	}
+}
 
 func TestStoreSaveAndSearch(t *testing.T) {
 	store, err := OpenStore(StoreOptions{DataDir: t.TempDir()})

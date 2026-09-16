@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	duckdbstorage "clipboard_ext/internal/clipvault/storage/duckdb"
 )
 
 // RecoverWithPassword attempts to recover the database key using the recovery password.
@@ -58,5 +60,9 @@ func verifyDuckDBKey(dbPath, keyHex string) error {
 	if _, err := os.Stat(dbPath); err != nil {
 		return fmt.Errorf("database file unavailable: %w", err)
 	}
-	return verifyDuckDBKeyInternal(dbPath, keyHex)
+	db, err := duckdbstorage.OpenEncrypted(dbPath, keyHex)
+	if err != nil {
+		return err
+	}
+	return db.Close()
 }
