@@ -377,7 +377,7 @@ func TestSetSensitiveManualMark(t *testing.T) {
 		t.Fatalf("after mark, default search items=%d err=%v", len(items), err)
 	}
 	// 敏感过滤可见
-	items, _, err = store.Search(ctx, SearchOptions{Limit: 10, SensitiveOnly: true})
+	items, _, err = store.Search(ctx, SearchOptions{Limit: 10, SensitiveOnly: true, IncludeSensitive: true})
 	if err != nil || len(items) != 1 {
 		t.Fatalf("sensitive search items=%d err=%v", len(items), err)
 	}

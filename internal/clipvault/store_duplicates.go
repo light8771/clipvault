@@ -6,6 +6,25 @@ import (
 	"errors"
 )
 
+// Read-time masking uses the actual content predecessor, before filtering or
+// pagination. Never skip a sensitive predecessor to find an earlier public row.
+// Keep this in SQL so the flag and its visibility come from the same snapshot.
+const publicConsecutiveDuplicateSQL = `(clipboard_items.consecutive_duplicate
+	AND NOT clipboard_items.sensitive
+	AND clipboard_items.id NOT IN (
+		SELECT next_id FROM (
+			SELECT sensitive, LEAD(id) OVER (ORDER BY id) AS next_id
+			FROM clipboard_items WHERE record_type = 'content'
+		) AS adjacency WHERE sensitive AND next_id IS NOT NULL
+	))`
+
+func clipboardItemReadColumns(redactSensitiveAdjacency bool) string {
+	if !redactSensitiveAdjacency {
+		return clipboardItemColumns
+	}
+	return clipboardItemColumnsBeforeDuplicate + publicConsecutiveDuplicateSQL + " AS consecutive_duplicate" + clipboardItemColumnsAfterDuplicate
+}
+
 // recomputeConsecutiveDuplicateForIDTx refreshes the one content row whose
 // predecessor may have changed after deletion. Capture-event rows never take
 // part in content adjacency.

@@ -345,12 +345,16 @@ type SearchOptions struct {
 	CreatedFromMS             int64
 	CreatedBeforeMS           int64
 	SensitiveOnly             bool
-	IncludeSensitive          bool
+	IncludeSensitive          bool // Caller may read sensitive content and duplicate relationships.
 	GroupID                   int64
 	SkipTotal                 bool
 	RestrictToLatestN         int
 	SourceExeNames            []string
 	ExeAliases                map[string]string
+
+	// IncludeSensitivePlaceholders includes sensitive rows for the web handler
+	// to mask. It does not grant access to their duplicate relationships.
+	IncludeSensitivePlaceholders bool
 }
 
 type CleanupOptions struct {

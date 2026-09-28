@@ -58,10 +58,11 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		CreatedFromMS:     createdFromMS,
 		CreatedBeforeMS:   createdBeforeMS,
 
-		IncludeSensitive: secondaryReadable || !hasContentOracleFilter,
-		GroupID:          groupID,
-		SourceExeNames:   sourceExeNames,
-		ExeAliases:       cfg.Source.ExeAliases,
+		IncludeSensitive:             secondaryReadable,
+		IncludeSensitivePlaceholders: !secondaryReadable && !hasContentOracleFilter,
+		GroupID:                      groupID,
+		SourceExeNames:               sourceExeNames,
+		ExeAliases:                   cfg.Source.ExeAliases,
 	}
 	resp := map[string]any{}
 
@@ -77,11 +78,8 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.auth.HasSecondaryPassword(cfg) && !s.auth.HasSecondaryAuth(token) {
+	if !secondaryReadable {
 		for i := range items {
-			// Adjacency to a hidden sensitive predecessor is itself sensitive:
-			// true would reveal that both rows have identical content.
-			items[i].ConsecutiveDuplicate = false
 			if !items[i].Sensitive {
 				continue
 			}
@@ -293,16 +291,17 @@ func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	opts := SearchOptions{
-		Query:           r.URL.Query().Get("q"),
-		Limit:           limit,
-		Offset:          offset,
-		Kind:            r.URL.Query().Get("kind"),
-		StarredOnly:     starredOnly,
-		CreatedFromMS:   createdFromMS,
-		CreatedBeforeMS: createdBeforeMS,
-		SensitiveOnly:   true,
-		RecordType:      domain.HistoryRecordContent,
-		GroupID:         groupID,
+		Query:            r.URL.Query().Get("q"),
+		Limit:            limit,
+		Offset:           offset,
+		Kind:             r.URL.Query().Get("kind"),
+		StarredOnly:      starredOnly,
+		CreatedFromMS:    createdFromMS,
+		CreatedBeforeMS:  createdBeforeMS,
+		SensitiveOnly:    true,
+		IncludeSensitive: true,
+		RecordType:       domain.HistoryRecordContent,
+		GroupID:          groupID,
 
 		SourceExeNames: sourceExeNames,
 		ExeAliases:     cfg.Source.ExeAliases,

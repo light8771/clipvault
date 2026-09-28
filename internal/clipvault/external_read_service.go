@@ -61,7 +61,7 @@ func NewExternalReadService(store *Store, env Environment) *ExternalReadService 
 func (s *ExternalReadService) queryExternalItems(ctx context.Context, access ReadAccess, where string, args []any, limit int) ([]StoredItem, bool, error) {
 	fetchArgs := append(append([]any{}, args...), limit+1)
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items"+where+
+		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items"+where+
 			" ORDER BY created_at DESC, id DESC LIMIT ?", fetchArgs...)
 	if err != nil {
 		return nil, false, err
@@ -82,17 +82,7 @@ func (s *ExternalReadService) queryExternalItems(ctx context.Context, access Rea
 	if hasMore {
 		items = items[:limit]
 	}
-	redactSensitiveAdjacency(items, access)
 	return items, hasMore, nil
-}
-
-func redactSensitiveAdjacency(items []StoredItem, access ReadAccess) {
-	if access.AllowSensitive {
-		return
-	}
-	for index := range items {
-		items[index].ConsecutiveDuplicate = false
-	}
 }
 
 // externalSearchResult 把存储条目组装为 SearchResult（含分组与截断）。
@@ -153,15 +143,12 @@ func (s *ExternalReadService) GetStoredItem(ctx context.Context, access ReadAcce
 	}
 	var item StoredItem
 	row := s.store.db.QueryRowContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items WHERE id = ?"+externalItemScopeAnd(access), id)
+		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items WHERE id = ?"+externalItemScopeAnd(access), id)
 	if err := scanStoredItem(row, &item); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return StoredItem{}, ErrExternalNotFound
 		}
 		return StoredItem{}, err
-	}
-	if !access.AllowSensitive {
-		item.ConsecutiveDuplicate = false
 	}
 	return item, nil
 }
@@ -229,7 +216,7 @@ func (s *ExternalReadService) GetStoredItems(ctx context.Context, access ReadAcc
 		args[i] = id
 	}
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items WHERE id IN ("+placeholders+")"+externalItemScopeAnd(access), args...)
+		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items WHERE id IN ("+placeholders+")"+externalItemScopeAnd(access), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +238,6 @@ func (s *ExternalReadService) GetStoredItems(ctx context.Context, access ReadAcc
 			out = append(out, item)
 		}
 	}
-	redactSensitiveAdjacency(out, access)
 	return out, nil
 }
 
@@ -503,7 +489,7 @@ func (s *ExternalReadService) QueryItems(ctx context.Context, access ReadAccess,
 	args := append(append([]any{}, plan.args...), plan.cursorArgs()...)
 	fetchArgs := append(append([]any{}, args...), plan.limit+1)
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items"+where+
+		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items"+where+
 			" ORDER BY "+plan.orderSQL+" LIMIT ?", fetchArgs...)
 	if err != nil {
 		return nil, false, err
@@ -524,7 +510,6 @@ func (s *ExternalReadService) QueryItems(ctx context.Context, access ReadAccess,
 	if hasMore {
 		items = items[:plan.limit]
 	}
-	redactSensitiveAdjacency(items, access)
 	return items, hasMore, nil
 }
 

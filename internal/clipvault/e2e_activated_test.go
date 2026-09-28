@@ -167,7 +167,7 @@ func TestActivatedExternalServiceE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sensitiveItems, _, err := store.Search(ctx, domain.SearchOptions{SensitiveOnly: true})
+	sensitiveItems, _, err := store.Search(ctx, domain.SearchOptions{SensitiveOnly: true, IncludeSensitive: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,6 +58,7 @@ func (s *Store) SourceExeStatsFiltered(ctx context.Context, recordType domain.Hi
 }
 
 func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, int, error) {
+	redactAdjacency := !opts.IncludeSensitive
 	if opts.Limit <= 0 {
 		opts.Limit = 50
 	}
@@ -135,7 +136,11 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		conds = append(conds, "starred = true")
 	}
 	if opts.HideConsecutiveDuplicates {
-		conds = append(conds, "consecutive_duplicate = false")
+		if redactAdjacency {
+			conds = append(conds, "NOT "+publicConsecutiveDuplicateSQL)
+		} else {
+			conds = append(conds, "consecutive_duplicate = false")
+		}
 	}
 	if len(opts.SourceExeNames) > 0 {
 		ph := strings.TrimSuffix(strings.Repeat("?,", len(opts.SourceExeNames)), ",")
@@ -158,7 +163,8 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 	}
 	if opts.SensitiveOnly {
 		conds = append(conds, "sensitive = true")
-	} else if !opts.IncludeSensitive {
+	}
+	if !opts.IncludeSensitive && !opts.IncludeSensitivePlaceholders {
 		conds = append(conds, "sensitive = false")
 	}
 	if opts.GroupID > 0 {
@@ -184,7 +190,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 
 	fetchArgs := append(append([]any{}, args...), opts.Limit, opts.Offset)
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+clipboardItemColumns+" FROM clipboard_items"+where+" ORDER BY id DESC LIMIT ? OFFSET ?",
+		"SELECT "+clipboardItemReadColumns(redactAdjacency)+" FROM clipboard_items"+where+" ORDER BY id DESC LIMIT ? OFFSET ?",
 		fetchArgs...)
 	if err != nil {
 		return nil, 0, err

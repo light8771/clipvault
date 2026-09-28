@@ -76,10 +76,12 @@ type BackupHistory struct {
 // clipboardItemColumns 是 clipboard_items 行查询的统一列清单，
 // Search/GetByID/exportAll/exportItemsQuery 共用，防止多处列清单漂移。
 // 扫描顺序必须与 scanStoredItem 一致。
-const clipboardItemColumns = `id, created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, ` +
-	`CAST(meta_json AS VARCHAR), starred, sensitive, event_code, event_fingerprint, capture_sequence, ` +
+const clipboardItemColumnsBeforeDuplicate = `id, created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, `
+const clipboardItemColumnsAfterDuplicate = `, CAST(meta_json AS VARCHAR), starred, sensitive, event_code, event_fingerprint, capture_sequence, ` +
 	`capture_stage, capture_attempts, CAST(event_formats AS VARCHAR), error_category, ` +
 	`source_exe_name, source_exe_path, source_window_title, source_attribution`
+
+const clipboardItemColumns = clipboardItemColumnsBeforeDuplicate + `consecutive_duplicate` + clipboardItemColumnsAfterDuplicate
 
 const clipboardItemColumnsAliased = `i.id, i.created_at, i.record_type, i.kind, i.format, i.text, i.byte_len, i.char_len, i.content_sha256, i.consecutive_duplicate, ` +
 	`CAST(i.meta_json AS VARCHAR), i.starred, i.sensitive, i.event_code, i.event_fingerprint, i.capture_sequence, ` +
