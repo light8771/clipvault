@@ -30,29 +30,31 @@ func classifyFileDropKind(paths []string) string {
 	return best
 }
 
-func fileExtKind(path string) string {
-	dot := strings.LastIndex(path, ".")
+var fileKindExtensions = map[string][]string{
+	"image":   {"jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "ico", "tiff", "tif", "heic", "heif", "raw", "cr2", "nef", "psd", "ai", "avif"},
+	"video":   {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm", "m4v", "mpeg", "mpg", "3gp", "ts", "rmvb", "rm", "asf", "f4v", "vob"},
+	"archive": {"zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "cab", "lzh", "z", "tgz", "tbz2", "ace", "arj", "zst", "lz4"},
+	"office":  {"doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "pdf", "wps", "et", "dps", "csv", "rtf", "pages", "numbers", "key"},
+}
+
+func fileExtension(path string) string {
+	name := strings.ReplaceAll(path, `\`, "/")
+	name = name[strings.LastIndex(name, "/")+1:]
+	dot := strings.LastIndex(name, ".")
 	if dot < 0 {
-		return "files"
+		return ""
 	}
-	switch strings.ToLower(path[dot:]) {
-	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
-		".svg", ".ico", ".tiff", ".tif", ".heic", ".heif",
-		".raw", ".cr2", ".nef", ".psd", ".ai", ".avif":
-		return "image"
-	case ".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv",
-		".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".ts",
-		".rmvb", ".rm", ".asf", ".f4v", ".vob":
-		return "video"
-	case ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2",
-		".xz", ".iso", ".cab", ".lzh", ".z", ".tgz",
-		".tbz2", ".ace", ".arj", ".zst", ".lz4":
-		return "archive"
-	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-		".odt", ".ods", ".odp", ".pdf", ".wps", ".et",
-		".dps", ".csv", ".rtf", ".pages", ".numbers", ".key":
-		return "office"
-	default:
-		return "files"
+	return strings.ToLower(name[dot+1:])
+}
+
+func fileExtKind(path string) string {
+	ext := fileExtension(path)
+	for kind, extensions := range fileKindExtensions {
+		for _, candidate := range extensions {
+			if ext == candidate {
+				return kind
+			}
+		}
 	}
+	return "files"
 }

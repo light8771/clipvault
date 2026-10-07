@@ -18,21 +18,23 @@ import (
 // 敏感记录的可见性由 ExternalReadService 强制；托管图片的内部存储路径
 // 永不外泄，只给 contentUrl。
 type dataAPIItem struct {
-	ID                   string    `json:"id"`
-	CreatedAt            time.Time `json:"createdAt"`
-	Kind                 string    `json:"kind"`
-	Text                 *string   `json:"text"`
-	TextTruncated        bool      `json:"textTruncated,omitempty"`
-	ByteLen              int       `json:"byteLen"`
-	RecordType           string    `json:"recordType"`
-	ContentSHA256        *string   `json:"contentSha256"`
-	ConsecutiveDuplicate bool      `json:"consecutiveDuplicate"`
-	SourceApp            *string   `json:"sourceApp"`
-	SourceWindow         *string   `json:"sourceWindow"`
-	Starred              bool      `json:"starred"`
-	Sensitive            bool      `json:"sensitive"`
-	GroupIDs             []string  `json:"groupIds"`
-	ContentURL           string    `json:"contentUrl,omitempty"`
+	Kinds                []string                 `json:"kinds"`
+	Content              *domain.CompositeContent `json:"content,omitempty"`
+	ID                   string                   `json:"id"`
+	CreatedAt            time.Time                `json:"createdAt"`
+	Kind                 string                   `json:"kind"`
+	Text                 *string                  `json:"text"`
+	TextTruncated        bool                     `json:"textTruncated,omitempty"`
+	ByteLen              int                      `json:"byteLen"`
+	RecordType           string                   `json:"recordType"`
+	ContentSHA256        *string                  `json:"contentSha256"`
+	ConsecutiveDuplicate bool                     `json:"consecutiveDuplicate"`
+	SourceApp            *string                  `json:"sourceApp"`
+	SourceWindow         *string                  `json:"sourceWindow"`
+	Starred              bool                     `json:"starred"`
+	Sensitive            bool                     `json:"sensitive"`
+	GroupIDs             []string                 `json:"groupIds"`
+	ContentURL           string                   `json:"contentUrl,omitempty"`
 }
 
 func strPtrOrNil(s string) *string {
@@ -46,6 +48,7 @@ func strPtrOrNil(s string) *string {
 // 完整文本经 /items/{id} 获取（限制单次响应资源消耗）。
 func toDataAPIItem(item StoredItem, groupIDs []int64, preview bool) dataAPIItem {
 	out := dataAPIItem{
+		Kinds: item.ContentKinds(), Content: item.Content.Summary(),
 		ID:                   fmt.Sprintf("%d", item.ID),
 		CreatedAt:            item.CreatedAt,
 		Kind:                 item.Kind,
@@ -61,6 +64,9 @@ func toDataAPIItem(item StoredItem, groupIDs []int64, preview bool) dataAPIItem 
 	}
 	for _, groupID := range groupIDs {
 		out.GroupIDs = append(out.GroupIDs, strconv.FormatInt(groupID, 10))
+	}
+	if item.Content != nil {
+		out.ContentURL = "/api/v1/items/" + out.ID + "/content"
 	}
 	if item.Format == "CLIPVAULT_IMAGE_FILE" {
 		// 托管图片：不暴露内部路径，内容经 contentUrl 流式获取。
@@ -369,7 +375,7 @@ func (svc *DataAPIService) handleItemContent(w http.ResponseWriter, r *http.Requ
 		http.ServeFile(w, r, content.ImagePath)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", content.MimeType)
 	_, _ = w.Write([]byte(content.Text))
 }
 

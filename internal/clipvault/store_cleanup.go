@@ -122,5 +122,5 @@ func (s *Store) Cleanup(ctx context.Context, opts CleanupOptions) (int64, error)
 	if err := s.removeManagedImagesIfUnreferenced(ctx, imagePaths); err != nil {
 		return n, err
 	}
-	return n, nil
+	return n, s.removeUnreferencedCompositeCache(ctx)
 }

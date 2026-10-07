@@ -537,7 +537,7 @@ func TestStoreRejectsIncompleteOrUnsupportedSchema(t *testing.T) {
 	if err := os.WriteFile(activeDatabaseFile(incompleteDir, databaseFileName), []byte("not-a-database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenStore(StoreOptions{DataDir: incompleteDir}); err == nil || !strings.Contains(err.Error(), "must either both exist or both be absent") {
+	if _, err := OpenStore(StoreOptions{DataDir: incompleteDir}); !errors.Is(err, errDatabaseRecoveryRequired) {
 		t.Fatalf("incomplete store error=%v", err)
 	}
 
@@ -552,7 +552,7 @@ func TestStoreRejectsIncompleteOrUnsupportedSchema(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenStore(StoreOptions{DataDir: dir}); err == nil || !strings.Contains(err.Error(), "unsupported database schema version") {
+	if _, err := OpenStore(StoreOptions{DataDir: dir}); err == nil || !strings.Contains(err.Error(), "unsupported database schema version") || errors.Is(err, errDatabaseRecoveryRequired) {
 		t.Fatalf("unsupported schema error=%v", err)
 	}
 
@@ -567,8 +567,67 @@ func TestStoreRejectsIncompleteOrUnsupportedSchema(t *testing.T) {
 	if err := identityStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenStore(StoreOptions{DataDir: identityDir}); err == nil || !strings.Contains(err.Error(), "unsupported database schema") {
+	if _, err := OpenStore(StoreOptions{DataDir: identityDir}); err == nil || !strings.Contains(err.Error(), "unsupported database schema") || errors.Is(err, errDatabaseRecoveryRequired) {
 		t.Fatalf("missing schema identity error=%v", err)
+	}
+}
+
+func TestUnreadableDatabaseKeyRequiresRecovery(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(activeDatabaseFile(dir, databaseKeyFileName), []byte("invalid key file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(StoreOptions{DataDir: dir}); !errors.Is(err, errDatabaseRecoveryRequired) {
+		t.Fatalf("unreadable key did not request recovery: %v", err)
+	}
+}
+
+func TestMismatchedDatabaseKeyRequiresRecovery(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := store.DBKey()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	key[0] ^= 0xff
+	if err := WriteDPAPIKeyFile(activeDatabaseFile(dir, databaseKeyFileName), key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(StoreOptions{DataDir: dir}); !errors.Is(err, errDatabaseRecoveryRequired) {
+		t.Fatalf("wrong database key did not request recovery: %v", err)
+	}
+}
+
+func TestDatabaseKeyFileIOFailureDoesNotRequestRecovery(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(StoreOptions{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := activeDatabaseFile(dir, databaseKeyFileName)
+	if err := os.Rename(keyPath, keyPath+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(keyPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = OpenStore(StoreOptions{DataDir: dir})
+	var pathErr *os.PathError
+	if !errors.As(err, &pathErr) || errors.Is(err, errDatabaseRecoveryRequired) {
+		t.Fatalf("key I/O error misclassified: %v", err)
 	}
 }
 

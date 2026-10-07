@@ -168,7 +168,7 @@ func (tc mcpToolContext) readItemContentResource(ctx context.Context, req *mcp.R
 			return nil, errors.New("internal error")
 		}
 		contents = []*mcp.ResourceContents{{URI: uri, MIMEType: content.MimeType, Blob: data}}
-	case "text":
+	case "text", "composite":
 		contents = []*mcp.ResourceContents{{URI: uri, MIMEType: content.MimeType, Text: content.Text}}
 	default:
 		tc.emitResource(uri, started, 404, "not_found", 0, false)

@@ -50,7 +50,7 @@ func restoreItemToClipboard(owner uintptr, item StoredItem, dataDir string) (uin
 	if owner == 0 {
 		return 0, errors.New("clipboard restore requires an owner window")
 	}
-	format, payload, err := prepareClipboardRestorePayload(item, dataDir)
+	representations, err := prepareClipboardRestoreRepresentations(item, dataDir)
 	if err != nil {
 		return 0, err
 	}
@@ -69,13 +69,16 @@ func restoreItemToClipboard(owner uintptr, item StoredItem, dataDir string) (uin
 		return 0, fmt.Errorf("EmptyClipboard: %w", err)
 	}
 
-	if err := setClipboardDataBytes(format, payload); err != nil {
-		return 0, err
-	}
-
 	// 私有格式标记：录制链路据此识别「这是恢复写回，不是用户复制」。
 	if markerID := internalRestoreFormat(); markerID != 0 {
-		_ = setClipboardDataBytes(markerID, []byte{0x43, 0x56, 0x52, 0x31}) // "CVR1"
+		if err := setClipboardDataBytes(markerID, []byte{0x43, 0x56, 0x52, 0x31}); err != nil {
+			return 0, err
+		} // "CVR1"
+	}
+	for _, r := range representations {
+		if err := setClipboardDataBytes(r.format, r.data); err != nil {
+			return 0, err
+		}
 	}
 	if err := closeClipboard(); err != nil {
 		return 0, fmt.Errorf("CloseClipboard: %w", err)
@@ -96,10 +99,8 @@ func prepareClipboardRestorePayload(item StoredItem, dataDir string) (uint32, []
 	}
 	switch item.Format {
 	case domain.FormatUnicodeText:
-		if payloadBytes := clipboardUTF16PayloadByteLen(item.Text); payloadBytes > maxClipboardTextPayloadBytes {
-			return 0, nil, &clipboardTextPayloadLimitError{ByteLen: payloadBytes, Limit: maxClipboardTextPayloadBytes}
-		}
-		return cfUnicodeText, encodeClipboardText(item.Text), nil
+		data, err := prepareClipboardText(item.Text)
+		return cfUnicodeText, data, err
 	case domain.FormatFileDrop:
 		paths := splitNonEmptyLines(item.Text)
 		if len(paths) == 0 {
@@ -161,6 +162,13 @@ func encodeClipboardText(text string) []byte {
 		buf[i*2+1] = byte(c >> 8)
 	}
 	return buf
+}
+
+func prepareClipboardText(text string) ([]byte, error) {
+	if payloadBytes := clipboardUTF16PayloadByteLen(text); payloadBytes > maxClipboardTextPayloadBytes {
+		return nil, &clipboardTextPayloadLimitError{ByteLen: payloadBytes, Limit: maxClipboardTextPayloadBytes}
+	}
+	return encodeClipboardText(text), nil
 }
 
 func clipboardUTF16CodeUnitLen(value string) int {

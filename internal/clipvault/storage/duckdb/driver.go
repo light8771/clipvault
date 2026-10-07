@@ -7,11 +7,14 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
 
 	duckdbdriver "github.com/duckdb/duckdb-go/v2"
 )
+
+var ErrEncryptionKeyMismatch = errors.New("database encryption key mismatch")
 
 // OpenEncrypted opens and verifies an encrypted database, restoring the default
 // catalog on every physical connection. The caller must close the returned DB.
@@ -22,6 +25,14 @@ func OpenEncrypted(path, keyHex string) (*sql.DB, error) {
 		strings.ReplaceAll(path, "'", "''"), keyHex)
 	connector, err := duckdbdriver.NewConnector("", func(conn driver.ExecerContext) error {
 		if _, err := conn.ExecContext(context.Background(), attachSQL, nil); err != nil {
+			// DuckDB exposes key mismatch as INVALID_INPUT rather than a
+			// dedicated error type. Match its specific diagnostic, never all
+			// attachment failures (locks, permissions, and corruption differ).
+			var databaseErr *duckdbdriver.Error
+			if errors.As(err, &databaseErr) && databaseErr.Type == duckdbdriver.ErrorTypeInvalidInput &&
+				databaseErr.Msg == "Invalid Input Error: Wrong encryption key used to open the database file" {
+				return fmt.Errorf("%w: %w", ErrEncryptionKeyMismatch, err)
+			}
 			return fmt.Errorf("ATTACH with ENCRYPTION_KEY: %w", err)
 		}
 		if _, err := conn.ExecContext(context.Background(), "USE vault", nil); err != nil {

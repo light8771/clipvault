@@ -1,5 +1,6 @@
 import { app } from "./app-context.js";
 export function registerHistoryLifecycle() {
+  app.setupSrcExeUI();
   app.SCROLL_TOP_BTN = document.getElementById('scrollTopBtn');
   app.scrollTicking = false;
   window.addEventListener('scroll', () => {
@@ -21,8 +22,9 @@ export function registerHistoryLifecycle() {
   app.init = async function init() {
     await app.loadConfigAppearance();
     await app.loadLicenseStatus();
-    app.setupSrcExeUI();
-    await app.loadSourceExes('content');
+    const recordType = app.currentKind === '__events__' ? 'event' : 'content';
+    const loaded = await app.loadSourceExesForHistory(recordType, { refresh: true });
+    if (!loaded) return;
     // 支持 URL 参数快速跳转：
     //   ?q=<text>      直接以文本搜索
     //   ?locate=<id>   定位到时间线中的指定词条（复用 doLocate 逻辑）
@@ -62,10 +64,11 @@ export function registerHistoryLifecycle() {
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState !== 'visible') return;
       const wasSecondaryAuthed = app.authState.secondaryAuthed;
-      await app.checkAuthStatus();
+      if (!await app.checkAuthStatus()) return;
       await app.loadLicenseStatus();
       // 如果二次认证缓存已过期，重新搜索以遮蔽敏感内容
       if (wasSecondaryAuthed && !app.authState.secondaryAuthed) {
+        app.resetSubtypeFilter?.();
         const kind = app.currentKind;
         const recordType = kind === '__events__' ? 'event' : 'content';
         const loaded = await app.loadSourceExesForHistory(recordType);

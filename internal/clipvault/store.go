@@ -24,8 +24,9 @@ type Store struct {
 }
 
 var (
-	ErrItemNotFound        = domain.ErrItemNotFound
-	errItemOrGroupNotFound = errors.New("item or group not found")
+	ErrItemNotFound             = domain.ErrItemNotFound
+	errItemOrGroupNotFound      = errors.New("item or group not found")
+	errDatabaseRecoveryRequired = errors.New("database key requires recovery")
 )
 
 const storeSchemaVersion = duckdbstorage.SchemaVersion
@@ -79,14 +80,14 @@ type BackupHistory struct {
 const clipboardItemColumnsBeforeDuplicate = `id, created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, `
 const clipboardItemColumnsAfterDuplicate = `, CAST(meta_json AS VARCHAR), starred, sensitive, event_code, event_fingerprint, capture_sequence, ` +
 	`capture_stage, capture_attempts, CAST(event_formats AS VARCHAR), error_category, ` +
-	`source_exe_name, source_exe_path, source_window_title, source_attribution`
+	`source_exe_name, source_exe_path, source_window_title, source_attribution, CAST(content_json AS VARCHAR)`
 
 const clipboardItemColumns = clipboardItemColumnsBeforeDuplicate + `consecutive_duplicate` + clipboardItemColumnsAfterDuplicate
 
 const clipboardItemColumnsAliased = `i.id, i.created_at, i.record_type, i.kind, i.format, i.text, i.byte_len, i.char_len, i.content_sha256, i.consecutive_duplicate, ` +
 	`CAST(i.meta_json AS VARCHAR), i.starred, i.sensitive, i.event_code, i.event_fingerprint, i.capture_sequence, ` +
 	`i.capture_stage, i.capture_attempts, CAST(i.event_formats AS VARCHAR), i.error_category, ` +
-	`i.source_exe_name, i.source_exe_path, i.source_window_title, i.source_attribution`
+	`i.source_exe_name, i.source_exe_path, i.source_window_title, i.source_attribution, CAST(i.content_json AS VARCHAR)`
 
 // rowScanner 同时抽象 *sql.Row 与 *sql.Rows 的 Scan。
 type rowScanner interface{ Scan(dest ...any) error }
@@ -100,6 +101,7 @@ func scanStoredItem(row rowScanner, item *StoredItem) error {
 }
 
 type storedItemScanState struct {
+	contentJSON      sql.NullString
 	createdAtMS      int64
 	contentHash      sql.NullString
 	eventCode        sql.NullString
@@ -116,10 +118,16 @@ func storedItemScanDest(item *StoredItem, state *storedItemScanState) []any {
 		&state.eventCode, &state.eventFingerprint, &state.captureSequence, &item.CaptureStage,
 		&item.CaptureAttempts, &state.eventFormatsJSON, &item.ErrorCategory, &item.SourceExeName,
 		&item.SourceExePath, &item.SourceWindowTitle, &item.SourceAttribution,
+		&state.contentJSON,
 	}
 }
 
 func finishStoredItemScan(item *StoredItem, state storedItemScanState) error {
+	if state.contentJSON.Valid {
+		if err := json.Unmarshal([]byte(state.contentJSON.String), &item.Content); err != nil {
+			return err
+		}
+	}
 	if state.contentHash.Valid {
 		item.ContentSHA256 = &state.contentHash.String
 	}
@@ -189,6 +197,9 @@ func openStoreDirectory(dataDir, databaseDir string, initializeSchema func(*Stor
 		return nil, fmt.Errorf("stat database file: %w", err)
 	}
 	if keyExists != dbExists {
+		if dbExists {
+			return nil, fmt.Errorf("%w: database key file is missing", errDatabaseRecoveryRequired)
+		}
 		return nil, errors.New("database and key file must either both exist or both be absent")
 	}
 	newStore := !dbExists
@@ -203,7 +214,11 @@ func openStoreDirectory(dataDir, databaseDir string, initializeSchema func(*Stor
 	if keyExists {
 		key, _, err := ReadDPAPIKeyFile(keyPath)
 		if err != nil {
-			return nil, fmt.Errorf("read DPAPI key file: %w", err)
+			var pathErr *os.PathError
+			if errors.As(err, &pathErr) && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("read database key file: %w", err)
+			}
+			return nil, fmt.Errorf("%w: read DPAPI key file: %w", errDatabaseRecoveryRequired, err)
 		}
 		dbKey = key
 	} else {
@@ -220,6 +235,9 @@ func openStoreDirectory(dataDir, databaseDir string, initializeSchema func(*Stor
 
 	db, err := duckdbstorage.OpenEncrypted(dbPath, keyHex)
 	if err != nil {
+		if errors.Is(err, duckdbstorage.ErrEncryptionKeyMismatch) {
+			return nil, fmt.Errorf("%w: %w", errDatabaseRecoveryRequired, err)
+		}
 		return nil, err
 	}
 

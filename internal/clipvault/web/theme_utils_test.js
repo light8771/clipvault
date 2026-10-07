@@ -101,7 +101,7 @@ for (const [name, source] of moduleSources) {
   assert.doesNotMatch(source, /\.(?:onclick|onchange|oninput|onsubmit|onkeydown|onkeyup|onload)\s*=/, `${name} assigns an event-handler property`);
   for (const access of source.matchAll(/window\.([A-Za-z_$][\w$]*)/g)) {
     assert.ok(
-      new Set(['addEventListener', 'clearTimeout', 'clipvaultI18n', 'confirm', 'location', 'matchMedia', 'scrollTo', 'scrollY', 'setTimeout']).has(access[1]),
+      new Set(['addEventListener', 'clearTimeout', 'clipvaultI18n', 'confirm', 'innerWidth', 'innerHeight', 'location', 'matchMedia', 'scrollTo', 'scrollY', 'setTimeout']).has(access[1]),
       `${name} accesses non-platform window member ${access[0]}`
     );
   }

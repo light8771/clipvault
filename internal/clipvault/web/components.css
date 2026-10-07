@@ -111,7 +111,8 @@
   gap: 8px;
 }
 .file-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
   align-items: flex-start;
   gap: 12px;
   padding: 10px 12px;
@@ -120,6 +121,7 @@
   border: 1px solid var(--card-border);
   transition: border-color .15s;
 }
+.file-row > .file-actions { grid-column: 2; flex-wrap: wrap; }
 .file-row:hover {
   border-color: var(--p);
 }
@@ -156,6 +158,18 @@
 .file-info {
   flex: 1;
   min-width: 0;
+}
+.file-type {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 6px;
+  margin: 2px 0 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  color: var(--sub);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .file-name {
   font-size: 14px;
@@ -206,6 +220,9 @@
   align-items: center;
 }
 .file-actions .ab {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--sub);
   height: 28px;
   padding: 0 10px;
   font-size: 12px;
@@ -384,3 +401,22 @@
 /* ── Hidden utility ─────────────────────────────────────────── */
 .hidden { display: none !important; }
 
+
+/* Primary category and secondary subtype are separate click targets. */
+.kind-split { display: inline-flex; flex: 0 0 auto; min-width: 0; }
+.kind-split > .filter-chip { border-radius: 99px 0 0 99px; padding-right: 9px; }
+.kind-subtype-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; padding: 0 7px; border: 1px solid var(--card-border); border-left: 0; border-radius: 0 99px 99px 0; background: transparent; color: var(--sub); cursor: pointer; }
+.kind-subtype-toggle:hover, .kind-subtype-toggle[aria-expanded="true"], .kind-split > .active + .kind-subtype-toggle { color: var(--p); border-color: var(--p); background: var(--p-dim); }
+.kind-subtype-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.kind-subtype-label { max-width: 100px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; padding-left: 5px; border-left: 1px solid currentColor; }
+.kind-subtype-pop { position: fixed; z-index: 100; display: flex; flex-direction: column; box-sizing: border-box; padding: 6px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-md); box-shadow: 0 12px 36px rgba(0,0,0,.2); overflow: hidden; }
+.kind-subtype-pop[hidden] { display: none; }
+.kind-subtype-search { flex-shrink: 0; width: 100%; box-sizing: border-box; padding: 9px; border: 0; border-bottom: 1px solid var(--card-border); background: transparent; color: var(--tx); font: inherit; }
+.kind-subtype-list { overflow: auto; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.kind-subtype-option { border: 0; border-radius: var(--radius-sm); padding: 8px 10px; text-align: left; background: transparent; color: var(--tx); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.kind-subtype-option:hover, .kind-subtype-option[aria-pressed="true"] { color: var(--p); background: var(--p-dim); }
+.kind-subtype-toggle:focus-visible, .kind-subtype-option:focus-visible, .kind-subtype-search:focus-visible { outline: 2px solid var(--p); outline-offset: -2px; }
+@media (min-width: 769px) {
+  html[data-app-page="history"][data-history-layout="left-right"] .kind-split > .filter-chip { flex: 1; width: auto; min-width: 0; border-radius: var(--radius-md) 0 0 var(--radius-md); }
+  html[data-app-page="history"][data-history-layout="left-right"] .kind-subtype-toggle { border-radius: 0 var(--radius-md) var(--radius-md) 0; border-color: transparent; border-left: 1px solid var(--card-border); }
+}

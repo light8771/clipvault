@@ -1,10 +1,13 @@
+import { registerHistoryLocate } from './history-locate.js';
+import { compositeCard, contentKindLabel, loadCompositeCards, stopCompositeCards } from './composite-content.js';
 import { app } from "./app-context.js";
 import { renderClipboardEventDetails } from './clipboard-event-details.js';
 import { clampHistoryPage } from './history-pagination.js';
-import { showHistoryLoadError } from './history-load-error.js';
+import { clearHistoryContent, showHistoryLoadError, showEmptyHistory } from './history-load-error.js';
 const t = window.clipvaultI18n.t;
 
 export function registerHistoryList() {
+  app.clearHistoryContent = clearHistoryContent;
   app.Q = document.getElementById('q');
   app.PAGESIZE = document.getElementById('pagesize');
   app.LIST = document.getElementById('list');
@@ -12,6 +15,7 @@ export function registerHistoryList() {
   app.RC = document.getElementById('rc');
   app.debounce = 0;
   app.currentKind = '';
+  app.currentSubtype = '';
   app.currentPage = 0;
   app.totalCount = 0;
   app.fullTotalCount = 0;
@@ -31,15 +35,7 @@ export function registerHistoryList() {
     arr.forEach(i => app.items.set(i.id, i));
     // BADGE and RC updated by updatePagination()
     if (!arr.length) {
-      app.LIST.innerHTML = `<div class="empty">
-        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-          <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
-          <rect x="9" y="3" width="6" height="4" rx="1"/>
-          <line x1="9" y1="12" x2="15" y2="12"/>
-          <line x1="9" y1="16" x2="13" y2="16"/>
-        </svg>
-        <span>${app.esc(t('history.empty'))}</span>
-      </div>`;
+      showEmptyHistory();
       return;
     }
     app.LIST.innerHTML = arr.map(it => {
@@ -47,7 +43,7 @@ export function registerHistoryList() {
       const kindKey = isEvent ? 'event' : (it.kind || 'text');
       const isNonText = app.isNonTextKind(kindKey);
       const kindClass = 'mkind mkind-' + kindKey;
-      const kindLabel = app.KIND_LABEL[kindKey] ? t(app.KIND_LABEL[kindKey]) : kindKey;
+      const kindLabel = contentKindLabel(it, kindKey);
       const fullTime = app.esc(new Date(it.createdAt).toLocaleString(window.clipvaultI18n.locale()));
       const starHTML = it.starred ? app.starOnHTML : app.starOffHTML;
       const starTitle = it.starred ? t('history.unstar') : t('history.kind_starred');
@@ -72,6 +68,8 @@ export function registerHistoryList() {
         bodyHTML = `<pre class="open sensitive-mask"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="u-inline-21"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${app.esc(t('history.sensitive_masked'))}</pre>`;
         charText = t('history.hidden_count');
         showView = true;
+      } else if (it.kind === 'composite') {
+        ({ bodyHTML, charText, showView } = compositeCard(it, kindLabel));
       } else if (isEvent) {
         bodyHTML = renderClipboardEventDetails(it, t, app.esc, { showSource, sourceDisplayName });
         charText = t('history.capture_event');
@@ -108,8 +106,7 @@ export function registerHistoryList() {
             ${sensHTML ? '<span class="msep">·</span>' + sensHTML : ''}
             <span class="msep">·</span>
             <span class="mtime" title="${fullTime}">${app.esc(app.relTime(it.createdAt))}</span>
-            <span class="msep">·</span>
-            <span class="mchars">${app.esc(charText)}</span>
+            ${charText ? '<span class="msep">·</span><span class="mchars">' + app.esc(charText) + '</span>' : ''}
             ${srcHTML}
           </div>
           <div class="card-acts">
@@ -124,11 +121,12 @@ export function registerHistoryList() {
         </div>
       </article>`;
     }).join('');
+    loadCompositeCards();
     arr.forEach(it => {
 	  if (it.recordType === 'content' && app.isNonTextKind(it.kind || 'text') && it.format !== 'CLIPVAULT_IMAGE_FILE') app.checkFiles(it.id);
       if (app.isManagedImage(it)) {
         const img = app.LIST.querySelector(`article[data-id="${it.id}"] .managed-image img`);
-        if (img) app.loadManagedImage(img, it.id);
+        if (img) app.loadManagedImage(img, it.id, false);
       }
     });
     // 实测放开未溢出的文本预览卡片（去掉渐隐与多余「查看」按钮）
@@ -146,44 +144,17 @@ export function registerHistoryList() {
       app.pendingLocateId = 0;
     }
   };
-  app.doLocate = async function doLocate(id) {
-    try {
-      const d = await app.fetch('/api/v1/items/position?id=' + id).then(r => r.json());
-      if (d.error) {
-        app.toast(d.error, 'err');
-        return;
-      }
-      const pageSize = parseInt(app.PAGESIZE.value) || 50;
-      app.pendingLocateId = id;
-      app.locateActive = true;
-      app.currentPage = Math.floor(d.position / pageSize);
-      app.Q.value = '';
-      clearTimeout(app.debounce);
-      app.currentKind = '';
-      app.currentGroupID = 0;
-      app.filterDateFrom = '';
-      app.filterDateTo = '';
-      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
-      document.querySelector('.filter-chip[data-kind=""]').classList.add('active');
-      const df = document.getElementById('dateFrom'), dt = document.getElementById('dateTo');
-      if (df) df.value = ''; if (dt) dt.value = '';
-      document.getElementById('clearDateBtn')?.classList.add('hidden');
-      await app.loadSourceExesForHistory('content');
-      await app.search();
-      app.locateActive = false;
-      clearTimeout(app.debounce);
-    } catch (_) {
-      app.toast(t('history.locate_failed'), 'err');
-    }
-  };
+  registerHistoryLocate();
   app.searchRevision = 0;
   app.searchController = null;
   app.resetSearch = function resetSearch() {
-    if (app.locateActive) return;
+    app.cancelLocate();
     app.currentPage = 0;
     app.search();
   };
-  app.search = async function search() {
+  app.search = async function search(options = {}) {
+    if (!options.locate) app.cancelLocate();
+    stopCompositeCards();
     const revision = ++app.searchRevision;
     if (app.searchController) app.searchController.abort();
     const controller = new AbortController();
@@ -206,6 +177,7 @@ export function registerHistoryList() {
 		p.set('record_type', 'event');
       } else if (app.currentKind && app.currentKind !== '__group__') {
         p.set('kind', app.currentKind);
+        if (app.currentSubtype) p.set('subtype', app.currentSubtype);
       }
       if (app.currentGroupID > 0) {
         p.set('group_id', app.currentGroupID);
@@ -228,7 +200,7 @@ export function registerHistoryList() {
       const validPage = clampHistoryPage(app.currentPage, total, pageSize);
       if (validPage !== app.currentPage) {
         app.currentPage = validPage;
-        await app.search();
+        await app.search(options);
         return;
       }
       app.totalCount = total;
@@ -327,7 +299,7 @@ export function registerHistoryList() {
         if (!app.currentSourceExes.length) return;
         app.currentSourceExes = [];
         app.renderSrcExeDropdown();
-        app.search();
+        app.resetSearch();
       });
     }
     if (list) {
@@ -341,7 +313,7 @@ export function registerHistoryList() {
           app.currentSourceExes = app.currentSourceExes.filter(n => n !== name);
         }
         app.renderSrcExeDropdown();
-        app.search();
+        app.resetSearch();
       });
     }
     const rsi = document.getElementById('cfg-recordSourceInfo');
@@ -374,6 +346,7 @@ export function registerHistoryList() {
   };
   // ── Events ────────────────────────────────────────────────
   app.Q.addEventListener('input', () => {
+    app.cancelLocate();
     clearTimeout(app.debounce);
     app.debounce = setTimeout(app.resetSearch, 180);
   });
@@ -462,13 +435,6 @@ export function registerHistoryList() {
     app.CLEAR_DATE.classList.add('hidden');
     app.resetSearch();
   });
-  app.TOG.addEventListener('click', async () => {
-    await app.fetch('/api/v1/runtime/pause', {
-      method: 'POST'
-    });
-    await app.refreshState();
-  });
-
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (document.getElementById('sourceAppsModal')?.classList.contains('hidden') === false) {

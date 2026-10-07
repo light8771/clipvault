@@ -21,18 +21,20 @@ const (
 
 // Content kinds. Event records do not have a content kind.
 const (
-	KindText    = "text"
-	KindImage   = "image"
-	KindVideo   = "video"
-	KindArchive = "archive"
-	KindOffice  = "office"
-	KindFiles   = "files"
+	KindText      = "text"
+	KindImage     = "image"
+	KindVideo     = "video"
+	KindArchive   = "archive"
+	KindOffice    = "office"
+	KindFiles     = "files"
+	KindComposite = "composite"
 )
 
 const (
 	FormatUnicodeText = "CF_UNICODETEXT"
 	FormatFileDrop    = "CF_HDROP"
 	FormatImageFile   = "CLIPVAULT_IMAGE_FILE"
+	FormatComposite   = "CLIPVAULT_COMPOSITE"
 )
 
 type ClipboardEventCode string
@@ -112,6 +114,8 @@ func ValidEventCode(code ClipboardEventCode) bool {
 
 func ValidContentKindFormat(kind, format string) bool {
 	switch kind {
+	case KindComposite:
+		return format == FormatComposite
 	case KindText:
 		return format == FormatUnicodeText
 	case KindImage:
@@ -127,6 +131,7 @@ func ValidContentKindFormat(kind, format string) bool {
 // owns Kind/Format/Text; event owns EventCode and capture fields. The store
 // derives the event fingerprint from those canonical fields.
 type ClipboardItem struct {
+	Content           *CompositeContent
 	CapturedAtMS      int64
 	RecordType        HistoryRecordType
 	Kind              string
@@ -151,6 +156,7 @@ type ClipboardItem struct {
 }
 
 type StoredItem struct {
+	Content              *CompositeContent
 	ID                   int64
 	CreatedAt            time.Time
 	RecordType           HistoryRecordType
@@ -184,6 +190,8 @@ type StoredItem struct {
 // are structural API concepts instead of being inferred from pseudo-formats.
 func (item StoredItem) MarshalJSON() ([]byte, error) {
 	type dto struct {
+		Content              *CompositeContent      `json:"content,omitempty"`
+		Kinds                []string               `json:"kinds"`
 		ID                   int64                  `json:"id"`
 		CreatedAt            time.Time              `json:"createdAt"`
 		RecordType           HistoryRecordType      `json:"recordType"`
@@ -241,6 +249,7 @@ func (item StoredItem) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(dto{
+		Content: item.Content, Kinds: item.ContentKinds(),
 		ID: item.ID, CreatedAt: item.CreatedAt, RecordType: item.RecordType,
 		Kind: item.Kind, Format: item.Format, Text: text, ByteLen: item.ByteLen,
 		CharLen: item.CharLen, ContentSHA256: item.ContentSHA256,
@@ -251,6 +260,8 @@ func (item StoredItem) MarshalJSON() ([]byte, error) {
 
 func (item *StoredItem) UnmarshalJSON(data []byte) error {
 	type dto struct {
+		Content              *CompositeContent      `json:"content"`
+		Kinds                []string               `json:"kinds"`
 		ID                   int64                  `json:"id"`
 		CreatedAt            time.Time              `json:"createdAt"`
 		RecordType           HistoryRecordType      `json:"recordType"`
@@ -301,7 +312,8 @@ func (item *StoredItem) UnmarshalJSON(data []byte) error {
 		return errors.New("invalid history record type")
 	}
 	*item = StoredItem{
-		ID: decoded.ID, CreatedAt: decoded.CreatedAt, RecordType: decoded.RecordType,
+		Content: decoded.Content,
+		ID:      decoded.ID, CreatedAt: decoded.CreatedAt, RecordType: decoded.RecordType,
 		Kind: decoded.Kind, Format: decoded.Format, ByteLen: decoded.ByteLen, CharLen: decoded.CharLen,
 		ContentSHA256: decoded.ContentSHA256, ConsecutiveDuplicate: *decoded.ConsecutiveDuplicate,
 		MetaJSON: decoded.MetaJSON,
@@ -340,6 +352,7 @@ type SearchOptions struct {
 	StarredOnly               bool
 	HideConsecutiveDuplicates bool
 	Kind                      string
+	Subtype                   string
 	RecordType                HistoryRecordType
 	IncludeAllRecords         bool
 	CreatedFromMS             int64

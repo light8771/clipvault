@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"time"
+
+	"clipboard_ext/internal/clipvault/domain"
 )
 
 var clipboardCaptureSchedule = [...]time.Duration{0, 20 * time.Millisecond, 80 * time.Millisecond, 200 * time.Millisecond, 600 * time.Millisecond}
@@ -60,8 +62,8 @@ func captureByteFormats(ids []uint32, available func(uint32) bool, read func(uin
 }
 
 // captureOpenedClipboardAccess performs only operations that require an open
-// clipboard. File drops are cheap to resolve and can stop the acquisition
-// early. Potentially expensive text decoding, HTML/RTF parsing, PNG validation,
+// clipboard. All supported representations are copied in one acquisition.
+// Potentially expensive text decoding, HTML/RTF parsing, PNG validation,
 // DIB conversion and PNG encoding are represented by closures over copied data
 // and run only after CloseClipboard.
 func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) openedClipboardAccess {
@@ -84,9 +86,6 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		}
 		return newFileDropSnapshot(fileDropPaths, fileDropTotal)
 	}
-	if len(fileDropPaths) > 0 && fileDropErr == nil {
-		return access
-	}
 
 	var unicodeRaw []byte
 	var unicodeErr error
@@ -99,7 +98,7 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		}
 		return decodeCapturedUnicodeText(cfg, unicodeRaw)
 	}
-	if len(unicodeRaw) > 0 || isTerminalClipboardCandidateError(unicodeErr) {
+	if isTerminalClipboardCandidateError(unicodeErr) {
 		return access
 	}
 
@@ -109,6 +108,52 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		textIDs = append(textIDs, candidate.id)
 	}
 	textValues := captureByteFormats(textIDs, available, readClipboardTextBytes)
+	richRaw := map[string][]byte{}
+	var richIssues []domain.ContentIssue
+	if isVirtualFileSet(formats) {
+		richIssues = append(richIssues, domain.ContentIssue{Format: "FileContents", Reason: "virtual_files_unsupported"})
+	}
+	for _, candidate := range textCandidates {
+		if candidate.name == "CF_TEXT" || !available(candidate.id) {
+			continue
+		}
+		v := textValues[candidate.id]
+		if v.err != nil {
+			richIssues = append(richIssues, domain.ContentIssue{Format: candidate.name, Reason: "data_unavailable"})
+		} else {
+			richRaw[candidate.name] = v.raw
+		}
+	}
+	for _, name := range []string{"WeChat_RichEdit_Format", "QQ_Unicode_RichEdit_Format"} {
+		id := registerClipboardFormat(name)
+		if !available(id) {
+			continue
+		}
+		raw, err := readClipboardTextBytes(id)
+		if err != nil {
+			richIssues = append(richIssues, domain.ContentIssue{Format: name, Reason: "data_unavailable"})
+		} else {
+			richRaw[name] = raw
+		}
+	}
+	access.readComposite = func(cfg Config, primary *ClipboardSnapshot) (*ClipboardSnapshot, error) {
+		var img *ClipboardSnapshot
+		if primary != nil && primary.Format == domain.FormatFileDrop {
+			if text, err := decodeCapturedUnicodeText(cfg, unicodeRaw); err == nil && text != nil && text.Text != primary.Text {
+				richRaw[compositeText] = []byte(text.Text)
+			}
+		}
+		if primary != nil && primary.Format == domain.FormatImageFile {
+			img = primary
+		} else if access.readImage != nil {
+			var imageErr error
+			img, _, imageErr = access.readImage(cfg)
+			if imageErr != nil {
+				richIssues = append(richIssues, domain.ContentIssue{Format: "image/png", Reason: "decode_failed"})
+			}
+		}
+		return buildCompositeSnapshot(cfg, primary, img, richRaw, richIssues, readCompositeImage)
+	}
 	access.readTextFallback = func() (*ClipboardSnapshot, bool, error) {
 		return readClipboardTextFallbackWith(textCandidates, available, capturedByteReader(textValues))
 	}
@@ -235,4 +280,18 @@ func decodeCapturedUnicodeText(cfg Config, raw []byte) (*ClipboardSnapshot, erro
 
 func isTerminalClipboardCandidateError(err error) bool {
 	return errors.Is(err, ErrTextLimitExceeded) || errors.Is(err, ErrImageLimitExceeded)
+}
+
+func readOpenedClipboardWith(cfg Config, access openedClipboardAccess) (*ClipboardSnapshot, error) {
+	primary, err := readPrimaryClipboardWith(cfg, access)
+	if access.readComposite != nil && !isTerminalClipboardCandidateError(err) {
+		composite, compositeErr := access.readComposite(cfg, primary)
+		if compositeErr != nil {
+			return nil, compositeErr
+		}
+		if composite != nil {
+			return composite, nil
+		}
+	}
+	return primary, err
 }

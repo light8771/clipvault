@@ -633,7 +633,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellStr(xlsxRecordsSheet, "Y2", "unexpected"); err != nil {
+	if err := book.SetCellStr(xlsxRecordsSheet, "Z2", "unexpected"); err != nil {
 		t.Fatal(err)
 	}
 	extraColumnData, err := book.WriteToBuffer()
@@ -651,7 +651,7 @@ func TestXLSXRejectsFormulaAndCellOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := book.SetCellFormula(xlsxRecordsSheet, "Y2", `=""`); err != nil {
+	if err := book.SetCellFormula(xlsxRecordsSheet, "Z2", `=""`); err != nil {
 		t.Fatal(err)
 	}
 	blankFormulaData, err := book.WriteToBuffer()

@@ -47,3 +47,17 @@ test('download remains pending until the full response body arrives and errors n
   assert.equal(clicks, 1);
   assert.equal(errors.length, 1);
 });
+
+test('begin moves focus off a control before disabling it and finish restores disabled state', () => {
+  const control = {disabled: false};
+  const root = {querySelectorAll: () => [control], setAttribute() {}, removeAttribute() {}, appendChild() {},
+    focus() {assert.equal(control.disabled, false); document.activeElement = this;}};
+  globalThis.document = {activeElement: control, createElement: () => ({setAttribute() {}})};
+  const operation = createOperationState(root);
+  operation.begin('Uploading');
+  assert.equal(root.tabIndex, -1);
+  assert.equal(document.activeElement, root);
+  assert.equal(control.disabled, true);
+  operation.finish();
+  assert.equal(control.disabled, false);
+});

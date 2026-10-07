@@ -210,6 +210,7 @@ export function registerGroups() {
     app.currentGroupID = app.currentGroupID === id ? 0 : id;
     const selectedGroupID = app.currentGroupID;
     app.currentKind = '__group__';
+    app.resetSubtypeFilter?.();
     document.querySelectorAll('.filter-chip').forEach(function (chip) {
       chip.classList.remove('active');
     });

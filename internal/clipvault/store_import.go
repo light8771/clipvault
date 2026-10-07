@@ -112,8 +112,8 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		}
 
 		var sb strings.Builder
-		sb.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution) VALUES `)
-		args := make([]any, 0, len(batch)*23)
+		sb.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution, content_json, content_types) VALUES `)
+		args := make([]any, 0, len(batch)*25)
 		for j, item := range batch {
 			item, err = rewriteImportedImageItem(item, prepared.storedPaths)
 			if err != nil {
@@ -122,7 +122,11 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			if j > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			contentTypes, err := historyContentTypesJSON(item.Format, item.Text, item.Content)
+			if err != nil {
+				return err
+			}
 			eventFormats := encodeClipboardFormats(item.EventFormats)
 			var eventCode, eventFingerprint any
 			if item.RecordType == domain.HistoryRecordEvent {
@@ -138,7 +142,7 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 				item.ByteLen, item.CharLen, item.ContentSHA256, false, item.MetaJSON,
 				item.Starred, item.Sensitive, eventCode, eventFingerprint,
 				item.CaptureSequence, item.CaptureStage, item.CaptureAttempts, eventFormats, item.ErrorCategory,
-				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution,
+				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution, compositeJSONValue(item.Content), contentTypes,
 			)
 		}
 		if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
@@ -299,7 +303,13 @@ func validateStoredHistoryItem(item StoredItem) error {
 	case domain.HistoryRecordContent:
 		validHash := item.ContentSHA256 != nil && validContentSHA256(*item.ContentSHA256)
 		validLengths := item.ByteLen == len([]byte(item.Text)) && item.CharLen == textRuneLen(item.Text)
-		if item.Format == domain.FormatImageFile {
+		if item.Format == domain.FormatComposite {
+			text, size, err := validateComposite(item.Content)
+			validLengths = err == nil && text == item.Text && size == item.ByteLen && textRuneLen(text) == item.CharLen
+			validHash = validHash && err == nil && compositeFingerprint(item.Content) == *item.ContentSHA256
+		} else if item.Content != nil {
+			return fmt.Errorf("unexpected composite package on item %d", item.ID)
+		} else if item.Format == domain.FormatImageFile {
 			validLengths = item.ByteLen > 0 && item.CharLen == 0 && validateManagedImageStoredPath(item.Text) == nil
 		} else if validHash {
 			validHash = *item.ContentSHA256 == hashString(item.Text)
@@ -313,6 +323,9 @@ func validateStoredHistoryItem(item StoredItem) error {
 			return fmt.Errorf("invalid item %d: inconsistent content record", item.ID)
 		}
 	case domain.HistoryRecordEvent:
+		if item.Content != nil {
+			return errors.New("event cannot contain a composite package")
+		}
 		expectedFingerprint := buildEventFingerprintFromInfo(item.EventCode, item.EventFormats,
 			item.CaptureStage, item.ErrorCategory, item.SourceExeName)
 		if item.ContentSHA256 != nil || item.ConsecutiveDuplicate || item.Text != "" || item.Kind != "" || item.Format != "" ||

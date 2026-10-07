@@ -21,9 +21,27 @@ import (
 )
 
 func extractCFHTMLText(raw []byte) (string, error) {
+	fragment, err := extractCFHTMLFragment(raw)
+	if err != nil {
+		return "", err
+	}
+	doc, err := parseCompositeHTMLFragment(fragment)
+	if err != nil {
+		return "", err
+	}
+	var out strings.Builder
+	appendHTMLText(&out, doc)
+	text := normalizeExtractedText(out.String())
+	if text == "" {
+		return "", errors.New("HTML clipboard fragment contains no text")
+	}
+	return text, nil
+}
+
+func extractCFHTMLFragment(raw []byte) ([]byte, error) {
 	raw = bytes.TrimRight(raw, "\x00")
 	if len(raw) == 0 {
-		return "", errors.New("empty HTML clipboard payload")
+		return nil, errors.New("empty HTML clipboard payload")
 	}
 	var fragment []byte
 	start, hasStart := cfHTMLOffset(raw, "StartFragment")
@@ -47,7 +65,7 @@ func extractCFHTMLText(raw []byte) (string, error) {
 		if hasStartHTML && hasEndHTML && startHTML >= 0 && endHTML >= startHTML && endHTML <= len(raw) {
 			fragment = raw[startHTML:endHTML]
 		} else if hasCFHTMLHeader(raw) {
-			return "", errors.New("HTML clipboard payload has invalid fragment offsets")
+			return nil, errors.New("HTML clipboard payload has invalid fragment offsets")
 		} else {
 			// Some applications publish a plain HTML fragment under the registered
 			// format without a CF_HTML header. Keep this narrow interoperability
@@ -55,17 +73,7 @@ func extractCFHTMLText(raw []byte) (string, error) {
 			fragment = raw
 		}
 	}
-	doc, err := html.Parse(bytes.NewReader(bytes.TrimPrefix(fragment, []byte("\xef\xbb\xbf"))))
-	if err != nil {
-		return "", fmt.Errorf("parse HTML clipboard fragment: %w", err)
-	}
-	var out strings.Builder
-	appendHTMLText(&out, doc)
-	text := normalizeExtractedText(out.String())
-	if text == "" {
-		return "", errors.New("HTML clipboard fragment contains no text")
-	}
-	return text, nil
+	return bytes.TrimPrefix(fragment, []byte("\xef\xbb\xbf")), nil
 }
 
 func hasCFHTMLHeader(raw []byte) bool {
@@ -106,7 +114,7 @@ var htmlBlockElements = map[string]bool{
 func appendHTMLText(out *strings.Builder, node *html.Node) {
 	if node.Type == html.ElementNode {
 		switch strings.ToLower(node.Data) {
-		case "script", "style", "noscript", "template", "svg", "canvas":
+		case "head", "script", "style", "noscript", "template", "svg", "canvas":
 			return
 		}
 		if htmlBlockElements[strings.ToLower(node.Data)] {
@@ -118,6 +126,9 @@ func appendHTMLText(out *strings.Builder, node *html.Node) {
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		appendHTMLText(out, child)
+	}
+	if node.Type == html.ElementNode && (node.Data == "td" || node.Data == "th") {
+		out.WriteByte('\t')
 	}
 	if node.Type == html.ElementNode && htmlBlockElements[strings.ToLower(node.Data)] {
 		appendTextSeparator(out, '\n')
@@ -149,6 +160,22 @@ type rtfFontEncoding struct {
 }
 
 func extractRTFText(raw []byte) (string, error) {
+	text, err := parseRTFText(raw)
+	if err == nil && text == "" {
+		return "", errors.New("RTF clipboard payload contains no text")
+	}
+	return text, err
+}
+
+// Rich-format validation permits image-only documents. The plain-text
+// fallback above still requires actual text before claiming a candidate.
+func parseRTFText(raw []byte) (string, error) {
+	return parseRTFTextWithControls(raw, nil)
+}
+
+// The same parser drives text extraction and representation classification;
+// escaped backslashes and binary payload bytes are never control words.
+func parseRTFTextWithControls(raw []byte, control func(string, []byte)) (string, error) {
 	raw = bytes.TrimRight(raw, "\x00")
 	if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{\\rtf")) {
 		return "", errors.New("invalid RTF clipboard payload")
@@ -322,6 +349,9 @@ func extractRTFText(raw []byte) (string, error) {
 			if i < len(raw) && raw[i] == ' ' {
 				i++
 			}
+			if control != nil {
+				control(word, raw[i:])
+			}
 			if word == "fonttbl" {
 				state.skip = true
 				state.fontTable = true
@@ -451,9 +481,6 @@ func extractRTFText(raw []byte) (string, error) {
 		return "", errors.New("unbalanced RTF group")
 	}
 	text := normalizeExtractedText(out.String())
-	if text == "" {
-		return "", errors.New("RTF clipboard payload contains no text")
-	}
 	return text, nil
 }
 

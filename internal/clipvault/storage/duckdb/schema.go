@@ -1,23 +1,10 @@
 package duckdb
 
-const SchemaVersion = "11"
+const SchemaVersion = "13"
 
-// SchemaIdentity pins the exact supported schema shape. A database must match
-// both the version and this identity; every other shape is rejected.
-//
-// v7（外部只读 + MCP）：api_tokens 带 channel（http|mcp 通道隔离）与
-// allow_sensitive（敏感数据按 Token 显式授权，默认 false）；api_audit_log
-// 带 channel、resource_uri、sensitive_accessed 与请求摘要/请求体审计列。
-//
-// v8（多语言 i18n）：新增 i18n_keys（官方语言 Schema）、i18n_languages
-// （官方与用户自定义语言）、i18n_translations（各语言对每个 Key 的译文）。
-//
-// v10（采集事件 + 正文连续重复）：正文与采集事件以 record_type 严格分型；
-// consecutive_duplicate 只属于正文，事件行由 CHECK 强制为 false。
-//
-// v11（稳定事件指纹）：注册剪贴板格式按规范化名称参与指纹，不再持久化
-// Windows 会话内动态分配的格式 ID 语义。
-const SchemaIdentity = "clipvault.duckdb.v11.stable-event-fingerprints"
+// SchemaIdentity pins the current schema. Content types are a derived search
+// projection generated uniformly for captures and imports. Other schemas are rejected.
+const SchemaIdentity = "clipvault.duckdb.v13.content-types"
 
 var SchemaStatements = []string{
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
@@ -33,6 +20,8 @@ var SchemaStatements = []string{
 		content_sha256 VARCHAR,
 		consecutive_duplicate BOOLEAN NOT NULL DEFAULT false,
 		meta_json JSON NOT NULL,
+		content_json JSON,
+		content_types JSON NOT NULL DEFAULT '[]' CHECK (json_type(content_types) = 'ARRAY'),
 		starred BOOLEAN NOT NULL DEFAULT false,
 		sensitive BOOLEAN NOT NULL DEFAULT false,
 		event_code VARCHAR,
@@ -51,9 +40,11 @@ var SchemaStatements = []string{
 		CHECK (byte_len >= 0 AND char_len >= 0 AND capture_attempts >= 0),
 		CHECK (capture_sequence <= 4294967295),
 		CHECK (json_type(event_formats) = 'ARRAY'),
+		CHECK ((kind = 'composite') = (content_json IS NOT NULL)),
 		CHECK (
 			(record_type = 'content'
 				AND ((kind = 'text' AND format = 'CF_UNICODETEXT')
+					OR (kind = 'composite' AND format = 'CLIPVAULT_COMPOSITE')
 					OR (kind = 'image' AND format = 'CF_HDROP')
 					OR (kind = 'image' AND format = 'CLIPVAULT_IMAGE_FILE' AND byte_len > 0 AND char_len = 0)
 					OR (kind IN ('video', 'archive', 'office', 'files') AND format = 'CF_HDROP'))

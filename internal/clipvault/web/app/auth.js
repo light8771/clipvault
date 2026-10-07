@@ -21,16 +21,34 @@ export function registerAuth() {
   app.SECONDARY_FORM = document.getElementById('secondaryForm');
   app.SECONDARY_INPUT = document.getElementById('secondaryPassword');
   app.SECONDARY_ERR = document.getElementById('secondaryErr');
+  const lockOperation = createOperationState(app.LOCK_FORM);
   const secondaryOperation = createOperationState(app.SECONDARY_FORM);
+  let lockGeneration = 0;
   let secondaryGeneration = 0;
+  let authRevision = 0;
+  function setSecondaryAuth(authorized) {
+    const revoked = app.authState.secondaryAuthed && !authorized;
+    app.authState.secondaryAuthed = authorized;
+    if (revoked) app.invalidateSourceExes?.();
+    app.appStore.update({ secondaryAuthenticated: authorized });
+  }
+  async function readSessionStatus() {
+    const response = await app.fetch('/api/v1/session');
+    if (!response.ok) throw new Error('Session status request failed');
+    const status = await response.json();
+    if (!status || ['hasLockPassword', 'hasSecondaryPassword', 'authenticated', 'secondaryAuthed']
+      .some(key => typeof status[key] !== 'boolean')) throw new Error('Invalid session status');
+    return status;
+  }
   app.checkAuthStatus = async function checkAuthStatus() {
+    const revision = ++authRevision;
     try {
-      const d = await app.fetch('/api/v1/session').then(r => r.json());
+      const d = await readSessionStatus();
+      if (revision !== authRevision) return false;
+      if (app.authState.secondaryAuthed && !d.secondaryAuthed) app.clearHistoryContent?.();
+      setSecondaryAuth(d.secondaryAuthed);
       app.authState = d;
-      app.appStore.update({
-        authenticated: d.authenticated,
-        secondaryAuthenticated: d.secondaryAuthed
-      });
+      app.appStore.update({ authenticated: d.authenticated });
       if (d.hasLockPassword && !d.authenticated) {
         app.showLockScreen();
         return false;
@@ -42,6 +60,13 @@ export function registerAuth() {
     }
   };
   app.showLockScreen = function showLockScreen() {
+    lockGeneration++;
+    lockOperation.finish();
+    app.closeSecondaryModal?.();
+    app.authState.authenticated = false;
+    app.appStore.update({ authenticated: false });
+    app.expireSecondaryAuth();
+    app.clearHistoryContent?.();
     app.LOCK_OVERLAY.classList.add('show');
     app.LOCK_INPUT.value = '';
     app.LOCK_ERR.classList.add('hidden');
@@ -52,8 +77,12 @@ export function registerAuth() {
   };
   app.LOCK_FORM.addEventListener('submit', async e => {
     e.preventDefault();
+    if (lockOperation.busy) return;
+    const generation = ++lockGeneration;
+    authRevision++;
     const pwd = app.LOCK_INPUT.value;
     app.LOCK_ERR.classList.add('hidden');
+    lockOperation.begin(t('auth.verifying'));
     try {
       const res = await app.fetch('/api/v1/session/login', {
         method: 'POST',
@@ -65,7 +94,10 @@ export function registerAuth() {
         })
       });
       const d = await res.json();
-      if (d.ok) {
+      if (generation !== lockGeneration) return;
+      lockOperation.finish();
+      if (res.ok && d.ok) {
+        authRevision++;
         app.hideLockScreen();
         app.authState.authenticated = true;
         app.appStore.update({
@@ -79,8 +111,11 @@ export function registerAuth() {
         app.LOCK_INPUT.focus();
       }
     } catch (_) {
+      if (generation !== lockGeneration) return;
       app.LOCK_ERR.textContent = t('common.network_error');
       app.LOCK_ERR.classList.remove('hidden');
+    } finally {
+      if (generation === lockGeneration) lockOperation.finish();
     }
   });
 
@@ -111,11 +146,10 @@ export function registerAuth() {
     return app.fetch(url, opts);
   };
   app.expireSecondaryAuth = function expireSecondaryAuth() {
-    app.authState.secondaryAuthed = false;
+    authRevision++;
+    app.resetSubtypeFilter?.();
+    setSecondaryAuth(false);
     app.pendingSecondaryToken = null;
-    app.appStore.update({
-      secondaryAuthenticated: false
-    });
   };
   app.protectedFetch = function protectedFetch(url, init, options) {
     const fresh = options?.fresh === true;
@@ -135,14 +169,15 @@ export function registerAuth() {
     if (app.secondaryAuthPromise) return app.secondaryAuthPromise;
     const run = (async () => {
       if (!forceFresh) {
+        const revision = ++authRevision;
         try {
-          const st = await app.fetch('/api/v1/session').then(r => r.json());
-          app.authState.secondaryAuthed = st.secondaryAuthed;
-          app.appStore.update({
-            secondaryAuthenticated: st.secondaryAuthed
-          });
+          const st = await readSessionStatus();
+          if (revision !== authRevision) return false;
+          setSecondaryAuth(st.secondaryAuthed);
           if (st.secondaryAuthed) return true;
-        } catch (_) {}
+        } catch (_) {
+          if (revision !== authRevision) return false;
+        }
       }
       return new Promise(resolve => {
         secondaryGeneration++;
@@ -192,12 +227,10 @@ export function registerAuth() {
       if (generation !== secondaryGeneration) return;
       secondaryOperation.finish();
       if (res.ok && d.ok) {
+        authRevision++;
         app.SECONDARY_INPUT.value = '';
         app.SECONDARY_MODAL.classList.add('hidden');
-        app.authState.secondaryAuthed = d.secondaryCached === true;
-        app.appStore.update({
-          secondaryAuthenticated: app.authState.secondaryAuthed
-        });
+        setSecondaryAuth(d.secondaryCached === true);
         app.pendingSecondaryToken = d.secondaryToken || null;
         app.toast(d.message || t('auth.secondary_ok'));
         if (app.secondaryResolve) {

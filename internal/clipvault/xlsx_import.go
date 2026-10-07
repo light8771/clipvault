@@ -277,6 +277,12 @@ func readXLSXRows(book *excelize.File, sheet string, header []string) ([][]strin
 }
 
 func parseXLSXItem(values []string) (StoredItem, error) {
+	var content *domain.CompositeContent
+	if values[24] != "" {
+		if err := json.Unmarshal([]byte(values[24]), &content); err != nil {
+			return StoredItem{}, fmt.Errorf("content: %w", err)
+		}
+	}
 	id, err := parseXLSXPositiveInt(values[0])
 	if err != nil {
 		return StoredItem{}, fmt.Errorf("id: %w", err)
@@ -327,7 +333,8 @@ func parseXLSXItem(values []string) (StoredItem, error) {
 		return StoredItem{}, fmt.Errorf("byteLen and charLen exceed the platform integer limit")
 	}
 	return StoredItem{
-		ID: id, CreatedAt: createdAt, RecordType: domain.HistoryRecordType(values[2]), Kind: values[3], Format: values[4], Text: values[5],
+		Content: content,
+		ID:      id, CreatedAt: createdAt, RecordType: domain.HistoryRecordType(values[2]), Kind: values[3], Format: values[4], Text: values[5],
 		ByteLen: int(byteLen), CharLen: int(charLen), ContentSHA256: contentHash,
 		ConsecutiveDuplicate: consecutiveDuplicate, MetaJSON: values[10],
 		Starred: starred, Sensitive: sensitive,

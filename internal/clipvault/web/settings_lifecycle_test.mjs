@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+globalThis.window = {fetch() {}, location: {origin:'http://localhost'}, addEventListener() {}, clipvaultI18n:{t:key=>key}};
+const handlers = new Map();
+globalThis.document = {visibilityState:'visible', getElementById:()=>({addEventListener(){}}), addEventListener:(event,fn)=>handlers.set(event,fn)};
+const {app} = await import('./app/app-context.js');
+const {registerSettingsLifecycle} = await import('./app/settings-lifecycle.js');
+test('locked settings page stops visibility refresh before querying license state', async () => {
+ app.loadPublicAppearance = async () => {};
+ app.checkAuthStatus = async () => false;
+ app.loadLicenseStatus = () => assert.fail('locked settings refreshed license');
+ registerSettingsLifecycle();
+ await new Promise(setImmediate);
+ await handlers.get('visibilitychange')();
+ let refreshed = false;
+ app.checkAuthStatus = async () => true;
+ app.loadLicenseStatus = async () => {refreshed = true;};
+ await handlers.get('visibilitychange')();
+ assert.equal(refreshed, true);
+});

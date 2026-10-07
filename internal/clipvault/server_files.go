@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -230,15 +231,26 @@ func (s *SearchServer) resolveRecordedFile(r *http.Request) (string, bool, error
 			return "", false, ErrFreeWindowOutside
 		}
 	}
-	if item.Format != "CF_HDROP" || !isStoredFileKind(item.Kind) {
-		return "", false, fmt.Errorf("item is not a file record")
-	}
-	lines := strings.Split(strings.ReplaceAll(item.Text, "\r\n", "\n"), "\n")
-	paths := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			paths = append(paths, line)
+	var paths []string
+	if item.RecordType == domain.HistoryRecordContent {
+		switch {
+		case item.Format == domain.FormatFileDrop && isStoredFileKind(item.Kind):
+			paths = splitNonEmptyLines(item.Text)
+		case item.Format == domain.FormatComposite && item.Content != nil:
+			// Search text combines alternative representations and is not a file
+			// list. Only the stored file representation can grant file access.
+			for _, repr := range item.Content.Representations {
+				if repr.Format == compositeFiles {
+					if err := json.Unmarshal(repr.Data, &paths); err != nil {
+						return "", false, fmt.Errorf("%w: decode file representation: %v", ErrFileRefLookup, err)
+					}
+					break
+				}
+			}
 		}
+	}
+	if len(paths) == 0 {
+		return "", false, fmt.Errorf("item is not a file record")
 	}
 	if fileIndex >= len(paths) {
 		return "", false, fmt.Errorf("file_index out of range")

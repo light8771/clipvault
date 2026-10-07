@@ -11723,5 +11723,46 @@
     "Description": "分组列表加载失败",
     "ZhCN": "分组加载失败，请重试",
     "EnUS": "Could not load groups. Please try again."
-  }
+  },
+  {
+    "Key": "history.kind_composite",
+    "Module": "history",
+    "Description": "复合内容类型",
+    "ZhCN": "复合内容",
+    "EnUS": "Composite content"
+  },
+  {
+    "Key": "history.kind_table",
+    "Module": "history",
+    "Description": "表格内容类型",
+    "ZhCN": "表格",
+    "EnUS": "Table"
+  },
+  {
+    "Key": "history.kind_link",
+    "Module": "history",
+    "Description": "链接内容类型",
+    "ZhCN": "链接",
+    "EnUS": "Link"
+  },
+  {
+    "Key": "history.composite_incomplete",
+    "Module": "history",
+    "Description": "复合内容部分保存提示",
+    "ZhCN": "部分内容未能保存，恢复时可能不完整",
+    "EnUS": "Some content could not be saved; restoration may be incomplete"
+  },
+  {
+    "Key": "history.composite_preview_unavailable",
+    "Module": "history",
+    "Description": "完整内容已保存但无法预览",
+    "ZhCN": "此内容暂无法预览，可复制到支持的应用中查看",
+    "EnUS": "Preview is unavailable. Copy this content into a supported app to view it."
+  },
+{"Key":"history.subtype_plain","EnUS":"Plain text","ZhCN":"纯文本","Module":"history","Description":"纯文本二级分类"},
+{"Key":"history.subtype_rich","EnUS":"Rich text","ZhCN":"富文本","Module":"history","Description":"富文本二级分类"},
+{"Key":"history.subtype_embedded","EnUS":"Embedded rich-text image","ZhCN":"富文本内嵌图片","Module":"history","Description":"富文本内嵌图片分类"},
+{"Key":"history.subtype_no_extension","EnUS":"No extension","ZhCN":"无扩展名","Module":"history","Description":"无扩展名文件分类"},
+{"Key":"history.subtype_search","EnUS":"Search types","ZhCN":"搜索类型","Module":"history","Description":"搜索二级分类"},
+{"Key":"history.subtype_choose","EnUS":"Choose a subtype of {kind}","ZhCN":"选择{kind}的二级类型","Module":"history","Description":"展开类型二级筛选"}
 ]

@@ -2,11 +2,28 @@ package duckdb
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestOpenEncryptedDoesNotClassifyCorruptionAsWrongKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken.duckdb")
+	if err := os.WriteFile(path, []byte("not a database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenEncrypted(path, strings.Repeat("12", 32))
+	if db != nil {
+		db.Close()
+		t.Fatal("corrupt database unexpectedly opened")
+	}
+	if err == nil || errors.Is(err, ErrEncryptionKeyMismatch) {
+		t.Fatalf("corruption misclassified: %v", err)
+	}
+}
 
 func TestOpenEncryptedVerifiesKeyAndReleasesFailedOpen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault's data.duckdb")
@@ -27,8 +44,8 @@ func TestOpenEncryptedVerifiesKeyAndReleasesFailedOpen(t *testing.T) {
 		_ = badDB.Close()
 		t.Fatal("failed open returned a database handle")
 	}
-	if err == nil {
-		t.Fatal("wrong key must fail during open")
+	if !errors.Is(err, ErrEncryptionKeyMismatch) {
+		t.Fatalf("wrong key must return a recoverable key error: %v", err)
 	}
 	db, err = OpenEncrypted(path, key)
 	if err != nil {

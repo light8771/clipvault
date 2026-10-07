@@ -6,7 +6,7 @@ if (recoveryToken) history.replaceState(null, '', location.pathname);
 // 维护（键名对齐 i18n_seed_* 的 recovery_page.* 词条）。
 var RECOVERY_TEXT = {
   'zh-CN': {
-    title: '恢复数据 · ClipVault', local_status: '仅在本机处理',
+    title: '恢复数据 · ClipVault', title_suffix: '恢复数据', local_status: '仅在本机处理',
     page_title: '恢复剪贴板数据库',
     page_lead: '当前 Windows 凭据无法解锁数据库。使用之前设置的恢复密码重新绑定，不会改变已有数据。',
     steps_aria: '恢复流程', steps_label: '恢复流程',
@@ -35,7 +35,7 @@ var RECOVERY_TEXT = {
     finish_note: '操作完成后，可以关闭此页面并返回 ClipVault。若创建了新数据库，之后可在“设置 → 存储与诊断 → 隔离的旧数据库”中切回查看旧数据。'
   },
   'en-US': {
-    title: 'Recover Data · ClipVault', local_status: 'Processed locally only',
+    title: 'Recover Data · ClipVault', title_suffix: 'Recover Data', local_status: 'Processed locally only',
     page_title: 'Recover the Clipboard Database',
     page_lead: 'The current Windows credentials cannot unlock the database. Rebind with the recovery password you set earlier; existing data stays unchanged.',
     steps_aria: 'Recovery steps', steps_label: 'Recovery Steps',
@@ -100,11 +100,11 @@ function applyRecoveryAppearance(appearance) {
   if (Number(brand.logoVersion) > 0) {
     logo.src = '/appearance/logo?v=' + encodeURIComponent(brand.logoVersion);
     logo.hidden = false;
-    defaultLogo.hidden = true;
+    defaultLogo.setAttribute('hidden', '');
   } else {
     logo.removeAttribute('src');
     logo.hidden = true;
-    defaultLogo.hidden = false;
+    defaultLogo.removeAttribute('hidden');
   }
   var favicon = document.getElementById('appearanceFavicon');
   favicon.href = Number(brand.faviconVersion) > 0

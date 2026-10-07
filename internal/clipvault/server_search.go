@@ -26,6 +26,11 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	secondaryReadable := !s.auth.HasSecondaryPassword(cfg) || s.auth.HasSecondaryAuth(token)
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	kind := r.URL.Query().Get("kind")
+	subtype := r.URL.Query().Get("subtype")
+	if subtype != "" && !validHistorySubtype(kind, subtype) {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid_subtype", s.i18nT("api.error.invalid_search_parameters", nil), nil)
+		return
+	}
 	recordType, includeAllRecords, err := parseRecordTypeFilter(r.URL.Query().Get("record_type"))
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "invalid_record_type", s.i18nT("api.error.invalid_search_parameters", nil), err)
@@ -53,6 +58,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Offset:            offset,
 		StarredOnly:       starredOnly,
 		Kind:              kind,
+		Subtype:           subtype,
 		RecordType:        recordType,
 		IncludeAllRecords: includeAllRecords,
 		CreatedFromMS:     createdFromMS,
@@ -88,6 +94,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 			// 窗口、路径、字数、哈希、重复标记——全部清除：它们是
 			// 旁信道（例如"来自密码管理器的 24 字符记录"本身即泄露）。
 			items[i].Text = s.i18nT("api.error.sensitive_placeholder", nil)
+			items[i].Content = nil
 			items[i].MetaJSON = ""
 			items[i].ContentSHA256 = nil
 			items[i].Format = ""
@@ -101,6 +108,9 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 			items[i].EventFingerprint = ""
 			items[i].EventFormats = nil
 		}
+	}
+	for i := range items {
+		items[i].Content = items[i].Content.Summary()
 	}
 	resp["items"] = items
 	resp["total"] = total
@@ -314,6 +324,9 @@ func (s *SearchServer) handleSensitiveSearch(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, err)
 		return
 	}
+	for i := range items {
+		items[i].Content = items[i].Content.Summary()
+	}
 	s.writeJSON(w, map[string]any{"items": items, "total": total})
 }
 
@@ -347,6 +360,7 @@ func (s *SearchServer) handleSensitiveItem(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	item.Content = item.Content.Summary()
 	s.writeJSON(w, map[string]any{"item": item})
 }
 

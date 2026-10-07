@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -16,6 +17,13 @@ func formatSuggestion(it StoredItem) string {
 		kind = "text"
 	}
 	displayKind := quickSearchKindLabel(kind)
+	if it.Content != nil {
+		labels := []string{}
+		for _, k := range it.ContentKinds() {
+			labels = append(labels, templateT("history.kind_"+k, nil))
+		}
+		displayKind = strings.Join(labels, " + ")
+	}
 	if it.RecordType == domain.HistoryRecordContent && it.ConsecutiveDuplicate {
 		displayKind += "·" + templateT("history.consecutive_duplicate_tag", nil)
 	}
@@ -100,7 +108,15 @@ func (sw *searchWindow) restoreSelection(paste bool) {
 }
 
 func (sw *searchWindow) restoreClipboardItem(item StoredItem) bool {
-	seq, err := restoreItemToClipboard(sw.hwnd, item, sw.dataDir)
+	latestN := 0
+	if sw.license != nil && !sw.license.CanUsePaidFeatures() {
+		latestN = FreeTierVisibleLimit
+	}
+	full, err := sw.store.getPublicClipboardItem(context.Background(), item.ID, latestN)
+	var seq uint32
+	if err == nil {
+		seq, err = restoreItemToClipboard(sw.hwnd, full, sw.dataDir)
+	}
 	if err != nil {
 		if sw.logger != nil {
 			sw.logger.Warn("search_window_restore_failed", map[string]any{"error": err.Error(), "id": item.ID})

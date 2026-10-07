@@ -102,3 +102,61 @@ test('failed refresh after sensitive access expires clears privileged source nam
   assert.deepEqual(app.allSourceExes, []);
   assert.deepEqual(app.currentSourceExes, []);
 });
+
+test('visibility downgrade clears privileged source names before a slow refresh completes', async () => {
+  registerSourceData();
+  app.authState = {secondaryAuthed: false};
+  app.sourceStatsSensitiveAccess = true;
+  app.sourceStatsRecordType = 'content';
+  app.allSourceExes = [{name: 'private.exe', count: 1}];
+  app.currentSourceExes = ['private.exe'];
+  app.renderSrcExeDropdown = () => {};
+  let finish;
+  app.fetch = () => new Promise(resolve => {finish = resolve;});
+  const loading = app.loadSourceExesForHistory('content');
+  assert.deepEqual(app.allSourceExes, []);
+  assert.deepEqual(app.currentSourceExes, []);
+  assert.equal(app.sourceStatsRecordType, '');
+  finish({ok: true, json: async () => [{name: 'public.exe', count: 2}]});
+  assert.equal(await loading, true);
+  assert.deepEqual(app.allSourceExes, [{name: 'public.exe', count: 2}]);
+});
+
+test('explicit refresh reconciles obsolete selections even for a cached projection', async () => {
+  registerSourceData();
+  app.authState = {secondaryAuthed: false};
+  app.sourceStatsRecordType = 'event';
+  app.allSourceExes = [{name: 'removed.exe', count: 1}];
+  app.currentSourceExes = ['removed.exe'];
+  app.renderSrcExeDropdown = () => {};
+  app.fetch = async url => {
+    assert.equal(url, '/api/v1/items/sources?record_type=event');
+    return {ok: true, json: async () => [{name: 'current.exe', count: 1}]};
+  };
+  assert.equal(await app.loadSourceExesForHistory('event', {refresh: true}), true);
+  assert.deepEqual(app.currentSourceExes, []);
+  assert.deepEqual(app.allSourceExes, [{name: 'current.exe', count: 1}]);
+});
+
+test('revocation immediately clears source metadata and invalidates replies across reauthentication', async () => {
+  registerSourceData();
+  app.authState = { secondaryAuthed: true };
+  app.sourceStatsSensitiveAccess = true;
+  app.sourceStatsRecordType = 'content';
+  app.allSourceExes = [{ name: 'private.exe', count: 3 }];
+  app.currentSourceExes = ['private.exe'];
+  let finish, rendered = 0;
+  app.renderSrcExeDropdown = () => rendered++;
+  app.fetch = () => new Promise(resolve => { finish = resolve; });
+  const pending = app.loadSourceExes();
+  app.authState.secondaryAuthed = false;
+  app.invalidateSourceExes();
+  assert.equal(rendered, 1);
+  assert.deepEqual(app.allSourceExes, []);
+  assert.deepEqual(app.currentSourceExes, []);
+  assert.equal(app.sourceStatsRecordType, '');
+  app.authState.secondaryAuthed = true;
+  finish({ ok: true, json: async () => [{ name: 'stale-private.exe', count: 9 }] });
+  assert.equal(await pending, 'stale');
+  assert.deepEqual(app.allSourceExes, []);
+});

@@ -1,0 +1,11 @@
+.composite-preview { overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+.composite-preview img { max-width: 100%; max-height: 60vh; height: auto; object-fit: contain; }
+.composite-preview table { border-collapse: collapse; }
+.composite-card { max-height: 280px; padding: 16px; }
+.composite-card img { display: inline-block; vertical-align: middle; max-width: 100%; max-height: 180px; }
+.composite-card p { margin: 0 0 .6em; }
+.composite-preview td, .composite-preview th { border: 1px solid var(--card-border); padding: 6px; }
+.composite-status { font-size: .85em; color: var(--tx2); }
+.composite-preview .composite-files { list-style: none; padding: 0; margin: 12px 0 0; white-space: normal; }
+.composite-preview .composite-files:first-child { margin-top: 0; }
+.composite-files .file-name { white-space: normal; overflow-wrap: anywhere; }

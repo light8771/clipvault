@@ -61,7 +61,7 @@ func NewExternalReadService(store *Store, env Environment) *ExternalReadService 
 func (s *ExternalReadService) queryExternalItems(ctx context.Context, access ReadAccess, where string, args []any, limit int) ([]StoredItem, bool, error) {
 	fetchArgs := append(append([]any{}, args...), limit+1)
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items"+where+
+		"SELECT "+clipboardItemListColumns(!access.AllowSensitive)+" FROM clipboard_items"+where+
 			" ORDER BY created_at DESC, id DESC LIMIT ?", fetchArgs...)
 	if err != nil {
 		return nil, false, err
@@ -216,7 +216,7 @@ func (s *ExternalReadService) GetStoredItems(ctx context.Context, access ReadAcc
 		args[i] = id
 	}
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items WHERE id IN ("+placeholders+")"+externalItemScopeAnd(access), args...)
+		"SELECT "+clipboardItemListColumns(!access.AllowSensitive)+" FROM clipboard_items WHERE id IN ("+placeholders+")"+externalItemScopeAnd(access), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +250,12 @@ func (s *ExternalReadService) GetContent(ctx context.Context, access ReadAccess,
 		return ExternalContent{}, err
 	}
 	switch {
+	case item.Format == domain.FormatComposite:
+		data := compositeJSONString(item.Content)
+		if len(data) > externalMaxContentSize {
+			return ExternalContent{}, ErrExternalTooLarge
+		}
+		return ExternalContent{Kind: "composite", Text: data, MimeType: "application/json", Sensitive: item.Sensitive}, nil
 	case item.RecordType == domain.HistoryRecordContent && item.Format == domain.FormatImageFile:
 		full, err := resolveManagedImagePath(s.env, item.Text)
 		if err != nil {
@@ -330,8 +336,8 @@ func (s *ExternalReadService) Stats(ctx context.Context, access ReadAccess, req 
 		return StatsResult{}, err
 	}
 	kindRows, err := s.store.db.QueryContext(ctx,
-		"SELECT kind, count(*), COALESCE(sum(byte_len), 0) FROM clipboard_items"+where+
-			" GROUP BY kind ORDER BY count(*) DESC, kind ASC", args...)
+		"SELECT content_kind, count(*), COALESCE(sum(byte_len), 0) FROM (SELECT byte_len, unnest("+contentKindsSQL+") AS content_kind FROM clipboard_items"+where+
+			") GROUP BY content_kind ORDER BY count(*) DESC, content_kind ASC", args...)
 	if err != nil {
 		return StatsResult{}, err
 	}
@@ -489,7 +495,7 @@ func (s *ExternalReadService) QueryItems(ctx context.Context, access ReadAccess,
 	args := append(append([]any{}, plan.args...), plan.cursorArgs()...)
 	fetchArgs := append(append([]any{}, args...), plan.limit+1)
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+clipboardItemReadColumns(!access.AllowSensitive)+" FROM clipboard_items"+where+
+		"SELECT "+clipboardItemListColumns(!access.AllowSensitive)+" FROM clipboard_items"+where+
 			" ORDER BY "+plan.orderSQL+" LIMIT ?", fetchArgs...)
 	if err != nil {
 		return nil, false, err
@@ -519,8 +525,12 @@ func (s *ExternalReadService) QueryAggregate(ctx context.Context, access ReadAcc
 	where := applyExternalItemScope(plan.where, access)
 	args := append([]any{}, plan.args...)
 	fetchArgs := append(append([]any{}, args...), plan.limit)
+	from := "clipboard_items" + where
+	if plan.groupField == "kind" {
+		from = "(SELECT unnest(" + contentKindsSQL + ") AS kind FROM clipboard_items" + where + ")"
+	}
 	rows, err := s.store.db.QueryContext(ctx,
-		"SELECT "+plan.groupCol+", COUNT(*) AS c FROM clipboard_items"+where+
+		"SELECT "+plan.groupCol+", COUNT(*) AS c FROM "+from+
 			" GROUP BY "+plan.groupCol+" ORDER BY "+plan.orderSQL+" LIMIT ?", fetchArgs...)
 	if err != nil {
 		return nil, err

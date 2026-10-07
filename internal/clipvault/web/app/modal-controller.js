@@ -16,17 +16,21 @@ function visibleFocusableElements(overlay) {
 }
 
 export function trapModalFocus(overlay, event) {
-  if (event.key !== 'Tab') return;
+  if (event.key !== 'Tab' || event.isComposing) return;
   const focusable = visibleFocusableElements(overlay);
   const panel = overlay.querySelector('[data-modal-panel]');
   if (!focusable.length) {
     event.preventDefault();
+    if (panel) panel.tabIndex = -1;
     panel?.focus();
     return;
   }
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
+  if (!focusable.includes(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && document.activeElement === first) {
     event.preventDefault();
     last.focus();
   } else if (!event.shiftKey && document.activeElement === last) {
@@ -73,8 +77,10 @@ export function createRemovableModal(overlay, options = {}) {
     if (event.target === overlay) close();
   };
   const onKeydown = event => {
+    if (event.isComposing) return;
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       close();
       return;
     }

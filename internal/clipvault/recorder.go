@@ -29,6 +29,7 @@ type Recorder struct {
 }
 
 type ClipboardSnapshot struct {
+	Content *domain.CompositeContent
 	Kind    string
 	Format  string
 	Text    string
@@ -230,6 +231,9 @@ func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo
 	if snapshot.Text != "" {
 		sensitive = r.filter.CheckText(snapshot.Text).Sensitive
 	}
+	if !sensitive && snapshot.Content != nil {
+		sensitive = r.filter.CheckComposite(snapshot.Content).Sensitive
+	}
 
 	metaJSON := "{}"
 	if snapshot.Meta != nil {
@@ -246,6 +250,7 @@ func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo
 	}
 
 	if err := r.store.Save(ctx, ClipboardItem{
+		Content:           snapshot.Content,
 		CapturedAtMS:      capturedAtMS,
 		RecordType:        domain.HistoryRecordContent,
 		Kind:              snapshot.Kind,

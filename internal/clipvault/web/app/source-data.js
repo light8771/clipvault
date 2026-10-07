@@ -13,9 +13,21 @@ export function registerSourceData() {
   app.sourceStatsRecordType = '';
   app.sourceStatsSensitiveAccess = false;
   app.sourceStatsRevision = 0;
+  app.invalidateSourceExes = function invalidateSourceExes() {
+    app.sourceStatsRevision++;
+    app.allSourceExes = [];
+    app.currentSourceExes = [];
+    app.sourceStatsRecordType = '';
+    app.sourceStatsSensitiveAccess = false;
+    app.renderSrcExeDropdown?.();
+  };
   app.loadSourceExes = async function loadSourceExes(recordType = 'content') {
-    const revision = ++app.sourceStatsRevision;
     const sensitiveAccess = !!app.authState?.secondaryAuthed;
+    if (app.sourceStatsSensitiveAccess && !sensitiveAccess) {
+      // Remove privileged names before waiting for a potentially slow refresh.
+      app.invalidateSourceExes();
+    }
+    const revision = ++app.sourceStatsRevision;
     let sourceExes;
     try {
       const params = new URLSearchParams({ record_type: recordType });
@@ -37,9 +49,9 @@ export function registerSourceData() {
     app.renderSrcExeDropdown?.();
     return SOURCE_LOAD_OK;
   };
-  app.loadSourceExesForHistory = async function loadSourceExesForHistory(recordType) {
+  app.loadSourceExesForHistory = async function loadSourceExesForHistory(recordType, { refresh = false } = {}) {
     const sensitiveAccess = !!app.authState?.secondaryAuthed;
-    if (app.sourceStatsRecordType === recordType && app.sourceStatsSensitiveAccess === sensitiveAccess) {
+    if (!refresh && app.sourceStatsRecordType === recordType && app.sourceStatsSensitiveAccess === sensitiveAccess) {
       // Returning to the already-cached projection also supersedes any older
       // in-flight request for a different projection or visibility boundary.
       app.sourceStatsRevision++;
@@ -50,13 +62,6 @@ export function registerSourceData() {
     if (result === SOURCE_LOAD_OK) {
       const available = new Set(app.allSourceExes.map(item => item.name));
       app.currentSourceExes = app.currentSourceExes.filter(name => available.has(name));
-      app.renderSrcExeDropdown();
-    } else if (app.sourceStatsSensitiveAccess && !sensitiveAccess) {
-      // A failed refresh must not retain source names learned while sensitive
-      // history was unlocked. Clear only at this visibility downgrade; ordinary
-      // failures preserve the last good cache and the user's selections.
-      app.allSourceExes = [];
-      app.currentSourceExes = [];
       app.renderSrcExeDropdown();
     }
     return true;

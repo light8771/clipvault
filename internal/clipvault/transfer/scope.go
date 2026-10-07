@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// ExportVersion 9 makes event fingerprints independent of per-session Windows
-// registered-format IDs. Earlier exports are intentionally not accepted.
-const ExportVersion = 9
+// ExportVersion 10 stores composite representations and their owned resources.
+// Earlier exports are intentionally not accepted.
+const ExportVersion = 10
 
 // Scope is the shared range contract for export and backup operations.
 type Scope struct {

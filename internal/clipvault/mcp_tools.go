@@ -175,7 +175,7 @@ func intPtr(v int) *int         { return &v }
 func mcpFilterProperties() map[string]*jsonschema.Schema {
 	return map[string]*jsonschema.Schema{
 		"query":        {Type: "string", Description: "Substring to match against item text", Default: json.RawMessage(`""`)},
-		"kind":         {Type: "array", Items: &jsonschema.Schema{Type: "string", Enum: []any{"text", "image", "video", "archive", "office", "files"}}, Description: `Content kinds to include, as an array of strings (e.g. ["image"]); one or more of: text, image, video, archive, office, files`},
+		"kind":         {Type: "array", Items: &jsonschema.Schema{Type: "string", Enum: []any{"text", "image", "video", "archive", "office", "files", "table", "link", "composite"}}, Description: `Content kinds to include, as an array of strings (e.g. ["image"]); one or more of: text, image, video, archive, office, files, table, link, composite`},
 		"sourceApp":    {Type: "string", Description: `Exact source application name, a single string (case-insensitive), e.g. "chrome.exe"`, Default: json.RawMessage(`""`)},
 		"sourceWindow": {Type: "string", Description: "Substring to match against the source window title", Default: json.RawMessage(`""`)},
 		"starred":      {Types: []string{"boolean", "null"}, Description: "Filter by starred flag"},
@@ -441,7 +441,7 @@ func (tc mcpToolContext) getContent(ctx context.Context, _ *mcp.CallToolRequest,
 			return nil, nil, errors.New("internal error")
 		}
 		result.Content = append(result.Content, &mcp.ImageContent{Data: data, MIMEType: content.MimeType})
-	case "text":
+	case "text", "composite":
 		result.Content = append(result.Content, &mcp.TextContent{Text: content.Text})
 	default:
 		tc.emit(audit, started, 404, "not_found")

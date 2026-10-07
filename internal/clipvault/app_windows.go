@@ -66,6 +66,9 @@ func Run(env Environment) error {
 	store, err := OpenStore(StoreOptions{DataDir: env.DataDir})
 	if err != nil {
 		logger.Error("store_open_failed", err, map[string]any{"mode": startupMode})
+		if !errors.Is(err, errDatabaseRecoveryRequired) {
+			return fmt.Errorf("open database: %w", err)
+		}
 
 		// Start recovery server for user to recover or create new database
 		rs := NewRecoveryServer(env.DataDir)

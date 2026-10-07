@@ -20,7 +20,7 @@ func TestExtractCFHTMLTextUsesFragmentAndSkipsActiveContent(t *testing.T) {
 }
 
 func TestExtractCFHTMLTextUsesHTMLOffsetsWhenFragmentOffsetsAreUnavailable(t *testing.T) {
-	body := `<html><body><p>offset body</p></body></html>`
+	body := `<html><head><title>document metadata</title></head><body><p>offset body</p></body></html>`
 	headerTemplate := "Version:1.0\r\nStartHTML:%010d\r\nEndHTML:%010d\r\nStartFragment:-1\r\nEndFragment:-1\r\n"
 	placeholder := fmt.Sprintf(headerTemplate, 0, 0)
 	start := len(placeholder)

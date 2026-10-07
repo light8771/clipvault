@@ -85,7 +85,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	for _, asset := range []string{"/tokens.css", "/history.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css", "/language.css"} {
+	for _, asset := range []string{"/tokens.css", "/history.css", "/composite.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css", "/language.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
 	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
@@ -119,6 +119,7 @@ func (s *SearchServer) Start() (string, error) {
 	api("GET /api/v1/license/machine", s.requireAuth(s.handleLicenseMachine))
 	api("POST /api/v1/license/activation", s.requireAuth(s.handleLicenseActivate))
 	api("GET /api/v1/items/sources", s.requireAuth(s.handleSourceExes))
+	api("GET /api/v1/items/subtypes", s.requireAuth(s.handleHistorySubtypes))
 	api("GET /api/v1/runtime", s.requireAuth(s.handleState))
 	api("GET /api/v1/system/info", s.requireAuth(s.handleSystemInfo))
 	api("POST /api/v1/runtime/pause", s.requireAuth(s.handlePause))
@@ -141,6 +142,8 @@ func (s *SearchServer) Start() (string, error) {
 	api("GET /api/v1/items/position", s.requireAuth(s.handleItemPosition))
 	api("GET /api/v1/items/image", s.requireAuth(s.handleItemImage))
 	api("GET /api/v1/items/copy-text", s.requireAuth(s.handleItemCopyText))
+	api("GET /api/v1/items/composite-preview", s.requireAuth(s.handleCompositePreview))
+	api("POST /api/v1/items/restore", s.requireAuth(s.handleRestoreItem))
 	api("GET /api/v1/files/check", s.requireAuth(s.handleFileCheck))
 	api("GET /api/v1/files/content", s.requireAuth(s.handleFileServe))
 	api("POST /api/v1/files/open-directory", s.requireAuth(s.handleFileOpenDir))

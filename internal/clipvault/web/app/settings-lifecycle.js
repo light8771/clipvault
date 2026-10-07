@@ -37,7 +37,7 @@ export function registerSettingsLifecycle() {
 
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState !== 'visible') return;
-      await app.checkAuthStatus();
+      if (!await app.checkAuthStatus()) return;
       await app.loadLicenseStatus();
     });
   })();

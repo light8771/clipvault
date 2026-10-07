@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-func TestSchemaV10CaptureEventsAndContentDuplicates(t *testing.T) {
-	if SchemaVersion != "11" {
-		t.Fatalf("SchemaVersion = %q, want 11", SchemaVersion)
+func TestSchemaCompositeContentAndCaptureEvents(t *testing.T) {
+	if SchemaVersion != "13" {
+		t.Fatalf("SchemaVersion = %q, want 13", SchemaVersion)
 	}
-	if SchemaIdentity != "clipvault.duckdb.v11.stable-event-fingerprints" {
-		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v11.stable-event-fingerprints", SchemaIdentity)
+	if SchemaIdentity != "clipvault.duckdb.v13.content-types" {
+		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v13.content-types", SchemaIdentity)
 	}
 	schema := strings.Join(SchemaStatements, "\n")
 	for _, fragment := range []string{
-		"id BIGINT", "meta_json JSON", "value JSON",
+		"id BIGINT", "meta_json JSON", "value JSON", "content_json JSON", "CLIPVAULT_COMPOSITE",
 		"created_at BIGINT", "searched_at BIGINT",
 		"record_type VARCHAR", "content_sha256 VARCHAR", "consecutive_duplicate BOOLEAN", "event_code VARCHAR", "event_fingerprint VARCHAR",
 		"capture_sequence UBIGINT", "capture_stage VARCHAR", "capture_attempts BIGINT", "event_formats JSON",

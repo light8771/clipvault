@@ -166,13 +166,9 @@
     flex-wrap: wrap;
   }
 
-  .file-row {
-    flex-wrap: wrap;
-  }
-
   .file-actions {
     width: 100%;
-    padding-left: 60px;
+    padding-left: 0;
     flex-wrap: wrap;
   }
 

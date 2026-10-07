@@ -15,6 +15,10 @@ export function createOperationState(root, host = root) {
       if (busy) return false;
       busy = true;
       controls = Array.from(root.querySelectorAll('button, input, select, textarea')).map(el => [el, el.disabled]);
+      if (controls.some(([el]) => el === document.activeElement)) {
+        root.tabIndex = -1;
+        root.focus();
+      }
       controls.forEach(([el]) => { el.disabled = true; });
       root.setAttribute('aria-busy', 'true');
       status.textContent = message;

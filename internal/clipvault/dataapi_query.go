@@ -213,6 +213,21 @@ func (p *dataAPIQueryPlan) compileAggregate(req *dataAPIQueryRequest) *dataAPIEr
 
 // compileOp 把单个字段操作符编译为 SQL 条件；值类型按字段类型严格解析。
 func (spec dataAPIFieldSpec) compileOp(field, op string, raw json.RawMessage) (string, []any, *dataAPIError) {
+	if field == "kind" {
+		negate := op == "neq"
+		if negate {
+			op = "eq"
+		}
+		condition, args, err := (dataAPIFieldSpec{column: "content_kind", kind: "string"}).compileStringOp(field, op, raw)
+		if err != nil {
+			return "", nil, err
+		}
+		prefix := ""
+		if negate {
+			prefix = "NOT "
+		}
+		return prefix + "EXISTS (SELECT 1 FROM unnest(list_append(" + contentKindsSQL + ", kind)) AS kinds(content_kind) WHERE " + condition + ")", args, nil
+	}
 	switch spec.kind {
 	case "int", "group":
 		return spec.compileIntOp(field, op, raw)

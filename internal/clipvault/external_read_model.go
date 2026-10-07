@@ -15,28 +15,31 @@ import (
 // ExternalItem 是剪贴板条目的协议中立表示（MCP 工具/资源输出）。
 // 托管图片的内部存储路径绝不外泄：Text 置空，仅保留元数据。
 type ExternalItem struct {
-	ID                   string    `json:"id"`
-	CreatedAt            time.Time `json:"createdAt"`
-	Kind                 string    `json:"kind"`
-	Format               string    `json:"format,omitempty"`
-	Text                 string    `json:"text"`
-	TextTruncated        bool      `json:"textTruncated,omitempty"`
-	ByteLen              int64     `json:"byteLen"`
-	CharLen              int64     `json:"charLen"`
-	RecordType           string    `json:"recordType"`
-	ContentSHA256        *string   `json:"contentSha256"`
-	ConsecutiveDuplicate bool      `json:"consecutiveDuplicate"`
-	Starred              bool      `json:"starred"`
-	Sensitive            bool      `json:"sensitive"`
-	GroupIDs             []string  `json:"groupIds"`
-	SourceApp            string    `json:"sourceApp,omitempty"`
-	SourceWindow         string    `json:"sourceWindow,omitempty"`
+	Kinds                []string                 `json:"kinds"`
+	Content              *domain.CompositeContent `json:"content,omitempty"`
+	ID                   string                   `json:"id"`
+	CreatedAt            time.Time                `json:"createdAt"`
+	Kind                 string                   `json:"kind"`
+	Format               string                   `json:"format,omitempty"`
+	Text                 string                   `json:"text"`
+	TextTruncated        bool                     `json:"textTruncated,omitempty"`
+	ByteLen              int64                    `json:"byteLen"`
+	CharLen              int64                    `json:"charLen"`
+	RecordType           string                   `json:"recordType"`
+	ContentSHA256        *string                  `json:"contentSha256"`
+	ConsecutiveDuplicate bool                     `json:"consecutiveDuplicate"`
+	Starred              bool                     `json:"starred"`
+	Sensitive            bool                     `json:"sensitive"`
+	GroupIDs             []string                 `json:"groupIds"`
+	SourceApp            string                   `json:"sourceApp,omitempty"`
+	SourceWindow         string                   `json:"sourceWindow,omitempty"`
 }
 
 // toExternalItem 把存储记录映射为协议中立 DTO。preview=true 时截断超长文本，
 // 完整文本经单条获取。
 func toExternalItem(item StoredItem, groupIDs []int64, preview bool) ExternalItem {
 	out := ExternalItem{
+		Kinds: item.ContentKinds(), Content: item.Content.Summary(),
 		ID:                   strconv.FormatInt(item.ID, 10),
 		CreatedAt:            item.CreatedAt,
 		Kind:                 item.Kind,
@@ -189,7 +192,7 @@ func applyExternalItemScope(where string, access ReadAccess) string {
 // validExternalKind 报告 kind 是否在受支持的种类白名单内。
 func validExternalKind(kind string) bool {
 	switch kind {
-	case domain.KindText, domain.KindImage, domain.KindVideo, domain.KindArchive, domain.KindOffice, domain.KindFiles:
+	case domain.KindText, domain.KindImage, domain.KindVideo, domain.KindArchive, domain.KindOffice, domain.KindFiles, domain.KindComposite, "table", "link":
 		return true
 	default:
 		return false
@@ -211,11 +214,12 @@ func buildExternalFilter(req CountRequest, access ReadAccess) (string, []any, er
 				return "", nil, fmt.Errorf("%w: unsupported kind %q", ErrExternalInvalid, kind)
 			}
 		}
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(req.Kinds)), ",")
-		conds = append(conds, "kind IN ("+placeholders+")")
+		var kindConditions []string
 		for _, kind := range req.Kinds {
-			args = append(args, kind)
+			kindConditions = append(kindConditions, "(kind = ? OR json_contains(json_extract(content_json, '$.kinds'), to_json(CAST(? AS VARCHAR))))")
+			args = append(args, kind, kind)
 		}
+		conds = append(conds, "("+strings.Join(kindConditions, " OR ")+")")
 	}
 	if app := strings.TrimSpace(req.SourceApp); app != "" {
 		conds = append(conds, `source_exe_name ILIKE ? ESCAPE '\'`)

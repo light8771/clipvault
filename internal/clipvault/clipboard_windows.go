@@ -411,6 +411,7 @@ func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*Cl
 }
 
 type openedClipboardAccess struct {
+	readComposite    func(Config, *ClipboardSnapshot) (*ClipboardSnapshot, error)
 	available        func(uint32) bool
 	readUnicodeText  func(Config) (*ClipboardSnapshot, error)
 	readTextFallback func() (*ClipboardSnapshot, bool, error)
@@ -423,7 +424,7 @@ type openedClipboardAccess struct {
 // candidate. Delayed-rendering producers can enumerate a format but fail to
 // provide its handle; a broken higher-priority candidate must not hide a
 // usable lower-priority representation of the same clipboard content.
-func readOpenedClipboardWith(cfg Config, access openedClipboardAccess) (*ClipboardSnapshot, error) {
+func readPrimaryClipboardWith(cfg Config, access openedClipboardAccess) (*ClipboardSnapshot, error) {
 	var failures clipboardCandidateErrors
 	// A physical file drop is the canonical representation even when Windows
 	// also advertises text, a bitmap, or a thumbnail for the same files.

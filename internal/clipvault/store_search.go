@@ -149,9 +149,20 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 			args = append(args, n)
 		}
 	}
-	if opts.Kind != "" {
-		conds = append(conds, "kind = ?")
+	if opts.Kind != "" && opts.Subtype == "" && validHistorySubtypeKind(opts.Kind) {
+		conds = append(conds, "json_contains(content_types, json_object('kind', CAST(? AS VARCHAR)))")
 		args = append(args, opts.Kind)
+	} else if opts.Kind != "" && opts.Subtype == "" {
+		conds = append(conds, "(kind = ? OR json_contains(json_extract(content_json, '$.kinds'), to_json(CAST(? AS VARCHAR))))")
+		args = append(args, opts.Kind)
+		args = append(args, opts.Kind)
+	}
+	if opts.Subtype != "" {
+		if !validHistorySubtype(opts.Kind, opts.Subtype) {
+			return nil, 0, fmt.Errorf("invalid content subtype")
+		}
+		conds = append(conds, "json_contains(content_types, json_object('kind', CAST(? AS VARCHAR), 'subtype', CAST(? AS VARCHAR)))")
+		args = append(args, opts.Kind, opts.Subtype)
 	}
 	if opts.CreatedFromMS > 0 {
 		conds = append(conds, "created_at >= ?")
@@ -190,7 +201,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 
 	fetchArgs := append(append([]any{}, args...), opts.Limit, opts.Offset)
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+clipboardItemReadColumns(redactAdjacency)+" FROM clipboard_items"+where+" ORDER BY id DESC LIMIT ? OFFSET ?",
+		"SELECT "+clipboardItemListColumns(redactAdjacency)+" FROM clipboard_items"+where+" ORDER BY id DESC LIMIT ? OFFSET ?",
 		fetchArgs...)
 	if err != nil {
 		return nil, 0, err
@@ -294,6 +305,23 @@ func (s *Store) GetByID(ctx context.Context, id int64) (StoredItem, error) {
 		return item, err
 	}
 	return item, nil
+}
+
+// Native search rows carry summaries. Reload the full package and recheck
+// visibility in one statement immediately before restoring the selection.
+func (s *Store) getPublicClipboardItem(ctx context.Context, id int64, latestN int) (StoredItem, error) {
+	where := " WHERE id = ? AND record_type = 'content' AND NOT sensitive"
+	args := []any{id}
+	if latestN > 0 {
+		where += " AND id IN (SELECT id FROM clipboard_items WHERE record_type = 'content' ORDER BY id DESC LIMIT ?)"
+		args = append(args, latestN)
+	}
+	var item StoredItem
+	err := scanStoredItem(s.db.QueryRowContext(ctx, "SELECT "+clipboardItemReadColumns(true)+" FROM clipboard_items"+where, args...), &item)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoredItem{}, ErrItemNotFound
+	}
+	return item, err
 }
 
 // GetPositionByID 返回指定 ID 在全量列表（按 id DESC）中的 0-based 偏移量。
@@ -427,6 +455,9 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	}
 	if recordType == domain.HistoryRecordContent && format == domain.FormatImageFile {
 		return s.removeManagedImagesIfUnreferenced(ctx, []string{text})
+	}
+	if format == domain.FormatComposite {
+		return s.removeUnreferencedCompositeCache(ctx)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // Read-time masking uses the actual content predecessor, before filtering or
@@ -24,6 +25,19 @@ func clipboardItemReadColumns(redactSensitiveAdjacency bool) string {
 	}
 	return clipboardItemColumnsBeforeDuplicate + publicConsecutiveDuplicateSQL + " AS consecutive_duplicate" + clipboardItemColumnsAfterDuplicate
 }
+
+// Lists project metadata in DuckDB so binary packages never cross into the
+// application just to render a page of cards. Full reads are explicit actions.
+func clipboardItemListColumns(redactSensitiveAdjacency bool) string {
+	return strings.Replace(clipboardItemReadColumns(redactSensitiveAdjacency), "CAST(content_json AS VARCHAR)", `CASE WHEN content_json IS NULL THEN NULL ELSE CAST(json_object(
+		'kinds', json_extract(content_json, '$.kinds'),
+		'issues', json_extract(content_json, '$.issues'),
+		'representations', list_transform(json_extract_string(content_json, '$.representations[*].format'), x -> json_object('format', x)),
+		'assets', []
+	) AS VARCHAR) END`, 1)
+}
+
+const contentKindsSQL = `CASE WHEN content_json IS NULL THEN [kind] ELSE CAST(json_extract(content_json, '$.kinds') AS VARCHAR[]) END`
 
 // recomputeConsecutiveDuplicateForIDTx refreshes the one content row whose
 // predecessor may have changed after deletion. Capture-event rows never take
