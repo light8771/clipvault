@@ -1,7 +1,6 @@
 package clipvault
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,16 +22,25 @@ func compositeTextAndKinds(c *domain.CompositeContent) (string, []string, error)
 		switch r.Format {
 		case compositeText:
 			text = string(r.Data)
-		case compositeHTML:
-			doc, err := html.Parse(bytes.NewReader(r.Data))
+		case compositeHTML, compositeWeChat, compositeQQ:
+			markup, err := compositeMarkup(r)
 			if err != nil {
-				return "", nil, err
+				kinds[domain.KindText] = true
+				break
+			}
+			doc, err := compositeHTMLDocument(markup)
+			if err != nil {
+				kinds[domain.KindText] = true
+				break
 			}
 			var walk func(*html.Node)
 			walk = func(n *html.Node) {
 				if n.Type == html.ElementNode {
+					if slices.Contains([]string{"head", "script", "style", "template", "noscript"}, n.Data) {
+						return
+					}
 					switch n.Data {
-					case "img":
+					case "img", "svg", "canvas":
 						kinds[domain.KindImage] = true
 					case "table":
 						kinds["table"] = true
@@ -52,6 +60,9 @@ func compositeTextAndKinds(c *domain.CompositeContent) (string, []string, error)
 			var out strings.Builder
 			appendHTMLText(&out, doc)
 			text = normalizeExtractedText(out.String())
+			if len(kinds) == 0 {
+				kinds[domain.KindText] = true
+			}
 		case compositeRTF:
 			rtfText, features, err := inspectCompositeRTF(r.Data)
 			if features.table {
@@ -65,7 +76,10 @@ func compositeTextAndKinds(c *domain.CompositeContent) (string, []string, error)
 			}
 			text = rtfText
 			if err != nil {
-				return "", nil, err
+				text = ""
+			}
+			if len(kinds) == 0 {
+				kinds[domain.KindText] = true
 			}
 		case compositePNG:
 			kinds[domain.KindImage] = true
@@ -92,7 +106,7 @@ func compositeTextAndKinds(c *domain.CompositeContent) (string, []string, error)
 	}
 	parts := []string{}
 	seen := map[string]bool{}
-	for _, format := range []string{compositeText, compositeHTML, compositeRTF, compositeFiles} {
+	for _, format := range []string{compositeText, compositeHTML, compositeWeChat, compositeQQ, compositeRTF, compositeFiles} {
 		text := texts[format]
 		key := strings.Join(strings.Fields(text), " ")
 		if key != "" && !seen[key] {
@@ -111,7 +125,7 @@ func compositeTextAndKinds(c *domain.CompositeContent) (string, []string, error)
 // A synthesized Unicode fallback comes from one preferred representation;
 // combining alternatives here would duplicate content on a plain-text paste.
 func compositePasteText(c *domain.CompositeContent) string {
-	for _, format := range []string{compositeText, compositeHTML, compositeRTF, compositeFiles} {
+	for _, format := range []string{compositeText, compositeHTML, compositeWeChat, compositeQQ, compositeRTF, compositeFiles} {
 		for _, r := range c.Representations {
 			if r.Format != format {
 				continue

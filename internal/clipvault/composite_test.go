@@ -40,8 +40,8 @@ func compositeFixture(t *testing.T, path string) *ClipboardSnapshot {
 func TestCompositeCaptureAndIntegrity(t *testing.T) {
 	a := compositeFixture(t, `C:\temp\first.png`)
 	b := compositeFixture(t, `D:\different\second.png`)
-	if a.SHA256 != b.SHA256 {
-		t.Fatal("temporary filenames changed content identity")
+	if a.SHA256 == b.SHA256 {
+		t.Fatal("different original representations collapsed")
 	}
 	if len(a.Content.Assets) != 1 {
 		t.Fatal("repeated resource was not deduplicated")
@@ -69,7 +69,7 @@ func TestCompositeCaptureAndIntegrity(t *testing.T) {
 	}
 }
 
-func TestCompositePartialCaptureAndSanitization(t *testing.T) {
+func TestCompositeMissingResourcesPreserveOriginal(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Image.Enabled = true
 	raw := map[string][]byte{"HTML Format": []byte(`<div onclick="bad()">kept<script>bad()</script><img src="https://example.com/image.png" srcset="https://example.com/other.png"><iframe src="https://example.com"></iframe><span style="background:url(https://example.com)">text</span></div>`)}
@@ -81,7 +81,7 @@ func TestCompositePartialCaptureAndSanitization(t *testing.T) {
 		t.Fatal("partial capture lost text or diagnostics")
 	}
 	for _, r := range snapshot.Content.Representations {
-		if r.Format == compositeHTML && (bytes.Contains(r.Data, []byte("https://")) || bytes.Contains(r.Data, []byte("onclick")) || bytes.Contains(r.Data, []byte("<script"))) {
+		if r.Format == compositeHTML && !bytes.Equal(r.Data, raw["HTML Format"]) {
 			t.Fatalf("unsafe recovery HTML: %s", r.Data)
 		}
 	}
@@ -103,7 +103,7 @@ func TestCompositeAlternativeRepresentationsAndDecodeFallback(t *testing.T) {
 		t.Fatalf("alternative formats lost: %+v", snapshot.Content)
 	}
 	snapshot, err = buildCompositeSnapshot(cfg, plain, nil, map[string][]byte{"Rich Text Format": []byte("invalid rtf")}, nil, readCompositeImage)
-	if err != nil || snapshot.Text != plain.Text || len(snapshot.Content.Issues) != 1 {
+	if err != nil || snapshot.Text != plain.Text || len(snapshot.Content.Issues) != 0 {
 		t.Fatalf("bad format discarded valid text: %+v %v", snapshot, err)
 	}
 	raw := map[string][]byte{

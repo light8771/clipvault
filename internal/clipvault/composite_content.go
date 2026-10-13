@@ -6,10 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	"image/png"
 	"io"
 	"net/url"
 	"os"
@@ -25,90 +21,14 @@ import (
 
 const maxCompositeBytes = 64 << 20
 const maxCompositeAssets = 128
-const assetReferencePrefix = "clipvault-asset:"
 const compositeHTML = "text/html"
 const compositeText = "text/plain"
 const compositeRTF = "text/rtf"
 const compositePNG = "image/png"
+const compositeWeChat = "WeChat_RichEdit_Format"
+const compositeQQ = "QQ_Unicode_RichEdit_Format"
+
 const compositeFiles = "application/x-clipvault-files"
-
-// Keep passive rich formatting, while removing executable markup and external
-// subresources. This also runs on imported packages before they can be stored.
-func sanitizeCompositeHTML(doc *html.Node) bool {
-	return sanitizeCompositeHTMLWithSourceImages(doc, false)
-}
-
-func sanitizeCompositeHTMLWithSourceImages(doc *html.Node, sourceImages bool) bool {
-	changed := false
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		for child := n.FirstChild; child != nil; {
-			next := child.NextSibling
-			if child.Type == html.ElementNode && slices.Contains([]string{"script", "style", "iframe", "object", "embed", "svg", "math", "template", "link", "meta", "base", "form", "input", "button", "video", "audio", "source"}, child.Data) {
-				n.RemoveChild(child)
-				// CF_HTML commonly carries a charset declaration. Dropping that
-				// metadata from a UTF-8 package does not lose user content.
-				charsetOnly := child.Data == "meta" && len(child.Attr) == 1 && child.Attr[0].Key == "charset"
-				changed = changed || !charsetOnly
-			} else {
-				walk(child)
-			}
-			child = next
-		}
-		attrs := n.Attr[:0]
-		for _, a := range n.Attr {
-			keep := a.Namespace == ""
-			switch a.Key {
-			case "src":
-				keep = keep && n.Data == "img" && (sourceImages || a.Val == "" || strings.HasPrefix(a.Val, assetReferencePrefix))
-			case "href":
-				u, err := url.Parse(strings.TrimSpace(a.Val))
-				keep = keep && err == nil && (u.Scheme == "https" || u.Scheme == "http" || u.Scheme == "mailto" || strings.HasPrefix(a.Val, "#"))
-			case "style":
-				keep = keep && safeCompositeStyle(a.Val)
-			case "alt", "title", "colspan", "rowspan", "width", "height", "align", "valign", "color", "face", "size", "dir", "lang", "start", "type":
-			default:
-				keep = false
-			}
-			if keep {
-				attrs = append(attrs, a)
-			} else {
-				changed = true
-			}
-		}
-		n.Attr = attrs
-	}
-	walk(doc)
-	return changed
-}
-
-// A property allowlist rules out network-bearing CSS such as image-set(),
-// which cannot be secured by searching only for the spelling "url".
-func safeCompositeStyle(style string) bool {
-	value := strings.ToLower(style)
-	if strings.ContainsAny(value, "\\@") || strings.Contains(value, "url") || strings.Contains(value, "expression") || strings.Contains(value, "behavior") {
-		return false
-	}
-	for _, declaration := range strings.Split(value, ";") {
-		if strings.TrimSpace(declaration) == "" {
-			continue
-		}
-		property, _, ok := strings.Cut(declaration, ":")
-		if !ok {
-			return false
-		}
-		switch strings.TrimSpace(property) {
-		case "color", "background-color", "font", "font-family", "font-size", "font-weight", "font-style", "font-variant", "line-height", "letter-spacing", "word-spacing",
-			"text-align", "text-decoration", "text-indent", "text-transform", "vertical-align", "white-space", "word-break", "overflow-wrap",
-			"border", "border-color", "border-style", "border-width", "border-collapse", "border-spacing", "border-top", "border-right", "border-bottom", "border-left",
-			"padding", "padding-top", "padding-right", "padding-bottom", "padding-left", "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
-			"width", "height", "max-width", "max-height", "min-width", "min-height", "table-layout", "list-style-type":
-		default:
-			return false
-		}
-	}
-	return true
-}
 
 // Evaluate representations individually so anchored user rules still match.
 // Concatenating formats would turn a matching "^secret$" into a non-match.
@@ -119,7 +39,7 @@ func (filter *FilterEngine) CheckComposite(c *domain.CompositeContent) FilterDec
 	for _, r := range c.Representations {
 		var text string
 		switch r.Format {
-		case compositeText, compositeHTML, compositeFiles:
+		case compositeText, compositeHTML, compositeWeChat, compositeQQ, compositeFiles:
 			text = string(r.Data)
 		case compositeRTF:
 			text, _ = parseRTFText(r.Data)
@@ -127,8 +47,9 @@ func (filter *FilterEngine) CheckComposite(c *domain.CompositeContent) FilterDec
 		if decision := filter.CheckText(text); text != "" && decision.Sensitive {
 			return decision
 		}
-		if r.Format == compositeHTML {
-			text, _ := extractCFHTMLText(r.Data)
+		if r.Format == compositeHTML || r.Format == compositeWeChat || r.Format == compositeQQ {
+			markup, _ := compositeMarkup(r)
+			text, _ := extractCFHTMLText(markup)
 			if decision := filter.CheckText(text); text != "" && decision.Sensitive {
 				return decision
 			}
@@ -170,8 +91,8 @@ func compositeJSONValue(c *domain.CompositeContent) any {
 }
 
 // The fingerprint includes all recoverable representations and resources, but
-// excludes diagnostics. Canonical ordering makes format enumeration and local
-// resource filenames irrelevant without collapsing formatting differences.
+// excludes diagnostics. Original bytes (including source URLs and filenames)
+// remain part of identity; different recovery payloads must not be collapsed.
 func compositeFingerprint(c *domain.CompositeContent) string {
 	copy := *c
 	copy.Issues = nil
@@ -183,7 +104,7 @@ func compositeFingerprint(c *domain.CompositeContent) string {
 }
 
 func validateComposite(c *domain.CompositeContent) (string, int, error) {
-	if c == nil || len(c.Representations) == 0 || len(c.Representations) > 5 || len(c.Assets) > maxCompositeAssets || len(c.Issues) > 128 {
+	if c == nil || len(c.Representations) == 0 || len(c.Representations) > 7 || len(c.Assets) > maxCompositeAssets || len(c.Issues) > 128 {
 		return "", 0, errors.New("invalid composite package")
 	}
 	total := 0
@@ -191,7 +112,7 @@ func validateComposite(c *domain.CompositeContent) (string, int, error) {
 	formats := map[string]bool{}
 	last := ""
 	for _, a := range c.Assets {
-		if a.MediaType != "image/png" || !validContentSHA256(a.ID) || a.ID <= last || hashBytes(a.Data) != a.ID {
+		if !validContentSHA256(a.ID) || a.ID <= last || hashBytes(a.Data) != a.ID {
 			return "", 0, errors.New("invalid composite asset")
 		}
 		last = a.ID
@@ -200,8 +121,8 @@ func validateComposite(c *domain.CompositeContent) (string, int, error) {
 		if total > maxCompositeBytes {
 			return "", 0, errors.New("composite package too large")
 		}
-		if err := validateManagedImagePNG(a.Data); err != nil {
-			return "", 0, err
+		if media, err := compositeImageMediaType(a.Data); err != nil || media != a.MediaType {
+			return "", 0, errors.New("invalid composite image asset")
 		}
 	}
 	last = ""
@@ -215,7 +136,7 @@ func validateComposite(c *domain.CompositeContent) (string, int, error) {
 		if total > maxCompositeBytes {
 			return "", 0, errors.New("composite package too large")
 		}
-		if r.Format != compositePNG && r.Format != compositeRTF && (!utf8.Valid(r.Data) || bytes.IndexByte(r.Data, 0) >= 0) {
+		if r.Format != compositePNG && r.Format != compositeRTF && r.Format != compositeHTML && r.Format != compositeWeChat && r.Format != compositeQQ && (!utf8.Valid(r.Data) || bytes.IndexByte(r.Data, 0) >= 0) {
 			return "", 0, errors.New("invalid composite text encoding")
 		}
 		if r.Format == compositePNG {
@@ -223,39 +144,18 @@ func validateComposite(c *domain.CompositeContent) (string, int, error) {
 				return "", 0, err
 			}
 		}
-		if r.Format == compositeRTF {
-			_, features, err := inspectCompositeRTF(r.Data)
-			if features.object {
-				return "", 0, errors.New("unsupported RTF object")
-			}
-			if err != nil {
-				return "", 0, err
-			}
+		if len(r.Resources) > maxCompositeAssets {
+			return "", 0, errors.New("too many composite resource bindings")
 		}
-		if r.Format == compositeHTML {
-			doc, err := html.Parse(bytes.NewReader(r.Data))
-			if err != nil {
-				return "", 0, err
+		previous := ""
+		for _, resource := range r.Resources {
+			if (r.Format != compositeHTML && r.Format != compositeWeChat && r.Format != compositeQQ) || resource.Source == "" || resource.Source <= previous || len(resource.Source) > 1<<20 || !assets[resource.AssetID] {
+				return "", 0, errors.New("invalid composite resource binding")
 			}
-			if sanitizeCompositeHTML(doc) {
-				return "", 0, errors.New("unsafe composite HTML")
-			}
-			var check func(*html.Node) error
-			check = func(n *html.Node) error {
-				for _, a := range n.Attr {
-					if n.Type == html.ElementNode && n.Data == "img" && a.Key == "src" && strings.HasPrefix(a.Val, assetReferencePrefix) && !assets[strings.TrimPrefix(a.Val, assetReferencePrefix)] {
-						return errors.New("missing composite resource")
-					}
-				}
-				for child := n.FirstChild; child != nil; child = child.NextSibling {
-					if err := check(child); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
-			if err := check(doc); err != nil {
-				return "", 0, err
+			previous = resource.Source
+			total += len(resource.Source) + len(resource.AssetID)
+			if total > maxCompositeBytes {
+				return "", 0, errors.New("composite package too large")
 			}
 		}
 	}
@@ -272,9 +172,11 @@ func validateComposite(c *domain.CompositeContent) (string, int, error) {
 }
 
 func readCompositeImage(ref string, limit int) ([]byte, error) {
+	ref = trimCompositeReference(ref)
 	var raw []byte
-	if strings.HasPrefix(ref, "data:") {
+	if isCompositeInlineReference(ref) {
 		header, data, ok := strings.Cut(ref, ",")
+		header = strings.ToLower(header)
 		if !ok || !strings.HasSuffix(header, ";base64") || !strings.HasPrefix(header, "data:image/") || len(data) > limit*2 {
 			return nil, errors.New("unsupported inline image")
 		}
@@ -302,7 +204,10 @@ func readCompositeImage(ref string, limit int) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !info.Mode().IsRegular() || info.Size() > int64(limit) {
+		if info.Size() > int64(limit) {
+			return nil, ErrImageLimitExceeded
+		}
+		if !info.Mode().IsRegular() {
 			return nil, errors.New("invalid resource file")
 		}
 		f, err := os.Open(path)
@@ -318,87 +223,87 @@ func readCompositeImage(ref string, limit int) ([]byte, error) {
 	if len(raw) > limit {
 		return nil, ErrImageLimitExceeded
 	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil {
+	if _, err := compositeImageMediaType(raw); err != nil {
 		return nil, err
 	}
-	if err = validateDecodedImageDimensions(cfg.Width, cfg.Height); err != nil {
-		return nil, err
-	}
-	img, _, err := image.Decode(bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	if err = png.Encode(&out, img); err != nil {
-		return nil, err
-	}
-	if out.Len() > limit {
-		return nil, ErrImageLimitExceeded
-	}
-	return out.Bytes(), nil
+	return raw, nil
 }
 
 // Preview is a fresh allowlisted rendering. Stored recovery markup is never
 // inserted into the application DOM; only managed image URLs may load bytes.
 func compositePreviewHTML(c *domain.CompositeContent, imageURL func(string) string) string {
-	for _, r := range c.Representations {
-		if r.Format == compositeHTML {
-			doc, err := html.Parse(bytes.NewReader(r.Data))
-			if err != nil {
-				return ""
-			}
-			var out strings.Builder
-			hasContent := false
-			var render func(*html.Node)
-			render = func(n *html.Node) {
-				if n.Type == html.TextNode {
-					hasContent = hasContent || strings.TrimSpace(n.Data) != ""
-					out.WriteString(html.EscapeString(n.Data))
-					return
+	for _, format := range []string{compositeHTML, compositeWeChat, compositeQQ} {
+		for _, r := range c.Representations {
+			if r.Format == format {
+				markup, err := compositeMarkup(r)
+				if err != nil {
+					continue
 				}
-				if n.Type == html.ElementNode && slices.Contains([]string{"script", "style", "iframe", "object", "embed", "svg", "math", "template", "head"}, n.Data) {
-					return
+				doc, err := compositeHTMLDocument(markup)
+				if err != nil {
+					continue
 				}
-				allowed := n.Type == html.ElementNode && slices.Contains([]string{"a", "p", "div", "span", "br", "b", "strong", "i", "em", "u", "s", "pre", "code", "blockquote", "ul", "ol", "li", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "h1", "h2", "h3", "h4", "hr", "img"}, n.Data)
-				if allowed {
-					out.WriteString("<" + n.Data)
-					for _, a := range n.Attr {
-						if (n.Data == "td" || n.Data == "th") && (a.Key == "colspan" || a.Key == "rowspan") {
-							if value, err := strconv.Atoi(a.Val); err == nil && value > 0 && value <= 1000 {
-								out.WriteString(fmt.Sprintf(` %s="%d"`, a.Key, value))
-							}
-						}
-						if n.Data == "a" && a.Key == "href" {
-							if u, err := url.Parse(a.Val); err == nil && (u.Scheme == "https" || u.Scheme == "http" || u.Scheme == "mailto") {
-								out.WriteString(` href="` + html.EscapeString(a.Val) + `" target="_blank" rel="noopener noreferrer"`)
-							}
-						}
+				var out strings.Builder
+				hasContent := false
+				var render func(*html.Node)
+				render = func(n *html.Node) {
+					if n.Type == html.TextNode {
+						hasContent = hasContent || strings.TrimSpace(n.Data) != ""
+						out.WriteString(html.EscapeString(n.Data))
+						return
 					}
-					if n.Data == "img" {
+					if n.Type == html.ElementNode && slices.Contains([]string{"script", "style", "iframe", "object", "embed", "svg", "math", "template", "head"}, n.Data) {
+						return
+					}
+					allowed := n.Type == html.ElementNode && slices.Contains([]string{"a", "p", "div", "span", "br", "b", "strong", "i", "em", "u", "s", "pre", "code", "blockquote", "ul", "ol", "li", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "h1", "h2", "h3", "h4", "hr", "img"}, n.Data)
+					if allowed {
+						out.WriteString("<" + n.Data)
 						for _, a := range n.Attr {
-							if a.Key == "src" && strings.HasPrefix(a.Val, assetReferencePrefix) {
-								src := imageURL(strings.TrimPrefix(a.Val, assetReferencePrefix))
-								hasContent = hasContent || src != ""
-								out.WriteString(` src="` + html.EscapeString(src) + `"`)
+							if (n.Data == "td" || n.Data == "th") && (a.Key == "colspan" || a.Key == "rowspan") {
+								if value, err := strconv.Atoi(a.Val); err == nil && value > 0 && value <= 1000 {
+									out.WriteString(fmt.Sprintf(` %s="%d"`, a.Key, value))
+								}
+							}
+							if n.Data == "a" && a.Key == "href" {
+								if u, err := url.Parse(a.Val); err == nil && (u.Scheme == "https" || u.Scheme == "http" || u.Scheme == "mailto") {
+									out.WriteString(` href="` + html.EscapeString(a.Val) + `" target="_blank" rel="noopener noreferrer"`)
+								}
 							}
 						}
-						out.WriteString(` alt=""`)
+						if n.Data == "img" {
+							for _, a := range n.Attr {
+								if a.Key == "src" {
+									id := compositeResourceID(r.Resources, a.Val)
+									src := ""
+									if id != "" {
+										src = imageURL(id)
+									} else if isCompositeInlineReference(a.Val) {
+										src = compositeInlineImageURL(a.Val)
+									}
+									if src == "" {
+										continue
+									}
+									hasContent = hasContent || src != ""
+									out.WriteString(` src="` + html.EscapeString(src) + `"`)
+								}
+							}
+							out.WriteString(` alt=""`)
+						}
+						out.WriteString(">")
 					}
-					out.WriteString(">")
+					for child := n.FirstChild; child != nil; child = child.NextSibling {
+						render(child)
+					}
+					if allowed && n.Data != "img" && n.Data != "br" && n.Data != "hr" {
+						out.WriteString("</" + n.Data + ">")
+					}
 				}
-				for child := n.FirstChild; child != nil; child = child.NextSibling {
-					render(child)
+				render(doc)
+				if !hasContent {
+					continue
 				}
-				if allowed && n.Data != "img" && n.Data != "br" && n.Data != "hr" {
-					out.WriteString("</" + n.Data + ">")
-				}
+				return out.String()
 			}
-			render(doc)
-			if !hasContent {
-				return ""
-			}
-			return out.String()
 		}
 	}
 	return ""

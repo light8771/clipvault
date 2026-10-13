@@ -3,6 +3,7 @@
 package clipvault
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"time"
@@ -66,7 +67,7 @@ func captureByteFormats(ids []uint32, available func(uint32) bool, read func(uin
 // Potentially expensive text decoding, HTML/RTF parsing, PNG validation,
 // DIB conversion and PNG encoding are represented by closures over copied data
 // and run only after CloseClipboard.
-func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) openedClipboardAccess {
+func captureOpenedClipboardAccess(ctx context.Context, cfg Config, formats ClipboardFormatSet) openedClipboardAccess {
 	availableFormats := make(map[uint32]bool, len(formats.IDs))
 	for _, id := range formats.IDs {
 		availableFormats[id] = true
@@ -84,7 +85,9 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		if fileDropErr != nil {
 			return nil, fileDropErr
 		}
-		return newFileDropSnapshot(fileDropPaths, fileDropTotal)
+		var fileDropSnapshot *ClipboardSnapshot
+		fileDropSnapshot, fileDropErr = newFileDropSnapshot(fileDropPaths, fileDropTotal)
+		return fileDropSnapshot, fileDropErr
 	}
 
 	var unicodeRaw []byte
@@ -98,7 +101,9 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		}
 		return decodeCapturedUnicodeText(cfg, unicodeRaw)
 	}
-	if isTerminalClipboardCandidateError(unicodeErr) {
+	// A usable physical file list has priority over its text alternative.
+	// Keep the composite path so truncated files still receive diagnostics.
+	if isTerminalClipboardCandidateError(unicodeErr) && (fileDropErr != nil || len(fileDropPaths) == 0) {
 		return access
 	}
 
@@ -110,16 +115,13 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 	textValues := captureByteFormats(textIDs, available, readClipboardTextBytes)
 	richRaw := map[string][]byte{}
 	var richIssues []domain.ContentIssue
-	if isVirtualFileSet(formats) {
-		richIssues = append(richIssues, domain.ContentIssue{Format: "FileContents", Reason: "virtual_files_unsupported"})
-	}
 	for _, candidate := range textCandidates {
 		if candidate.name == "CF_TEXT" || !available(candidate.id) {
 			continue
 		}
 		v := textValues[candidate.id]
 		if v.err != nil {
-			richIssues = append(richIssues, domain.ContentIssue{Format: candidate.name, Reason: "data_unavailable"})
+			richIssues = append(richIssues, clipboardRepresentationReadIssue(candidate.name, v.err))
 		} else {
 			richRaw[candidate.name] = v.raw
 		}
@@ -131,28 +133,22 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		}
 		raw, err := readClipboardTextBytes(id)
 		if err != nil {
-			richIssues = append(richIssues, domain.ContentIssue{Format: name, Reason: "data_unavailable"})
+			richIssues = append(richIssues, clipboardRepresentationReadIssue(name, err))
 		} else {
 			richRaw[name] = raw
 		}
 	}
 	access.readComposite = func(cfg Config, primary *ClipboardSnapshot) (*ClipboardSnapshot, error) {
-		var img *ClipboardSnapshot
+		issues := richIssues
+		if fileDropErr != nil {
+			issues = append(append([]domain.ContentIssue(nil), issues...), clipboardRepresentationReadIssue("CF_HDROP", fileDropErr))
+		}
 		if primary != nil && primary.Format == domain.FormatFileDrop {
 			if text, err := decodeCapturedUnicodeText(cfg, unicodeRaw); err == nil && text != nil && text.Text != primary.Text {
 				richRaw[compositeText] = []byte(text.Text)
 			}
 		}
-		if primary != nil && primary.Format == domain.FormatImageFile {
-			img = primary
-		} else if access.readImage != nil {
-			var imageErr error
-			img, _, imageErr = access.readImage(cfg)
-			if imageErr != nil {
-				richIssues = append(richIssues, domain.ContentIssue{Format: "image/png", Reason: "decode_failed"})
-			}
-		}
-		return buildCompositeSnapshot(cfg, primary, img, richRaw, richIssues, readCompositeImage)
+		return buildCapturedComposite(ctx, cfg, formats, primary, richRaw, issues, access.readImage)
 	}
 	access.readTextFallback = func() (*ClipboardSnapshot, bool, error) {
 		return readClipboardTextFallbackWith(textCandidates, available, capturedByteReader(textValues))
@@ -211,6 +207,59 @@ func captureOpenedClipboardAccess(cfg Config, formats ClipboardFormatSet) opened
 		return readClipboardURLWith(urlAccess)
 	}
 	return access
+}
+
+func buildCapturedComposite(ctx context.Context, cfg Config, formats ClipboardFormatSet, primary *ClipboardSnapshot, raw map[string][]byte, readIssues []domain.ContentIssue, readImage func(Config) (*ClipboardSnapshot, bool, error)) (*ClipboardSnapshot, error) {
+	issues := append([]domain.ContentIssue(nil), readIssues...)
+	if hasUncapturedVirtualFiles(formats, primary) {
+		issues = append(issues, domain.ContentIssue{Format: "FileContents", Reason: "virtual_files_unsupported"})
+	}
+	var img *ClipboardSnapshot
+	if primary != nil && primary.Format == domain.FormatImageFile {
+		img = primary
+	} else if readImage != nil {
+		var imageErr error
+		img, _, imageErr = readImage(cfg)
+		// A shell thumbnail is optional when the physical file selection is
+		// complete. A text/rich document still needs its image representation.
+		if imageErr != nil && !hasCompleteFileDrop(primary) {
+			reason := "decode_failed"
+			if errors.Is(imageErr, errClipboardDataUnavailable) {
+				reason = "data_unavailable"
+			}
+			if isTerminalClipboardCandidateError(imageErr) {
+				reason = "resource_limit"
+			}
+			issues = append(issues, domain.ContentIssue{Format: "image/png", Reason: reason})
+		}
+	}
+	loadImage, release := newCompositeImageLoader(ctx, raw["HTML Format"])
+	defer release()
+	return buildCompositeSnapshot(cfg, primary, img, raw, issues, loadImage)
+}
+
+func shouldRetryCompositeCapture(snapshot *ClipboardSnapshot, completedAttempts int) bool {
+	if snapshot == nil || snapshot.Content == nil || completedAttempts >= len(clipboardCaptureSchedule) {
+		return false
+	}
+	for _, issue := range snapshot.Content.Issues {
+		if issue.Reason == "data_unavailable" {
+			return true
+		}
+	}
+	return false
+}
+
+func clipboardRepresentationReadIssue(format string, err error) domain.ContentIssue {
+	reason := "data_unavailable"
+	var operationErr *clipboardOperationError
+	if errors.As(err, &operationErr) && operationErr.stage == clipboardReadStageDecode {
+		reason = "decode_failed"
+	}
+	if isTerminalClipboardCandidateError(err) {
+		reason = "resource_limit"
+	}
+	return domain.ContentIssue{Format: format, Reason: reason}
 }
 
 func captureUnicodeTextClipboard(cfg Config) ([]byte, error) {

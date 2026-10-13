@@ -20,8 +20,9 @@ func (s *Store) removeUnreferencedCompositeCache(ctx context.Context) error {
 		return err
 	}
 	for _, entry := range entries {
-		id := strings.TrimSuffix(entry.Name(), ".png")
-		if entry.IsDir() || entry.Name() != id+".png" || !validContentSHA256(id) {
+		extension := filepath.Ext(entry.Name())
+		id := strings.TrimSuffix(entry.Name(), extension)
+		if entry.IsDir() || (extension != ".png" && extension != ".jpg" && extension != ".gif") || !validContentSHA256(id) {
 			continue
 		}
 		var referenced bool

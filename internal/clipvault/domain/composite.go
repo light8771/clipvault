@@ -1,8 +1,7 @@
 package domain
 
-// CompositeContent is a self-contained clipboard package. Registered formats
-// use names, never session-local Win32 IDs. Assets reside in the encrypted
-// record and representations reference them by content hash.
+// CompositeContent preserves original supported clipboard representations.
+// Resource snapshots are separate; preview generation never edits source data.
 type CompositeContent struct {
 	Representations []ContentRepresentation `json:"representations"`
 	Assets          []ContentAsset          `json:"assets"`
@@ -10,8 +9,13 @@ type CompositeContent struct {
 	Issues          []ContentIssue          `json:"issues"`
 }
 type ContentRepresentation struct {
-	Format string `json:"format"`
-	Data   []byte `json:"data"`
+	Format    string            `json:"format"`
+	Data      []byte            `json:"data"`
+	Resources []ContentResource `json:"resources,omitempty"`
+}
+type ContentResource struct {
+	Source  string `json:"source"`
+	AssetID string `json:"assetId"`
 }
 type ContentAsset struct {
 	ID        string `json:"id"`

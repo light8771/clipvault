@@ -76,32 +76,6 @@ func extractCFHTMLFragment(raw []byte) ([]byte, error) {
 	return bytes.TrimPrefix(fragment, []byte("\xef\xbb\xbf")), nil
 }
 
-func hasCFHTMLHeader(raw []byte) bool {
-	header := raw[:min(len(raw), 4096)]
-	for _, key := range [][]byte{
-		[]byte("Version:"), []byte("StartHTML:"), []byte("EndHTML:"),
-		[]byte("StartFragment:"), []byte("EndFragment:"),
-	} {
-		if bytes.Contains(header, key) {
-			return true
-		}
-	}
-	return false
-}
-
-func cfHTMLOffset(raw []byte, key string) (int, bool) {
-	prefix := []byte(key + ":")
-	for _, line := range bytes.Split(raw[:min(len(raw), 4096)], []byte{'\n'}) {
-		line = bytes.TrimSpace(line)
-		if !bytes.HasPrefix(line, prefix) {
-			continue
-		}
-		value, err := strconv.Atoi(strings.TrimSpace(string(line[len(prefix):])))
-		return value, err == nil
-	}
-	return 0, false
-}
-
 var htmlBlockElements = map[string]bool{
 	"address": true, "article": true, "aside": true, "blockquote": true,
 	"br": true, "div": true, "dl": true, "fieldset": true, "figcaption": true,

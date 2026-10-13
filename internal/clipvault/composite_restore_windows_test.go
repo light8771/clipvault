@@ -15,12 +15,13 @@ import (
 
 func TestCompositeRestoreOnlyRewritesImageReferences(t *testing.T) {
 	id := strings.Repeat("a", 64)
-	ref := assetReferencePrefix + id
-	markup, err := compositeRestoreHTML([]byte(`<html><body><p>`+ref+`</p><img src="`+ref+`"></body></html>`), map[string]string{id: `C:\paste\a&b.png`})
+	ref := "clipvault-asset:" + id
+	payload, err := restoreCompositeHTMLPayload([]byte(`<html><body><p>`+ref+`</p><img src="`+ref+`"></body></html>`), map[string]string{ref: `C:\paste\a&b.png`})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(markup, "<p>"+ref+"</p>") || !strings.Contains(markup, `src="file:///C:/paste/a&amp;b.png"`) || strings.Contains(markup, "<html>") {
+	markup := string(payload)
+	if !strings.Contains(markup, "<p>"+ref+"</p>") || !strings.Contains(markup, `src="file:///C:/paste/a&amp;b.png"`) || !strings.Contains(markup, "<html>") {
 		t.Fatalf("incorrect HTML rewrite: %s", markup)
 	}
 }
@@ -73,7 +74,7 @@ func TestCompositeRestoreRepresentationsAndCacheLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(fragment, []byte("file:///")) || bytes.Contains(fragment, []byte(assetReferencePrefix)) {
+	if !bytes.Contains(fragment, []byte("file:///")) || bytes.Contains(fragment, []byte("clipvault-asset:")) {
 		t.Fatalf("unresolved recovery HTML: %s", fragment)
 	}
 	for _, name := range []string{"WeChat_RichEdit_Format", "QQ_Unicode_RichEdit_Format"} {

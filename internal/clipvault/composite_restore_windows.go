@@ -3,10 +3,8 @@
 package clipvault
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +56,7 @@ func prepareClipboardRestoreRepresentations(item StoredItem, dataDir string) ([]
 		}
 		// Recovery copies are rebuildable from the encrypted source. Write a new
 		// file and rename, never follow an existing resource symlink.
-		path := filepath.Join(dir, asset.ID+".png")
+		path := filepath.Join(dir, asset.ID+compositeImageExtension(asset.MediaType))
 		if compositeCacheMatches(path, asset.ID, len(asset.Data)) {
 			paths[asset.ID] = path
 			continue
@@ -95,7 +93,19 @@ func prepareClipboardRestoreRepresentations(item StoredItem, dataDir string) ([]
 				return nil, err
 			}
 		case compositeRTF:
-			if err := add(registerClipboardFormat("Rich Text Format"), append(append([]byte{}, r.Data...), 0)); err != nil {
+			if err := add(registerClipboardFormat("Rich Text Format"), append([]byte(nil), r.Data...)); err != nil {
+				return nil, err
+			}
+		case compositeWeChat, compositeQQ:
+			resourcePaths := map[string]string{}
+			for _, resource := range r.Resources {
+				resourcePaths[resource.Source] = paths[resource.AssetID]
+			}
+			data, err := restoreCompositeMarkupPayload(r.Data, resourcePaths, true)
+			if err != nil {
+				return nil, err
+			}
+			if err = add(registerClipboardFormat(r.Format), data); err != nil {
 				return nil, err
 			}
 		case compositePNG:
@@ -112,16 +122,27 @@ func prepareClipboardRestoreRepresentations(item StoredItem, dataDir string) ([]
 			}
 			out = append(out, clipboardRestoreRepresentation{cfHDrop, encodeClipboardFileDrop(files)})
 		case compositeHTML:
-			markup, err := compositeRestoreHTML(r.Data, paths)
+			resourcePaths := map[string]string{}
+			for _, resource := range r.Resources {
+				resourcePaths[resource.Source] = paths[resource.AssetID]
+			}
+			markup, err := restoreCompositeHTMLPayload(r.Data, resourcePaths)
 			if err != nil {
 				return nil, err
 			}
-			if err := add(registerClipboardFormat("HTML Format"), encodeCFHTML(markup)); err != nil {
+			if err := add(registerClipboardFormat("HTML Format"), markup); err != nil {
 				return nil, err
 			}
 			if len(paths) > 0 {
 				for _, entry := range []struct{ name, root string }{{"WeChat_RichEdit_Format", "WeChatRichEditFormat"}, {"QQ_Unicode_RichEdit_Format", "QQRichEditFormat"}} {
-					if err := add(registerClipboardFormat(entry.name), encodeRichEditHTML(r.Data, paths, entry.root)); err != nil {
+					present := false
+					for _, original := range item.Content.Representations {
+						present = present || original.Format == entry.name
+					}
+					if present {
+						continue
+					}
+					if err := add(registerClipboardFormat(entry.name), encodeRichEditHTML(r.Data, resourcePaths, entry.root)); err != nil {
 						return nil, err
 					}
 				}
@@ -150,45 +171,6 @@ func compositeCacheMatches(path, id string, size int) bool {
 	return err == nil && hashBytes(existing) == id
 }
 
-func compositeRestoreHTML(raw []byte, paths map[string]string) (string, error) {
-	doc, err := html.Parse(bytes.NewReader(raw))
-	if err != nil {
-		return "", err
-	}
-	var body *html.Node
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "body" {
-			body = n
-		}
-		if n.Type == html.ElementNode && n.Data == "img" {
-			for i, a := range n.Attr {
-				if a.Key != "src" || !strings.HasPrefix(a.Val, assetReferencePrefix) {
-					continue
-				}
-				if path, ok := paths[strings.TrimPrefix(a.Val, assetReferencePrefix)]; ok {
-					u := url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(path)}
-					n.Attr[i].Val = u.String()
-				}
-			}
-		}
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			walk(child)
-		}
-	}
-	walk(doc)
-	if body == nil {
-		return "", fmt.Errorf("HTML body missing")
-	}
-	var out bytes.Buffer
-	for child := body.FirstChild; child != nil; child = child.NextSibling {
-		if err := html.Render(&out, child); err != nil {
-			return "", err
-		}
-	}
-	return out.String(), nil
-}
-
 func encodeCFHTML(fragment string) []byte {
 	prefix := "<html><body><!--StartFragment-->"
 	suffix := "<!--EndFragment--></body></html>"
@@ -199,7 +181,10 @@ func encodeCFHTML(fragment string) []byte {
 }
 
 func encodeRichEditHTML(markup []byte, paths map[string]string, root string) []byte {
-	doc, _ := html.Parse(bytes.NewReader(markup))
+	doc, err := compositeHTMLDocument(markup)
+	if err != nil {
+		return []byte("<" + root + "></" + root + ">")
+	}
 	var out strings.Builder
 	out.WriteString("<" + root + ">")
 	var text strings.Builder
@@ -218,7 +203,7 @@ func encodeRichEditHTML(markup []byte, paths map[string]string, root string) []b
 			if n.Data == "img" {
 				for _, a := range n.Attr {
 					if a.Key == "src" {
-						if path, ok := paths[strings.TrimPrefix(a.Val, assetReferencePrefix)]; ok {
+						if path, ok := paths[a.Val]; ok {
 							flush()
 							out.WriteString(`<EditElement type="1" filepath="` + html.EscapeString(path) + `"></EditElement>`)
 						}

@@ -104,7 +104,17 @@ test('composite cards escape text and expose all derived kinds', () => {
   const card = compositeCard(item, 'mixed');
   assert.doesNotMatch(card.bodyHTML, /<script>/);
   assert.doesNotMatch(card.bodyHTML, /bad\(\)/);
-  assert.match(card.bodyHTML, /history.composite_incomplete/);
+  assert.match(card.bodyHTML, /history.composite_issue_unknown/);
+});
+
+test('composite cards explain read failures and resource backups separately', () => {
+  const card = compositeCard({ id: 9, content: { issues: [
+    { format: '<img onerror=run()>', reason: 'data_unavailable' },
+    { format: 'HTML Format', reason: 'resource_unavailable' },
+  ] } }, 'content');
+  assert.match(card.bodyHTML, /history.composite_issue_data_unavailable/);
+  assert.match(card.bodyHTML, /history.composite_issue_resource_unavailable/);
+  assert.doesNotMatch(card.bodyHTML, /<img onerror/);
 });
 
 test('unified composite body uses the ordered document instead of repeating search text', () => {

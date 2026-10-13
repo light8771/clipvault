@@ -53,7 +53,7 @@ func TestCompositeHTMLTableSelection(t *testing.T) {
 				stored = string(rep.Data)
 			}
 		}
-		if !strings.Contains(stored, "<table>") || !strings.Contains(stored, "<tr>") {
+		if stored != markup {
 			t.Fatalf("table structure lost: %s", stored)
 		}
 	}

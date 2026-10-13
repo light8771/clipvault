@@ -11746,11 +11746,53 @@
     "EnUS": "Link"
   },
   {
-    "Key": "history.composite_incomplete",
+    "Key": "history.composite_issue_data_unavailable",
     "Module": "history",
-    "Description": "复合内容部分保存提示",
-    "ZhCN": "部分内容未能保存，恢复时可能不完整",
-    "EnUS": "Some content could not be saved; restoration may be incomplete"
+    "Description": "复合内容保存诊断",
+    "ZhCN": "该格式未能读取",
+    "EnUS": "This format could not be read"
+  },
+  {
+    "Key": "history.composite_issue_decode_failed",
+    "Module": "history",
+    "Description": "复合内容保存诊断",
+    "ZhCN": "该格式无法解码",
+    "EnUS": "This format could not be decoded"
+  },
+  {
+    "Key": "history.composite_issue_resource_limit",
+    "Module": "history",
+    "Description": "复合内容保存诊断",
+    "ZhCN": "内容或资源超过保存上限",
+    "EnUS": "Content or resources exceeded the storage limit"
+  },
+  {
+    "Key": "history.composite_issue_resource_unavailable",
+    "Module": "history",
+    "Description": "复合内容保存诊断",
+    "ZhCN": "图片资源未能备份，原始引用仍保留",
+    "EnUS": "An image could not be backed up; its original reference is preserved"
+  },
+  {
+    "Key": "history.composite_issue_images_disabled",
+    "Module": "history",
+    "Description": "复合内容保存诊断",
+    "ZhCN": "未备份图片资源（图片采集已关闭）",
+    "EnUS": "Image resources were not backed up because image capture is disabled"
+  },
+  {
+    "Key": "history.composite_issue_virtual_files_unsupported",
+    "Module": "history",
+    "Description": "复合内容保存诊断",
+    "ZhCN": "虚拟文件尚不支持独立保存",
+    "EnUS": "Virtual files cannot yet be saved independently"
+  },
+  {
+    "Key": "history.composite_issue_unknown",
+    "Module": "history",
+    "Description": "复合内容保存诊断",
+    "ZhCN": "此格式未能完整保存",
+    "EnUS": "This format could not be saved completely"
   },
   {
     "Key": "history.composite_preview_unavailable",
@@ -11758,6 +11800,13 @@
     "Description": "完整内容已保存但无法预览",
     "ZhCN": "此内容暂无法预览，可复制到支持的应用中查看",
     "EnUS": "Preview is unavailable. Copy this content into a supported app to view it."
+  },
+  {
+    "Key": "history.composite_preview_note",
+    "Module": "history",
+    "Description": "预览与原始内容分离说明",
+    "ZhCN": "预览已简化；复制时使用保存的原始格式。",
+    "EnUS": "This preview is simplified. Copying uses the saved original formats."
   },
 {"Key":"history.subtype_plain","EnUS":"Plain text","ZhCN":"纯文本","Module":"history","Description":"纯文本二级分类"},
 {"Key":"history.subtype_rich","EnUS":"Rich text","ZhCN":"富文本","Module":"history","Description":"富文本二级分类"},

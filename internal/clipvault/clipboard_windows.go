@@ -283,52 +283,12 @@ func clipboardSequenceIsCurrent(expected uint32) bool {
 func readClipboardEventForSequence(ctx context.Context, cfg Config, expectedSequence uint32) (*ClipboardSnapshot, ClipboardFormatSet, int, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-
-	var lastFormats ClipboardFormatSet
-	started := time.Now()
-	for attempt, scheduledAt := range clipboardCaptureSchedule {
-		attempt++
-		if wait := scheduledAt - time.Since(started); wait > 0 {
-			timer := time.NewTimer(wait)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				if !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
-					}
-				}
-				return nil, lastFormats, attempt - 1, context.Cause(ctx)
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, lastFormats, attempt - 1, context.Cause(ctx)
-		}
-		snapshot, formats, err := readClipboardAttempt(cfg, expectedSequence, attempt)
-		lastFormats = formats
-		if errors.Is(err, ErrClipboardSuperseded) {
-			return nil, formats, attempt, err
-		}
-		if err == nil {
-			if snapshot != nil || len(formats.IDs) > 0 || len(formats.Names) > 0 || attempt >= 2 {
-				return snapshot, formats, attempt, nil
-			}
-			// An empty clipboard gets one short confirmation only.
-			continue
-		}
-		if !shouldRetryClipboardCapture(err, attempt) {
-			return nil, formats, attempt, err
-		}
-		observed := clipboardSequenceNumber()
-		if clipboardSequenceSuperseded(expectedSequence, observed) {
-			return nil, formats, attempt, ErrClipboardSuperseded
-		}
-	}
-	return nil, lastFormats, len(clipboardCaptureSchedule), errors.New("clipboard read attempts exhausted")
+	return readClipboardEventWith(ctx, cfg, expectedSequence, func(cfg Config, sequence uint32, attempt int) (*ClipboardSnapshot, ClipboardFormatSet, error) {
+		return readClipboardAttempt(ctx, cfg, sequence, attempt)
+	}, clipboardSequenceNumber)
 }
 
-func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*ClipboardSnapshot, ClipboardFormatSet, error) {
+func readClipboardAttempt(captureCtx context.Context, cfg Config, expectedSequence uint32, attempt int) (*ClipboardSnapshot, ClipboardFormatSet, error) {
 	ctx := newClipboardReadAttemptContext(attempt, expectedSequence)
 	if clipboardSequenceSuperseded(expectedSequence, ctx.sequenceBeforeOpen) {
 		return nil, ClipboardFormatSet{}, ErrClipboardSuperseded
@@ -367,7 +327,7 @@ func readClipboardAttempt(cfg Config, expectedSequence uint32, attempt int) (*Cl
 	formats, readErr := enumClipboardFormatNames()
 	var captured openedClipboardAccess
 	if readErr == nil {
-		captured = captureOpenedClipboardAccess(cfg, formats)
+		captured = captureOpenedClipboardAccess(captureCtx, cfg, formats)
 	}
 	ctx.sequenceAfterRead = clipboardSequenceNumber()
 	ctx.captureClipboardWindows()

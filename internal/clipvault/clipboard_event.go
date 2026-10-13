@@ -46,6 +46,24 @@ func isVirtualFileSet(formats ClipboardFormatSet) bool {
 	return hasDescriptor && formats.HasName("FileContents")
 }
 
+// Explorer may advertise virtual-file formats alongside CF_HDROP for the same
+// selection. A successfully captured file list is already restorable; merely
+// advertising the alternative does not mean files were lost.
+func hasUncapturedVirtualFiles(formats ClipboardFormatSet, primary *ClipboardSnapshot) bool {
+	if !isVirtualFileSet(formats) {
+		return false
+	}
+	return !hasCompleteFileDrop(primary)
+}
+
+func hasCompleteFileDrop(primary *ClipboardSnapshot) bool {
+	if primary == nil || primary.Format != domain.FormatFileDrop || strings.TrimSpace(primary.Text) == "" {
+		return false
+	}
+	truncated, _ := primary.Meta["truncated"].(bool)
+	return !truncated
+}
+
 func classifyEmptyCapture(formats ClipboardFormatSet) domain.ClipboardEventCode {
 	if len(formats.IDs) == 0 && len(formats.Names) == 0 {
 		return domain.EventClipboardEmpty

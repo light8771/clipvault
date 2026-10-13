@@ -1,6 +1,7 @@
 package clipvault
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -69,19 +70,19 @@ func TestCompositePreviewPreservesFilesAlongsideText(t *testing.T) {
 	}
 }
 
-func TestCompositeUnsupportedRTFObjectRetainsVisibleText(t *testing.T) {
+func TestCompositeRTFObjectPreservesPayloadAndProjectsText(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Image.Enabled = true
 	snapshot, err := buildCompositeSnapshot(cfg, nil, nil, map[string][]byte{"Rich Text Format": []byte(`{\rtf1 visible note{\object{\objdata 00}}}`)}, nil, readCompositeImage)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot == nil || snapshot.Text != "visible note" || snapshot.Content == nil || len(snapshot.Content.Issues) != 1 {
+	if snapshot == nil || snapshot.Text != "visible note" || snapshot.Content == nil || len(snapshot.Content.Issues) != 0 {
 		t.Fatalf("lost readable text: %+v", snapshot)
 	}
 	for _, repr := range snapshot.Content.Representations {
-		if repr.Format == compositeRTF {
-			t.Fatal("unsupported object was retained")
+		if repr.Format == compositeRTF && !bytes.Contains(repr.Data, []byte(`\object`)) {
+			t.Fatal("RTF object bytes lost")
 		}
 	}
 }
@@ -203,7 +204,7 @@ func TestCompositePreviewDistinguishesEmptyMarkupFromImages(t *testing.T) {
 		{"text", "<p>visible</p>", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			content := &domain.CompositeContent{Representations: []domain.ContentRepresentation{{Format: compositeHTML, Data: []byte(tc.markup)}}}
+			content := &domain.CompositeContent{Representations: []domain.ContentRepresentation{{Format: compositeHTML, Data: []byte(tc.markup), Resources: []domain.ContentResource{{Source: "clipvault-asset:example", AssetID: "example"}}}}}
 			preview := compositePreviewHTML(content, func(string) string { return tc.image })
 			if (preview != "") != tc.visible {
 				t.Fatalf("unexpected preview: %q", preview)

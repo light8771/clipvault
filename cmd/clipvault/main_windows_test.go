@@ -12,9 +12,12 @@ import (
 )
 
 func TestSearchRejectsHeldInstanceLock(t *testing.T) {
+	// Isolate the process-wide mutex namespace from a user's running app.
+	// The search command must still observe the lock held by this test.
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	lock, err := clipvault.AcquireInstanceLock()
 	if err != nil {
-		t.Skipf("ClipVault is already running: %v", err)
+		t.Fatalf("acquire isolated instance lock: %v", err)
 	}
 	defer lock.Close()
 

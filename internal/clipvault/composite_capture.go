@@ -12,8 +12,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-// An adapter converts registered application formats to portable HTML; their
-// session markers and opaque OLE handles are deliberately not replayed.
+// Derive HTML for search, preview and resource discovery. The original
+// application payload is retained independently for restoration.
 func richEditHTML(raw []byte) ([]byte, error) {
 	var doc struct {
 		XMLName  xml.Name
@@ -46,6 +46,9 @@ func richEditHTML(raw []byte) ([]byte, error) {
 func buildCompositeSnapshot(cfg Config, primary, imageSnapshot *ClipboardSnapshot, raw map[string][]byte, issues []domain.ContentIssue, loadImage func(string, int) ([]byte, error)) (*ClipboardSnapshot, error) {
 	mixedFiles := false
 	if primary != nil && primary.Format == domain.FormatFileDrop {
+		if truncated, _ := primary.Meta["truncated"].(bool); truncated {
+			issues = append(append([]domain.ContentIssue(nil), issues...), domain.ContentIssue{Format: "CF_HDROP", Reason: "resource_limit"})
+		}
 		kinds := map[string]bool{}
 		for _, path := range splitNonEmptyLines(primary.Text) {
 			kinds[fileExtKind(path)] = true
@@ -57,6 +60,11 @@ func buildCompositeSnapshot(cfg Config, primary, imageSnapshot *ClipboardSnapsho
 	}
 	c := &domain.CompositeContent{Representations: []domain.ContentRepresentation{}, Assets: []domain.ContentAsset{}, Issues: append([]domain.ContentIssue{}, issues...)}
 	issue := func(format, reason string) {
+		for _, existing := range c.Issues {
+			if existing.Format == format && existing.Reason == reason {
+				return
+			}
+		}
 		if len(c.Issues) < 128 {
 			c.Issues = append(c.Issues, domain.ContentIssue{Format: format, Reason: reason})
 		}
@@ -68,6 +76,9 @@ func buildCompositeSnapshot(cfg Config, primary, imageSnapshot *ClipboardSnapsho
 		size := len(data)
 		for _, r := range c.Representations {
 			size += len(r.Data)
+			for _, resource := range r.Resources {
+				size += len(resource.Source) + len(resource.AssetID)
+			}
 		}
 		for _, a := range c.Assets {
 			size += len(a.Data)
@@ -91,118 +102,56 @@ func buildCompositeSnapshot(cfg Config, primary, imageSnapshot *ClipboardSnapsho
 	if text := raw[compositeText]; len(text) > 0 && (primary == nil || primary.Format != domain.FormatUnicodeText) {
 		add(compositeText, text)
 	}
-	markup := raw["HTML Format"]
-	if len(markup) > 0 {
-		var err error
-		markup, err = extractCFHTMLFragment(markup)
-		if err != nil {
-			issue("HTML Format", "decode_failed")
-			markup = nil
+	for _, name := range []string{"HTML Format", compositeWeChat, compositeQQ} {
+		format := name
+		if name == "HTML Format" {
+			format = compositeHTML
+		}
+		if data := raw[name]; len(data) > 0 {
+			add(format, append([]byte(nil), data...))
 		}
 	}
-	if len(markup) == 0 {
-		for _, name := range []string{"WeChat_RichEdit_Format", "QQ_Unicode_RichEdit_Format"} {
-			if data := raw[name]; len(data) > 0 {
-				converted, err := richEditHTML(data)
-				if err != nil {
-					issue(name, "unsupported_structure")
-					continue
-				}
-				markup = converted
-				break
-			}
-		}
+
+	// Rich formats are opaque recovery payloads. Parsing for search/preview
+	// never determines whether their original bytes are retained.
+	if rtf := raw["Rich Text Format"]; len(rtf) > 0 {
+		add(compositeRTF, append([]byte(nil), rtf...))
 	}
-	if len(markup) > 0 {
-		doc, err := parseCompositeHTMLFragment(markup)
-		if err != nil {
-			return nil, err
-		}
-		// Remove discarded subtrees before resolving resources: a hidden image
-		// in a template/object must not cause an unrelated file to be captured.
-		if sanitizeCompositeHTMLWithSourceImages(doc, true) {
-			issue("HTML Format", "unsafe_markup_removed")
-		}
-		assets := map[string]bool{}
-		loaded := map[string]string{}
-		used := 0
-		var walk func(*html.Node)
-		walk = func(n *html.Node) {
-			if n.Type == html.ElementNode && n.Data == "img" {
-				for i, a := range n.Attr {
-					if a.Key != "src" {
-						continue
-					}
-					if ref, ok := loaded[a.Val]; ok {
-						n.Attr[i].Val = ref
-						continue
-					}
-					if !cfg.Image.Enabled {
-						issue("HTML Format", "images_disabled")
-						n.Attr[i].Val = ""
-						continue
-					}
-					if len(c.Assets) >= maxCompositeAssets || used >= maxCompositeBytes/2 {
-						issue("HTML Format", "resource_limit")
-						n.Attr[i].Val = ""
-						continue
-					}
-					data, err := loadImage(a.Val, min(configuredCompositeImageLimit(cfg), maxCompositeBytes/2-used))
-					if err != nil {
-						issue("HTML Format", "resource_unavailable")
-						n.Attr[i].Val = ""
-						continue
-					}
-					id := hashBytes(data)
-					ref := assetReferencePrefix + id
-					loaded[a.Val] = ref
-					n.Attr[i].Val = ref
-					if !assets[id] {
-						assets[id] = true
-						used += len(data)
-						c.Assets = append(c.Assets, domain.ContentAsset{ID: id, MediaType: "image/png", Data: data})
-					}
-				}
-			}
-			if n.Type == html.ElementNode && (n.Data == "object" || n.Data == "embed" || n.Data == "iframe") {
-				issue("HTML Format", "embedded_object_unsupported")
-			}
-			for child := n.FirstChild; child != nil; child = child.NextSibling {
-				walk(child)
-			}
-		}
-		walk(doc)
-		var serialized bytes.Buffer
-		if err := html.Render(&serialized, doc); err != nil {
-			return nil, err
-		}
-		if !add(compositeHTML, serialized.Bytes()) {
-			c.Assets = nil
-		}
-	}
-	if rtf := bytes.TrimRight(raw["Rich Text Format"], "\x00"); len(rtf) > 0 {
-		text, features, err := inspectCompositeRTF(rtf)
-		if features.object {
-			issue("Rich Text Format", "embedded_object_unsupported")
-			if err == nil && !slices.ContainsFunc(c.Representations, func(r domain.ContentRepresentation) bool { return r.Format == compositeText }) {
-				add(compositeText, []byte(text))
-			}
-		} else if err != nil {
-			issue("Rich Text Format", "decode_failed")
-		} else if !cfg.Image.Enabled && features.image {
-			issue("Rich Text Format", "images_disabled")
-			if !slices.ContainsFunc(c.Representations, func(r domain.ContentRepresentation) bool { return r.Format == compositeText }) {
-				add(compositeText, []byte(text))
-			}
-		} else {
-			add(compositeRTF, rtf)
-		}
-	}
+
 	// A bitmap accompanying HTML is an alternative representation of this same
 	// record, not a separate history item or an extra ordered document part.
 	if imageSnapshot != nil {
 		add(compositePNG, imageSnapshot.ImageBytes)
 	}
+	// Original representations take priority over optional resource backups.
+	budget := maxCompositeBytes
+	for _, rep := range c.Representations {
+		budget -= len(rep.Data)
+	}
+	cachedLoad := cachedCompositeImageLoader(loadImage)
+	for index, rep := range c.Representations {
+		if rep.Format != compositeHTML && rep.Format != compositeWeChat && rep.Format != compositeQQ {
+			continue
+		}
+		markup, err := compositeMarkup(rep)
+		if err != nil {
+			continue
+		}
+		source := rep.Format
+		if source == compositeHTML {
+			source = "HTML Format"
+		}
+		resources, assets := captureCompositeHTMLResources(cfg, markup, cachedLoad, budget, c.Assets, func(_ string, reason string) { issue(source, reason) })
+		c.Representations[index].Resources = resources
+		for _, resource := range resources {
+			budget -= len(resource.Source) + len(resource.AssetID)
+		}
+		for _, asset := range assets {
+			budget -= len(asset.Data)
+		}
+		c.Assets = append(c.Assets, assets...)
+	}
+
 	if len(c.Representations) == 0 {
 		return primary, nil
 	}

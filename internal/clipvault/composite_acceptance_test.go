@@ -94,32 +94,31 @@ func TestCompositeDoesNotReadResourcesInDiscardedMarkup(t *testing.T) {
 	}
 }
 
-func TestCompositeDisabledImagesAppliesToRTF(t *testing.T) {
+func TestCompositeImageSettingDoesNotRewriteRTF(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Image.Enabled = false
 	snapshot, err := buildCompositeSnapshot(cfg, nil, nil, map[string][]byte{"Rich Text Format": []byte(`{\rtf1 kept{\pict\pngblip 89504e47}}`)}, nil, readCompositeImage)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot == nil || snapshot.Text != "kept" || slices.Contains(snapshot.Content.Kinds, "image") {
+	if snapshot == nil || snapshot.Text != "kept" || !slices.Contains(snapshot.Content.Kinds, "image") {
 		t.Fatalf("disabled image retained: %+v", snapshot)
 	}
-	if len(snapshot.Content.Issues) != 1 {
-		t.Fatal("missing incomplete diagnostic")
+	if len(snapshot.Content.Issues) != 0 {
+		t.Fatal("original RTF reported content loss")
 	}
 }
 
-func TestCompositeRecoveryStyleRejectsExternalSubresources(t *testing.T) {
-	if !safeCompositeStyle("color: rgb(10, 20, 30); font-weight: bold; border-collapse: collapse") {
-		t.Fatal("passive formatting rejected")
-	}
-	for _, style := range []string{`background: image-set("https://example.com/a.png" 1x)`, `content: image-set("https://example.com/a.png" 1x)`, `list-style-image: image-set("https://example.com/a.png" 1x)`} {
-		if safeCompositeStyle(style) {
-			t.Fatalf("network style accepted: %s", style)
+func TestCompositePreviewExcludesSourceStyles(t *testing.T) {
+	for _, style := range []string{`color:red`, `background: image-set("https://example.com/a.png" 1x)`, `content: image-set("https://example.com/a.png" 1x)`} {
+		markup := []byte(`<p style='` + style + `'>text</p>`)
+		c := &domain.CompositeContent{Representations: []domain.ContentRepresentation{{Format: compositeHTML, Data: markup}}, Kinds: []string{"text"}}
+		if _, _, err := validateComposite(c); err != nil {
+			t.Fatal(err)
 		}
-		c := &domain.CompositeContent{Representations: []domain.ContentRepresentation{{Format: compositeHTML, Data: []byte(`<p style='` + style + `'>text</p>`)}}, Kinds: []string{"text"}}
-		if _, _, err := validateComposite(c); err == nil {
-			t.Fatal("import accepted external style")
+		preview := compositePreviewHTML(c, func(string) string { return "" })
+		if strings.Contains(preview, "style") || strings.Contains(preview, "image-set") {
+			t.Fatalf("unsafe preview: %s", preview)
 		}
 	}
 }

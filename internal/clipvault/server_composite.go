@@ -25,7 +25,7 @@ func (s *SearchServer) handleCompositePreview(w http.ResponseWriter, r *http.Req
 	}
 	assets := map[string]string{}
 	for _, a := range item.Content.Assets {
-		assets[a.ID] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(a.Data)
+		assets[a.ID] = "data:" + a.MediaType + ";base64," + base64.StdEncoding.EncodeToString(a.Data)
 	}
 	hasPreviewImage := false
 	preview := compositePreviewHTML(item.Content, func(id string) string {
@@ -55,7 +55,7 @@ func (s *SearchServer) handleCompositePreview(w http.ResponseWriter, r *http.Req
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	s.writeJSON(w, map[string]any{"html": preview, "text": compositePasteText(&textContent), "images": images, "files": files, "incomplete": len(item.Content.Issues) > 0})
+	s.writeJSON(w, map[string]any{"html": preview, "text": compositePasteText(&textContent), "images": images, "files": files, "incomplete": len(item.Content.Issues) > 0, "issues": item.Content.Issues})
 }
 
 func (s *SearchServer) handleRestoreItem(w http.ResponseWriter, r *http.Request) {

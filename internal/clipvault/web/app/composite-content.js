@@ -7,9 +7,25 @@ export function contentKindLabel(item, kindKey) {
   return app.KIND_LABEL[kindKey] ? t(app.KIND_LABEL[kindKey]) : kindKey;
 }
 
+const ISSUE_REASON_KEYS = {
+  data_unavailable: 'history.composite_issue_data_unavailable',
+  decode_failed: 'history.composite_issue_decode_failed',
+  resource_limit: 'history.composite_issue_resource_limit',
+  resource_unavailable: 'history.composite_issue_resource_unavailable',
+  images_disabled: 'history.composite_issue_images_disabled',
+  virtual_files_unsupported: 'history.composite_issue_virtual_files_unsupported',
+};
+
+export function compositeIssueText(issues) {
+  return (issues || []).map(issue => {
+    const label = t(ISSUE_REASON_KEYS[issue.reason] || 'history.composite_issue_unknown');
+    return (issue.format ? issue.format + ': ' : '') + label;
+  }).join('; ');
+}
+
 export function compositeCard(item, label) {
   let bodyHTML = '<div class="composite-preview composite-card" data-composite-id="' + item.id + '" aria-label="' + app.esc(label) + '">' + app.esc(t('common.loading')) + '</div>';
-  if (item.content?.issues?.length) bodyHTML += '<p class="composite-status">' + app.esc(t('history.composite_incomplete')) + '</p>';
+  if (item.content?.issues?.length) bodyHTML += '<p class="composite-status">' + app.esc(compositeIssueText(item.content.issues)) + '</p>';
   return { bodyHTML, charText: '', showView: true };
 }
 
@@ -113,10 +129,15 @@ export async function showCompositePreview(id, isCurrent) {
     body.className = 'composite-preview';
     renderCompositeBody(body, content, id);
     preview.appendChild(body);
+    if (content.html) {
+      const previewNote = document.createElement('p');
+      previewNote.textContent = t('history.composite_preview_note');
+      preview.appendChild(previewNote);
+    }
     if (content.files?.length) app.checkFiles(id, body);
-    if (content.incomplete) {
+    if (content.issues?.length) {
       const note = document.createElement('p');
-      note.textContent = t('history.composite_incomplete');
+      note.textContent = compositeIssueText(content.issues);
       preview.appendChild(note);
     }
     app.MODAL_PRE.style.display = 'none';
