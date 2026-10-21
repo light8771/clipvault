@@ -184,4 +184,4 @@ PE 导入表仅见 Windows/UCRT 系统 DLL（含 RstrtMgr、WS2_32），未见�
 
 公开匿名克隆检查点 47fc26f 共 129 个提交，全部历史中 50 个排除路径的条目为 0，所有克隆对象均由公开引用可达，原始开发保存提交不存在；149 份上游声明原始哈希一致，git fsck 退出 0。随后修复 Windows 检出换行问题，在 925e0b8 再次以 core.autocrlf=true 匿名克隆，304 个 Go 文件 gofmt 检查均通过，go mod verify 退出 0，原发布脚本使用开发公钥构建退出 0。该公开克隆 EXE 的 SHA-256 为 e169a03fb32ebb8247533f1e1bbcb5697183a0e59af5d0b90c4710d4fbe67b96，仅本地审查，不上传。申请草稿字段现为 420 / 383 / 466 字符，校验通过。
 
-首轮 GitHub CI 39576221184 在格式步骤失败：Windows 默认检出将 304 个 Go 文件转换为 CRLF。已添加 Go 源码 LF 属性，并在实际 Windows 公开克隆中验证；未改动业务源码、测试逻辑或放宽检查。修复后的 CI [39576673550](https://github.com/light8771/clipvault/actions/runs/39576673550) 已通过工具链、格式、前端与订单脚本步骤；Go 全量/竞态仍在运行，此时不能计为通过。
+首轮 GitHub CI 39576221184 在格式步骤失败：Windows 默认检出将 304 个 Go 文件转换为 CRLF。已添加 Go 源码 LF 属性，并在实际 Windows 公开克隆中验证；未改动业务源码、测试逻辑或放宽检查。第二轮 CI [39576673550](https://github.com/light8771/clipvault/actions/runs/39576673550) 通过工具链、格式、前端与订单脚本步骤，但在 DuckDB 静态库链接阶段失败，缺少 __emutls 符号；使用的是 MSYS2 GCC 16.2.0。已核实本机实际成功工具链为 Winlibs GCC 16.1.0 POSIX / MinGW-w64 14.0.0 UCRT r3，工作流改为同一固定上游 ZIP，校验 SHA-256。Go 普通与竞态分成独立步骤，各保留完整用例并给予 30 分钟超时，作业上限覆盖两轮和构建。下一轮真实 CI 结果另行追加，不能将之前的部分成功算作全量通过。

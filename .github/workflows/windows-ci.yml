@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CGO_ENABLED: '1'
       CC: gcc
@@ -29,14 +29,24 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: mingw-w64-ucrt-x86_64-gcc
-      - name: 添加 UCRT 编译器到后续 PowerShell 环境
-        shell: msys2 {0}
-        run: echo "$(cygpath -w /ucrt64/bin)" >> "$GITHUB_PATH"
+      - name: 安装已验证的 Winlibs GCC 16.1.0 POSIX UCRT
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/brechtsanders/winlibs_mingw/releases/download/16.1.0posix-14.0.0-ucrt-r3/winlibs-x86_64-posix-seh-gcc-16.1.0-mingw-w64ucrt-14.0.0-r3.zip'
+          $expectedHash = '4273565109cd8ab8ecef1b0dc2a56fd7f5c7ee0885840a1c011b9325160ec0c3'
+          $archive = Join-Path $env:RUNNER_TEMP 'winlibs-gcc-16.1.0.zip'
+          $toolRoot = Join-Path $env:RUNNER_TEMP 'clipvault-winlibs'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHash) {
+            throw 'Winlibs 下载 SHA-256 不匹配'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $toolRoot
+          $compilerBin = Join-Path $toolRoot 'mingw64/bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $compilerBin 'gcc.exe'))) {
+            throw 'Winlibs 编译器路径不存在'
+          }
+          $compilerBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: 工具链与格式
         shell: pwsh
         run: |
@@ -61,11 +71,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/check-web.ps1
           ./scripts/test-order-build.ps1
-      - name: Go 全量与竞态
+      - name: Go 全量
         shell: pwsh
         run: |
-          go test ./... -count=1
+          go test ./... -count=1 -timeout=30m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Go 竞态
+        shell: pwsh
+        run: |
           go test -race ./... -count=1 -timeout=30m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 无私钥验证性构建

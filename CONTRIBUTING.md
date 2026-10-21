@@ -1,10 +1,10 @@
 # 参与 ClipVault
 
-首次公开发布仍在准备中。自有代码和文档采用 Apache-2.0，版权署名 `ClipVault contributors`，第三方原声明保留。提交贡献时应有权按此许可提供对应内容；贡献不转让作者版权。不将本地操作授权视为公开上传许可。
+源码仓库为 https://github.com/light8771/clipvault，EXE 稳定版仍在准备中。自有代码和文档采用 Apache-2.0，版权署名 `ClipVault contributors`，第三方原声明保留。提交贡献时应有权按此许可提供对应内容；贡献不转让作者版权。不将本地操作授权视为公开上传许可。
 
 ## 环境与构建
 
-目标仅 Windows 10/11 x64；安装 Go 1.26.10、MinGW-w64（x86_64/UCRT）、Node.js 22 与 npm、Python 3.12+（发布审查工具用，本轮 3.14.2）。前端无打包步骤。以下 MinGW 路径是示例，按本机安装位置调整：
+目标仅 Windows 10/11 x64；安装 Go 1.26.10、[Winlibs GCC 16.1.0 POSIX / MinGW-w64 14.0.0 UCRT r3](https://github.com/brechtsanders/winlibs_mingw/releases/tag/16.1.0posix-14.0.0-ucrt-r3)、Node.js 22 与 npm、Python 3.12+（发布审查工具用，本轮 3.14.2）。这是本机已验证且 CI 固定的编译器；MSYS2 GCC 16.2.0 在实际 runner 上出现 DuckDB 静态库符号缺失，不视为等效工具链。前端无打包步骤。以下 MinGW 路径是示例，按本机安装位置调整：
 
 ```powershell
 $env:PATH='D:\mingw64\bin;' + $env:PATH

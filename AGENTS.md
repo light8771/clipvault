@@ -12,6 +12,7 @@
 - gofmt: `C:\Program Files\Go\bin\gofmt.exe`
 - MinGW-w64 root: `D:\mingw64`
 - GCC: `D:\mingw64\bin\gcc.exe`
+- 已验证包为 Winlibs GCC 16.1.0 POSIX / MinGW-w64 14.0.0 UCRT r3；CI 固定同一上游 ZIP 并核对 SHA-256。实际 GitHub runner 的 MSYS2 GCC 16.2.0 无法链接当前 DuckDB 静态库（缺少 __emutls 符号），不要把所有 UCRT GCC 当作等效替代。
 - For any Go build/test that reaches DuckDB, use this repository-local command setup:
   `$env:PATH='D:\mingw64\bin;' + $env:PATH; $env:CGO_ENABLED='1'; $env:CC='D:\mingw64\bin\gcc.exe'`
 - The `internal/clipvault` package imports DuckDB (`github.com/duckdb/duckdb-go/v2`) via `store.go`.
