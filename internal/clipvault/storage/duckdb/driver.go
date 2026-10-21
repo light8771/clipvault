@@ -24,6 +24,13 @@ func OpenEncrypted(path, keyHex string) (*sql.DB, error) {
 	attachSQL := fmt.Sprintf("ATTACH IF NOT EXISTS '%s' AS vault (ENCRYPTION_KEY '%s')",
 		strings.ReplaceAll(path, "'", "''"), keyHex)
 	connector, err := duckdbdriver.NewConnector("", func(conn driver.ExecerContext) error {
+		// 加密写入要求 httpfs 的 OpenSSL provider；首次启动先完成官方签名
+		// 扩展安装和加载，避免依赖 ATTACH 的隐式自动加载。缓存命中不下载。
+		for _, query := range []string{"INSTALL httpfs FROM core", "LOAD httpfs"} {
+			if _, err := conn.ExecContext(context.Background(), query, nil); err != nil {
+				return fmt.Errorf("initialize DuckDB secure crypto provider: %w", err)
+			}
+		}
 		if _, err := conn.ExecContext(context.Background(), attachSQL, nil); err != nil {
 			// DuckDB exposes key mismatch as INVALID_INPUT rather than a
 			// dedicated error type. Match its specific diagnostic, never all

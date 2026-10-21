@@ -144,6 +144,8 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 
 > **前提**：Go 1.26.10+、CGO 和兼容 DuckDB 预编译静态库的 C/C++ 工具链。本机已验证 [Winlibs GCC 16.1.0 POSIX / MinGW-w64 14.0.0 UCRT r3](https://github.com/brechtsanders/winlibs_mingw/releases/tag/16.1.0posix-14.0.0-ucrt-r3)，CI 使用同版本并验证 ZIP 哈希。MSYS2 GCC 16.2.0 在本项目的 GitHub runner 上出现静态库链接符号缺失，不能仅凭 `gcc --version` 可运行就判定兼容。
 
+> **首次加密初始化**：数据库写入需要 DuckDB 官方签名的 `httpfs` / OpenSSL 扩展；缓存不存在时会联网安装，后续从当前用户扩展缓存加载。离线环境须预先准备与 DuckDB 引擎和 Windows 平台匹配的签名扩展。安装/加载失败直接报错，不降低加密强度，见 [隐私说明](PRIVACY.md)。
+
 > **授权注入**：`internal/licensing/keys.go` 中 `builtinPublicKeyBase64` 默认为空字符串，未通过 `-ldflags -X` 注入公钥时，`BuiltinTrustedKeys()` 返回空 map，启动后 `Status=unconfigured` 且 `Enforced=true`，**录制、备份等付费功能全部禁用，也无法激活**。因此 `go run` / `go build` 开发调试时必须同时注入 `CLIPVAULT_LICENSE_KEY_ID` 和 `CLIPVAULT_LICENSE_PUBLIC_KEY`（与 `scripts/build-release.ps1` 同源）。
 
 ### 开发调试（推荐：用 dev-run 脚本）

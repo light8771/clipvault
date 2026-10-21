@@ -121,6 +121,10 @@ func TestI18nServiceLanguageSwitchAndHooks(t *testing.T) {
 	if !isI18nBuiltinLanguageCode(current) {
 		t.Fatalf("default current language = %q, want builtin", current)
 	}
+	// 显式从中文切到英文；英文系统启动时本来就是英文，不会触发切换钩子。
+	if err := svc.SetLanguage(I18nChinese); err != nil {
+		t.Fatal(err)
+	}
 
 	// 切换钩子触发。
 	switched := make(chan string, 4)
@@ -128,8 +132,13 @@ func TestI18nServiceLanguageSwitchAndHooks(t *testing.T) {
 	if err := svc.SetLanguage(I18nEnglish); err != nil {
 		t.Fatal(err)
 	}
-	if got := <-switched; got != I18nEnglish {
-		t.Fatalf("hook saw %q, want en-US", got)
+	select {
+	case got := <-switched:
+		if got != I18nEnglish {
+			t.Fatalf("hook saw %q, want en-US", got)
+		}
+	default:
+		t.Fatal("synchronous language-change hook did not run")
 	}
 	if svc.CurrentLanguage() != I18nEnglish {
 		t.Fatalf("current = %q, want en-US", svc.CurrentLanguage())
@@ -142,7 +151,16 @@ func TestI18nServiceLanguageSwitchAndHooks(t *testing.T) {
 	if err := svc.SetLanguage(I18nAuto); err != nil {
 		t.Fatal(err)
 	}
-	<-switched
+	select {
+	case got := <-switched:
+		if svc.CurrentLanguage() == I18nEnglish || got != svc.CurrentLanguage() {
+			t.Fatalf("unexpected auto-language hook: %q", got)
+		}
+	default:
+		if svc.CurrentLanguage() != I18nEnglish {
+			t.Fatal("changed auto language did not trigger its hook")
+		}
+	}
 	if !isI18nBuiltinLanguageCode(svc.CurrentLanguage()) {
 		t.Fatalf("auto current = %q, want builtin", svc.CurrentLanguage())
 	}

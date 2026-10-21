@@ -71,6 +71,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/check-web.ps1
           ./scripts/test-order-build.ps1
+      - name: 加密依赖首次初始化预检
+        shell: pwsh
+        run: |
+          go test ./internal/clipvault/storage/duckdb -run '^TestOpenEncryptedVerifiesKeyAndReleasesFailedOpen$' -count=1 -timeout=5m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Go 全量
         shell: pwsh
         run: |

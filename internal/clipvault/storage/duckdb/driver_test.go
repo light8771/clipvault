@@ -32,6 +32,15 @@ func TestOpenEncryptedVerifiesKeyAndReleasesFailedOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var providerLoaded, unsafeCrypto bool
+	if err := db.QueryRow("SELECT loaded FROM duckdb_extensions() WHERE extension_name = 'httpfs'").Scan(&providerLoaded); err != nil || !providerLoaded {
+		_ = db.Close()
+		t.Fatalf("secure crypto provider loaded=%v, err=%v", providerLoaded, err)
+	}
+	if err := db.QueryRow("SELECT current_setting('force_mbedtls_unsafe')").Scan(&unsafeCrypto); err != nil || unsafeCrypto {
+		_ = db.Close()
+		t.Fatalf("unsafe crypto enabled=%v, err=%v", unsafeCrypto, err)
+	}
 	if _, err := db.Exec("CREATE TABLE retained AS SELECT 42 AS value"); err != nil {
 		_ = db.Close()
 		t.Fatal(err)

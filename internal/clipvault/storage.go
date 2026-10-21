@@ -254,10 +254,23 @@ func samePath(a, b string) bool {
 }
 
 func canonicalPath(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
+	path = filepath.Clean(path)
+	existing, suffix := path, ""
+	for {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			return filepath.Join(resolved, suffix)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return path
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return path
+		}
+		suffix = filepath.Join(filepath.Base(existing), suffix)
+		existing = parent
 	}
-	return filepath.Clean(path)
 }
 
 func pathContains(parent, child string) bool {

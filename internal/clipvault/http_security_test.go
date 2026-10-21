@@ -152,7 +152,10 @@ func TestRequestUsesHTTPSOnlyForTLSConnections(t *testing.T) {
 // TestSecureHTTPSecurityErrorsAreTranslated 断言三处安全错误消息经 i18n
 // 服务返回当前语言译文（zh-CN），而非硬编码英文或裸 Key——防止回退链断裂。
 func TestSecureHTTPSecurityErrorsAreTranslated(t *testing.T) {
-	server, _ := newI18nHTTPTestServer(t, false)
+	server, svc := newI18nHTTPTestServer(t, false)
+	if err := svc.SetLanguage(I18nChinese); err != nil {
+		t.Fatal(err)
+	}
 	server.csrfToken = "test-token"
 	h := server.secureHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

@@ -8,6 +8,8 @@ ClipVault is a Windows 10/11 x64 clipboard history manager written in Go. It run
 
 Requires Go **1.26.10**, CGO, and Node.js/npm for development checks. The verified Windows compiler is [Winlibs GCC 16.1.0 POSIX / MinGW-w64 14.0.0 UCRT r3](https://github.com/brechtsanders/winlibs_mingw/releases/tag/16.1.0posix-14.0.0-ucrt-r3); CI pins that archive and checks its SHA-256. MSYS2 GCC 16.2.0 produced unresolved symbols when linking this DuckDB static library on the GitHub runner. CSS/HTML and native JavaScript modules are embedded directly; there is no frontend build step.
 
+Encrypted writes initialize DuckDB's officially signed `httpfs` extension for its OpenSSL provider. A cold start downloads the matching extension from DuckDB's core repository into the current user's extension cache; later starts use that cache. Offline installations need the matching signed extension prepared in advance. Initialization fails if installation or loading fails; the unsafe mbedTLS write option is never enabled. See [privacy details](PRIVACY.md).
+
 ```powershell
 # Adjust this example compiler location to your own installation.
 $env:PATH='D:\mingw64\bin;' + $env:PATH
