@@ -3,8 +3,8 @@ LANGUAGE 0, 0
 1 ICON "icon.ico"
 
 1 VERSIONINFO
- FILEVERSION 1, 0, 0, 0
- PRODUCTVERSION 1, 0, 0, 0
+ FILEVERSION 0, 1, 0, 0
+ PRODUCTVERSION 0, 1, 0, 0
  FILEFLAGSMASK 0x3f
  FILEOS 0x40004
  FILETYPE 0x1
@@ -16,14 +16,14 @@ BEGIN
       VALUE "Comments", ""
       VALUE "CompanyName", ""
       VALUE "FileDescription", "ClipVault Clipboard Manager"
-      VALUE "FileVersion", "1.0.0.0"
+      VALUE "FileVersion", "0.1.0.0"
       VALUE "InternalName", "clipvault"
-      VALUE "LegalCopyright", ""
+      VALUE "LegalCopyright", "Copyright 2026 ClipVault contributors"
       VALUE "LegalTrademarks", ""
       VALUE "OriginalFilename", "clipvault.exe"
       VALUE "PrivateBuild", ""
       VALUE "ProductName", "ClipVault"
-      VALUE "ProductVersion", "1.0.0.0"
+      VALUE "ProductVersion", "0.1.0.0"
       VALUE "SpecialBuild", ""
     END
   END

@@ -1,0 +1,68 @@
+name: Windows 验证
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '1'
+      CC: gcc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: 添加 UCRT 编译器到后续 PowerShell 环境
+        shell: msys2 {0}
+        run: echo "$(cygpath -w /ucrt64/bin)" >> "$GITHUB_PATH"
+      - name: 工具链与格式
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go version
+          gcc --version
+          go mod verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @(git ls-files '*.go')
+          $unformatted = @(& gofmt -l $files)
+          if ($LASTEXITCODE -ne 0 -or $unformatted.Count -ne 0) { throw 'Go 格式检查失败' }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 前端与订单脚本
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/check-web.ps1
+          ./scripts/test-order-build.ps1
+      - name: Go 全量与竞态
+        shell: pwsh
+        run: |
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race ./... -count=1 -timeout=30m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 无私钥验证性构建
+        shell: pwsh
+        run: |
+          $public = (Get-Content signing/cv-dev.ed25519.pub -Raw).Trim()
+          ./scripts/build-release.ps1 -Output dist/ClipVault-ci.exe -KeyId cv-ci-test -PublicKey $public

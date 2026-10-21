@@ -75,3 +75,5 @@ try {
     if (-not $resolvedFixture.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Fixture escaped temporary directory' }
     if (Test-Path -LiteralPath $resolvedFixture) { Remove-Item -LiteralPath $resolvedFixture -Recurse -Force }
 }
+# 失败传播用例有意留下 7；验收成功后恢复成功状态，避免调用方误判。
+$global:LASTEXITCODE = 0

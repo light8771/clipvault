@@ -1,5 +1,32 @@
 # ClipVault
 
+> **首次公开准备中**：自有源码与文档采用 [Apache-2.0](LICENSE)，版权署名为 `ClipVault contributors`，保留现有商业离线激活实现。计划保留 codex 分支完整历史并以 GitHub `main` 发布，目前未上传；历史内容、第三方声明及发行验收仍待完成，见 [执行报告](docs/OSS_RELEASE_REPORT.md) 和 [许可范围](docs/LICENSE_REVIEW.md)。[English](README.en.md)
+
+## 开始使用与隐私
+
+目标平台为 **Windows 10/11 x64**。当前提供单 EXE 构建流程，没有已经验证的安装器或公开下载入口。正式发布后应从维护者确认的 Release 获取 EXE 和 SHA-256，在可写目录运行，完成恢复密码/二次密码设置，通过托盘打开历史与设置。不要从本地审查候选包推断已完成签名或可用于生产。
+
+默认数据在 `%LOCALAPPDATA%\ClipVault`（回退 `%APPDATA%\ClipVault`），活动数据库在 `database/`；便携模式见下文。数据库加密不覆盖所有托管图片、恢复缓存与日志。富文本图片抓取、SMTP 备份、可选 API/MCP 都可能涉及联网或第三方访问，详见 [隐私说明](PRIVACY.md) 与 [安全报告](SECURITY.md)。
+
+![隔离空库历史页](docs/screenshots/history.png)
+
+截图来自隔离空库 Web 预览，不含个人记录，也不代表本轮已完成原生采集验收。
+
+## 开发与协作入口
+
+新贡献者先读 [贡献指南](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。测试使用 `go test ./... -count=1`、`go test -race ./... -count=1 -timeout=30m`、`npm ci` 后 `./scripts/check-web.ps1` 及 `./scripts/test-order-build.ps1`。具体环境与等待时间见贡献指南；跳过项不得计为通过。
+
+授权、公钥注入和开发数据目录见下文。**运行 `dev-run.ps1` 前，必须把 `CLIPVAULT_DATA_DIR` 显式设为新建的独立测试目录**，否则脚本会向实际用户数据目录写入开发授权凭据。优先用隔离 Web 预览进行界面开发。
+
+许可证与署名见 [LICENSE](LICENSE)、[NOTICE](NOTICE)：开放全部自有源码和文档，包括授权检查及签发工具；允许依许可证修改、自行构建及商业再分发。官方可提供收费二进制、签发和支持服务，不能额外限制源码许可权利。第三方保留各自许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。安全联系方式暂为 `foobar` 占位；开发变化见 [变更记录](CHANGELOG.md)。OCR 与单条语义标签仍为 [待办](TODO.md)，不作为已实现功能宣传。
+
+### 常见问题
+
+- **源码构建后为什么不能录制？** 默认公钥为空，处于 `unconfigured` 状态。遵循开发签发流程，不要删除授权检查或使用生产私钥。
+- **怎样备份和换机？** 使用当前版本导出及强密码加密包，保留恢复密码并在副本验证恢复；不能只复制依赖原 Windows 用户 DPAPI 的密钥文件。
+- **旧数据为什么打不开？** 只接受 schema v13、JSON/加密导出 v10、XLSX v9；没有兼容/迁移逻辑，不要删除唯一一份旧数据。
+- **删除程序能清除历史吗？** 不能。退出后单独管理数据、备份、缓存及邮件副本；不要将这些目录加入 Git。
+
 ClipVault 是一个用 Go 编写的 Windows 剪贴板管理工具。后台托盘运行，将可用正文与无正文采集事件分开记录，所有历史写入**加密的 DuckDB 数据库**，并提供内置 Web 搜索与配置界面。数据库密钥通过 Windows DPAPI 保护，支持恢复密码备份与跨设备恢复。
 
 ## 功能
@@ -111,11 +138,11 @@ Windows DPAPI ──→ 加密 clipvault.key ──→ db_key ────→ Du
 
 ### 开发阶段数据库
 
-开发版只接受当前精确的 schema 和配置版本，不包含数据库升级代码。数据结构调整后，停止程序，确认目标是开发数据目录，删除 `clipvault.duckdb`、`clipvault.key`、`clipvault.recovery` 与 `clipvault.state`，然后重新启动并创建恢复密码和二次密码。
+开发版只接受当前精确的 schema 和配置版本，不包含数据库升级代码。数据结构调整时优先使用新的独立开发目录，并重新设置恢复密码和二次密码；不要删除实际用户数据库或唯一备份来解决版本不匹配。
 
 ## 构建
 
-> **前提**：需要 MinGW-w64（CGO 依赖，DuckDB 需要 C 编译器，`gcc --version` 必须可用）和 Go 1.26.6+。
+> **前提**：需要 MinGW-w64（CGO 依赖，DuckDB 需要 C 编译器，`gcc --version` 必须可用）和 Go 1.26.10+。
 
 > **授权注入**：`internal/licensing/keys.go` 中 `builtinPublicKeyBase64` 默认为空字符串，未通过 `-ldflags -X` 注入公钥时，`BuiltinTrustedKeys()` 返回空 map，启动后 `Status=unconfigured` 且 `Enforced=true`，**录制、备份等付费功能全部禁用，也无法激活**。因此 `go run` / `go build` 开发调试时必须同时注入 `CLIPVAULT_LICENSE_KEY_ID` 和 `CLIPVAULT_LICENSE_PUBLIC_KEY`（与 `scripts/build-release.ps1` 同源）。
 
@@ -198,7 +225,7 @@ go build "-ldflags=$ldflags" -o bin\clipvault.exe .\cmd\clipvault
 go build "-ldflags=-H=windowsgui $ldflags" -o bin\clipvault.exe .\cmd\clipvault
 ```
 
-> Windows 资源文件（`.syso`）已预生成在 `cmd/clipvault/` 目录下，包含图标和版本信息。修改图标后需用 `rsrc` 工具重新生成。
+> Windows 资源文件（`.syso`）已预生成在 `cmd/clipvault/` 目录下，包含图标和版本信息。修改图标或版本后，从 `cmd/clipvault/` 执行 `windres -i rsrc.rc -o rsrc_windows_amd64.syso -O coff` 重新生成；同时核对 `winres/winres.json` 的版本描述。可选绘图脚本 `gen_icon.py` 需要 Pillow，正常构建不需要运行它。
 
 ### 正式授权构建
 
@@ -217,7 +244,7 @@ go run ./cmd/license-keygen issue `
   -license-id CV-2026-000001 `
   -machine 用户完整机器码
 
-# 发布机只持有 .pub 公钥；脚本使用 Garble 混淆并输出 SHA-256
+# 发布机只持有 .pub 公钥；脚本默认普通构建并输出 SHA-256；混淆需显式 -Obfuscate
 $env:CLIPVAULT_LICENSE_KEY_ID = "cv-main-2026"
 $env:CLIPVAULT_LICENSE_PUBLIC_KEY = (Get-Content D:\offline\clipvault.private-key.pub -Raw).Trim()
 $env:CLIPVAULT_GARBLE_SEED = "请使用长期保存的随机 Garble seed"
@@ -354,7 +381,7 @@ New-Item -ItemType File "portable.flag"
 | `group_id` | 按正整数分组 ID 筛选 |
 | `source_exe` | 按来源程序名精确筛选；可重复，最多 50 个 |
 
-`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数，但只查询正文。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前数据协议为 export v9，加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
+`/api/v1/items/sensitive` 使用相同的分页、收藏、类型、日期、分组和来源筛选参数，但只查询正文。格式错误或越界的数字参数会返回 HTTP 400，不会静默退化为默认查询。加密导入导出推荐通过内置 Web 页面操作。密码和二次认证 token 不接受 URL 查询参数，避免进入浏览器历史和日志。当前 JSON/加密包内容协议为 export v10（XLSX 为 v9），加密容器为 `.cvexport` v2（魔数 `CVEXP003`），只接受当前版本并严格校验 KDF、封装长度和解压上限。
 
 ## 数据接口（Data API）
 
@@ -396,7 +423,7 @@ New-Item -ItemType File "portable.flag"
 | `/api/v1/data-api/config` | PUT | 二次 + CSRF | 更新服务配置（立即生效） |
 | `/api/v1/data-api/tokens` | GET | 锁屏 | 令牌列表（不含明文） |
 | `/api/v1/data-api/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 必填：`1d`/`7d`/`30d`/`90d`/`1y`/`never`；空值或不支持的值拒绝，防止疏忽时静默签出永不过期令牌；明文只返回一次） |
-| `/api/v1/data-api/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（不继承敏感授权） |
+| `/api/v1/data-api/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（保留原有效期和敏感授权，撤销旧令牌） |
 | `/api/v1/data-api/tokens/revoke` | POST | 二次 + CSRF | 撤销令牌 |
 | `/api/v1/data-api/tokens/sensitive` | POST | 二次 + CSRF | 调整令牌敏感数据授权（需重新二次认证） |
 | `/api/v1/data-api/audit` | GET | 锁屏 | 分页查询审计（支持按操作/令牌过滤） |
@@ -461,7 +488,7 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
 | `/api/v1/mcp/config` | PUT | 二次 + CSRF | 更新服务配置（立即生效） |
 | `/api/v1/mcp/tokens` | GET | 锁屏 | 令牌列表（不含明文） |
 | `/api/v1/mcp/tokens` | POST | 二次 + CSRF | 创建令牌（`expiresIn` 必填，取值与数据接口一致：`1d`/`7d`/`30d`/`90d`/`1y`/`never`；空值或不支持的值拒绝） |
-| `/api/v1/mcp/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（不继承敏感授权） |
+| `/api/v1/mcp/tokens/regenerate` | POST | 二次 + CSRF | 重新生成令牌（保留原有效期和敏感授权，撤销旧令牌） |
 | `/api/v1/mcp/tokens/revoke` | POST | 二次 + CSRF | 撤销令牌 |
 | `/api/v1/mcp/tokens/sensitive` | POST | 二次 + CSRF | 调整令牌敏感数据授权（需重新二次认证） |
 | `/api/v1/mcp/audit` | GET | 锁屏 | 分页查询审计（支持按操作/令牌过滤） |
@@ -472,7 +499,7 @@ AI 客户端接入示例（Claude Desktop 等 MCP 客户端）：
 
 
 
-配置存储在 DuckDB schema v11 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写，并将 GET 响应头 `X-ClipVault-Config-Version` 原样放入 PUT 请求头。版本缺失或配置已被其他操作修改时返回 `409 config_conflict`，不会写入；调用方应重新读取配置并核对修改，不能直接重试旧请求。成功的 PUT 返回最新配置及版本响应头。Logo、图标和背景文件元数据由独立接口管理，不影响可编辑配置版本。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
+配置存储在 DuckDB schema v13 的 `settings` 表中，通过 Web 设置页面修改，也可通过 `PUT /api/v1/config` 接口写入。`PUT` 接收完整配置对象，拒绝缺失字段、未知字段、多余 JSON 值、错误版本和越界值；程序化调用必须先获取当前配置再整体回写，并将 GET 响应头 `X-ClipVault-Config-Version` 原样放入 PUT 请求头。版本缺失或配置已被其他操作修改时返回 `409 config_conflict`，不会写入；调用方应重新读取配置并核对修改，不能直接重试旧请求。成功的 PUT 返回最新配置及版本响应头。Logo、图标和背景文件元数据由独立接口管理，不影响可编辑配置版本。下方 JSON 只是核心字段说明摘录，不是可直接提交的完整 `PUT` 请求体。
 
 ```json
 {
@@ -603,15 +630,14 @@ clipboard_ext/
 │   ├── icon.png                # 主图标（256×256）
 │   ├── icon16.png              # 16×16 小图标
 │   ├── rsrc.rc                 # Windows 资源脚本（图标 + 版本信息）
-│   ├── rsrc_windows_amd64.syso # 编译时链入的资源文件
-│   └── rsrc_windows_386.syso   # 同上（32 位）
+│   └── rsrc_windows_amd64.syso # 编译时链入的 x64 资源文件
 ├── cmd/license-keygen/         # 离线密钥生成与永久激活码签发工具
 ├── cmd/dev-activate/           # 开发用：给当前机器签发激活码并写入 receipt
 ├── internal/clipvault/         # 核心逻辑（适配层）
 │   ├── domain/                 # 业务模型唯一定义（记录/分组/搜索/清理、事件状态常量）
 │   ├── application/            # 运行时状态等应用层
-│   ├── storage/duckdb/         # schema v11（正文/事件判别模型 + 稳定事件指纹 + 外部只读令牌/审计表）
-│   ├── transfer/               # 导入导出范围契约（export v9）
+│   ├── storage/duckdb/         # schema v13（正文/事件、复合内容、二级类型及外部只读令牌/审计表）
+│   ├── transfer/               # 导入导出范围契约（JSON/加密 v10，XLSX v9）
 │   ├── backup/                 # 增量备份策略（纯逻辑）
 │   ├── security/               # 密码散列与 DPAPI
 │   ├── transport/httpui/       # JSON envelope 与严格解码
@@ -659,14 +685,14 @@ clipboard_ext/
 │       ├── settings.css        # 设置页样式
 │       └── tokens.css          # 主题变量与共享基础样式
 ├── internal/licensing/         # 机器码、Ed25519 验签、DPAPI 授权凭据
-├── scripts/build-release.ps1   # Garble 正式发布构建与校验和
+├── scripts/build-release.ps1   # 发布构建与校验和（可选 Garble）
 ├── go.mod
 └── go.sum
 ```
 
 ## 技术栈
 
-- **Go 1.26.6+** + CGO
+- **Go 1.26.10+** + CGO
 - **DuckDB**（`github.com/duckdb/duckdb-go/v2`）— 加密列式数据库
 - **Windows DPAPI** — 用户级密钥保护
 - **scrypt + AES-256-GCM** — 恢复密码和加密导出包

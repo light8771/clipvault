@@ -2,13 +2,15 @@
 
 本目录包含 ClipVault 永久授权（Ed25519 离线签发）的**签发脚本和流程文档**。
 
+> 本文记录现有商业签发流程。首次开源准备尚未改变产品授权，自有源码及签发工具采用 Apache-2.0，具体范围见 [权利审查](../docs/LICENSE_REVIEW.md)。下文“仅分发 EXE”的旧分发边界不能当作未来公开源码时的秘密保护措施；发布只能使用经审查白名单，不能上传整个工作目录。不得把包含用户名、机器名、订单备注的 manifest 随公开源码分发。
+
 > **核心模型：一用户一密钥对**。每个订单/用户使用独立的 Ed25519 密钥对：
 > - 私钥由维护者按订单保存，用于为该用户签发激活码
 > - 公钥烧录进给该用户的 `ClipVault.exe`
 > - 即使某个私钥泄露，只影响该用户，不影响其他订单
 
 > **关键约束**：本目录**只放脚本和文档**，**不放私钥和口令**。
-> 私钥/口令/订单目录通过 [.gitignore](./.gitignore) 排除；分发只分发编译后的 exe，不分发源码和私钥。
+> 私钥/口令/订单目录通过 [.gitignore](./.gitignore) 排除；源码按 Apache-2.0 开放；签发私钥与口令不属于发布内容，不能进入源码或安装包。
 
 ## 目录内容
 
@@ -43,13 +45,13 @@
 使用与 `go.mod` 一致的完整 Go SDK，并用该版本编译 Garble。Garble 需要通过 overlay 构建修改后的链接器，Go 自动下载到 `GOMODCACHE` 内的 SDK 不能用于这一步。当前验收环境的安装命令为：
 
 ```powershell
-go install golang.org/dl/go1.26.6@latest
-go1.26.6 download
+go install golang.org/dl/go1.26.10@latest
+go1.26.10 download
 go install mvdan.cc/garble@v0.16.0
 go env GOROOT GOVERSION
 ```
 
-确保 Go 的 bin 目录在 PATH 中。项目目录内 `go env GOROOT` 应指向独立 SDK（例如用户目录下 `sdk/go1.26.6`），而非模块缓存；Go 的自动工具链选择会优先使用 PATH 上的 `go1.26.6`。升级 Go 后重新编译 Garble。
+确保 Go 的 bin 目录在 PATH 中。项目目录内 `go env GOROOT` 应指向独立 SDK（例如用户目录下 `sdk/go1.26.10`），而非模块缓存；Go 的自动工具链选择会优先使用 PATH 上的 `go1.26.10`。升级 Go 后重新编译 Garble。
 
 公开的内置翻译保存在 `internal/clipvault/i18n_builtin.json`，编译时嵌入 EXE，不需要随程序分发 JSON。它们作为数据保留，避免 `-literals` 将大量词条展开为昂贵的 Go 初始化代码；程序逻辑仍按原构建参数混淆。
 
@@ -197,12 +199,12 @@ signing\orders\ORDER-2026-000001\
 
 **可以**。`build-for-order.ps1` 默认就把密钥对生成在 `signing\orders\<OrderID>\` 下。真正的防线是：
 1. `signing/.gitignore` 拦截 `*.ed25519`/`*.private-key`/`*passphrase*.txt`/`orders/`，即使误放在 `signing/` 下也不会进 Git；
-2. 对外只分发编译后的 exe，不分发源码，所以项目目录里的私钥不会随产品流出。
+2. 开源及完整历史发布前必须检查实际跟踪内容和所有祖先提交；不依靠“只分发 EXE”保护秘密，私钥和口令不能进入任何发布内容。
 
 ## 相关文档
 
-- [ClipVault_Offline_Licensing_Hardening_Plan.md](../ClipVault_Offline_Licensing_Hardening_Plan.md) — 授权系统设计与安全要求
-- [ClipVault_完整发布测试步骤.md](../ClipVault_完整发布测试步骤.md) — 发布前完整验收清单
+- [LICENSE_REVIEW.md](../docs/LICENSE_REVIEW.md) — 当前授权机制与开源范围审查
+- [WINDOWS_RELEASE_ACCEPTANCE.md](../docs/WINDOWS_RELEASE_ACCEPTANCE.md) — 待完成的首次发行实机验收
 - [README.md](../README.md) — 项目总览与构建说明
 - [scripts/build-release.ps1](../scripts/build-release.ps1) — Garble 混淆构建脚本（被 build-for-order.ps1 调用）
 - [cmd/license-keygen/main.go](../cmd/license-keygen/main.go) — 底层 keygen 实现

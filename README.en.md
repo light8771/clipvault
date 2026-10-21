@@ -1,0 +1,36 @@
+# ClipVault
+
+ClipVault is a Windows 10/11 x64 clipboard history manager written in Go. It runs in the system tray and provides a local Web UI, search, favorites/groups, encrypted DuckDB storage, password-protected exports, scheduled directory/SMTP backups, and optional read-only HTTP Data API and MCP services.
+
+**Publication preparation:** project-owned source and documentation use [Apache-2.0](LICENSE), attributed to `ClipVault contributors` in [NOTICE](NOTICE). All project-owned source, including offline activation and signing tools, is included. License recipients may modify, build and redistribute it commercially; official paid binaries and support do not restrict these rights. The full codex branch history is planned for GitHub `main`. Historical privacy review, third-party notices and Windows release acceptance remain open; nothing has been published. Security contacts are the placeholder `foobar`.
+
+## Build and test
+
+Requires Go **1.26.10**, MinGW-w64 x64 with CGO, and Node.js/npm for development checks. CSS/HTML and native JavaScript modules are embedded directly; there is no frontend build step.
+
+```powershell
+# Adjust this example compiler location to your own installation.
+$env:PATH='D:\mingw64\bin;' + $env:PATH
+$env:CGO_ENABLED='1'
+$env:CC='D:\mingw64\bin\gcc.exe'
+npm ci
+go test ./... -count=1
+go test -race ./... -count=1 -timeout=30m
+./scripts/check-web.ps1
+./scripts/test-order-build.ps1
+go run ./cmd/isolated-preview -lifetime 10m
+```
+
+The preview uses temporary synthetic/empty data and does not validate native clipboard recording. A normal build without an injected license public key is unconfigured: recording and backup are disabled. For full development, use `scripts/dev-run.ps1` only after explicitly setting `CLIPVAULT_DATA_DIR` to a separate test directory; it writes a development activation receipt. Never use production signing keys for testing.
+
+Release builds use `scripts/build-release.ps1` with an approved key ID/public key. Garble is optional through `-Obfuscate`; no private key belongs on a build machine. The local review candidate is unsigned and uses a development public key; it is not a production release.
+
+## Usage and privacy
+
+Start `ClipVault.exe`, complete initial password setup, then use the tray menu to open history/settings or pause recording. The default history UI is `http://127.0.0.1:15678`. `Ctrl+Shift+Space` opens native search. A portable installation uses an empty `portable.flag` beside the executable, with `data/` and `logs/` directories beside it; no installer is included.
+
+Default data root: `%LOCALAPPDATA%\ClipVault`, falling back to `%APPDATA%\ClipVault`. The database is encrypted, but managed images, restoration caches and logs may be plaintext. Rich-text capture can fetch referenced images; SMTP backups send data to the configured server/recipient. HTTP Data API and MCP are disabled by default and require channel-specific tokens when enabled. HTTP transport is not encrypted. See [privacy](PRIVACY.md) and [security](SECURITY.md).
+
+OCR and semantic tags remain planned. Legacy database/config/export versions are rejected; no migrations are provided. Verify an independent backup before changing versions. Removing the executable does not remove stored personal data.
+
+See the [Chinese README](README.md), [contribution guide](CONTRIBUTING.md), [third-party notices](THIRD_PARTY_NOTICES.md), [license review](docs/LICENSE_REVIEW.md), and [release readiness report](docs/OSS_RELEASE_REPORT.md). Public stars, downloads and adoption have not been established.

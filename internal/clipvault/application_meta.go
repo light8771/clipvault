@@ -17,15 +17,11 @@ type SupportInfo struct {
 }
 
 // currentApplicationMetadata 返回当前构建的应用元信息。
-// 联系方式为占位值，正式发布前在此处替换为真实维护者信息。
+// 按维护者决定使用 foobar 占位；这些值不是已验证的联系渠道。
 func currentApplicationMetadata() ApplicationMetadata {
 	return ApplicationMetadata{
 		Name:    "ClipVault",
 		Version: AppVersion,
-		Support: SupportInfo{
-			Email:   "support@example.com",
-			QQ:      "123456789",
-			Website: "",
-		},
+		Support: SupportInfo{Email: "foobar", QQ: "foobar", Website: "foobar"},
 	}
 }
