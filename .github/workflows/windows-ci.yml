@@ -47,7 +47,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $files = @(git ls-files '*.go')
           $unformatted = @(& gofmt -l $files)
-          if ($LASTEXITCODE -ne 0 -or $unformatted.Count -ne 0) { throw 'Go 格式检查失败' }
+          if ($LASTEXITCODE -ne 0 -or $unformatted.Count -ne 0) {
+            $unformatted | ForEach-Object { Write-Output "需要 gofmt：$_" }
+            throw 'Go 格式检查失败'
+          }
           git diff --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 前端与订单脚本

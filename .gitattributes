@@ -1,2 +1,5 @@
+# gofmt 的规范输出为 LF；Windows 克隆也必须保留该换行。
+*.go text eol=lf
+
 # 上游许可保留原始字节，避免 Windows 自动换行破坏来源哈希。
 /docs/third-party/** -text
