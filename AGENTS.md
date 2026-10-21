@@ -122,3 +122,4 @@ enters this repo).
 - `python -X utf8 scripts/audit-oss.py` 只读扫描所有引用历史、索引和工作区，仅记录位置，不因没有正则命中就宣称安全。`.gitignore` 不会移除已跟踪内容或旧历史。
 - `go test -race ./... -count=1 -timeout=30m` 给大型备份用例足够时间。漏洞扫描用文本模式并核对发现，不以 JSON 模式退出码 0 代替风险判断。
 - 未经用户明确“批准公开发布”，不 push、不建公开仓库/Release、不提交申请，不将整个工作目录打包。2026-10-21 用户另行授权新建发布分支清理内部资料历史：仅 codex/oss-release-preparation 可用于该清理，原 codex/clipvault-modular-refactor 固定在保存提交 2efd52d，不再改写或移动。公开 main 必须来自清理后的发布分支，保留源码演进；不创建无历史替代仓库，不上传原分支、其他分支或 stash。详见 docs/OSS_HISTORY_CLEANUP.md。
+- 2026-10-21 维护者随后授权由其登录 GitHub、其余源码发布操作交由 Codex 执行；目标为 light8771/clipvault，仅公开清理后的源码 main。此授权不包含 EXE/Release 或 OpenAI 申请提交；原开发分支与本地 origin 仍保持不变。

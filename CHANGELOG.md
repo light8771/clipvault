@@ -5,8 +5,8 @@
 ## 未发布：首次公开准备
 
 - 增补开源权利审查、安全与隐私说明、贡献流程、第三方许可原文、发布计划和申请草稿。
-- 隐藏未经确认的支持联系方式，修复订单构建验收的遗留失败退出码。
-- 安全依赖调整、测试与构建证据见 `docs/OSS_RELEASE_REPORT.md`。经维护者授权选择 Apache-2.0、署名 ClipVault contributors；保留 codex 分支历史作为未来 GitHub main，安全联系方式统一以 foobar 占位。
+- 按维护者要求使用 foobar 支持信息占位，修复订单构建验收的遗留失败退出码。
+- 安全依赖调整、测试与构建证据见 `docs/OSS_RELEASE_REPORT.md`。经维护者授权选择 Apache-2.0、署名 ClipVault contributors；清理内部材料后保留源码演进历史，由独立发布分支映射为 GitHub main。
 
 ## 当前运行时版本 0.1.0 的开发记录
 

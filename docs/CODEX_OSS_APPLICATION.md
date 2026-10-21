@@ -8,14 +8,14 @@ Draft only, checked against the [official application form](https://openai.com/z
 | --- | --- |
 | First / last name | 待我填写 |
 | Email associated with ChatGPT | 待我填写 |
-| GitHub username | 待我填写 |
-| Public GitHub repository URL | 待我填写（拟为 `https://github.com/<OWNER>/clipvault`，尚未创建） |
-| Maintainer role | Proposed primary maintainer; owner must confirm identity and write access |
+| GitHub username | light8771 (verified through the maintainer-authorized GitHub CLI login) |
+| Public GitHub repository URL | https://github.com/light8771/clipvault |
+| Maintainer role | Repository owner: light8771; personal identity must be supplied privately by the owner |
 | OpenAI Organization ID | 待我填写 |
 | Requested support | Proposed: API credits and Codex Security; owner must select |
 | Stars / monthly downloads / external users | No verified public data available |
 
-No account identifiers were inferred from local private files or Git author metadata. Organization ID and email must be provided by the account owner. Do not place actual account identifiers in the public source snapshot; complete a private copy of this application later.
+The public GitHub username was verified through the authorized login. No private email or Organization ID was read or inferred from local private files or Git author metadata. The owner must supply those fields in a private application copy; do not put private account identifiers in the public repository.
 
 ## Three short form fields (ASCII; each at most 500 characters)
 
@@ -29,7 +29,7 @@ I plan to use API credits for maintainer-reviewed pull request checks, issue tri
 
 ### Anything else we should know?
 
-ClipVault uses Apache-2.0 for project-owned source and documentation, attributed to ClipVault contributors. Offline activation code remains included; recipients may modify and redistribute under the license. Full codex branch history is planned for GitHub main. Historical privacy review, third-party notices, and Windows release acceptance remain open. Security contacts are the placeholder foobar. No repository has been published and no application submitted.
+ClipVault uses Apache-2.0 for project-owned source and documentation, attributed to ClipVault contributors. Offline activation code remains included; recipients may modify and redistribute under the license. The release branch retains development history after excluding internal materials. Source is hosted on GitHub; Windows binary acceptance and distribution notices remain open. Support contacts are foobar placeholders. No OpenAI application has been submitted.
 
 Canonical field values: `CODEX_OSS_FIELDS.json`. Validate with `python scripts/check-oss-application.py`; do not manually count words instead of characters.
 
@@ -37,6 +37,6 @@ Canonical field values: `CODEX_OSS_FIELDS.json`. Validate with `python scripts/c
 
 Local repository: baseline `f61c7c8`, 125 commits on the selected codex branch (128 across all local references); recent work on composite clipboard capture (2026-10-07), storage/preview separation (2026-10-13), and release preparation (2026-10-21). These are local development dates, not public release or contribution metrics. Current execution evidence, skipped tests, dependency findings and build hashes are in `OSS_RELEASE_REPORT.md`; do not quote older handoff test counts as this run's results.
 
-The project combines Windows native clipboard/tray APIs, encrypted DuckDB, DPAPI, password-protected transfer formats, local Web UI and channel-scoped read-only integrations. This creates useful security and data-integrity review work; it does not demonstrate widespread adoption. Apache-2.0 and the scope for project-owned source have been selected. Historical internal data, third-party rights and binary redistribution still need review before public release.
+The project combines Windows native clipboard/tray APIs, encrypted DuckDB, DPAPI, password-protected transfer formats, local Web UI and channel-scoped read-only integrations. This creates useful security and data-integrity review work; it does not demonstrate widespread adoption. Apache-2.0 and the scope for project-owned source have been selected. Internal materials have been excluded from the release branch history. Binary distribution notices and Windows stable-release validation remain separate work.
 
 Planned maintenance: prioritize reproducible bug reports, protect capture/storage behavior with synthetic regression cases, review dependencies and transport/privacy boundaries, and publish only after repeatable Windows validation. OCR and semantic tags remain future work. API automation is a future proposal, subject to maintainer review and program approval; neither credits nor Codex Security access is guaranteed.

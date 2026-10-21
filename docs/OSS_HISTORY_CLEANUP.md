@@ -18,7 +18,7 @@
 
 源码使用 Go modules 下载依赖，实际纳入源码仓库的第三方声明保留。EXE 打包的原生依赖声明和 Windows 稳定版实机验收另行完成；本记录不代表稳定二进制发行验收。
 
-没有创建 GitHub 仓库、推送远端、公开 Release 或提交 OpenAI 申请。上传仍必须由维护者明确批准。
+以上为本地清理阶段的完成记录。当时未创建 GitHub 仓库或推送。维护者随后已授权 GitHub 源码发布，目标为 light8771/clipvault；实际上传、公开克隆和 CI 结果见 OSS_RELEASE_REPORT.md。EXE/Release 和 OpenAI 申请仍不在本次发布授权内。
 
 ## 独立克隆复核
 

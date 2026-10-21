@@ -1,6 +1,6 @@
 # ClipVault GitHub 发布计划（仅源码候选，尚未上传）
 
-2026-10-21：维护者已选择 Apache-2.0、ClipVault contributors 署名、foobar 联系方式占位，授权在独立发布分支清理内部材料。仅源码仓库与 EXE 正式发行分开验收；没有获得对外上传或提交申请的授权。
+2026-10-21：维护者已选择 Apache-2.0、ClipVault contributors 署名、foobar 联系方式占位，授权在独立发布分支清理内部材料，并随后授权由 Codex 完成 GitHub 源码发布。已核对登录账号 light8771，目标为 https://github.com/light8771/clipvault。仅源码仓库与 EXE 正式发行分开验收；没有获得发布 EXE/Release 或提交申请的授权。以下通用命令留作后续操作参考，实际上传和 CI 结果以执行报告为准。
 
 ## 当前分支和历史
 

@@ -176,4 +176,4 @@ PE 导入表仅见 Windows/UCRT 系统 DLL（含 RstrtMgr、WS2_32），未见�
 
 ## 10. 下一步
 
-许可、署名、商业范围和 foobar 占位已经记录，无需再次选择。发布分支历史清理已落实，源码上传应只使用 codex/oss-release-preparation；原分支与本地其他引用不可上传。外部上传仍等待维护者明确批准并确定目标仓库。EXE 分发声明、正式激活策略及 Windows 稳定版验收独立推进，不阻止仅源码候选。当前不推送，OpenAI 申请只备草稿。
+许可、署名、商业范围和 foobar 占位已经记录，无需再次选择。发布分支历史清理已落实，源码上传应只使用 codex/oss-release-preparation；原分支与本地其他引用不可上传。维护者现已授权完成 GitHub 源码发布，登录账号核实为 light8771，目标仓库为 https://github.com/light8771/clipvault；实际上传、公开克隆和 CI 结果另行记录。EXE 分发声明、正式激活策略及 Windows 稳定版验收独立推进，不阻止仅源码候选。仅推送清理后的源码发布分支，不发布 EXE/Release；OpenAI 申请只备草稿。
