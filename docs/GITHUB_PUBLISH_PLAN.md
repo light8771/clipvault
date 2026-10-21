@@ -1,8 +1,8 @@
-# ClipVault GitHub 发布计划（仅源码候选，尚未上传）
+# ClipVault GitHub 源码发布记录与后续发行计划
 
 2026-10-21：维护者已选择 Apache-2.0、ClipVault contributors 署名、foobar 联系方式占位，授权在独立发布分支清理内部材料，并随后授权由 Codex 完成 GitHub 源码发布。已核对登录账号 light8771，目标为 https://github.com/light8771/clipvault。仅源码仓库与 EXE 正式发行分开验收；没有获得发布 EXE/Release 或提交申请的授权。以下通用命令留作后续操作参考，实际上传和 CI 结果以执行报告为准。
 
-**执行状态**：公开源码仓库及 main 已建立，公开匿名克隆与构建已验证。下文创建仓库和首次推送命令是流程参考，不要对已存在仓库重复执行或覆盖；后续仅以明确 refspec 普通推送发布分支。CI 的实际运行状态见 OSS_RELEASE_REPORT.md 第 11 节。
+**执行状态**：公开源码仓库及 main 已建立，公开匿名克隆与构建已验证。下文创建仓库和首次推送命令是流程参考，不要对已存在仓库重复执行或覆盖；后续仅以明确 refspec 普通推送发布分支。冻结源码 296c0e1 的 Windows CI 已成功，完整普通/竞态和验证构建通过；详细证据及未验证项见 OSS_RELEASE_REPORT.md 第 12 节。
 
 ## 当前分支和历史
 
