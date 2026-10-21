@@ -1,6 +1,6 @@
 # ClipVault 首次开源准备执行报告
 
-日期：2026-10-21（Asia/Shanghai）。**发布分支已完成内部材料历史清理，可作为仅源码上传候选，尚未上传或提交申请**。原 codex 分支保留在保存提交 2efd52d；发布分支保留源码演进并排除 50 个内部历史路径，详见 OSS_HISTORY_CLEANUP.md。EXE 正式发行另需完成适用第三方声明和 Windows 发行验收；不能将源码准备完成解释为全部发行验收完成。
+日期：2026-10-21（Asia/Shanghai）。**源码已公开：https://github.com/light8771/clipvault，默认分支 main**。已按维护者后续授权上传清理后的发布分支；原 codex 分支保留在保存提交 2efd52d，本地原件未删除，50 个内部路径的历史版本未进入公开分支。公开克隆及构建已验证，GitHub CI 状态见下方第 11 节。EXE/Release 和 OpenAI 申请均未发布或提交；正式二进制发行仍需独立验收。
 
 ## 2026-10-21 后续决定（当前方案）
 
@@ -162,7 +162,7 @@ PE 导入表仅见 Windows/UCRT 系统 DLL（含 RstrtMgr、WS2_32），未见�
 | 稳定版发行前 | Windows 关键发行验收缺失 | 干净系统原生托盘、复制保存恢复、重启、备份恢复、数据完整性及剩余跳过项闭环；不以此阻止标明验证边界的源码公开 |
 | 条件风险 | 联系方式统一 foobar | 维护者已指定占位，不再次索要个人联系方式；尚无已验证私下渠道，不计为渠道建立完成 |
 | 条件风险 | Excelize 为精确预发布修复提交；Garble、签名、搬移故障、容量未验证 | 审核版本及回归证据，明确正式普通/混淆构建与签名策略，完成所选路径验收 |
-| 待填 | 仓库所有者、维护者身份、ChatGPT 邮箱、GitHub 用户名、Org ID | 本人提供；实际账户字段填私人申请副本，不进公开仓库 |
+| 已核实/待填 | GitHub 所有者已核实为 light8771；私人申请身份、ChatGPT 邮箱、Org ID 待填 | 账号经维护者授权登录并核实；私人申请字段由本人提供，不进公开仓库 |
 
 建议首个候选版本 **v0.1.0-rc.1**，系统验收前不标 stable。预计文件：经批准源码+LICENSE、Windows x64 ZIP（EXE、许可/声明、使用/隐私说明）、SHA256SUMS、真实发布说明。现无验证安装器，不虚构安装包。当前 EXE 是开发公钥，须先定正式激活/分发策略。
 
@@ -177,3 +177,11 @@ PE 导入表仅见 Windows/UCRT 系统 DLL（含 RstrtMgr、WS2_32），未见�
 ## 10. 下一步
 
 许可、署名、商业范围和 foobar 占位已经记录，无需再次选择。发布分支历史清理已落实，源码上传应只使用 codex/oss-release-preparation；原分支与本地其他引用不可上传。维护者现已授权完成 GitHub 源码发布，登录账号核实为 light8771，目标仓库为 https://github.com/light8771/clipvault；实际上传、公开克隆和 CI 结果另行记录。EXE 分发声明、正式激活策略及 Windows 稳定版验收独立推进，不阻止仅源码候选。仅推送清理后的源码发布分支，不发布 EXE/Release；OpenAI 申请只备草稿。
+
+## 11. GitHub 源码发布与公开克隆
+
+2026-10-21，维护者授权其登录 GitHub、由 Codex 完成其余源码发布操作。已核实账号 light8771，新建公开仓库 https://github.com/light8771/clipvault，仅将 codex/oss-release-preparation 映射为远端 main；远端分支核对只有 main，Tag 和 Release 数量均为 0。原本地 origin 未更改，新增 github 远端；原 codex 分支仍为 2efd52d。未上传 EXE、用户数据、订单、内部资料、其他分支或 stash；没有提交 OpenAI 申请。
+
+公开匿名克隆检查点 47fc26f 共 129 个提交，全部历史中 50 个排除路径的条目为 0，所有克隆对象均由公开引用可达，原始开发保存提交不存在；149 份上游声明原始哈希一致，git fsck 退出 0。随后修复 Windows 检出换行问题，在 925e0b8 再次以 core.autocrlf=true 匿名克隆，304 个 Go 文件 gofmt 检查均通过，go mod verify 退出 0，原发布脚本使用开发公钥构建退出 0。该公开克隆 EXE 的 SHA-256 为 e169a03fb32ebb8247533f1e1bbcb5697183a0e59af5d0b90c4710d4fbe67b96，仅本地审查，不上传。申请草稿字段现为 420 / 383 / 466 字符，校验通过。
+
+首轮 GitHub CI 39576221184 在格式步骤失败：Windows 默认检出将 304 个 Go 文件转换为 CRLF。已添加 Go 源码 LF 属性，并在实际 Windows 公开克隆中验证；未改动业务源码、测试逻辑或放宽检查。修复后的 CI [39576673550](https://github.com/light8771/clipvault/actions/runs/39576673550) 已通过工具链、格式、前端与订单脚本步骤；Go 全量/竞态仍在运行，此时不能计为通过。
