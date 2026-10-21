@@ -849,6 +849,9 @@ func TestStartupGateSetsRecoveryAndSecondaryPasswordsTogether(t *testing.T) {
 	}
 	defer store.Close()
 	gate := NewStartupGate(store, dir, startupGateSetCredentials)
+	if err := gate.i18n.SetLanguage(I18nChinese); err != nil {
+		t.Fatal(err)
+	}
 	recoveryPassword := "Recovery-Pass-2026"
 	secondaryPassword := "Secondary-Pass-2026"
 

@@ -22,6 +22,9 @@ func newFormatSuggestionTestEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.SetLanguage(I18nChinese); err != nil {
+		t.Fatal(err)
+	}
 	prev := templateI18nService.Swap(svc)
 	t.Cleanup(func() { templateI18nService.Store(prev) })
 }

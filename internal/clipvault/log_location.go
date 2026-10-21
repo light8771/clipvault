@@ -55,11 +55,11 @@ func resolveExistingLogDirectory(path string) (string, error) {
 	if !info.IsDir() {
 		return "", errors.New(templateT("storage.err_not_dir", nil))
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	linked, err := directoryPathHasLink(abs)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", templateT("storage.err_resolve", nil), err)
 	}
-	if !strings.EqualFold(filepath.Clean(resolved), abs) {
+	if linked {
 		return "", errors.New(templateT("storage.log_err_symlink", nil))
 	}
 	return abs, nil

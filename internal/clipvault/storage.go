@@ -164,14 +164,31 @@ func resolveExistingDirectory(path string) (string, error) {
 	if !info.IsDir() {
 		return "", errors.New(templateT("storage.err_not_dir", nil))
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	linked, err := directoryPathHasLink(abs)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", templateT("storage.err_resolve", nil), err)
 	}
-	if !strings.EqualFold(filepath.Clean(resolved), abs) {
+	if linked {
 		return "", errors.New(templateT("storage.err_symlink", nil))
 	}
 	return abs, nil
+}
+
+// 检查真实链接标记，而不是比较解析后的路径拼写：Windows 8.3 别名
+// 会展开为长文件名，但并不是符号链接。逐级检查仍拒绝祖先目录链接。
+func directoryPathHasLink(path string) (bool, error) {
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true, nil
+		}
+		if filepath.Dir(current) == current {
+			return false, nil
+		}
+	}
 }
 
 func verifyDirectoryWritable(dir string) error {

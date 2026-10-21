@@ -33,6 +33,9 @@ func newMaskTestServer(t *testing.T, store *Store) (*SearchServer, *AuthManager,
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := i18nSvc.SetLanguage(I18nChinese); err != nil {
+		t.Fatal(err)
+	}
 	prev := templateI18nService.Swap(i18nSvc)
 	t.Cleanup(func() { templateI18nService.Store(prev) })
 	server := &SearchServer{

@@ -17,7 +17,11 @@ func newGateForTest(t *testing.T) (*StartupGate, *Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return NewStartupGate(store, dataDir, startupGateSetCredentials), store
+	gate := NewStartupGate(store, dataDir, startupGateSetCredentials)
+	if err := gate.i18n.SetLanguage(I18nChinese); err != nil {
+		t.Fatal(err)
+	}
+	return gate, store
 }
 
 func TestNewStartupGateDoesNotReplaceApplicationTemplateI18n(t *testing.T) {
