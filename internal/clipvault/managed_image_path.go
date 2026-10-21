@@ -43,7 +43,18 @@ func resolveManagedImagePath(env Environment, storedPath string) (string, error)
 	}
 	imagesRoot := filepath.Clean(env.ImagesDirectory())
 	full := filepath.Clean(filepath.Join(imagesRoot, relative))
-	if !pathContains(imagesRoot, full) || !pathContains(canonicalPath(imagesRoot), canonicalPath(full)) {
+	if !pathContains(imagesRoot, full) {
+		return "", errors.New("managed image path escapes images directory")
+	}
+	canonicalRoot, err := canonicalPathChecked(imagesRoot)
+	if err != nil {
+		return "", err
+	}
+	canonicalFull, err := canonicalPathChecked(full)
+	if err != nil {
+		return "", err
+	}
+	if !pathContains(canonicalRoot, canonicalFull) {
 		return "", errors.New("managed image path escapes images directory")
 	}
 	return full, nil

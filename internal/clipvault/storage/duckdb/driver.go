@@ -28,7 +28,7 @@ func OpenEncrypted(path, keyHex string) (*sql.DB, error) {
 		// 扩展安装和加载，避免依赖 ATTACH 的隐式自动加载。缓存命中不下载。
 		for _, query := range []string{"INSTALL httpfs FROM core", "LOAD httpfs"} {
 			if _, err := conn.ExecContext(context.Background(), query, nil); err != nil {
-				return fmt.Errorf("initialize DuckDB secure crypto provider: %w", err)
+				return fmt.Errorf("初始化 DuckDB 安全加密提供程序失败: %w", err)
 			}
 		}
 		if _, err := conn.ExecContext(context.Background(), attachSQL, nil); err != nil {

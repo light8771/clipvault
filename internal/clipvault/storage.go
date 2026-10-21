@@ -111,7 +111,15 @@ func ScheduleDataDirectoryMove(env Environment, target string) error {
 	if samePath(sourceDir, targetDir) {
 		return fmt.Errorf("new directory is the same as current data directory")
 	}
-	if pathContains(sourceDir, targetDir) || pathContains(targetDir, sourceDir) {
+	canonicalSource, err := canonicalPathChecked(sourceDir)
+	if err != nil {
+		return err
+	}
+	canonicalTarget, err := canonicalPathChecked(targetDir)
+	if err != nil {
+		return err
+	}
+	if pathContains(canonicalSource, canonicalTarget) || pathContains(canonicalTarget, canonicalSource) {
 		return fmt.Errorf("new directory must not be a parent or child of current data directory")
 	}
 	controlDir := environmentControlDir()
@@ -182,7 +190,7 @@ func directoryPathHasLink(path string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return true, nil
 		}
 		if filepath.Dir(current) == current {
@@ -271,19 +279,26 @@ func samePath(a, b string) bool {
 }
 
 func canonicalPath(path string) string {
+	if resolved, err := canonicalPathChecked(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
+}
+
+func canonicalPathChecked(path string) (string, error) {
 	path = filepath.Clean(path)
 	existing, suffix := path, ""
 	for {
-		resolved, err := filepath.EvalSymlinks(existing)
+		resolved, err := canonicalExistingPath(existing)
 		if err == nil {
-			return filepath.Join(resolved, suffix)
+			return filepath.Join(resolved, suffix), nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return path
+			return "", err
 		}
 		parent := filepath.Dir(existing)
 		if parent == existing {
-			return path
+			return "", err
 		}
 		suffix = filepath.Join(filepath.Base(existing), suffix)
 		existing = parent

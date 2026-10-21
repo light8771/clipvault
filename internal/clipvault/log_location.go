@@ -81,7 +81,15 @@ func ConfigureLogDirectory(env Environment, target string) error {
 	if samePath(targetDir, env.LogDirectory()) {
 		return nil
 	}
-	if pathContains(env.DataDir, targetDir) {
+	canonicalData, err := canonicalPathChecked(env.DataDir)
+	if err != nil {
+		return err
+	}
+	canonicalTarget, err := canonicalPathChecked(targetDir)
+	if err != nil {
+		return err
+	}
+	if pathContains(canonicalData, canonicalTarget) {
 		return errors.New(templateT("storage.log_err_inside_data", nil))
 	}
 	if err := verifyDirectoryWritable(targetDir); err != nil {

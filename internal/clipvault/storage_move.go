@@ -75,7 +75,15 @@ func applyPendingDataDirectoryMove(controlDir string) (string, error) {
 	if err := verifyStorageKeyDigest(sourceDir, move.SourceKeyDigest); err != nil {
 		return "", err
 	}
-	if samePath(sourceDir, targetDir) || pathContains(sourceDir, targetDir) || pathContains(targetDir, sourceDir) {
+	canonicalSource, err := canonicalPathChecked(sourceDir)
+	if err != nil {
+		return "", err
+	}
+	canonicalTarget, err := canonicalPathChecked(targetDir)
+	if err != nil {
+		return "", err
+	}
+	if samePath(sourceDir, targetDir) || pathContains(canonicalSource, canonicalTarget) || pathContains(canonicalTarget, canonicalSource) {
 		return "", fmt.Errorf("relocation directory relationship is invalid")
 	}
 	if err := validateDataDirectoryMoveTarget(targetDir, controlDir); err != nil {

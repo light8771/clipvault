@@ -5,6 +5,7 @@ package clipvault
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,12 +54,78 @@ func TestManagedImageMissingFileUnderWindowsShortPath(t *testing.T) {
 			}
 		})
 	}
+	t.Run("long path", func(t *testing.T) {
+		longDir := filepath.Join(longRoot, strings.Repeat("x", 180), strings.Repeat("y", 180))
+		if err := os.MkdirAll(longDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := canonicalExistingPath(longDir)
+		if err != nil {
+			t.Fatalf("长路径解析失败：%v", err)
+		}
+		actual, err := os.Stat(resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		original, err := os.Stat(longDir)
+		if err != nil || !os.SameFile(actual, original) {
+			t.Fatalf("长路径解析改变了目录身份：%v", err)
+		}
+	})
+	// 混用长、短路径时仍拒绝父子目录搬移，且不能把日志放进数据目录。
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	child := filepath.Join(longRoot, "nested")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, dirs := range [][2]string{
+		{longRoot, filepath.Join(shortRoot, "nested")},
+		{filepath.Join(longRoot, "nested"), shortRoot},
+	} {
+		err := ScheduleDataDirectoryMove(Environment{DataDir: dirs[0], Source: "default"}, dirs[1])
+		if err == nil || !strings.Contains(err.Error(), "parent or child") {
+			t.Fatalf("长短路径别名绕过了搬移目录关系检查：%v", err)
+		}
+	}
+	if err := ConfigureLogDirectory(Environment{DataDir: longRoot, LogDir: t.TempDir()}, filepath.Join(shortRoot, "nested")); err == nil {
+		t.Fatal("日志目录不能通过短路径别名进入数据目录")
+	}
 	full, err := resolveManagedImagePath(Environment{DataDir: shortRoot}, "images/missing/image.png")
 	if err != nil {
 		t.Fatalf("短路径目录内的缺失图片被误判为路径越界：%v", err)
 	}
 	if _, err := os.Stat(full); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("缺失图片错误应保留 os.ErrNotExist：%v", err)
+	}
+}
+
+func TestManagedDirectoriesRejectJunctionAncestors(t *testing.T) {
+	shell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Skip("系统未提供用于创建目录联接回归夹具的 PowerShell")
+	}
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "images"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "images", "junction")
+	command := exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command",
+		"$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:CLIPVAULT_TEST_JUNCTION_LINK -Target $env:CLIPVAULT_TEST_JUNCTION_TARGET | Out-Null")
+	command.Env = append(os.Environ(), "CLIPVAULT_TEST_JUNCTION_LINK="+link, "CLIPVAULT_TEST_JUNCTION_TARGET="+outside)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("创建本地目录联接夹具失败：%v (%s)", err, output)
+	}
+	t.Cleanup(func() { _ = os.Remove(link) })
+	if err := os.Mkdir(filepath.Join(outside, "child"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, resolve := range []func(string) (string, error){resolveExistingDirectory, resolveExistingLogDirectory} {
+		if _, err := resolve(filepath.Join(link, "child")); err == nil {
+			t.Fatal("数据或日志目录不能通过目录联接祖先校验")
+		}
+	}
+	if _, err := resolveManagedImagePath(Environment{DataDir: root}, "images/junction/missing/image.png"); err == nil {
+		t.Fatal("缺失图片不能通过目录联接逃出受管目录")
 	}
 }
 
