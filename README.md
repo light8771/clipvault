@@ -1,6 +1,6 @@
 # ClipVault
 
-> **首次公开准备中**：自有源码与文档采用 [Apache-2.0](LICENSE)，版权署名为 `ClipVault contributors`，保留现有商业离线激活实现。计划保留 codex 分支完整历史并以 GitHub `main` 发布，目前未上传；历史内容、第三方声明及发行验收仍待完成，见 [执行报告](docs/OSS_RELEASE_REPORT.md) 和 [许可范围](docs/LICENSE_REVIEW.md)。[English](README.en.md)
+> **首次公开准备中**：自有源码与文档采用 [Apache-2.0](LICENSE)，版权署名为 `ClipVault contributors`，保留现有商业离线激活实现。独立发布分支已保留源码演进并排除内部材料历史，拟作为 GitHub `main`，目前未上传；EXE 发行声明及 Windows 稳定版验收另行完成，见 [历史清理记录](docs/OSS_HISTORY_CLEANUP.md)、[执行报告](docs/OSS_RELEASE_REPORT.md) 和 [许可范围](docs/LICENSE_REVIEW.md)。[English](README.en.md)
 
 ## 开始使用与隐私
 

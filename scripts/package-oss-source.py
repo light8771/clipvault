@@ -1,4 +1,4 @@
-"""生成仅供文件审阅的白名单 ZIP；Git main 按完整分支历史发布，不用此 ZIP 替代历史。"""
+"""生成仅供文件审阅的白名单 ZIP；Git main 使用已排除内部资料的发布分支历史。"""
 import argparse
 import hashlib
 import json
@@ -18,7 +18,7 @@ def main():
     if not destination.is_relative_to(root) or not destination.is_relative_to((root / "dist").resolve()) or destination.suffix.lower() != ".zip":
         raise ValueError("输出必须是 dist/ 内的新 ZIP 文件")
     roots = ("cmd/", "internal/", "scripts/", "winres/", ".github/", "docs/")
-    root_files = {".gitignore", "AGENTS.md", "README.md", "README.en.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "PRIVACY.md", "CHANGELOG.md", "THIRD_PARTY_NOTICES.md", "TODO.md", "go.mod", "go.sum", "package.json", "package-lock.json", "gen_icon.py"}
+    root_files = {".gitignore", ".gitattributes", "AGENTS.md", "README.md", "README.en.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "PRIVACY.md", "CHANGELOG.md", "THIRD_PARTY_NOTICES.md", "TODO.md", "go.mod", "go.sum", "package.json", "package-lock.json", "gen_icon.py"}
     signing = {"signing/.gitignore", "signing/README.md", "signing/build-for-order.ps1", "signing/issue-license.ps1", "signing/cv-dev.ed25519.pub"}
     inventory = set()
     for flags in [("--cached",), ("--others", "--exclude-standard")]:
@@ -51,7 +51,7 @@ def main():
     required = {"README.md", "go.mod", "go.sum", "cmd/clipvault/main.go", "scripts/build-release.ps1"}
     if not required.issubset({p for p, _ in files}):
         raise ValueError("缺少必需源码")
-    manifest = {"status": "local file review only; publication NOT approved", "publication_strategy": "full codex branch history as GitHub main", "project_license": "Apache-2.0", "baseline": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip(), "project_license_present": "LICENSE" in {p for p, _ in files}, "files": [{"path": p, "sha256": hashlib.sha256(data).hexdigest()} for p, data in files]}
+    manifest = {"status": "local file review only; publication NOT approved", "publication_strategy": "sanitized codex/oss-release-preparation history as GitHub main", "project_license": "Apache-2.0", "baseline": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip(), "project_license_present": "LICENSE" in {p for p, _ in files}, "files": [{"path": p, "sha256": hashlib.sha256(data).hexdigest()} for p, data in files]}
     destination.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(destination, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for relative, data in files:

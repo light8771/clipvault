@@ -2,7 +2,7 @@
 
 ClipVault is a Windows 10/11 x64 clipboard history manager written in Go. It runs in the system tray and provides a local Web UI, search, favorites/groups, encrypted DuckDB storage, password-protected exports, scheduled directory/SMTP backups, and optional read-only HTTP Data API and MCP services.
 
-**Publication preparation:** project-owned source and documentation use [Apache-2.0](LICENSE), attributed to `ClipVault contributors` in [NOTICE](NOTICE). All project-owned source, including offline activation and signing tools, is included. License recipients may modify, build and redistribute it commercially; official paid binaries and support do not restrict these rights. The full codex branch history is planned for GitHub `main`. Historical privacy review, third-party notices and Windows release acceptance remain open; nothing has been published. Security contacts are the placeholder `foobar`.
+**Publication preparation:** project-owned source and documentation use [Apache-2.0](LICENSE), attributed to `ClipVault contributors` in [NOTICE](NOTICE). All project-owned source, including offline activation and signing tools, is included. License recipients may modify, build and redistribute it commercially; official paid binaries and support do not restrict these rights. A separate release branch preserves source development history while excluding internal materials from its commits; see [the cleanup record](docs/OSS_HISTORY_CLEANUP.md). It is intended for GitHub `main`; nothing has been uploaded. Binary distribution notices and Windows stable-release acceptance remain open. Security contacts are the placeholder `foobar`.
 
 ## Build and test
 

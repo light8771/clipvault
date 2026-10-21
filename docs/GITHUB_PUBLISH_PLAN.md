@@ -1,74 +1,60 @@
-# ClipVault 首次公开发布计划（保留历史，不执行上传）
+# ClipVault GitHub 发布计划（仅源码候选，尚未上传）
 
-2026-10-21 决定：Apache-2.0、署名 ClipVault contributors，以 codex 分支源码演进历史作为 GitHub main；联系方式 foobar 占位。不采用无历史仓库方案。维护者随后明确：历史中的内部日志、截图、审计资料等全部不公开。当前未获“批准公开发布 ClipVault”，下述命令仅为未来步骤。
+2026-10-21：维护者已选择 Apache-2.0、ClipVault contributors 署名、foobar 联系方式占位，授权在独立发布分支清理内部材料。仅源码仓库与 EXE 正式发行分开验收；没有获得对外上传或提交申请的授权。
 
-## 最新排除要求（优先于下方原哈希方案）
+## 当前分支和历史
 
-内部日志、内部审计截图与文档、私人交接/任务上下文、发布探针和本地临时辅助材料，及其历史版本，均不纳入公开内容。本地原件和原始仓库保留，不删除用户数据。
+原开发分支 `codex/clipvault-modular-refactor` 固定在 `2efd52d`，不再改写或移动。发布分支为 `codex/oss-release-preparation`，从原 126 个提交逐一排除内部资料，保留源码演进、父子关系、作者、提交者、日期和消息；相关哈希变化。后续只在发布分支新增普通提交。
 
-目标仍是保留源码的演进历史，而不是创建只有一个初始提交的仓库。但已进入旧提交的私密材料，不能通过新增删除提交或 .gitignore 从历史中排除；涉及的提交及其后代哈希必须变化。因此，下面“原哈希保留、直接推送原 codex 分支”的旧方案暂停，不可照抄执行。
+已排除 50 个历史路径，包括内部日志和审计图文、AI 工具目录、旧内部开发计划与验收材料、评审报告、探针和临时产物。逐提交保留文件的 blob 和模式比对一致；原始历史与本地私人原件保留。证据范围见 OSS_HISTORY_CLEANUP.md。
 
-后续应先形成明确排除清单，在隔离发布副本中准备清理方案并验证所有待公开引用和对象；原仓库保持不变。本轮仅记录排除要求，未改写任何 Git 历史；依首次公开发布约束，历史清理及公开操作仍待明确授权。原始分支不能直接推送至 GitHub main。
+**禁止直接推送原 codex 分支，禁止 --mirror、--all、打包 .git 或推送本地其他分支/stash。** 旧对象仍存在于本地，只有发布分支的可达对象适合作为源码候选。原本地 origin 保持不变。
 
-## 1. 分支与历史范围
+## 源码上传前复核
 
-当前分支 `codex/clipvault-modular-refactor`，基线 f61c7c8，祖先提交 125 个。所有本地引用可达 128 个，另 3 个只在其他分支/暂存引用中；它们继续保留本地，不能用 --mirror/--all 自动公开。
+- 在干净目录用 `--no-local --single-branch --no-tags` 仅克隆发布分支，核对全部历史版本与可达对象；不能用普通本地克隆复制全部对象来冒充隔离验证。
+- 确认排除路径无历史树条目，原分支保持 2efd52d；说明正则扫描的边界，不宣称不存在一切未知秘密。
+- 保留 LICENSE、NOTICE 与实际纳入仓库的第三方声明。go.mod/go.sum 由 Go modules 管理依赖，不要求把整个依赖源码或整个模块图许可搬入源码仓库。
+- 如实列明已有全量/竞态测试、源码构建及未完成验收；CI 尚未在 GitHub 上运行时不能写为通过。
+- 确认 GitHub 所有者及目标仓库 URL，没有批准前不查询私人凭据、不创建仓库、不上传源码。实际账户字段不使用 foobar 冒充；foobar 仅为安全/支持信息占位。
 
-**原方案（已暂停）：将 codex 分支原始完整提交链推送为远端 refs/heads/main。** 最新排除要求生效后，必须先解决旧提交内的内部材料，不能直接发布原始 125 个提交。现有本地 origin 不改，开源准备改动目前未提交。
+## 获准后，仅上传发布分支
 
-“保留 codex 全部历史”与“把所有其他分支和 stash 也公开”不同。若还需公开另外 3 个提交，应分别检查来源和私密内容，再选择辅助分支名称；本轮不删除、不合并、不上传它们。
-
-## 2. 完整历史的公开审核
-
-已知 codex 历史含 logs/2026-07-09.log、内部审计图文；当前还跟踪 .audit/、.release-*.ps1、.sync-probe。正则扫描未发现高识别度凭据，不等于日志/截图已经可公开。
-
-- 审核该分支所有版本的日志、截图、个人资料、签发/测试材料，以及旧版本依赖和复制代码的许可；只审查最新文件或当前 go.mod 不足以覆盖完整历史。
-- 当前不需要的辅助文件可以在新提交中取消跟踪并保留本地原文件，但旧提交仍能访问，不能称为历史清理。
-- 如果发现真实秘密或不可公开资料，**原哈希完全保留**与**从旧历史移除该内容**无法同时满足。届时先停止发布并处置凭据，报告具体位置；未经另行授权不改历史、不 force push。
-- Git 作者姓名/邮箱及实际提交日期将随历史公开，不匿名改写、不伪造贡献记录。LICENSE 只授权有权许可的项目源码/文档，不授权泄露私人材料。
-
-文件审查 ZIP 仍可用于对比当前源码和构建，并不替代完整 Git 历史，也不用于创建无历史仓库。旧 ZIP 是先前决策的记录，更新包必须带 LICENSE/NOTICE 并标明本地审阅状态。
-
-## 3. 仅在阻断项关闭且批准公开后执行
-
-先检查完整跟踪文件、拟提交改动和所有将推送的历史，排除内部材料，确认自有许可证及实际纳入仓库的第三方内容声明。源码依赖由 go.mod/go.sum 管理，不因原生 EXE 分发声明或 Windows 实机验收尚未完成，就一概阻止仅源码上传；这些项目在提供二进制和稳定版前分别关闭。不要直接 git add . 把内部材料混入；使用审核后的明确路径提交，保留其他工作区修改。
-
-```powershell
-# 未来人工步骤，本轮不执行。先确认当前确为 codex 分支。
-git branch --show-current
-git status --short
-git diff --check
-# 审核后逐路径 git add；以下占位符不能直接执行。
-git add -- <逐项审核后的文件路径>
-git diff --cached --stat
-git diff --cached --check
-git commit -m '准备首次开源：许可、审查文档和发布验证'
-git log codex/clipvault-modular-refactor --oneline
-```
-
-确认 GitHub 所有者、目标名称未被占用；建议名称 clipvault。私有上传同样是对外发送源码，必须获得授权；不覆盖已有仓库或远端。
+下列命令均为未来人工步骤，不能把本文件视为上传授权。先核对当时 `git` / `gh` 的帮助和目标仓库状态；不覆盖已有仓库或远端。
 
 ```powershell
 $Repo = '<OWNER>/clipvault'
+git branch --show-current
+# 应为 codex/oss-release-preparation，且状态干净。
+git status --short
+git rev-parse codex/clipvault-modular-refactor
+# 应仍以 2efd52d 开头。
 gh auth status
-# 仅在批准且目标不存在时创建私有候选；不自动推送。
+# 只有获准且目标不存在时建立私有候选；私有上传同样需要授权。
 gh repo create $Repo --private
-# 确认 github 远端名未占用，再新增，原 origin 保持原值。
+# 先确认 github 远端名未占用；不改原 origin。
 git remote add github "https://github.com/$Repo.git"
-# 只推所选分支完整历史，明确映射为 main。
-git push -u github codex/clipvault-modular-refactor:refs/heads/main
+git push -u github codex/oss-release-preparation:refs/heads/main
 gh repo edit $Repo --default-branch main
 ```
 
-后续继续使用明确 refspec；本地 codex 名称与远端 main 不同，默认 push.simple 可能要求显式指定。需要本地改名时另作普通分支重命名，不因此重写历史。
+本地发布分支与远端 main 名称不同，后续仍使用明确 refspec。不要通过 force push 覆盖已有 main；远端存在时先核对其内容和授权。
 
-## 4. 转公开与 Release
-
-源码仓库转 public 前再次展示**最终跟踪文件清单、main 全部待公开提交及对象审查摘要**，确认内部材料已从待公开历史排除，实际纳入的第三方内容保留适用声明；如实说明 CI 和 Windows 验证的已完成与未完成项。EXE 分发声明及稳定版实机验收另在下方 Release 阶段关闭。foobar 仅占位，不虚构已建立私下安全渠道；可在获准建立仓库后配置 GitHub 私下漏洞报告。公开账户信息在私人申请副本中填写。
+转 public 前展示最终文件、全部待公开提交与对象复核摘要。GitHub CI 实际运行后记录真实结果，任何新失败先修复；联系方式按维护者指示保持 foobar，不虚构可用的私下报告渠道。
 
 ```powershell
-# 再次完成最终审核并获批准后：
+# 仅在维护者明确批准公开并完成最终复核后执行。
 gh repo edit $Repo --visibility public --accept-visibility-change-consequences
+```
+
+## EXE 与 Release 独立验收
+
+源码公开不自动发布 EXE。当前本地 V2 是开发公钥、未签名的审查产物，不当作稳定版下载。正式二进制发行前核对实际链接/随包分发的原生组件声明、激活与公钥策略、Windows 10/11 干净系统及跨应用实机验收、备份恢复和数据完整性。没有已验证安装器就不提供安装器。
+
+经批准的 EXE 随包包含 LICENSE、NOTICE、适用第三方声明、隐私/使用说明。选定签名策略后先签名、再打包、再计算 SHA-256；不附数据库、订单、签发私钥、口令、用户配置或 OCR 模型。不随意打包整个工具链。
+
+```powershell
+# 未来 Release 步骤；只有所选产物实际验收完成且获准时执行。
 $Tag = 'v0.1.0-rc.1'
 git tag -a $Tag -m 'ClipVault 首个公开候选版'
 git push github "refs/tags/$Tag"
@@ -76,10 +62,10 @@ gh release create $Tag --repo $Repo --draft --prerelease --title 'ClipVault 0.1.
 gh release upload $Tag '<验证并批准的 Windows ZIP>' '<SHA256SUMS.txt>' --repo $Repo
 ```
 
-执行前核对 gh 对应版本的 --help。正式包包含 EXE、LICENSE、NOTICE、适用第三方原始声明及使用/隐私说明。先签名再打包再计算哈希；不分发开发凭据、用户数据或 OCR 模型。没有已验证安装器就不提供安装器。当前开发公钥/未签名审查 EXE 不作为正式稳定版。
+## 上传后验证
 
-## 5. 公开后验证及回滚边界
+从真实 GitHub URL 克隆 main，验证 README 构建步骤、完整历史排除结果、Issue 模板、CI 和适用下载。此前的本地克隆只能作为本地预演，不算公开克隆验证。
 
-从真实公开 URL 在干净 Windows 10/11 x64 克隆 main，按 README 验证构建、原生剪贴板、签名/哈希、CI 和模板；保留历史 SHA。当前本地构建预演不算公开克隆成功。
+公开 URL、真实可核查指标、申请账号信息由维护者确认后填入私人申请副本；没有 stars/下载/外部用户数据就如实写暂无，不伪造贡献记录。OpenAI 申请仅准备，不代提交。
 
-把真实 URL、维护权限与可核查公开指标填到私人申请副本，不伪造 stars/下载量，申请由本人提交。删除 Release、Tag 或改回私有不能保证回收已克隆/缓存的完整历史；公开前必须完成历史审核，不能靠事后 force push 代替。
+把仓库改回私有或删除 Release 无法保证回收已克隆/缓存的历史，因此不能以事后操作代替发布前复核。

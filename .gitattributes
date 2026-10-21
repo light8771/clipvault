@@ -1,0 +1,2 @@
+# 上游许可保留原始字节，避免 Windows 自动换行破坏来源哈希。
+/docs/third-party/** -text

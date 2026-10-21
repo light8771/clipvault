@@ -42,6 +42,9 @@ logs/
 /.audit/
 /.release-*.ps1
 /.sync-probe
+/.qoder/
+/deliverables/
+/ClipVault_*.md
 /docs/ai-handoff/
 /CLIPVAULT_OSS_CODEX_TASK.md
 .env
