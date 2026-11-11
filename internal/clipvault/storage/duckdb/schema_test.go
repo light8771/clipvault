@@ -6,11 +6,11 @@ import (
 )
 
 func TestSchemaCompositeContentAndCaptureEvents(t *testing.T) {
-	if SchemaVersion != "13" {
-		t.Fatalf("SchemaVersion = %q, want 13", SchemaVersion)
+	if SchemaVersion != "14" {
+		t.Fatalf("SchemaVersion = %q, want 14", SchemaVersion)
 	}
-	if SchemaIdentity != "clipvault.duckdb.v13.content-types" {
-		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v13.content-types", SchemaIdentity)
+	if SchemaIdentity != "clipvault.duckdb.v14.image-ocr" {
+		t.Fatalf("SchemaIdentity = %q, want clipvault.duckdb.v14.image-ocr", SchemaIdentity)
 	}
 	schema := strings.Join(SchemaStatements, "\n")
 	for _, fragment := range []string{

@@ -6,17 +6,18 @@ import (
 	"time"
 )
 
-// ExportVersion 10 stores composite representations and their owned resources.
+// ExportVersion 11 also preserves per-image OCR results and user edits.
 // Earlier exports are intentionally not accepted.
-const ExportVersion = 10
+const ExportVersion = 11
 
 // Scope is the shared range contract for export and backup operations.
 type Scope struct {
-	Mode    string `json:"mode"`
-	From    string `json:"from"`
-	To      string `json:"to"`
-	SinceID int64  `json:"-"`
-	MaxID   int64  `json:"-"`
+	OCRRevision int64  `json:"-"`
+	Mode        string `json:"mode"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	SinceID     int64  `json:"-"`
+	MaxID       int64  `json:"-"`
 }
 
 func ValidateScope(scope Scope) error {

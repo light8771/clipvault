@@ -30,17 +30,30 @@ func (bs *BackupService) exportBackupData(format, password string, scope ExportS
 // forceFull（手动触发）总是执行全量。返回 (scope, autoFallback)，autoFallback
 // 仅在自动转全量时为 true（手动 forceFull 不算）。
 func resolveBackupScope(store *Store, kind string, configured ExportScope, fullFallbackDays int, forceFull bool) (ExportScope, bool, error) {
+
+	revision, err := store.ocrRevision(context.Background())
+	if err != nil {
+		return configured, false, err
+	}
+	finish := func(scope ExportScope, fallback bool, err error) (ExportScope, bool, error) {
+		scope.OCRRevision = revision
+		return scope, fallback, err
+	}
 	if configured.Mode != "incremental" || forceFull {
-		return backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullFallbackDays, time.Now(), forceFull)
+		return finish(backuppolicy.ResolveScope(configured, backuppolicy.Watermark{}, fullFallbackDays, time.Now(), forceFull))
 	}
 	wm, err := store.GetBackupWatermark(context.Background(), kind)
 	if err != nil {
-		return configured, false, fmt.Errorf("%s: %w", templateT("backup.err_read_watermark", nil), err)
+		return configured, false, err
 	}
-	lastFullAt, _ := time.Parse(time.RFC3339, wm.LastFullAt) // 零值表示从未全量
-	return backuppolicy.ResolveScope(configured,
-		backuppolicy.Watermark{LastItemID: wm.LastItemID, LastFullAt: lastFullAt},
-		fullFallbackDays, time.Now(), false)
+	// 旧记录的 OCR 修订不在按 ID 的增量范围内，下次自动转全量。
+	// 只确认开始备份前的版本，并发修订会在下次再次触发全量。
+	if wm.OCRRevision != revision {
+		return finish(ExportScope{Mode: "full"}, true, nil)
+	}
+	lastFullAt, _ := time.Parse(time.RFC3339, wm.LastFullAt)
+	return finish(backuppolicy.ResolveScope(configured, backuppolicy.Watermark{LastItemID: wm.LastItemID, LastFullAt: lastFullAt}, fullFallbackDays, time.Now(), false))
+
 }
 
 // updateBackupWatermark 用实际导出的最大记录 id（exportedMaxID）推进水位线，
@@ -60,7 +73,7 @@ func updateBackupWatermark(store *Store, kind string, scope ExportScope, exporte
 		return wm, nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	newWM := BackupWatermark{LastItemID: exportedMaxID, LastSentAt: now, LastFullAt: wm.LastFullAt}
+	newWM := BackupWatermark{OCRRevision: scope.OCRRevision, LastItemID: exportedMaxID, LastSentAt: now, LastFullAt: wm.LastFullAt}
 	if scope.Mode != "incremental" {
 		newWM.LastFullAt = now
 	}

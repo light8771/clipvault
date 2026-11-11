@@ -20,6 +20,9 @@ func restoreItemFromWeb(item StoredItem, dataDir string) error {
 		return fmt.Errorf("create clipboard owner: %w", err)
 	}
 	defer procDestroyWindow.Call(hwnd)
-	_, err = restoreItemToClipboard(hwnd, item, dataDir)
+	seq, err := restoreItemToClipboard(hwnd, item, dataDir)
+	if err == nil && activeRuntime != nil {
+		activeRuntime.suppressClipboardSequencesThrough(seq)
+	}
 	return err
 }

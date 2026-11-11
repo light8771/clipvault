@@ -156,6 +156,7 @@ type ClipboardItem struct {
 }
 
 type StoredItem struct {
+	OCR                  []ImageOCR
 	Content              *CompositeContent
 	ID                   int64
 	CreatedAt            time.Time
@@ -190,6 +191,7 @@ type StoredItem struct {
 // are structural API concepts instead of being inferred from pseudo-formats.
 func (item StoredItem) MarshalJSON() ([]byte, error) {
 	type dto struct {
+		OCR                  []ImageOCR             `json:"ocr,omitempty"`
 		Content              *CompositeContent      `json:"content,omitempty"`
 		Kinds                []string               `json:"kinds"`
 		ID                   int64                  `json:"id"`
@@ -249,7 +251,7 @@ func (item StoredItem) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(dto{
-		Content: item.Content, Kinds: item.ContentKinds(),
+		OCR: item.OCR, Content: item.Content, Kinds: item.ContentKinds(),
 		ID: item.ID, CreatedAt: item.CreatedAt, RecordType: item.RecordType,
 		Kind: item.Kind, Format: item.Format, Text: text, ByteLen: item.ByteLen,
 		CharLen: item.CharLen, ContentSHA256: item.ContentSHA256,
@@ -260,6 +262,7 @@ func (item StoredItem) MarshalJSON() ([]byte, error) {
 
 func (item *StoredItem) UnmarshalJSON(data []byte) error {
 	type dto struct {
+		OCR                  []ImageOCR             `json:"ocr,omitempty"`
 		Content              *CompositeContent      `json:"content"`
 		Kinds                []string               `json:"kinds"`
 		ID                   int64                  `json:"id"`
@@ -312,8 +315,8 @@ func (item *StoredItem) UnmarshalJSON(data []byte) error {
 		return errors.New("invalid history record type")
 	}
 	*item = StoredItem{
-		Content: decoded.Content,
-		ID:      decoded.ID, CreatedAt: decoded.CreatedAt, RecordType: decoded.RecordType,
+		OCR: decoded.OCR, Content: decoded.Content,
+		ID: decoded.ID, CreatedAt: decoded.CreatedAt, RecordType: decoded.RecordType,
 		Kind: decoded.Kind, Format: decoded.Format, ByteLen: decoded.ByteLen, CharLen: decoded.CharLen,
 		ContentSHA256: decoded.ContentSHA256, ConsecutiveDuplicate: *decoded.ConsecutiveDuplicate,
 		MetaJSON: decoded.MetaJSON,

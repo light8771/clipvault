@@ -232,6 +232,7 @@ var configFieldLabels = map[string]string{
 	"security.secondaryPasswordHash":      "config_field.secondary_password",
 	"security.lockSessionTimeout":         "config_field.lock_session_timeout",
 	"security.secondaryAuthTimeout":       "config_field.secondary_auth_timeout",
+	"selectionHotkeys":                    "config_field.selection_hotkeys",
 	"hotkey.enabled":                      "config_field.hotkey_enabled",
 	"hotkey.modifiers":                    "config_field.hotkey_modifiers",
 	"hotkey.key":                          "config_field.hotkey_key",

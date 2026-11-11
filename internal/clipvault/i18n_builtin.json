@@ -11808,10 +11808,1467 @@
     "ZhCN": "预览已简化；复制时使用保存的原始格式。",
     "EnUS": "This preview is simplified. Copying uses the saved original formats."
   },
-{"Key":"history.subtype_plain","EnUS":"Plain text","ZhCN":"纯文本","Module":"history","Description":"纯文本二级分类"},
-{"Key":"history.subtype_rich","EnUS":"Rich text","ZhCN":"富文本","Module":"history","Description":"富文本二级分类"},
-{"Key":"history.subtype_embedded","EnUS":"Embedded rich-text image","ZhCN":"富文本内嵌图片","Module":"history","Description":"富文本内嵌图片分类"},
-{"Key":"history.subtype_no_extension","EnUS":"No extension","ZhCN":"无扩展名","Module":"history","Description":"无扩展名文件分类"},
-{"Key":"history.subtype_search","EnUS":"Search types","ZhCN":"搜索类型","Module":"history","Description":"搜索二级分类"},
-{"Key":"history.subtype_choose","EnUS":"Choose a subtype of {kind}","ZhCN":"选择{kind}的二级类型","Module":"history","Description":"展开类型二级筛选"}
+  {
+    "Key": "history.subtype_plain",
+    "EnUS": "Plain text",
+    "ZhCN": "纯文本",
+    "Module": "history",
+    "Description": "纯文本二级分类"
+  },
+  {
+    "Key": "history.subtype_rich",
+    "EnUS": "Rich text",
+    "ZhCN": "富文本",
+    "Module": "history",
+    "Description": "富文本二级分类"
+  },
+  {
+    "Key": "history.subtype_embedded",
+    "EnUS": "Embedded rich-text image",
+    "ZhCN": "富文本内嵌图片",
+    "Module": "history",
+    "Description": "富文本内嵌图片分类"
+  },
+  {
+    "Key": "history.subtype_no_extension",
+    "EnUS": "No extension",
+    "ZhCN": "无扩展名",
+    "Module": "history",
+    "Description": "无扩展名文件分类"
+  },
+  {
+    "Key": "history.subtype_search",
+    "EnUS": "Search types",
+    "ZhCN": "搜索类型",
+    "Module": "history",
+    "Description": "搜索二级分类"
+  },
+  {
+    "Key": "history.subtype_choose",
+    "EnUS": "Choose a subtype of {kind}",
+    "ZhCN": "选择{kind}的二级类型",
+    "Module": "history",
+    "Description": "展开类型二级筛选"
+  },
+  {
+    "Key": "ocr.title",
+    "Module": "ocr",
+    "Description": "识别文字",
+    "ZhCN": "识别文字",
+    "EnUS": "Recognize text"
+  },
+  {
+    "Key": "ocr.image",
+    "Module": "ocr",
+    "Description": "选择图片",
+    "ZhCN": "选择图片",
+    "EnUS": "Select image"
+  },
+  {
+    "Key": "ocr.result",
+    "Module": "ocr",
+    "Description": "识别文字（可编辑）",
+    "ZhCN": "识别文字（可编辑）",
+    "EnUS": "Recognized text (editable)"
+  },
+  {
+    "Key": "ocr.original",
+    "Module": "ocr",
+    "Description": "查看模型原文",
+    "ZhCN": "查看模型原文",
+    "EnUS": "View original result"
+  },
+  {
+    "Key": "ocr.settings",
+    "Module": "ocr",
+    "Description": "图片识别设置",
+    "ZhCN": "图片识别设置",
+    "EnUS": "Image recognition settings"
+  },
+  {
+    "Key": "ocr.cloud_notice",
+    "Module": "ocr",
+    "Description": "手动识别会将所选图片发送到当前云端连接，可能产生费用。搜索不会上传图片。",
+    "ZhCN": "手动识别会将所选图片发送到当前云端连接，可能产生费用。搜索不会上传图片。",
+    "EnUS": "Manual recognition sends the selected image to the chosen cloud connection and may incur charges. Search does not upload images."
+  },
+  {
+    "Key": "ocr.consent",
+    "Module": "ocr",
+    "Description": "同意将此图片发送到所选云端连接进行识别",
+    "ZhCN": "同意将此图片发送到所选云端连接进行识别",
+    "EnUS": "Send this image to the selected cloud connection"
+  },
+  {
+    "Key": "ocr.recognize",
+    "Module": "ocr",
+    "Description": "识别文字",
+    "ZhCN": "识别文字",
+    "EnUS": "Recognize"
+  },
+  {
+    "Key": "ocr.again",
+    "Module": "ocr",
+    "Description": "重新识别",
+    "ZhCN": "重新识别",
+    "EnUS": "Recognize again"
+  },
+  {
+    "Key": "ocr.copy",
+    "Module": "ocr",
+    "Description": "复制识别文字",
+    "ZhCN": "复制识别文字",
+    "EnUS": "Copy recognized text"
+  },
+  {
+    "Key": "ocr.discard",
+    "Module": "ocr",
+    "Description": "有未保存的修订，是否放弃？",
+    "ZhCN": "有未保存的修订，是否放弃？",
+    "EnUS": "Discard unsaved edits?"
+  },
+  {
+    "Key": "ocr.empty",
+    "Module": "ocr",
+    "Description": "未检测到文字",
+    "ZhCN": "未检测到文字",
+    "EnUS": "No text detected"
+  },
+  {
+    "Key": "ocr.done",
+    "Module": "ocr",
+    "Description": "识别完成",
+    "ZhCN": "识别完成",
+    "EnUS": "Recognition complete"
+  },
+  {
+    "Key": "ocr.not_recognized",
+    "Module": "ocr",
+    "Description": "尚未识别",
+    "ZhCN": "尚未识别",
+    "EnUS": "Not recognized"
+  },
+  {
+    "Key": "ocr.running",
+    "Module": "ocr",
+    "Description": "正在识别，请稍候；关闭窗口会中断本次请求。",
+    "ZhCN": "正在识别，请稍候；关闭窗口会中断本次请求。",
+    "EnUS": "Recognizing. Closing this window cancels the request."
+  },
+  {
+    "Key": "ocr.cached",
+    "Module": "ocr",
+    "Description": "使用缓存",
+    "ZhCN": "使用缓存",
+    "EnUS": "Cached result"
+  },
+  {
+    "Key": "ocr.saved",
+    "Module": "ocr",
+    "Description": "修订已保存，搜索将使用修订后的文字。",
+    "ZhCN": "修订已保存，搜索将使用修订后的文字。",
+    "EnUS": "Edits saved. Search now uses the edited text."
+  },
+  {
+    "Key": "ocr.copied",
+    "Module": "ocr",
+    "Description": "已复制到运行 ClipVault 的电脑剪贴板。",
+    "ZhCN": "已复制到运行 ClipVault 的电脑剪贴板。",
+    "EnUS": "Copied to the clipboard on the computer running ClipVault."
+  },
+  {
+    "Key": "ocr.no_image",
+    "Module": "ocr",
+    "Description": "此记录没有可识别的图片。",
+    "ZhCN": "此记录没有可识别的图片。",
+    "EnUS": "No supported images in this record."
+  },
+  {
+    "Key": "ocr.key_set",
+    "Module": "ocr",
+    "Description": "API Key 已配置。",
+    "ZhCN": "API Key 已配置。",
+    "EnUS": "API key configured."
+  },
+  {
+    "Key": "ocr.key_missing",
+    "Module": "ocr",
+    "Description": "此连接未保存 API Key；无鉴权的本机服务不需要密钥。",
+    "ZhCN": "此连接未保存 API Key；无鉴权的本机服务不需要密钥。",
+    "EnUS": "No API key saved. Local services without authentication do not require one."
+  },
+  {
+    "Key": "ocr.base_url",
+    "Module": "ocr",
+    "Description": "接口根地址",
+    "ZhCN": "接口根地址",
+    "EnUS": "Base URL"
+  },
+  {
+    "Key": "ocr.model",
+    "Module": "ocr",
+    "Description": "视觉模型",
+    "ZhCN": "视觉模型",
+    "EnUS": "Vision model"
+  },
+  {
+    "Key": "ocr.api_key",
+    "Module": "ocr",
+    "Description": "API Key（留空保留现有密钥）",
+    "ZhCN": "API Key（留空保留现有密钥）",
+    "EnUS": "API key (leave empty to keep current key)"
+  },
+  {
+    "Key": "ocr.clear_key",
+    "Module": "ocr",
+    "Description": "清除已保存的 API Key",
+    "ZhCN": "清除已保存的 API Key",
+    "EnUS": "Clear saved API key"
+  },
+  {
+    "Key": "ocr.key_hint",
+    "Module": "ocr",
+    "Description": "密钥由 Windows 保护，每个连接独立保存，不随记录备份或导出。本机服务未启用鉴权时可留空。",
+    "ZhCN": "密钥由 Windows 保护，每个连接独立保存，不随记录备份或导出。本机服务未启用鉴权时可留空。",
+    "EnUS": "Windows protects each connection’s key separately. Record backups and exports exclude keys. Leave blank for local services without authentication."
+  },
+  {
+    "Key": "ocr.load_config",
+    "Module": "ocr",
+    "Description": "读取当前配置",
+    "ZhCN": "读取当前配置",
+    "EnUS": "Load current configuration"
+  },
+  {
+    "Key": "ocr.connection",
+    "Module": "ocr",
+    "Description": "识别连接",
+    "ZhCN": "识别连接",
+    "EnUS": "Recognition connection"
+  },
+  {
+    "Key": "ocr.new_connection",
+    "Module": "ocr",
+    "Description": "新建连接",
+    "ZhCN": "新建连接",
+    "EnUS": "New connection"
+  },
+  {
+    "Key": "ocr.delete_connection",
+    "Module": "ocr",
+    "Description": "删除连接",
+    "ZhCN": "删除连接",
+    "EnUS": "Delete connection"
+  },
+  {
+    "Key": "ocr.connection_name",
+    "Module": "ocr",
+    "Description": "连接名称",
+    "ZhCN": "连接名称",
+    "EnUS": "Connection name"
+  },
+  {
+    "Key": "ocr.provider",
+    "Module": "ocr",
+    "Description": "接口协议",
+    "ZhCN": "接口协议",
+    "EnUS": "API protocol"
+  },
+  {
+    "Key": "ocr.provider_bailian",
+    "Module": "ocr",
+    "Description": "阿里云百炼",
+    "ZhCN": "阿里云百炼",
+    "EnUS": "Alibaba Cloud Bailian"
+  },
+  {
+    "Key": "ocr.provider_chat",
+    "Module": "ocr",
+    "Description": "通用视觉接口（Chat Completions）",
+    "ZhCN": "通用视觉接口（Chat Completions）",
+    "EnUS": "Generic vision API (Chat Completions)"
+  },
+  {
+    "Key": "ocr.location",
+    "Module": "ocr",
+    "Description": "运行位置",
+    "ZhCN": "运行位置",
+    "EnUS": "Location"
+  },
+  {
+    "Key": "ocr.cloud",
+    "Module": "ocr",
+    "Description": "云端",
+    "ZhCN": "云端",
+    "EnUS": "Cloud"
+  },
+  {
+    "Key": "ocr.local",
+    "Module": "ocr",
+    "Description": "本机",
+    "ZhCN": "本机",
+    "EnUS": "Local"
+  },
+  {
+    "Key": "ocr.make_active",
+    "Module": "ocr",
+    "Description": "设为默认识别连接",
+    "ZhCN": "设为默认识别连接",
+    "EnUS": "Use as the default connection"
+  },
+  {
+    "Key": "ocr.advanced",
+    "Module": "ocr",
+    "Description": "高级连接参数",
+    "ZhCN": "高级连接参数",
+    "EnUS": "Advanced connection settings"
+  },
+  {
+    "Key": "ocr.advanced_hint",
+    "Module": "ocr",
+    "Description": "接口根地址与请求路径拼接后调用。附加参数使用 JSON 对象；不能覆盖模型、消息、鉴权和流式开关。协议结构变化仍需更新适配器。",
+    "ZhCN": "接口根地址与请求路径拼接后调用。附加参数使用 JSON 对象；不能覆盖模型、消息、鉴权和流式开关。协议结构变化仍需更新适配器。",
+    "EnUS": "The request path is appended to the base URL. Extra parameters must be a JSON object and cannot override model, messages, authentication or streaming. Protocol changes still require adapter updates."
+  },
+  {
+    "Key": "ocr.request_path",
+    "Module": "ocr",
+    "Description": "请求路径",
+    "ZhCN": "请求路径",
+    "EnUS": "Request path"
+  },
+  {
+    "Key": "ocr.timeout",
+    "Module": "ocr",
+    "Description": "超时（秒）",
+    "ZhCN": "超时（秒）",
+    "EnUS": "Timeout (seconds)"
+  },
+  {
+    "Key": "ocr.max_tokens",
+    "Module": "ocr",
+    "Description": "最大输出 tokens",
+    "ZhCN": "最大输出 tokens",
+    "EnUS": "Maximum output tokens"
+  },
+  {
+    "Key": "ocr.token_field",
+    "Module": "ocr",
+    "Description": "输出上限字段",
+    "ZhCN": "输出上限字段",
+    "EnUS": "Token limit field"
+  },
+  {
+    "Key": "ocr.prompt",
+    "Module": "ocr",
+    "Description": "识别提示词",
+    "ZhCN": "识别提示词",
+    "EnUS": "Recognition prompt"
+  },
+  {
+    "Key": "ocr.extra",
+    "Module": "ocr",
+    "Description": "附加参数（JSON）",
+    "ZhCN": "附加参数（JSON）",
+    "EnUS": "Extra parameters (JSON)"
+  },
+  {
+    "Key": "ocr.load_first",
+    "Module": "ocr",
+    "Description": "先读取连接配置，再新建或编辑。",
+    "ZhCN": "先读取连接配置，再新建或编辑。",
+    "EnUS": "Load connections first, then add or edit."
+  },
+  {
+    "Key": "ocr.reset_connections",
+    "Module": "ocr",
+    "Description": "重建连接配置",
+    "ZhCN": "重建连接配置",
+    "EnUS": "Reset connection settings"
+  },
+  {
+    "Key": "ocr.test_connection",
+    "Module": "ocr",
+    "Description": "测试连接",
+    "ZhCN": "测试连接",
+    "EnUS": "Test connection"
+  },
+  {
+    "Key": "ocr.umi_hint",
+    "Module": "ocr",
+    "Description": "先启动 Umi-OCR 并开启 HTTP 服务，默认端口 1224。仅连接本机回环地址；附加参数支持 ocr.language、ocr.cls、ocr.limit_side_len、tbpu.parser。",
+    "ZhCN": "先启动 Umi-OCR 并开启 HTTP 服务，默认端口 1224。仅连接本机回环地址；附加参数支持 ocr.language、ocr.cls、ocr.limit_side_len、tbpu.parser。",
+    "EnUS": "Start Umi-OCR and enable its HTTP service (default port 1224). Loopback addresses only. Supported extras: ocr.language, ocr.cls, ocr.limit_side_len, tbpu.parser."
+  },
+  {
+    "Key": "ocr.ollama_hint",
+    "Module": "ocr",
+    "Description": "先启动 Ollama 并下载支持图片的模型，填写模型名称。本机连接只允许回环地址。",
+    "ZhCN": "先启动 Ollama 并下载支持图片的模型，填写模型名称。本机连接只允许回环地址。",
+    "EnUS": "Start Ollama, download a vision model and enter its name. Local connections accept loopback addresses only."
+  },
+  {
+    "Key": "ocr.vision_hint",
+    "Module": "ocr",
+    "Description": "选择支持图片输入的模型。LM Studio 等本机服务可选通用协议与本机位置；云端连接必须使用 HTTPS。",
+    "ZhCN": "选择支持图片输入的模型。LM Studio 等本机服务可选通用协议与本机位置；云端连接必须使用 HTTPS。",
+    "EnUS": "Use a model that accepts images. For local services such as LM Studio, select the generic protocol and Local. Cloud connections require HTTPS."
+  },
+  {
+    "Key": "ocr.reset_required",
+    "Module": "ocr",
+    "Description": "现有图片识别连接配置不兼容。请点击“重建连接配置”后重新填写；无需重置历史数据库。",
+    "ZhCN": "现有图片识别连接配置不兼容。请点击“重建连接配置”后重新填写；无需重置历史数据库。",
+    "EnUS": "Existing connection settings are incompatible. Reset connection settings and configure them again. The history database does not need a reset."
+  },
+  {
+    "Key": "ocr.new_hint",
+    "Module": "ocr",
+    "Description": "可先测试当前参数，确认后再保存连接。",
+    "ZhCN": "可先测试当前参数，确认后再保存连接。",
+    "EnUS": "Test the current settings, then save the connection when ready."
+  },
+  {
+    "Key": "ocr.default_connection",
+    "Module": "ocr",
+    "Description": "默认",
+    "ZhCN": "默认",
+    "EnUS": "Default"
+  },
+  {
+    "Key": "ocr.discard_config",
+    "Module": "ocr",
+    "Description": "放弃尚未保存的连接修改？",
+    "ZhCN": "放弃尚未保存的连接修改？",
+    "EnUS": "Discard unsaved connection changes?"
+  },
+  {
+    "Key": "ocr.provider_changed",
+    "Module": "ocr",
+    "Description": "已应用该协议的默认参数，请检查地址、模型与密钥后保存。",
+    "ZhCN": "已应用该协议的默认参数，请检查地址、模型与密钥后保存。",
+    "EnUS": "Protocol defaults applied. Check the endpoint, model and key before saving."
+  },
+  {
+    "Key": "ocr.invalid_extra",
+    "Module": "ocr",
+    "Description": "附加参数必须是有效的 JSON 对象。",
+    "ZhCN": "附加参数必须是有效的 JSON 对象。",
+    "EnUS": "Extra parameters must be a valid JSON object."
+  },
+  {
+    "Key": "ocr.config_saved",
+    "Module": "ocr",
+    "Description": "连接已保存，可点击“测试连接”验收。",
+    "ZhCN": "连接已保存，可点击“测试连接”验收。",
+    "EnUS": "Connection saved. Use Test connection to verify it."
+  },
+  {
+    "Key": "ocr.delete_confirm",
+    "Module": "ocr",
+    "Description": "删除此连接及其保存的密钥？已有识别结果会保留。",
+    "ZhCN": "删除此连接及其保存的密钥？已有识别结果会保留。",
+    "EnUS": "Delete this connection and its saved key? Existing recognition results will be kept."
+  },
+  {
+    "Key": "ocr.reset_confirm",
+    "Module": "ocr",
+    "Description": "清除所有图片识别连接及其密钥，并重新配置？历史记录和识别结果会保留。",
+    "ZhCN": "清除所有图片识别连接及其密钥，并重新配置？历史记录和识别结果会保留。",
+    "EnUS": "Clear all recognition connections and their keys? History and recognition results will be kept."
+  },
+  {
+    "Key": "ocr.test_cloud_confirm",
+    "Module": "ocr",
+    "Description": "将内置的“ClipVault OCR TEST / 12345 ABC xyz”测试图片发往此云端连接，可能产生费用。继续？",
+    "ZhCN": "将内置的“ClipVault OCR TEST / 12345 ABC xyz”测试图片发往此云端连接，可能产生费用。继续？",
+    "EnUS": "Send the built-in “ClipVault OCR TEST / 12345 ABC xyz” image to this cloud connection? Charges may apply. Continue?"
+  },
+  {
+    "Key": "ocr.test_done",
+    "Module": "ocr",
+    "Description": "已收到识别结果。请与测试图片文字 ClipVault OCR TEST / 12345 ABC xyz 对照；测试不会写入历史或剪贴板。",
+    "ZhCN": "已收到识别结果。请与测试图片文字 ClipVault OCR TEST / 12345 ABC xyz 对照；测试不会写入历史或剪贴板。",
+    "EnUS": "Recognition result received. Compare it with ClipVault OCR TEST / 12345 ABC xyz. This test does not write to history or the clipboard."
+  },
+  {
+    "Key": "ocr.local_notice",
+    "Module": "ocr",
+    "Description": "图片仅发送到运行 ClipVault 的电脑上的本机服务。第三方软件的联网行为由该软件自身设置决定。",
+    "ZhCN": "图片仅发送到运行 ClipVault 的电脑上的本机服务。第三方软件的联网行为由该软件自身设置决定。",
+    "EnUS": "Images are sent to a local service on the computer running ClipVault. That service controls its own network behavior."
+  },
+  {
+    "Key": "ocr.no_connection",
+    "Module": "ocr",
+    "Description": "请先在图片识别设置中保存一个连接。",
+    "ZhCN": "请先在图片识别设置中保存一个连接。",
+    "EnUS": "Save a connection in recognition settings first."
+  },
+  {
+    "Key": "ocr.error.unsupported_provider",
+    "Module": "ocr",
+    "Description": "不支持的图片识别协议",
+    "ZhCN": "不支持的图片识别协议",
+    "EnUS": "Unsupported image recognition protocol."
+  },
+  {
+    "Key": "ocr.error.location_required",
+    "Module": "ocr",
+    "Description": "请选择云端或本机连接",
+    "ZhCN": "请选择云端或本机连接",
+    "EnUS": "Select a cloud or local connection."
+  },
+  {
+    "Key": "ocr.error.location_mismatch",
+    "Module": "ocr",
+    "Description": "识别协议与运行位置不匹配",
+    "ZhCN": "识别协议与运行位置不匹配",
+    "EnUS": "The protocol does not support this location."
+  },
+  {
+    "Key": "ocr.error.invalid_base_url",
+    "Module": "ocr",
+    "Description": "接口地址无效，不可包含账号、密钥、查询参数或片段",
+    "ZhCN": "接口地址无效，不可包含账号、密钥、查询参数或片段",
+    "EnUS": "Invalid base URL. Credentials, query parameters and fragments are not allowed."
+  },
+  {
+    "Key": "ocr.error.loopback_only",
+    "Module": "ocr",
+    "Description": "本机连接只允许 localhost 或回环 IP 地址",
+    "ZhCN": "本机连接只允许 localhost 或回环 IP 地址",
+    "EnUS": "Local connections only accept localhost or loopback IP addresses."
+  },
+  {
+    "Key": "ocr.error.local_scheme",
+    "Module": "ocr",
+    "Description": "本机接口必须使用 HTTP 或 HTTPS",
+    "ZhCN": "本机接口必须使用 HTTP 或 HTTPS",
+    "EnUS": "Local endpoints must use HTTP or HTTPS."
+  },
+  {
+    "Key": "ocr.error.cloud_https",
+    "Module": "ocr",
+    "Description": "云端接口必须使用 HTTPS",
+    "ZhCN": "云端接口必须使用 HTTPS",
+    "EnUS": "Cloud endpoints must use HTTPS."
+  },
+  {
+    "Key": "ocr.error.use_local",
+    "Module": "ocr",
+    "Description": "回环地址请使用本机连接",
+    "ZhCN": "回环地址请使用本机连接",
+    "EnUS": "Select Local for a loopback address."
+  },
+  {
+    "Key": "ocr.error.bailian_host",
+    "Module": "ocr",
+    "Description": "百炼连接仅支持阿里云百炼官方接口地址",
+    "ZhCN": "百炼连接仅支持阿里云百炼官方接口地址",
+    "EnUS": "Bailian connections only support official Alibaba Cloud Bailian endpoints."
+  },
+  {
+    "Key": "ocr.error.bailian_path",
+    "Module": "ocr",
+    "Description": "百炼接口路径必须为 /compatible-mode/v1",
+    "ZhCN": "百炼接口路径必须为 /compatible-mode/v1",
+    "EnUS": "The Bailian base path must be /compatible-mode/v1."
+  },
+  {
+    "Key": "ocr.error.request_path",
+    "Module": "ocr",
+    "Description": "请求路径必须是以 / 开头的路径，不含查询参数、编码或上级目录",
+    "ZhCN": "请求路径必须是以 / 开头的路径，不含查询参数、编码或上级目录",
+    "EnUS": "The request path must start with / and contain no query, encoding or parent directory."
+  },
+  {
+    "Key": "ocr.error.timeout",
+    "Module": "ocr",
+    "Description": "识别超时必须为 10–600 秒",
+    "ZhCN": "识别超时必须为 10–600 秒",
+    "EnUS": "Recognition timeout must be 10–600 seconds."
+  },
+  {
+    "Key": "ocr.error.max_tokens",
+    "Module": "ocr",
+    "Description": "输出上限必须为 256–32768 tokens",
+    "ZhCN": "输出上限必须为 256–32768 tokens",
+    "EnUS": "The output limit must be 256–32768 tokens."
+  },
+  {
+    "Key": "ocr.error.token_field",
+    "Module": "ocr",
+    "Description": "输出上限字段不受支持",
+    "ZhCN": "输出上限字段不受支持",
+    "EnUS": "Unsupported token limit field."
+  },
+  {
+    "Key": "ocr.error.model",
+    "Module": "ocr",
+    "Description": "请填写有效的模型标识",
+    "ZhCN": "请填写有效的模型标识",
+    "EnUS": "Enter a valid model identifier."
+  },
+  {
+    "Key": "ocr.error.prompt",
+    "Module": "ocr",
+    "Description": "请填写识别提示词，长度不能超过 8192 字节",
+    "ZhCN": "请填写识别提示词，长度不能超过 8192 字节",
+    "EnUS": "Enter a recognition prompt of no more than 8192 bytes."
+  },
+  {
+    "Key": "ocr.error.umi_config",
+    "Module": "ocr",
+    "Description": "Umi-OCR 不使用视觉模型名称或提示词",
+    "ZhCN": "Umi-OCR 不使用视觉模型名称或提示词",
+    "EnUS": "Umi-OCR does not use a vision model name or prompt."
+  },
+  {
+    "Key": "ocr.error.extra_size",
+    "Module": "ocr",
+    "Description": "附加参数必须是有效且不超过 8192 字节的 JSON 对象",
+    "ZhCN": "附加参数必须是有效且不超过 8192 字节的 JSON 对象",
+    "EnUS": "Extra parameters must be a valid JSON object of no more than 8192 bytes."
+  },
+  {
+    "Key": "ocr.error.extra_reserved",
+    "Module": "ocr",
+    "Description": "附加参数包含保留字段或无效值",
+    "ZhCN": "附加参数包含保留字段或无效值",
+    "EnUS": "Extra parameters contain a reserved field or invalid value."
+  },
+  {
+    "Key": "ocr.error.umi_options",
+    "Module": "ocr",
+    "Description": "Umi-OCR 仅支持语言、方向、边长和排版参数",
+    "ZhCN": "Umi-OCR 仅支持语言、方向、边长和排版参数",
+    "EnUS": "Umi-OCR only supports language, orientation, side length and layout parameters."
+  },
+  {
+    "Key": "ocr.error.key_format",
+    "Module": "ocr",
+    "Description": "API Key 格式无效",
+    "ZhCN": "API Key 格式无效",
+    "EnUS": "Invalid API key format."
+  },
+  {
+    "Key": "ocr.error.bailian_key",
+    "Module": "ocr",
+    "Description": "请先配置百炼 API Key",
+    "ZhCN": "请先配置百炼 API Key",
+    "EnUS": "Configure a Bailian API key first."
+  },
+  {
+    "Key": "ocr.error.local_target",
+    "Module": "ocr",
+    "Description": "本机连接拒绝非回环目标",
+    "ZhCN": "本机连接拒绝非回环目标",
+    "EnUS": "Local connections reject non-loopback destinations."
+  },
+  {
+    "Key": "ocr.error.image_size",
+    "Module": "ocr",
+    "Description": "图片大小超出识别限制",
+    "ZhCN": "图片大小超出识别限制",
+    "EnUS": "The image size exceeds the recognition limit."
+  },
+  {
+    "Key": "ocr.error.request_prepare",
+    "Module": "ocr",
+    "Description": "无法准备图片识别请求",
+    "ZhCN": "无法准备图片识别请求",
+    "EnUS": "Unable to prepare the recognition request."
+  },
+  {
+    "Key": "ocr.error.endpoint",
+    "Module": "ocr",
+    "Description": "图片识别接口地址无效",
+    "ZhCN": "图片识别接口地址无效",
+    "EnUS": "Invalid image recognition endpoint."
+  },
+  {
+    "Key": "ocr.error.network",
+    "Module": "ocr",
+    "Description": "图片识别请求中断或网络超时，请检查连接后重试",
+    "ZhCN": "图片识别请求中断或网络超时，请检查连接后重试",
+    "EnUS": "Recognition was interrupted or timed out. Check the connection and retry."
+  },
+  {
+    "Key": "ocr.error.response_size",
+    "Module": "ocr",
+    "Description": "图片识别响应过大或读取失败",
+    "ZhCN": "图片识别响应过大或读取失败",
+    "EnUS": "The recognition response is too large or could not be read."
+  },
+  {
+    "Key": "ocr.error.text_size",
+    "Module": "ocr",
+    "Description": "识别文字为空或超出长度限制",
+    "ZhCN": "识别文字为空或超出长度限制",
+    "EnUS": "Recognition text is empty or exceeds the length limit."
+  },
+  {
+    "Key": "ocr.error.chat_response",
+    "Module": "ocr",
+    "Description": "识别接口的响应不符合 Chat Completions 协议",
+    "ZhCN": "识别接口的响应不符合 Chat Completions 协议",
+    "EnUS": "The response does not conform to the Chat Completions protocol."
+  },
+  {
+    "Key": "ocr.error.incomplete",
+    "Module": "ocr",
+    "Description": "识别结果未完整生成或返回了非文本操作，请检查模型及输出上限",
+    "ZhCN": "识别结果未完整生成或返回了非文本操作，请检查模型及输出上限",
+    "EnUS": "The result is incomplete or contains non-text operations. Check the model and output limit."
+  },
+  {
+    "Key": "ocr.error.ollama_response",
+    "Module": "ocr",
+    "Description": "Ollama 返回无效结果，请检查视觉模型",
+    "ZhCN": "Ollama 返回无效结果，请检查视觉模型",
+    "EnUS": "Ollama returned an invalid result. Check the vision model."
+  },
+  {
+    "Key": "ocr.error.ollama_incomplete",
+    "Module": "ocr",
+    "Description": "Ollama 识别结果未完整生成或返回了非文本操作",
+    "ZhCN": "Ollama 识别结果未完整生成或返回了非文本操作",
+    "EnUS": "The Ollama result is incomplete or contains non-text operations."
+  },
+  {
+    "Key": "ocr.error.umi_response",
+    "Module": "ocr",
+    "Description": "Umi-OCR 返回无效结果",
+    "ZhCN": "Umi-OCR 返回无效结果",
+    "EnUS": "Umi-OCR returned an invalid result."
+  },
+  {
+    "Key": "ocr.error.umi_failed",
+    "Module": "ocr",
+    "Description": "Umi-OCR 识别失败，请检查本机服务和参数",
+    "ZhCN": "Umi-OCR 识别失败，请检查本机服务和参数",
+    "EnUS": "Umi-OCR recognition failed. Check the local service and parameters."
+  },
+  {
+    "Key": "ocr.error.umi_text",
+    "Module": "ocr",
+    "Description": "Umi-OCR 未返回纯文本结果",
+    "ZhCN": "Umi-OCR 未返回纯文本结果",
+    "EnUS": "Umi-OCR did not return plain text."
+  },
+  {
+    "Key": "ocr.error.jpeg_marker",
+    "Module": "ocr",
+    "Description": "JPEG 标记无效",
+    "ZhCN": "JPEG 标记无效",
+    "EnUS": "Invalid JPEG marker."
+  },
+  {
+    "Key": "ocr.error.jpeg_length",
+    "Module": "ocr",
+    "Description": "JPEG 元数据长度无效",
+    "ZhCN": "JPEG 元数据长度无效",
+    "EnUS": "Invalid JPEG metadata length."
+  },
+  {
+    "Key": "ocr.error.orientation_corrupt",
+    "Module": "ocr",
+    "Description": "照片方向元数据损坏",
+    "ZhCN": "照片方向元数据损坏",
+    "EnUS": "Image orientation metadata is corrupt."
+  },
+  {
+    "Key": "ocr.error.orientation_byte_order",
+    "Module": "ocr",
+    "Description": "照片方向字节序无效",
+    "ZhCN": "照片方向字节序无效",
+    "EnUS": "Invalid image orientation byte order."
+  },
+  {
+    "Key": "ocr.error.orientation_metadata",
+    "Module": "ocr",
+    "Description": "照片方向元数据无效",
+    "ZhCN": "照片方向元数据无效",
+    "EnUS": "Invalid image orientation metadata."
+  },
+  {
+    "Key": "ocr.error.orientation_offset",
+    "Module": "ocr",
+    "Description": "照片方向偏移无效",
+    "ZhCN": "照片方向偏移无效",
+    "EnUS": "Invalid image orientation offset."
+  },
+  {
+    "Key": "ocr.error.orientation_tag",
+    "Module": "ocr",
+    "Description": "照片方向标签不完整",
+    "ZhCN": "照片方向标签不完整",
+    "EnUS": "Incomplete image orientation tag."
+  },
+  {
+    "Key": "ocr.error.orientation_value",
+    "Module": "ocr",
+    "Description": "照片方向值无效",
+    "ZhCN": "照片方向值无效",
+    "EnUS": "Invalid image orientation value."
+  },
+  {
+    "Key": "ocr.error.input_size",
+    "Module": "ocr",
+    "Description": "图片超过 20 MiB，暂不支持识别",
+    "ZhCN": "图片超过 20 MiB，暂不支持识别",
+    "EnUS": "Images larger than 20 MiB are not supported."
+  },
+  {
+    "Key": "ocr.error.dimensions",
+    "Module": "ocr",
+    "Description": "图片无法解码或超过 1600 万像素，暂不支持识别",
+    "ZhCN": "图片无法解码或超过 1600 万像素，暂不支持识别",
+    "EnUS": "The image cannot be decoded or exceeds 16 million pixels."
+  },
+  {
+    "Key": "ocr.error.gif",
+    "Module": "ocr",
+    "Description": "暂不支持 GIF 识别，请选择一帧并另存为 PNG",
+    "ZhCN": "暂不支持 GIF 识别，请选择一帧并另存为 PNG",
+    "EnUS": "GIF recognition is not supported. Save a frame as PNG first."
+  },
+  {
+    "Key": "ocr.error.decode",
+    "Module": "ocr",
+    "Description": "图片解码失败",
+    "ZhCN": "图片解码失败",
+    "EnUS": "Failed to decode the image."
+  },
+  {
+    "Key": "ocr.error.encode",
+    "Module": "ocr",
+    "Description": "无法生成识别图片",
+    "ZhCN": "无法生成识别图片",
+    "EnUS": "Unable to prepare the image for recognition."
+  },
+  {
+    "Key": "ocr.error.output_size",
+    "Module": "ocr",
+    "Description": "转换后的图片超过 20 MiB，暂不支持识别",
+    "ZhCN": "转换后的图片超过 20 MiB，暂不支持识别",
+    "EnUS": "The converted image exceeds 20 MiB and is not supported."
+  },
+  {
+    "Key": "ocr.error.settings_incompatible",
+    "Module": "ocr",
+    "Description": "图片识别连接配置不兼容或已损坏，请在设置中重建连接配置；历史记录不受影响",
+    "ZhCN": "图片识别连接配置不兼容或已损坏，请在设置中重建连接配置；历史记录不受影响",
+    "EnUS": "Recognition connection settings are incompatible or damaged. Reset connection settings; history is unaffected."
+  },
+  {
+    "Key": "ocr.error.connection_changed",
+    "Module": "ocr",
+    "Description": "识别连接已变更，请重新打开识别窗口或重新读取设置",
+    "ZhCN": "识别连接已变更，请重新打开识别窗口或重新读取设置",
+    "EnUS": "The connection has changed. Reopen recognition or reload settings."
+  },
+  {
+    "Key": "ocr.error.select_connection",
+    "Module": "ocr",
+    "Description": "请选择已保存的识别连接",
+    "ZhCN": "请选择已保存的识别连接",
+    "EnUS": "Select a saved recognition connection."
+  },
+  {
+    "Key": "ocr.error.key_decrypt",
+    "Module": "ocr",
+    "Description": "无法解密 API Key，请重新填写",
+    "ZhCN": "无法解密 API Key，请重新填写",
+    "EnUS": "Unable to decrypt the API key. Enter it again."
+  },
+  {
+    "Key": "ocr.error.umi_busy",
+    "Module": "ocr",
+    "Description": "Umi-OCR 正在识别，请稍后重试",
+    "ZhCN": "Umi-OCR 正在识别，请稍后重试",
+    "EnUS": "Umi-OCR is busy. Retry later."
+  },
+  {
+    "Key": "ocr.error.image_path",
+    "Module": "ocr",
+    "Description": "图片路径无效",
+    "ZhCN": "图片路径无效",
+    "EnUS": "Invalid image path."
+  },
+  {
+    "Key": "ocr.error.image_file_list",
+    "Module": "ocr",
+    "Description": "图片文件列表无效",
+    "ZhCN": "图片文件列表无效",
+    "EnUS": "Invalid image file list."
+  },
+  {
+    "Key": "ocr.error.image_unavailable",
+    "Module": "ocr",
+    "Description": "图片文件不可用",
+    "ZhCN": "图片文件不可用",
+    "EnUS": "The image file is unavailable."
+  },
+  {
+    "Key": "ocr.error.image_regular",
+    "Module": "ocr",
+    "Description": "图片不是普通文件或超过 20 MiB",
+    "ZhCN": "图片不是普通文件或超过 20 MiB",
+    "EnUS": "The image is not a regular file or exceeds 20 MiB."
+  },
+  {
+    "Key": "ocr.error.image_read",
+    "Module": "ocr",
+    "Description": "图片读取失败或超过 20 MiB",
+    "ZhCN": "图片读取失败或超过 20 MiB",
+    "EnUS": "The image could not be read or exceeds 20 MiB."
+  },
+  {
+    "Key": "ocr.error.settings_read",
+    "Module": "ocr",
+    "Description": "无法读取识别连接配置",
+    "ZhCN": "无法读取识别连接配置",
+    "EnUS": "Unable to read recognition connection settings."
+  },
+  {
+    "Key": "ocr.error.settings_format",
+    "Module": "ocr",
+    "Description": "识别连接配置格式无效",
+    "ZhCN": "识别连接配置格式无效",
+    "EnUS": "Invalid recognition connection settings format."
+  },
+  {
+    "Key": "ocr.error.revision",
+    "Module": "ocr",
+    "Description": "配置已被修改，请重新读取后再保存",
+    "ZhCN": "配置已被修改，请重新读取后再保存",
+    "EnUS": "Settings have changed. Reload them before saving."
+  },
+  {
+    "Key": "ocr.error.settings_action",
+    "Module": "ocr",
+    "Description": "未知的连接配置操作",
+    "ZhCN": "未知的连接配置操作",
+    "EnUS": "Unknown connection settings action."
+  },
+  {
+    "Key": "ocr.error.connection_missing",
+    "Module": "ocr",
+    "Description": "识别连接不存在",
+    "ZhCN": "识别连接不存在",
+    "EnUS": "The recognition connection does not exist."
+  },
+  {
+    "Key": "ocr.error.active_delete",
+    "Module": "ocr",
+    "Description": "请先将其他连接设为默认，再删除此连接",
+    "ZhCN": "请先将其他连接设为默认，再删除此连接",
+    "EnUS": "Set another connection as default before deleting this one."
+  },
+  {
+    "Key": "ocr.error.settings_save",
+    "Module": "ocr",
+    "Description": "无法保存图片识别配置",
+    "ZhCN": "无法保存图片识别配置",
+    "EnUS": "Unable to save image recognition settings."
+  },
+  {
+    "Key": "ocr.error.settings_saved_read",
+    "Module": "ocr",
+    "Description": "无法读取已保存的图片识别配置",
+    "ZhCN": "无法读取已保存的图片识别配置",
+    "EnUS": "Unable to read saved recognition settings."
+  },
+  {
+    "Key": "ocr.error.name",
+    "Module": "ocr",
+    "Description": "连接名称不能为空或超过 128 字节",
+    "ZhCN": "连接名称不能为空或超过 128 字节",
+    "EnUS": "The connection name must contain 1–128 bytes."
+  },
+  {
+    "Key": "ocr.error.connection_reload",
+    "Module": "ocr",
+    "Description": "识别连接不存在，请重新读取配置",
+    "ZhCN": "识别连接不存在，请重新读取配置",
+    "EnUS": "The connection does not exist. Reload settings."
+  },
+  {
+    "Key": "ocr.error.connection_limit",
+    "Module": "ocr",
+    "Description": "最多保存 16 个识别连接",
+    "ZhCN": "最多保存 16 个识别连接",
+    "EnUS": "At most 16 recognition connections can be saved."
+  },
+  {
+    "Key": "ocr.error.key_target_changed",
+    "Module": "ocr",
+    "Description": "更换协议或接口地址时请重新填写 API Key，或明确清除原密钥",
+    "ZhCN": "更换协议或接口地址时请重新填写 API Key，或明确清除原密钥",
+    "EnUS": "When changing protocol or endpoint, enter the API key again or explicitly clear the saved key."
+  },
+  {
+    "Key": "ocr.error.key_protect",
+    "Module": "ocr",
+    "Description": "无法保护 API Key",
+    "ZhCN": "无法保护 API Key",
+    "EnUS": "Unable to protect the API key."
+  },
+  {
+    "Key": "ocr.error.settings_required",
+    "Module": "ocr",
+    "Description": "请在设置中重新配置图片识别连接",
+    "ZhCN": "请在设置中重新配置图片识别连接",
+    "EnUS": "Configure recognition connections again in settings."
+  },
+  {
+    "Key": "ocr.error.record_id",
+    "Module": "ocr",
+    "Description": "记录编号无效",
+    "ZhCN": "记录编号无效",
+    "EnUS": "Invalid record ID."
+  },
+  {
+    "Key": "ocr.error.select_image",
+    "Module": "ocr",
+    "Description": "请选择记录中的图片",
+    "ZhCN": "请选择记录中的图片",
+    "EnUS": "Select an image from this record."
+  },
+  {
+    "Key": "ocr.error.edit_format",
+    "Module": "ocr",
+    "Description": "识别文字格式无效或超出长度限制",
+    "ZhCN": "识别文字格式无效或超出长度限制",
+    "EnUS": "Recognition text is invalid or exceeds the length limit."
+  },
+  {
+    "Key": "ocr.error.recognize_first",
+    "Module": "ocr",
+    "Description": "请先识别这张图片",
+    "ZhCN": "请先识别这张图片",
+    "EnUS": "Recognize this image first."
+  },
+  {
+    "Key": "ocr.error.edit_save",
+    "Module": "ocr",
+    "Description": "保存失败，记录可能已删除或正在修改",
+    "ZhCN": "保存失败，记录可能已删除或正在修改",
+    "EnUS": "Save failed. The record may have been deleted or is being modified."
+  },
+  {
+    "Key": "ocr.error.no_copy_text",
+    "Module": "ocr",
+    "Description": "没有可复制的识别文字",
+    "ZhCN": "没有可复制的识别文字",
+    "EnUS": "No recognition text to copy."
+  },
+  {
+    "Key": "ocr.error.copy",
+    "Module": "ocr",
+    "Description": "复制识别结果失败",
+    "ZhCN": "复制识别结果失败",
+    "EnUS": "Failed to copy recognition text."
+  },
+  {
+    "Key": "ocr.error.request_format",
+    "Module": "ocr",
+    "Description": "识别请求格式无效",
+    "ZhCN": "识别请求格式无效",
+    "EnUS": "Invalid recognition request format."
+  },
+  {
+    "Key": "ocr.error.consent",
+    "Module": "ocr",
+    "Description": "请确认将所选图片发送到此云端接口进行识别",
+    "ZhCN": "请确认将所选图片发送到此云端接口进行识别",
+    "EnUS": "Confirm sending this image to the selected cloud endpoint."
+  },
+  {
+    "Key": "ocr.error.busy",
+    "Module": "ocr",
+    "Description": "已有识别任务进行中，请稍后查看结果",
+    "ZhCN": "已有识别任务进行中，请稍后查看结果",
+    "EnUS": "Recognition is already in progress. Check the result later."
+  },
+  {
+    "Key": "ocr.error.cache_read",
+    "Module": "ocr",
+    "Description": "无法读取图片识别缓存",
+    "ZhCN": "无法读取图片识别缓存",
+    "EnUS": "Unable to read the recognition cache."
+  },
+  {
+    "Key": "ocr.error.result_save",
+    "Module": "ocr",
+    "Description": "无法保存识别结果，记录可能已删除或正在修改",
+    "ZhCN": "无法保存识别结果，记录可能已删除或正在修改",
+    "EnUS": "Unable to save recognition results. The record may have been deleted or is being modified."
+  },
+  {
+    "Key": "ocr.error.test_format",
+    "Module": "ocr",
+    "Description": "测试请求格式无效",
+    "ZhCN": "测试请求格式无效",
+    "EnUS": "Invalid connection test request."
+  },
+  {
+    "Key": "ocr.error.test_consent",
+    "Module": "ocr",
+    "Description": "请确认将内置测试图片发送到此云端接口，可能产生费用",
+    "ZhCN": "请确认将内置测试图片发送到此云端接口，可能产生费用",
+    "EnUS": "Confirm sending the built-in test image to this cloud endpoint. Charges may apply."
+  },
+  {
+    "Key": "ocr.error.http_status",
+    "Module": "ocr",
+    "Description": "识别接口返回 HTTP {status}，请检查地址、协议、模型和凭据",
+    "ZhCN": "识别接口返回 HTTP {status}，请检查地址、协议、模型和凭据",
+    "EnUS": "The recognition endpoint returned HTTP {status}. Check the endpoint, protocol, model and credentials."
+  },
+  {
+    "Key": "ocr.error.failed",
+    "Module": "ocr",
+    "Description": "图片识别操作失败，请稍后重试",
+    "ZhCN": "图片识别操作失败，请稍后重试",
+    "EnUS": "Image recognition failed. Please retry later."
+  },
+  {
+    "Key": "ocr.menu",
+    "Module": "ocr",
+    "Description": "图片识别",
+    "ZhCN": "图片识别",
+    "EnUS": "Image recognition"
+  },
+  {
+    "Key": "ocr.page_desc",
+    "Module": "ocr",
+    "Description": "管理云端视觉模型与本机 OCR 连接，配置识别参数并测试。",
+    "ZhCN": "管理云端视觉模型与本机 OCR 连接，配置识别参数并测试。",
+    "EnUS": "Manage cloud vision models and local OCR connections, configure recognition and test connections."
+  },
+  {
+    "Key": "ocr.search_keywords",
+    "Module": "ocr",
+    "Description": "OCR · VLM · 百炼 · Umi-OCR · Ollama · API Key",
+    "ZhCN": "OCR · VLM · 百炼 · Umi-OCR · Ollama · API Key",
+    "EnUS": "OCR · VLM · Bailian · Umi-OCR · Ollama · API key"
+  },
+  {
+    "Key": "ocr.image_clipboard",
+    "Module": "ocr",
+    "Description": "剪贴板图片",
+    "ZhCN": "剪贴板图片",
+    "EnUS": "Clipboard image"
+  },
+  {
+    "Key": "ocr.image_file",
+    "Module": "ocr",
+    "Description": "图片文件 {number}",
+    "ZhCN": "图片文件 {number}",
+    "EnUS": "Image file {number}"
+  },
+  {
+    "Key": "ocr.image_embedded",
+    "Module": "ocr",
+    "Description": "内嵌图片 {number}",
+    "ZhCN": "内嵌图片 {number}",
+    "EnUS": "Embedded image {number}"
+  },
+  {
+    "Key": "selection.title",
+    "Module": "general",
+    "Description": "选区复制快捷键",
+    "ZhCN": "选区复制快捷键",
+    "EnUS": "Selection copy shortcuts"
+  },
+  {
+    "Key": "selection.description",
+    "Module": "general",
+    "Description": "在其他软件选中内容后，按全局快捷键复制，可同时收藏或标记敏感。请使用不与其他软件冲突的组合键；目标软件需支持 Ctrl+C，管理员窗口可能无法接收模拟按键。收藏和敏感操作需处于已激活且录制开启状态。最多 8 条。",
+    "ZhCN": "在其他软件选中内容后，按全局快捷键复制，可同时收藏或标记敏感。请使用不与其他软件冲突的组合键；目标软件需支持 Ctrl+C，管理员窗口可能无法接收模拟按键。收藏和敏感操作需处于已激活且录制开启状态。最多 8 条。",
+    "EnUS": "Select content in another app, then use a global shortcut to copy and optionally favorite or mark sensitive. Use an available key combination. The app must support Ctrl+C; elevated windows may block simulated input. Saving flags requires activation and recording. Up to 8 bindings."
+  },
+  {
+    "Key": "selection.add",
+    "Module": "general",
+    "Description": "添加快捷键",
+    "ZhCN": "添加快捷键",
+    "EnUS": "Add shortcut"
+  },
+  {
+    "Key": "selection.remove",
+    "Module": "general",
+    "Description": "删除",
+    "ZhCN": "删除",
+    "EnUS": "Remove"
+  },
+  {
+    "Key": "selection.action",
+    "Module": "general",
+    "Description": "执行动作",
+    "ZhCN": "执行动作",
+    "EnUS": "Action"
+  },
+  {
+    "Key": "selection.key",
+    "Module": "general",
+    "Description": "主键（字母、数字、F1–F24 或 Space）",
+    "ZhCN": "主键（字母、数字、F1–F24 或 Space）",
+    "EnUS": "Key (letter, digit, F1–F24 or Space)"
+  },
+  {
+    "Key": "selection.copy",
+    "Module": "general",
+    "Description": "复制",
+    "ZhCN": "复制",
+    "EnUS": "Copy"
+  },
+  {
+    "Key": "selection.favorite",
+    "Module": "general",
+    "Description": "复制并收藏",
+    "ZhCN": "复制并收藏",
+    "EnUS": "Copy and favorite"
+  },
+  {
+    "Key": "selection.sensitive",
+    "Module": "general",
+    "Description": "复制并标记敏感",
+    "ZhCN": "复制并标记敏感",
+    "EnUS": "Copy and mark sensitive"
+  },
+  {
+    "Key": "selection.favorite_sensitive",
+    "Module": "general",
+    "Description": "复制、收藏并标记敏感",
+    "ZhCN": "复制、收藏并标记敏感",
+    "EnUS": "Copy, favorite and mark sensitive"
+  },
+  {
+    "Key": "selection.invalid",
+    "Module": "general",
+    "Description": "请设置有效的修饰键和主键，且不能与其他快捷键重复或占用 Ctrl+C、Ctrl+X、Ctrl+V。",
+    "ZhCN": "请设置有效的修饰键和主键，且不能与其他快捷键重复或占用 Ctrl+C、Ctrl+X、Ctrl+V。",
+    "EnUS": "Choose a valid modifier and key. Avoid duplicate bindings and Ctrl+C, Ctrl+X or Ctrl+V."
+  },
+  {
+    "Key": "selection.failed",
+    "Module": "general",
+    "Description": "复制已取消：窗口已切换、按键发送失败或未收到新的剪贴板内容。未操作已有记录。",
+    "ZhCN": "复制已取消：窗口已切换、按键发送失败或未收到新的剪贴板内容。未操作已有记录。",
+    "EnUS": "Copy cancelled: focus changed, input failed or no new clipboard content arrived. Existing records were not modified."
+  },
+  {
+    "Key": "selection.unavailable",
+    "Module": "general",
+    "Description": "请先激活并开启录制，再使用复制并收藏或标记敏感。",
+    "ZhCN": "请先激活并开启录制，再使用复制并收藏或标记敏感。",
+    "EnUS": "Activate and enable recording before copying with favorite or sensitive flags."
+  },
+  {
+    "Key": "selection.saved",
+    "Module": "general",
+    "Description": "已复制并按快捷键设置保存。",
+    "ZhCN": "已复制并按快捷键设置保存。",
+    "EnUS": "Copied and saved with the configured flags."
+  },
+  {
+    "Key": "selection.capture_failed",
+    "Module": "general",
+    "Description": "本次复制内容未能保存，收藏或敏感标记未生效。",
+    "ZhCN": "本次复制内容未能保存，收藏或敏感标记未生效。",
+    "EnUS": "Could not save this copy; favorite or sensitive flags were not applied."
+  },
+  {
+    "Key": "config_field.selection_hotkeys",
+    "Module": "config_field",
+    "Description": "选区快捷键配置记录",
+    "ZhCN": "选区复制快捷键",
+    "EnUS": "Selection copy shortcuts"
+  },
+  {
+    "Key": "ocr.result_heading",
+    "Module": "ocr",
+    "Description": "识别结果",
+    "ZhCN": "识别结果",
+    "EnUS": "Recognized text"
+  },
+  {
+    "Key": "ocr.compare_original",
+    "Module": "ocr",
+    "Description": "对照原始识别",
+    "ZhCN": "对照原始识别",
+    "EnUS": "Compare original"
+  },
+  {
+    "Key": "ocr.hide_original",
+    "Module": "ocr",
+    "Description": "收起原文",
+    "ZhCN": "收起原文",
+    "EnUS": "Hide original"
+  },
+  {
+    "Key": "ocr.original_readonly",
+    "Module": "ocr",
+    "Description": "原始识别 · 只读",
+    "ZhCN": "原始识别 · 只读",
+    "EnUS": "Original recognition · Read only"
+  },
+  {
+    "Key": "ocr.edit_hint",
+    "Module": "ocr",
+    "Description": "可直接修改文字，改动后点击“保存修改”。原始识别内容会保留。",
+    "ZhCN": "可直接修改文字，改动后点击“保存修改”。原始识别内容会保留。",
+    "EnUS": "Edit the text, then choose Save edits. The original recognition is preserved."
+  },
+  {
+    "Key": "ocr.save_edits",
+    "Module": "ocr",
+    "Description": "保存修改",
+    "ZhCN": "保存修改",
+    "EnUS": "Save edits"
+  },
+  {
+    "Key": "ocr.unsaved_edits",
+    "Module": "ocr",
+    "Description": "有修改未保存",
+    "ZhCN": "有修改未保存",
+    "EnUS": "Unsaved edits"
+  },
+  {
+    "Key": "ocr.edits_saved",
+    "Module": "ocr",
+    "Description": "修改已保存",
+    "ZhCN": "修改已保存",
+    "EnUS": "Edits saved"
+  },
+  {
+    "Key": "ocr.auto_saved",
+    "Module": "ocr",
+    "Description": "识别结果已自动保存",
+    "ZhCN": "识别结果已自动保存",
+    "EnUS": "Recognition saved automatically"
+  },
+  {
+    "Key": "ocr.save_and_copy",
+    "Module": "ocr",
+    "Description": "保存并复制",
+    "ZhCN": "保存并复制",
+    "EnUS": "Save and copy"
+  },
+  {
+    "Key": "ocr.no_unsaved_edits",
+    "Module": "ocr",
+    "Description": "没有未保存的修改",
+    "ZhCN": "没有未保存的修改",
+    "EnUS": "No unsaved edits"
+  },
+  {
+    "Key": "ocr.test_draft_done",
+    "Module": "ocr",
+    "Description": "测试完成；当前参数尚未保存，点击“保存”后才会用于历史图片识别。",
+    "ZhCN": "测试完成；当前参数尚未保存，点击“保存”后才会用于历史图片识别。",
+    "EnUS": "Test complete. These settings are not saved yet. Choose Save to use them for history images."
+  },
+  {
+    "Key": "ocr.auto_title",
+    "Module": "ocr",
+    "Description": "自动识别",
+    "ZhCN": "自动识别",
+    "EnUS": "Automatic recognition"
+  },
+  {
+    "Key": "ocr.auto_enable",
+    "Module": "ocr",
+    "Description": "自动识别新采集的图片",
+    "ZhCN": "自动识别新采集的图片",
+    "EnUS": "Recognize newly captured images automatically"
+  },
+  {
+    "Key": "ocr.auto_hint",
+    "Module": "ocr",
+    "Description": "默认关闭。仅处理开启后新采集的截图、内嵌图片，跳过敏感记录和文件路径；不扫描历史，也不覆盖剪贴板。单任务排队，最多等待 32 条，每条最多 8 张；队列满时跳过，可在历史页手动识别。",
+    "ZhCN": "默认关闭。仅处理开启后新采集的截图、内嵌图片，跳过敏感记录和文件路径；不扫描历史，也不覆盖剪贴板。单任务排队，最多等待 32 条，每条最多 8 张；队列满时跳过，可在历史页手动识别。",
+    "EnUS": "Off by default. Processes new screenshots and embedded images only; skips sensitive records and file paths. Does not scan history or overwrite the clipboard. One task at a time, up to 32 queued records and 8 images per record. Overflow is skipped; use manual recognition in history."
+  },
+  {
+    "Key": "ocr.auto_cloud_consent",
+    "Module": "ocr",
+    "Description": "我同意将新采集的图片自动发送到上述云端连接，可能产生费用。",
+    "ZhCN": "我同意将新采集的图片自动发送到上述云端连接，可能产生费用。",
+    "EnUS": "I agree to automatically send newly captured images to the cloud connection above. Charges may apply."
+  },
+  {
+    "Key": "ocr.auto_target",
+    "Module": "ocr",
+    "Description": "使用已保存的默认连接：",
+    "ZhCN": "使用已保存的默认连接：",
+    "EnUS": "Saved default connection:"
+  },
+  {
+    "Key": "ocr.auto_no_connection",
+    "Module": "ocr",
+    "Description": "请先保存并设置默认识别连接。",
+    "ZhCN": "请先保存并设置默认识别连接。",
+    "EnUS": "Save and select a default recognition connection first."
+  },
+  {
+    "Key": "ocr.auto_save",
+    "Module": "ocr",
+    "Description": "保存自动识别设置",
+    "ZhCN": "保存自动识别设置",
+    "EnUS": "Save automatic recognition settings"
+  },
+  {
+    "Key": "ocr.auto_on",
+    "Module": "ocr",
+    "Description": "已开启，等待新图片。识别结果自动保存，可在历史页查看、修改或重试。",
+    "ZhCN": "已开启，等待新图片。识别结果自动保存，可在历史页查看、修改或重试。",
+    "EnUS": "Enabled, waiting for new images. Results are saved automatically; view, edit or retry in history."
+  },
+  {
+    "Key": "ocr.auto_off",
+    "Module": "ocr",
+    "Description": "已关闭，仍可在历史页手动识别。",
+    "ZhCN": "已关闭，仍可在历史页手动识别。",
+    "EnUS": "Disabled. Manual recognition remains available in history."
+  },
+  {
+    "Key": "ocr.auto_paused",
+    "Module": "ocr",
+    "Description": "已暂停：默认连接或参数已变更，请确认上方连接后重新保存此设置。",
+    "ZhCN": "已暂停：默认连接或参数已变更，请确认上方连接后重新保存此设置。",
+    "EnUS": "Paused: the default connection or its settings changed. Confirm the connection above and save this setting again."
+  },
+  {
+    "Key": "ocr.auto_unsaved",
+    "Module": "ocr",
+    "Description": "更改尚未保存。",
+    "ZhCN": "更改尚未保存。",
+    "EnUS": "Changes have not been saved."
+  },
+  {
+    "Key": "ocr.auto_save_connection",
+    "Module": "ocr",
+    "Description": "请先保存连接的修改，再开启自动识别。",
+    "ZhCN": "请先保存连接的修改，再开启自动识别。",
+    "EnUS": "Save the connection changes before enabling automatic recognition."
+  },
+  {
+    "Key": "ocr.error.auto_settings",
+    "Module": "ocr",
+    "Description": "自动识别设置格式不正确。",
+    "ZhCN": "自动识别设置格式不正确。",
+    "EnUS": "Invalid automatic recognition settings."
+  },
+  {
+    "Key": "ocr.error.auto_consent",
+    "Module": "ocr",
+    "Description": "开启云端自动识别前，请勾选自动发送图片的授权。",
+    "ZhCN": "开启云端自动识别前，请勾选自动发送图片的授权。",
+    "EnUS": "Authorize automatic image uploads before enabling cloud recognition."
+  }
 ]

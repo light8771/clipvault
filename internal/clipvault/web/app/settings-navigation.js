@@ -10,6 +10,7 @@ const SETTINGS_GROUPS = [
   { id: 'storage', titleKey: 'app.title.storage', descKey: 'settings_home.storage_desc' },
   { id: 'backup', titleKey: 'app.title.backup', descKey: 'settings_home.backup_desc' },
   { id: 'transfer', titleKey: 'app.title.transfer', descKey: 'settings_home.transfer_desc' },
+  { id: 'ocr', titleKey: 'ocr.menu', descKey: 'ocr.page_desc' },
   { id: 'service', titleKey: 'app.title.service', descKey: 'settings_home.service_desc' }
 ].map(group => ({ ...group, title: t(group.titleKey), desc: t(group.descKey) }));
 
@@ -38,7 +39,7 @@ function registerHomeSearch() {
         doc.querySelectorAll('.ssec').forEach(section => {
           let fsecTitle = '';
           let fsecID = section.id;
-          section.querySelectorAll('.fsec, .field-row, .export-item').forEach(node => {
+          section.querySelectorAll('.fsec, .field-row, .export-item, .ocr-config-field').forEach(node => {
             if (node.classList.contains('fsec')) {
               const title = node.querySelector('.fsec-title');
               fsecTitle = title ? title.textContent.trim() : '';

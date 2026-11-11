@@ -166,9 +166,10 @@ export function registerConfigEvents() {
     });
     // 固定占位开关：不限制行数时由 syncFixedPreviewState 禁用。
     document.getElementById('cfg-historyFixedPreview')?.addEventListener('change', previewHistoryPage);
-    // 首页设置搜索框不是配置项，输入不得触发自动保存。
+    // OCR 连接有独立保存接口；草稿输入不能保存通用配置或重注册快捷键。
+    // 首页设置搜索框也不是配置项，输入不得触发自动保存。
     const isExcluded = target => target === listenAddrEl || target === timeZoneEl
-      || target?.id === 'settingsSearch' || target?.type === 'file';
+      || target?.id === 'settingsSearch' || target?.type === 'file' || !!target?.closest('#s-ocr');
     settingsEl.addEventListener('input', e => {
       if (isExcluded(e.target)) return;
       app.scheduleConfigSave(800);

@@ -1,3 +1,4 @@
+import { openImageOCR } from './image-ocr.js';
 import { registerActions } from './actions.js';
 import { app } from './app-context.js';
 import { registerNotifications } from './notifications.js';
@@ -17,6 +18,7 @@ import { registerGroups } from './groups.js';
 import { registerHistoryLifecycle } from './history-lifecycle.js';
 
 registerActions({
+  'image-ocr': element => openImageOCR(Number(element.dataset.itemId)),
   'close-view-modal': () => app.closeModal(),
   'modal-copy': () => app.modalCopy(),
   'file-download': element => app.doDownload(Number(element.dataset.itemId), Number(element.dataset.fileIndex)),

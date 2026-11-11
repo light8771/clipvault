@@ -413,9 +413,10 @@ func (s *Store) NthIDInScopeAfter(ctx context.Context, scope ExportScope, after 
 // BackupWatermark 记录单个备份通道的进度。全量兜底按时间判定
 // （距 LastFullAt 超过配置天数），不再需要连续增量计数。
 type BackupWatermark struct {
-	LastItemID int64  `json:"lastItemId"` // 已备份到的最大记录 id
-	LastSentAt string `json:"lastSentAt"` // 最近一次成功备份时间（RFC3339）
-	LastFullAt string `json:"lastFullAt"` // 最近一次全量备份时间（RFC3339）
+	OCRRevision int64  `json:"ocrRevision"`
+	LastItemID  int64  `json:"lastItemId"` // 已备份到的最大记录 id
+	LastSentAt  string `json:"lastSentAt"` // 最近一次成功备份时间（RFC3339）
+	LastFullAt  string `json:"lastFullAt"` // 最近一次全量备份时间（RFC3339）
 }
 
 // GetBackupWatermark reads the watermark for the given backup kind ("dir" or "email").

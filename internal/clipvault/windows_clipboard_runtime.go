@@ -36,15 +36,16 @@ func newClipMailbox() *clipMailbox {
 }
 
 // put 覆盖尚未消费的旧通知，并唤醒唯一 worker。
-func (m *clipMailbox) put(ev clipEvent) {
+func (m *clipMailbox) put(ev clipEvent) (discardedSelection bool) {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		return
+		return ev.selectionAction != ""
 	}
 	if m.activeCancel != nil {
 		m.activeCancel(ErrClipboardSuperseded)
 	}
+	discardedSelection = m.hasValue && m.pending.selectionAction != ""
 	m.pending = ev
 	m.hasValue = true
 	m.mu.Unlock()
@@ -52,6 +53,7 @@ func (m *clipMailbox) put(ev clipEvent) {
 	case m.signal <- struct{}{}:
 	default:
 	}
+	return
 }
 
 func (m *clipMailbox) beginCapture() (context.Context, context.CancelFunc) {
@@ -143,7 +145,14 @@ func (r *WindowsRuntime) startClipWorker() {
 			mailbox.waitUntilSettled()
 			if ev, ok := mailbox.take(); ok {
 				ctx, finish := mailbox.beginCapture()
-				r.recorder.ProcessClipboardUpdate(ctx, ev.source, ev.sequence, ev.capturedAtMS)
+				saved := r.recorder.processClipboardUpdate(ctx, ev.source, ev.sequence, ev.capturedAtMS, ev.selectionAction)
+				if ev.selectionAction != "" {
+					key := "selection.saved"
+					if !saved {
+						key = "selection.capture_failed"
+					}
+					r.showNotification("ClipVault", r.i18nT(key, nil))
+				}
 				finish()
 			}
 			if mailbox.isClosedAndEmpty() {
@@ -183,7 +192,10 @@ func (r *WindowsRuntime) notifyClipboardSequence(source SourceInfo, sequence uin
 	if ev.sequence == 0 {
 		ev.source = SourceInfo{}
 	}
-	mailbox.put(ev)
+	ev.selectionAction = r.selectionActionForSequence(sequence)
+	if mailbox.put(ev) {
+		r.showNotification("ClipVault", r.i18nT("selection.capture_failed", nil))
+	}
 }
 
 func (r *WindowsRuntime) claimClipboardSequence(sequence uint32) bool {
@@ -236,6 +248,8 @@ func (r *WindowsRuntime) cleanup() {
 	hwnd := r.hwnd.Load()
 	r.unregisterHotkey()
 	r.unregisterSearchHotkey()
+	r.unregisterSelectionHotkeys()
+	r.cancelSelectionCopy()
 	procClipboardKillTimer.Call(hwnd, idClipboardPoll)
 	procRemoveClipboardFormatListener.Call(hwnd)
 	nid := r.notifyIconData()
@@ -296,7 +310,7 @@ func (r *WindowsRuntime) openQuickSearch() {
 func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
 	hwnd := r.hwnd.Load()
 	if hwnd != 0 && r.onMessageThread(hwnd) {
-		return r.applyHotkeyUpdate(&cfg.Hotkey, &cfg.SearchHotkey)
+		return r.applyHotkeyUpdate(&cfg.Hotkey, &cfg.SearchHotkey, cfg.SelectionHotkeys)
 	}
 	// Keep the single pending request slot from being overwritten if this
 	// method is ever called outside ConfigManager's serialized listener path.
@@ -307,6 +321,7 @@ func (r *WindowsRuntime) ReregisterHotkey(cfg Config) error {
 	r.hotkeyMu.Lock()
 	r.pendingHotkey = &cfg.Hotkey
 	r.pendingSearchHotkey = &cfg.SearchHotkey
+	r.pendingSelectionHotkeys = cfg.SelectionHotkeys
 	r.pendingHotkeyResult = resultCh
 	r.hotkeyMu.Unlock()
 	posted, _, postErr := procPostMessageW.Call(hwnd, wmReregisterHotkey, 0, 0)
@@ -331,6 +346,7 @@ func (r *WindowsRuntime) clearPendingHotkeyUpdate(resultCh chan error) {
 	}
 	r.pendingHotkey = nil
 	r.pendingSearchHotkey = nil
+	r.pendingSelectionHotkeys = nil
 	r.pendingHotkeyResult = nil
 }
 
@@ -345,7 +361,9 @@ func (r *WindowsRuntime) onMessageThread(hwnd uintptr) bool {
 }
 
 // applyHotkeyUpdate 在消息循环线程上执行快捷键重注册。
-func (r *WindowsRuntime) applyHotkeyUpdate(hk, shk *HotkeyConfig) error {
+func (r *WindowsRuntime) applyHotkeyUpdate(hk, shk *HotkeyConfig, selection []SelectionHotkey) error {
+	r.cancelSelectionCopy()
+	r.unregisterSelectionHotkeys()
 	r.unregisterHotkey()
 	r.unregisterSearchHotkey()
 	var registrationErrors []error
@@ -359,5 +377,6 @@ func (r *WindowsRuntime) applyHotkeyUpdate(hk, shk *HotkeyConfig) error {
 			registrationErrors = append(registrationErrors, err)
 		}
 	}
+	registrationErrors = append(registrationErrors, r.registerSelectionHotkeys(selection))
 	return errors.Join(registrationErrors...)
 }

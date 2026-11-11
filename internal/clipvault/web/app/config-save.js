@@ -47,6 +47,7 @@ export function registerConfigSave() {
       };
     }
     // 快捷键、图片捕获与弹窗配置只在录制与快捷键页收集与校验；其他页面保留当前值。
+    let selectionHotkeys = cur.selectionHotkeys;
     let hotkey = cur.hotkey, searchHotkey = cur.searchHotkey, image = cur.image, popup = cur.popup;
     if (has('cfg-hotkeyEnabled')) {
       const hkEnabled = document.getElementById('cfg-hotkeyEnabled').checked;
@@ -82,6 +83,8 @@ export function registerConfigSave() {
         app.toast(t('config.hotkey_conflict'), 'err');
         return null;
       }
+      selectionHotkeys = app.collectSelectionHotkeys([{ enabled: hkEnabled, modifiers: hkMods, key: hkKeyChar }, { enabled: shkEnabled, modifiers: shkMods, key: shkKeyChar }]);
+      if (selectionHotkeys === null) return null;
       // 弹窗三动作快捷键：仅 [Ctrl+][Shift+][Alt+]Enter，三者互不相同
       const popupKeyPattern = /^(?:(ctrl|shift|alt)\+){0,3}enter$/i;
       const popupKeys = ['cfg-popupKeyOpen', 'cfg-popupKeyRestore', 'cfg-popupKeyPaste'].map(id => (document.getElementById(id)?.value || '').trim());
@@ -188,6 +191,7 @@ export function registerConfigSave() {
       } : cur.security,
       hotkey,
       searchHotkey,
+      selectionHotkeys,
       image,
       popup,
       notifications,

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	currentXLSXVersion      = 9
+	currentXLSXVersion      = 10
 	xlsxManifestSheet       = "Manifest"
 	xlsxRecordsSheet        = "Records"
 	xlsxGroupsSheet         = "Groups"
@@ -34,7 +34,7 @@ const (
 var (
 	errXLSXSizeLimit         = errors.New("XLSX size limit exceeded")
 	xlsxManifestHeader       = []string{"app", "exportVersion"}
-	xlsxRecordsHeader        = []string{"id", "createdAt", "recordType", "kind", "format", "text", "byteLen", "charLen", "contentSha256", "consecutiveDuplicate", "metaJson", "starred", "sensitive", "eventCode", "eventFingerprint", "captureSequence", "captureStage", "captureAttempts", "eventFormats", "errorCategory", "sourceExeName", "sourceExePath", "sourceWindowTitle", "sourceAttribution", "content"}
+	xlsxRecordsHeader        = []string{"id", "createdAt", "recordType", "kind", "format", "text", "byteLen", "charLen", "contentSha256", "consecutiveDuplicate", "metaJson", "starred", "sensitive", "eventCode", "eventFingerprint", "captureSequence", "captureStage", "captureAttempts", "eventFormats", "errorCategory", "sourceExeName", "sourceExePath", "sourceWindowTitle", "sourceAttribution", "content", "ocr"}
 	xlsxGroupsHeader         = []string{"id", "name", "parentId", "createdAt"}
 	xlsxItemGroupsHeader     = []string{"itemId", "groupId"}
 	xlsxSensitiveRulesHeader = []string{"pattern"}
@@ -132,7 +132,7 @@ func (s *Store) WriteXLSXScope(ctx context.Context, scope ExportScope, dst io.Wr
 			strconv.Itoa(item.ByteLen), strconv.Itoa(item.CharLen), valueOrEmpty(item.ContentSHA256), strconv.FormatBool(item.ConsecutiveDuplicate), item.MetaJSON,
 			strconv.FormatBool(item.Starred), strconv.FormatBool(item.Sensitive), string(item.EventCode), item.EventFingerprint,
 			strconv.FormatUint(uint64(item.CaptureSequence), 10), item.CaptureStage, strconv.Itoa(item.CaptureAttempts), eventFormats, item.ErrorCategory,
-			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceAttribution, compositeJSONString(item.Content),
+			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceAttribution, compositeJSONString(item.Content), domain.OCRJSON(item.OCR),
 		}
 		if err := chunks.writeStreamRow(records, xlsxRecordsSheet, rowNumber, values); err != nil {
 			rows.Close()
@@ -336,7 +336,7 @@ func encodeExportXLSX(export *ExportData) ([]byte, error) {
 			strconv.Itoa(item.ByteLen), strconv.Itoa(item.CharLen), valueOrEmpty(item.ContentSHA256), strconv.FormatBool(item.ConsecutiveDuplicate), item.MetaJSON,
 			strconv.FormatBool(item.Starred), strconv.FormatBool(item.Sensitive), string(item.EventCode), item.EventFingerprint,
 			strconv.FormatUint(uint64(item.CaptureSequence), 10), item.CaptureStage, strconv.Itoa(item.CaptureAttempts), eventFormats, item.ErrorCategory,
-			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceAttribution, compositeJSONString(item.Content),
+			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, item.SourceAttribution, compositeJSONString(item.Content), domain.OCRJSON(item.OCR),
 		}
 		if err := chunks.writeRow(book, xlsxRecordsSheet, index+2, row); err != nil {
 			return nil, err

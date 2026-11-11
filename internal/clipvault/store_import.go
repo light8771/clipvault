@@ -112,8 +112,8 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 		}
 
 		var sb strings.Builder
-		sb.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution, content_json, content_types) VALUES `)
-		args := make([]any, 0, len(batch)*25)
+		sb.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution, content_json, content_types, ocr_json) VALUES `)
+		args := make([]any, 0, len(batch)*26)
 		for j, item := range batch {
 			item, err = rewriteImportedImageItem(item, prepared.storedPaths)
 			if err != nil {
@@ -122,7 +122,7 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 			if j > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 			contentTypes, err := historyContentTypesJSON(item.Format, item.Text, item.Content)
 			if err != nil {
 				return err
@@ -142,7 +142,7 @@ func (s *Store) importExportData(ctx context.Context, export ExportData) error {
 				item.ByteLen, item.CharLen, item.ContentSHA256, false, item.MetaJSON,
 				item.Starred, item.Sensitive, eventCode, eventFingerprint,
 				item.CaptureSequence, item.CaptureStage, item.CaptureAttempts, eventFormats, item.ErrorCategory,
-				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution, compositeJSONValue(item.Content), contentTypes,
+				item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution, compositeJSONValue(item.Content), contentTypes, domain.OCRJSON(item.OCR),
 			)
 		}
 		if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
@@ -293,6 +293,9 @@ func validateExportData(export ExportData) error {
 }
 
 func validateStoredHistoryItem(item StoredItem) error {
+	if err := domain.ValidateOCR(item.OCR, item.RecordType); err != nil {
+		return err
+	}
 	if item.ID <= 0 || item.CreatedAt.IsZero() || item.ByteLen < 0 || item.CharLen < 0 || !json.Valid([]byte(item.MetaJSON)) {
 		return fmt.Errorf("invalid item %d", item.ID)
 	}

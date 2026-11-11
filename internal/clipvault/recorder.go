@@ -18,11 +18,12 @@ import (
 // Recorder 保存可被检查的剪贴板状态。已经被新 sequence 覆盖的瞬态通知
 // 没有可恢复的内容，因此不会被伪装成用户可见的失败记录。
 type Recorder struct {
-	cfgMgr    *ConfigManager
-	store     *Store
-	state     *RuntimeState
-	logger    *DailyLogger
-	imagesDir string // 托管图片根目录（<DataDir>/images）；空 = 不落盘图片
+	onCaptured func(int64)
+	cfgMgr     *ConfigManager
+	store      *Store
+	state      *RuntimeState
+	logger     *DailyLogger
+	imagesDir  string // 托管图片根目录（<DataDir>/images）；空 = 不落盘图片
 
 	mu     sync.Mutex
 	filter *FilterEngine
@@ -109,6 +110,10 @@ func NewRecorder(cfgMgr *ConfigManager, store *Store, state *RuntimeState, logge
 // ProcessClipboardUpdate handles one cancellable capture task. The timestamp,
 // source and sequence were bound on the message thread; waits happen only here.
 func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo, sequence uint32, capturedAtMS int64) {
+	r.processClipboardUpdate(ctx, source, sequence, capturedAtMS, "")
+}
+
+func (r *Recorder) processClipboardUpdate(ctx context.Context, source SourceInfo, sequence uint32, capturedAtMS int64, action string) (saved bool) {
 	if capturedAtMS <= 0 {
 		capturedAtMS = time.Now().UnixMilli()
 	}
@@ -249,7 +254,9 @@ func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo
 		return
 	}
 
-	if err := r.store.Save(ctx, ClipboardItem{
+	starred, forceSensitive := selectionActionFlags(action)
+	sensitive = sensitive || forceSensitive
+	id, saveErr := r.store.saveWithID(ctx, ClipboardItem{
 		Content:           snapshot.Content,
 		CapturedAtMS:      capturedAtMS,
 		RecordType:        domain.HistoryRecordContent,
@@ -261,11 +268,13 @@ func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo
 		ContentSHA256:     snapshot.SHA256,
 		MetaJSON:          metaJSON,
 		Sensitive:         sensitive,
+		Starred:           starred,
 		SourceExeName:     snapshot.Source.ExeName,
 		SourceExePath:     snapshot.Source.ExePath,
 		SourceWindowTitle: snapshot.Source.WindowTitle,
 		SourceAttribution: normalizedSourceAttribution(snapshot.Source.Method),
-	}); err != nil {
+	})
+	if err := saveErr; err != nil {
 		if isSuperseded() {
 			recordSuperseded()
 			return
@@ -277,6 +286,9 @@ func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo
 		return
 	}
 	contentPersisted = true
+	if r.onCaptured != nil && (snapshot.Format == domain.FormatImageFile || (snapshot.Content != nil && containsString(snapshot.Content.Kinds, domain.KindImage))) {
+		r.onCaptured(id)
+	}
 
 	r.logger.Info("clipboard_saved", map[string]any{
 		"kind":      snapshot.Kind,
@@ -285,6 +297,7 @@ func (r *Recorder) ProcessClipboardUpdate(ctx context.Context, source SourceInfo
 		"byteLen":   snapshot.ByteLen,
 		"sensitive": sensitive,
 	})
+	return true
 }
 
 type diagnosticFieldProvider interface {
@@ -456,4 +469,11 @@ func hashString(s string) string {
 func hashBytes(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// setCaptureObserver 仅接收录制成功的新记录，不包括导入或恢复。
+func (r *Recorder) setCaptureObserver(fn func(int64)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onCaptured = fn
 }

@@ -501,13 +501,13 @@ func insertItemBatchTx(ctx context.Context, tx *sql.Tx, batch []StoredItem, idMa
 		return fmt.Errorf("query max id before batch: %w", err)
 	}
 	var query strings.Builder
-	query.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution, content_json, content_types) VALUES `)
-	args := make([]any, 0, len(batch)*25)
+	query.WriteString(`INSERT INTO clipboard_items (created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate, meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence, capture_stage, capture_attempts, event_formats, error_category, source_exe_name, source_exe_path, source_window_title, source_attribution, content_json, content_types, ocr_json) VALUES `)
+	args := make([]any, 0, len(batch)*26)
 	for index, item := range batch {
 		if index > 0 {
 			query.WriteByte(',')
 		}
-		query.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+		query.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 		contentTypes, err := historyContentTypesJSON(item.Format, item.Text, item.Content)
 		if err != nil {
 			return err
@@ -525,7 +525,7 @@ func insertItemBatchTx(ctx context.Context, tx *sql.Tx, batch []StoredItem, idMa
 			item.ByteLen, item.CharLen, item.ContentSHA256, false, item.MetaJSON, item.Starred, item.Sensitive,
 			eventCode, eventFingerprint, item.CaptureSequence, item.CaptureStage, item.CaptureAttempts,
 			eventFormats, item.ErrorCategory,
-			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution, compositeJSONValue(item.Content), contentTypes)
+			item.SourceExeName, item.SourceExePath, item.SourceWindowTitle, attribution, compositeJSONValue(item.Content), contentTypes, domain.OCRJSON(item.OCR))
 	}
 	if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
 		return fmt.Errorf("import items batch at offset %d: %w", offset, err)

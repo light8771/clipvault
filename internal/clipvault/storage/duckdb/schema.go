@@ -1,12 +1,13 @@
 package duckdb
 
-const SchemaVersion = "13"
+const SchemaVersion = "14"
 
 // SchemaIdentity pins the current schema. Content types are a derived search
 // projection generated uniformly for captures and imports. Other schemas are rejected.
-const SchemaIdentity = "clipvault.duckdb.v13.content-types"
+const SchemaIdentity = "clipvault.duckdb.v14.image-ocr"
 
 var SchemaStatements = []string{
+	`CREATE SEQUENCE seq_ocr_revision START 1`,
 	`CREATE SEQUENCE seq_clipboard_items START 1`,
 	`CREATE TABLE clipboard_items (
 		id BIGINT PRIMARY KEY DEFAULT nextval('seq_clipboard_items'),
@@ -21,6 +22,7 @@ var SchemaStatements = []string{
 		consecutive_duplicate BOOLEAN NOT NULL DEFAULT false,
 		meta_json JSON NOT NULL,
 		content_json JSON,
+		ocr_json JSON NOT NULL DEFAULT '[]' CHECK (json_type(ocr_json) = 'ARRAY'),
 		content_types JSON NOT NULL DEFAULT '[]' CHECK (json_type(content_types) = 'ARRAY'),
 		starred BOOLEAN NOT NULL DEFAULT false,
 		sensitive BOOLEAN NOT NULL DEFAULT false,

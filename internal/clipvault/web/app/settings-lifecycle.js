@@ -26,7 +26,7 @@ export function registerSettingsLifecycle() {
         return;
       }
     }
-    await Promise.all([app.loadSettings(), app.loadLicenseStatus(), app.loadGroups()]);
+    await Promise.all([app.loadSettings(), app.loadLicenseStatus(), app.loadGroups(), app.loadOCRSettings?.()]);
     if (document.getElementById('groupsPageTree')) await app.renderGroupsPage();
     if (app.loadSystemInfo) app.loadSystemInfo();
   };

@@ -23,24 +23,29 @@ const (
 )
 
 type SearchServer struct {
-	cfgMgr     *ConfigManager
-	store      *Store
-	state      *RuntimeState
-	logger     *DailyLogger
-	auth       *AuthManager
-	env        Environment
-	server     *http.Server
-	url        string
-	restartCh  chan struct{}
-	backup     *BackupService
-	csrfToken  string
-	license    *licensing.Manager
-	assetMu    sync.Mutex
-	recoveryMu sync.Mutex
-	startedAt  time.Time
-	dataAPI    *DataAPIService
-	mcp        *MCPService
-	i18n       *I18nService
+	autoOCR     *autoOCRWorker
+	ocrMu       sync.Mutex
+	ocrConfigMu sync.Mutex
+	ocrLocalMu  sync.Mutex
+	ocrTasks    map[int64]ocrTask
+	cfgMgr      *ConfigManager
+	store       *Store
+	state       *RuntimeState
+	logger      *DailyLogger
+	auth        *AuthManager
+	env         Environment
+	server      *http.Server
+	url         string
+	restartCh   chan struct{}
+	backup      *BackupService
+	csrfToken   string
+	license     *licensing.Manager
+	assetMu     sync.Mutex
+	recoveryMu  sync.Mutex
+	startedAt   time.Time
+	dataAPI     *DataAPIService
+	mcp         *MCPService
+	i18n        *I18nService
 }
 
 type freshSecondaryContextKey struct{}
@@ -85,7 +90,7 @@ func (s *SearchServer) Start() (string, error) {
 	mux.HandleFunc("GET /favicon.ico", s.handleBrandFavicon)
 	mux.HandleFunc("GET /brand/logo", s.handleBrandLogo)
 	mux.HandleFunc("GET /background/media", s.handleBackgroundMedia)
-	for _, asset := range []string{"/tokens.css", "/history.css", "/composite.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css", "/language.css"} {
+	for _, asset := range []string{"/ocr.css", "/tokens.css", "/history.css", "/composite.css", "/settings.css", "/settings-data-api.css", "/settings-mcp.css", "/modals.css", "/responsive.css", "/components.css", "/security.css", "/groups.css", "/mobile.css", "/source-apps.css", "/utilities.css", "/logs.css", "/language.css"} {
 		mux.HandleFunc("GET "+asset, s.handleStatic)
 	}
 	mux.HandleFunc("GET /theme-boot.css", s.handleThemeBootCSS)
@@ -114,6 +119,17 @@ func (s *SearchServer) Start() (string, error) {
 	api("PUT /api/v1/appearance/background", s.requireSecondary(s.handleBackgroundMediaUpload))
 	api("DELETE /api/v1/appearance/background", s.requireSecondary(s.handleBackgroundMediaReset))
 
+	api("GET /api/v1/ocr/auto", s.requireSecondary(s.handleOCRAuto))
+	api("PUT /api/v1/ocr/auto", s.requireSecondary(s.handleOCRAuto))
+	api("GET /api/v1/ocr/config", s.requireSecondary(s.handleOCRConfig))
+	api("PUT /api/v1/ocr/config", s.requireSecondary(s.handleOCRConfig))
+	api("DELETE /api/v1/ocr/config", s.requireSecondary(s.handleOCRConfig))
+	api("POST /api/v1/ocr/config", s.requireSecondary(s.handleOCRConfig))
+	api("GET /api/v1/ocr/connections", s.requireAuth(s.handleOCRConnections))
+	api("POST /api/v1/ocr/test", s.requireSecondary(s.handleOCRTest))
+	api("GET /api/v1/items/ocr", s.requireAuth(s.handleOCR))
+	api("POST /api/v1/items/ocr", s.requireAuth(s.handleOCR))
+	api("PATCH /api/v1/items/ocr", s.requireAuth(s.handleOCR))
 	api("GET /api/v1/items", s.requireAuth(s.handleSearch))
 	api("GET /api/v1/license", s.requireAuth(s.handleLicenseStatus))
 	api("GET /api/v1/license/machine", s.requireAuth(s.handleLicenseMachine))
@@ -247,6 +263,7 @@ func (s *SearchServer) Start() (string, error) {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
+	s.autoOCR = newAutoOCRWorker(s)
 	go func() {
 		if err := s.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.logger.Error("search_server_failed", err, map[string]any{"addr": cfg.Search.ListenAddr})
@@ -257,6 +274,9 @@ func (s *SearchServer) Start() (string, error) {
 }
 
 func (s *SearchServer) Close(ctx context.Context) error {
+	if s.autoOCR != nil {
+		s.autoOCR.stop()
+	}
 
 	if s.auth != nil {
 		s.auth.Close()

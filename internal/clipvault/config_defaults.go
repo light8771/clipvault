@@ -82,6 +82,7 @@ func DefaultConfig() Config {
 			LockSessionTimeout:    0,
 			SecondaryAuthTimeout:  0,
 		},
+		SelectionHotkeys: []SelectionHotkey{},
 		Hotkey: HotkeyConfig{
 			Enabled:   true,
 			Modifiers: 0x0002 | 0x0001,
@@ -140,6 +141,7 @@ func DefaultConfig() Config {
 // otherwise mostly a value type, but its maps and slices must not cross mutex or
 // callback boundaries by reference.
 func cloneConfig(cfg Config) Config {
+	cfg.SelectionHotkeys = slices.Clone(cfg.SelectionHotkeys)
 	if cfg.Source.ExeAliases != nil {
 		cfg.Source.ExeAliases = maps.Clone(cfg.Source.ExeAliases)
 	}

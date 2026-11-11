@@ -18,19 +18,20 @@ type Config struct {
 	Background BackgroundConfig `json:"background"`
 	// Appearance / Navigation / HistoryPage 按作用域拆分：
 	// 全局视觉、全局导航栏、历史页专属布局互不污染。
-	Appearance    AppearanceSettings  `json:"appearance"`
-	Navigation    NavigationSettings  `json:"navigation"`
-	HistoryPage   HistoryPageSettings `json:"historyPage"`
-	Search        SearchConfig        `json:"search"`
-	Sensitive     SensitiveConfig     `json:"sensitive"`
-	Autostart     AutostartConfig     `json:"autostart"`
-	Notifications NotificationConfig  `json:"notifications"`
-	Security      SecurityConfig      `json:"security"`
-	Hotkey        HotkeyConfig        `json:"hotkey"`
-	SearchHotkey  HotkeyConfig        `json:"searchHotkey"`
-	Image         ImageCaptureConfig  `json:"image"`
-	Popup         SearchPopupConfig   `json:"popup"`
-	Backup        BackupConfig        `json:"backup"`
+	Appearance       AppearanceSettings  `json:"appearance"`
+	Navigation       NavigationSettings  `json:"navigation"`
+	HistoryPage      HistoryPageSettings `json:"historyPage"`
+	Search           SearchConfig        `json:"search"`
+	Sensitive        SensitiveConfig     `json:"sensitive"`
+	Autostart        AutostartConfig     `json:"autostart"`
+	Notifications    NotificationConfig  `json:"notifications"`
+	Security         SecurityConfig      `json:"security"`
+	Hotkey           HotkeyConfig        `json:"hotkey"`
+	SearchHotkey     HotkeyConfig        `json:"searchHotkey"`
+	SelectionHotkeys []SelectionHotkey   `json:"selectionHotkeys"`
+	Image            ImageCaptureConfig  `json:"image"`
+	Popup            SearchPopupConfig   `json:"popup"`
+	Backup           BackupConfig        `json:"backup"`
 	// DataAPI 本地/局域网数据 API：供本机或 LAN 中的 AI/Agent/脚本
 	// 通过 HTTP + Bearer Token 只读访问 ClipVault 业务数据。
 	DataAPI ExternalServiceConfig `json:"dataApi"`
@@ -86,9 +87,12 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	top, err := requiredJSONObject(data, "config",
 		"version", "maxTextChars", "maxFileDropPaths", "recordSourceInfo", "source",
 		"brand", "background", "appearance", "navigation", "historyPage", "search", "sensitive", "autostart",
-		"notifications", "security", "hotkey", "searchHotkey", "image", "popup", "backup", "dataApi", "mcp", "ui")
+		"notifications", "security", "hotkey", "searchHotkey", "selectionHotkeys", "image", "popup", "backup", "dataApi", "mcp", "ui")
 	if err != nil {
 		return err
+	}
+	if string(top["selectionHotkeys"]) == "null" {
+		return fmt.Errorf("选区快捷键不能为 null")
 	}
 	objects := []struct {
 		field    string

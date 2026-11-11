@@ -85,8 +85,8 @@ instruction and overrides normal backwards-compatibility instincts.
 - Deleted routes must return **404, not redirects**: `/history`, `/settings/navigation`,
   `/index.html`, `/script.js`, older `/api/*` paths.
 - Unknown/legacy input is **rejected with a clear error**, never silently coerced.
-- Current versions: schema **v13** (`storage/duckdb/schema.go`, pinned by `schema_test.go`),
-  JSON/encrypted export **v10**, XLSX **v9**. There is no migration between any earlier version.
+- Current versions: schema **v14** (`storage/duckdb/schema.go`, pinned by `schema_test.go`),
+  JSON/encrypted export **v11**, XLSX **v10**. There is no migration between any earlier version.
 - Do not remove the existing **fail-closed** version checks. Prefer reporting "incompatible version"
   over quietly accepting data that could corrupt the user's database.
 

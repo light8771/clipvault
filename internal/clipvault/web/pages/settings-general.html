@@ -3,6 +3,7 @@
         <a class="amenu-anchor" href="#s-general-limits">{{T "general.limits"}}</a>
         <a class="amenu-anchor" href="#s-general-sources">{{T "general.sources"}}</a>
         <a class="amenu-anchor" href="#s-general-hotkeys">{{T "general.hotkeys"}}</a>
+        <a class="amenu-anchor" href="#s-general-selection">{{T "selection.title"}}</a>
         <a class="amenu-anchor" href="#s-general-image">{{T "general.image"}}</a>
         <a class="amenu-anchor" href="#s-general-popup">{{T "general.popup"}}</a>
       </div>
@@ -130,6 +131,15 @@
               <input type="text" id="cfg-searchHotkeyKey" class="field-input u-inline-5" placeholder="Space" maxlength="5" aria-describedby="searchHotkeyKeyHint">
             </div>
           </div>
+        </div>
+
+        <div class="fsec" id="s-general-selection">
+          <h3 class="fsec-title">{{T "selection.title"}}</h3>
+          <p class="fsec-desc">{{T "selection.description"}}</p>
+        </div>
+        <div class="ssec-fields">
+          <div id="selectionHotkeyRows"></div>
+          <div class="field-row"><button type="button" class="btn-export" id="selectionHotkeyAdd">{{T "selection.add"}}</button></div>
         </div>
 
         <div class="fsec" id="s-general-image">

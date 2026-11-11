@@ -243,6 +243,7 @@ func Run(env Environment) error {
 		gate.SetRecordURL(searchURL)
 	}
 
+	recorder.setCaptureObserver(searchServer.autoOCR.offer)
 	backup.Start()
 	runtime := NewWindowsRuntime(env, cfgMgr, logger, state, recorder, store, searchURL, licenseMgr)
 	runtime.SetI18nService(i18nSvc)
@@ -293,6 +294,7 @@ func Run(env Environment) error {
 				logger.Error("restart_search_failed", err, nil)
 				return fmt.Errorf("restart management server: %w", err)
 			}
+			recorder.setCaptureObserver(searchServer.autoOCR.offer)
 			runtime.SetSearchURL(searchURL)
 			logger.Info("restart_done", map[string]any{"searchURL": searchURL})
 			fmt.Printf("Web UI restarted: %s\n", searchURL)

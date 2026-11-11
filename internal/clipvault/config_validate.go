@@ -50,6 +50,9 @@ func validateConfig(cfg Config) error {
 		cfg.Hotkey.Modifiers == cfg.SearchHotkey.Modifiers && cfg.Hotkey.Key == cfg.SearchHotkey.Key {
 		return fmt.Errorf("hotkey and searchHotkey must not use the same key combination")
 	}
+	if err := validateSelectionHotkeys(cfg); err != nil {
+		return err
+	}
 	if cfg.Image.MaxBytes < minImageMaxBytes || cfg.Image.MaxBytes > maxImageMaxBytes {
 		return fmt.Errorf("image.maxBytes must be between %d and %d", minImageMaxBytes, maxImageMaxBytes)
 	}

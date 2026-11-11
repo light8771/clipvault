@@ -323,6 +323,8 @@ export function registerSettingsStorage() {
     });
     if (shkKey) shkKey.value = app.vkToDisplay(shk.key);
 
+    app.renderSelectionHotkeys(cfg.selectionHotkeys);
+
     // 图片捕获与弹窗行为
     const imageCfg = cfg.image || {};
     const imageEnabledEl = document.getElementById('cfg-imageEnabled');

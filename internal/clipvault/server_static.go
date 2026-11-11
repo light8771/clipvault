@@ -19,6 +19,8 @@ func (s *SearchServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 var applicationModuleAssets = []string{
+	"/app/selection-hotkeys.js",
+	"/app/image-ocr.js", "/app/ocr-settings.js",
 	"/app/history-files.js",
 	"/app/action-target.js", "/app/actions.js", "/app/app-context.js", "/app/appearance-background.js", "/app/appearance-form.js", "/app/appearance-loader.js", "/app/appearance-media.js", "/app/appearance-theme.js",
 	"/app/auth.js", "/app/cleanup-modal.js", "/app/config-events.js", "/app/config-save.js", "/app/groups.js", "/app/history-bootstrap.js",
@@ -138,6 +140,15 @@ var applicationPageDefinitions = []applicationPage{
 		Menu:      "settings",
 		Bootstrap: "/app/settings-bootstrap.js",
 		Parts:     settingsPageParts("web/pages/settings-transfer.html"),
+	},
+	{
+		Path:             "/settings/ocr",
+		Name:             "settings",
+		TitleKey:         "ocr.settings",
+		Menu:             "ocr",
+		Bootstrap:        "/app/settings-bootstrap.js",
+		RequireSecondary: true,
+		Parts:            settingsPageParts("web/pages/settings-ocr.html"),
 	},
 	{
 		Path:             "/settings/service",

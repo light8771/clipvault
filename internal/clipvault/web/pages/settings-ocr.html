@@ -1,0 +1,68 @@
+      <div class="amenu-sub">
+        <div class="amenu-sub-title">{{T "ocr.menu"}}</div>
+        <a class="amenu-anchor" href="#s-ocr">{{T "ocr.connection"}}</a>
+      </div>
+    </aside>
+    <div class="settings-main">
+      <header class="sd-head">
+        <nav class="sd-crumb" aria-label="{{T "settings.crumb_label"}}">
+          <a class="sd-crumb-link" href="/settings">{{T "menu.settings"}}</a>
+          <span class="sd-crumb-sep">/</span>
+          <span class="sd-crumb-current">{{T "ocr.menu"}}</span>
+        </nav>
+        <h1 class="sd-title">{{T "ocr.settings"}}</h1>
+        <p class="sd-desc">{{T "ocr.page_desc"}}</p>
+      </header>
+      <section class="ssec" id="s-ocr">
+        <div class="ssec-head"><div><h2 class="ssec-title">{{T "ocr.settings"}}</h2><p class="ssec-desc">{{T "ocr.cloud_notice"}}</p></div></div>
+        <div class="ssec-fields ocr-config-fields">
+          <div class="ocr-profile-toolbar">
+            <label class="ocr-config-field"><span class="field-label">{{T "ocr.connection"}}</span><select class="field-input" name="ocr-profile" disabled></select></label>
+            <div class="ocr-buttons"><button class="btn-export ocr-config-new" type="button" disabled>{{T "ocr.new_connection"}}</button><button class="btn-export ocr-config-delete" type="button" disabled>{{T "ocr.delete_connection"}}</button></div>
+          </div>
+          <fieldset class="ocr-profile-editor" disabled>
+            <div class="ocr-config-grid">
+              <label class="ocr-config-field"><span class="field-label">{{T "ocr.connection_name"}}</span><input class="field-input" name="ocr-name" maxlength="128"></label>
+              <label class="ocr-config-field"><span class="field-label">{{T "ocr.provider"}}</span><select class="field-input" name="ocr-provider"><option value="bailian">{{T "ocr.provider_bailian"}}</option><option value="chat-completions">{{T "ocr.provider_chat"}}</option><option value="ollama">Ollama</option><option value="umi-ocr">Umi-OCR</option></select></label>
+              <label class="ocr-config-field"><span class="field-label">{{T "ocr.location"}}</span><select class="field-input" name="ocr-location"><option value="cloud">{{T "ocr.cloud"}}</option><option value="local">{{T "ocr.local"}}</option></select></label>
+              <label class="ocr-config-field"><span class="field-label">{{T "ocr.model"}}</span><input class="field-input" name="ocr-model" maxlength="128"></label>
+            </div>
+            <label class="ocr-config-field"><span class="field-label">{{T "ocr.base_url"}}</span><input class="field-input" name="ocr-base" type="url"></label>
+            <p class="field-hint ocr-provider-hint"></p>
+            <label class="ocr-config-field"><span class="field-label">{{T "ocr.api_key"}}</span><input class="field-input" name="ocr-key" type="password" autocomplete="new-password" maxlength="4096" aria-describedby="ocrKeyHint"></label>
+            <label class="ocr-check"><input type="checkbox" name="ocr-clear"><span>{{T "ocr.clear_key"}}</span></label>
+            <p class="field-hint" id="ocrKeyHint">{{T "ocr.key_hint"}}</p>
+            <label class="ocr-check"><input type="checkbox" name="ocr-active"><span>{{T "ocr.make_active"}}</span></label>
+            <details class="ocr-advanced"><summary>{{T "ocr.advanced"}}</summary>
+              <p class="field-hint">{{T "ocr.advanced_hint"}}</p>
+              <div class="ocr-config-grid">
+                <label class="ocr-config-field"><span class="field-label">{{T "ocr.request_path"}}</span><input class="field-input" name="ocr-path" maxlength="512"></label>
+                <label class="ocr-config-field"><span class="field-label">{{T "ocr.timeout"}}</span><input class="field-input" name="ocr-timeout" type="number" min="10" max="600"></label>
+                <label class="ocr-config-field"><span class="field-label">{{T "ocr.max_tokens"}}</span><input class="field-input" name="ocr-tokens" type="number" min="256" max="32768"></label>
+                <label class="ocr-config-field"><span class="field-label">{{T "ocr.token_field"}}</span><select class="field-input" name="ocr-token-field"><option value="max_tokens">max_tokens</option><option value="max_completion_tokens">max_completion_tokens</option></select></label>
+              </div>
+              <label class="ocr-config-field"><span class="field-label">{{T "ocr.prompt"}}</span><textarea class="field-input" name="ocr-prompt" rows="6"></textarea></label>
+              <label class="ocr-config-field"><span class="field-label">{{T "ocr.extra"}}</span><textarea class="field-input" name="ocr-extra" rows="4" spellcheck="false"></textarea></label>
+            </details>
+          </fieldset>
+          <p class="ocr-status" role="status" aria-live="polite">{{T "common.loading"}}</p>
+          <pre class="ocr-test-result" hidden></pre>
+          <div class="ocr-buttons ocr-config-actions">
+            <button class="btn-export ocr-config-reset" type="button" hidden>{{T "ocr.reset_connections"}}</button>
+            <button class="btn-export ocr-config-load" type="button">{{T "ocr.load_config"}}</button>
+            <button class="btn-export ocr-config-test" type="button" disabled>{{T "ocr.test_connection"}}</button>
+            <button class="btn-export ocr-primary ocr-config-save" type="button" disabled>{{T "common.save"}}</button>
+          </div>
+          <div class="ocr-auto-settings">
+            <h3>{{T "ocr.auto_title"}}</h3>
+            <p class="field-hint">{{T "ocr.auto_hint"}}</p>
+            <p class="ocr-auto-target"></p>
+            <label class="ocr-check"><input type="checkbox" name="ocr-auto-enabled" disabled><span>{{T "ocr.auto_enable"}}</span></label>
+            <label class="ocr-check ocr-auto-consent" hidden><input type="checkbox" name="ocr-auto-consent"><span>{{T "ocr.auto_cloud_consent"}}</span></label>
+            <p class="ocr-auto-status" role="status" aria-live="polite">{{T "common.loading"}}</p>
+            <div class="ocr-buttons"><button type="button" class="btn-export ocr-auto-save" disabled>{{T "ocr.auto_save"}}</button></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>

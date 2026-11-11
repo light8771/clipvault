@@ -122,11 +122,13 @@ type WindowsRuntime struct {
 	hwnd      atomic.Uintptr
 	hIcon     atomic.Uintptr
 
-	hotkeyApplyMu       sync.Mutex
-	hotkeyMu            sync.Mutex
-	pendingHotkey       *HotkeyConfig
-	pendingSearchHotkey *HotkeyConfig
-	pendingHotkeyResult chan error
+	hotkeyApplyMu           sync.Mutex
+	hotkeyMu                sync.Mutex
+	pendingHotkey           *HotkeyConfig
+	pendingSearchHotkey     *HotkeyConfig
+	pendingSelectionHotkeys []SelectionHotkey
+	selectionCopy           *selectionCopyRequest
+	pendingHotkeyResult     chan error
 
 	// 剪贴板事件由单个 worker goroutine 串行消费；邮箱只保留尚未读取的
 	// 最新 sequence，因为旧 sequence 的内容在系统剪贴板中已不可恢复。
@@ -148,9 +150,10 @@ type WindowsRuntime struct {
 // （此时前台窗口还是复制动作的来源进程，事件时间也不会被 worker 拥塞污染）；
 // 启动补捕事件使用剪贴板所有者进程。
 type clipEvent struct {
-	source       SourceInfo
-	sequence     uint32
-	capturedAtMS int64
+	source          SourceInfo
+	sequence        uint32
+	capturedAtMS    int64
+	selectionAction string
 }
 
 // suppressClipboardSequencesThrough 把内部恢复产生的剪贴板序列纳入抑制水位。
@@ -343,6 +346,7 @@ func (r *WindowsRuntime) Run() error {
 	}
 	r.registerHotkey()
 	r.registerSearchHotkey()
+	r.registerSelectionHotkeys(r.cfgMgr.Get().SelectionHotkeys)
 	r.state.OnPauseChange(func(paused bool) {
 		r.updateTrayIcon()
 		r.showPauseNotification(paused)
@@ -387,6 +391,10 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmRuntimeTimer:
+		if r != nil && wParam == idSelectionCopyTimer {
+			r.advanceSelectionCopy()
+			return 0
+		}
 		if r != nil && wParam == idClipboardPoll {
 			r.pollClipboardUpdate()
 			return 0
@@ -417,6 +425,10 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 				r.logger.Info("pause_toggled", map[string]any{"paused": paused, "source": "hotkey"})
 			case idHotkeySearch:
 				r.openQuickSearch()
+			default:
+				if wParam >= idSelectionHotkeyBase && wParam < idSelectionHotkeyBase+maxSelectionHotkeys {
+					r.beginSelectionCopy(int(wParam) - idSelectionHotkeyBase)
+				}
 			}
 		}
 		return 0
@@ -425,13 +437,15 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			r.hotkeyMu.Lock()
 			hk := r.pendingHotkey
 			shk := r.pendingSearchHotkey
+			selection := r.pendingSelectionHotkeys
 			resultCh := r.pendingHotkeyResult
 			r.pendingHotkey = nil
 			r.pendingSearchHotkey = nil
+			r.pendingSelectionHotkeys = nil
 			r.pendingHotkeyResult = nil
 			r.hotkeyMu.Unlock()
 			if resultCh != nil {
-				resultCh <- r.applyHotkeyUpdate(hk, shk)
+				resultCh <- r.applyHotkeyUpdate(hk, shk, selection)
 			}
 		}
 		return 0

@@ -95,6 +95,7 @@ func (s *SearchServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 			// 旁信道（例如"来自密码管理器的 24 字符记录"本身即泄露）。
 			items[i].Text = s.i18nT("api.error.sensitive_placeholder", nil)
 			items[i].Content = nil
+			items[i].OCR = nil
 			items[i].MetaJSON = ""
 			items[i].ContentSHA256 = nil
 			items[i].Format = ""

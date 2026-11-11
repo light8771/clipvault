@@ -269,20 +269,26 @@ func pasteShortcutKeysDown() bool {
 	return false
 }
 
-func sendPasteInput() error {
-	inputs := [4]keybdInput{
+func sendPasteInput() error { return sendShortcutInput(vkV) }
+
+func shortcutKeyboardInputs(key uint16) [4]keybdInput {
+	return [4]keybdInput{
 		{Type: inputKeyboard, Vk: vkControl},
-		{Type: inputKeyboard, Vk: vkV},
-		{Type: inputKeyboard, Vk: vkV, Flags: keyEventFKeyUp},
+		{Type: inputKeyboard, Vk: key},
+		{Type: inputKeyboard, Vk: key, Flags: keyEventFKeyUp},
 		{Type: inputKeyboard, Vk: vkControl, Flags: keyEventFKeyUp},
 	}
+}
+
+func sendShortcutInput(key uint16) error {
+	inputs := shortcutKeyboardInputs(key)
 	sent, _, sendErr := procSendInput.Call(
 		uintptr(len(inputs)),
 		uintptr(unsafe.Pointer(&inputs[0])),
 		unsafe.Sizeof(inputs[0]),
 	)
 	if sent != uintptr(len(inputs)) {
-		// A partial insertion can leave our Ctrl/V down. Release only keys
+		// A partial insertion can leave our injected keys down. Release only keys
 		// from the inserted prefix, without retrying the paste itself.
 		if sent > 0 {
 			release := inputs[2:]

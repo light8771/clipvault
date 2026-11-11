@@ -21,12 +21,17 @@ const maxBackupHistoryErrorRunes = 500
 // （item.CapturedAtMS，Unix 毫秒）；<=0 时回退为当前时间。
 // 数据库写入时间永远不被当作剪贴板事件时间。
 func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
+	_, err := s.saveWithID(ctx, item)
+	return err
+}
+
+func (s *Store) saveWithID(ctx context.Context, item ClipboardItem) (int64, error) {
 	switch item.SourceAttribution {
 	case "":
 		item.SourceAttribution = "unknown"
 	default:
 		if !validSourceAttribution(item.SourceAttribution) {
-			return fmt.Errorf("invalid source attribution %q", item.SourceAttribution)
+			return 0, fmt.Errorf("invalid source attribution %q", item.SourceAttribution)
 		}
 	}
 	var contentHash any
@@ -37,37 +42,37 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 	switch item.RecordType {
 	case domain.HistoryRecordContent:
 		if strings.IndexByte(item.Text, 0) >= 0 {
-			return errors.New("clipboard content must not contain an embedded NUL")
+			return 0, errors.New("clipboard content must not contain an embedded NUL")
 		}
 		if !domain.ValidContentKindFormat(item.Kind, item.Format) || item.EventCode != "" ||
 			item.CaptureSequence != 0 || item.CaptureStage != "" || item.CaptureAttempts != 0 ||
 			len(item.EventFormats) != 0 || item.ErrorCategory != "" {
-			return fmt.Errorf("invalid content record kind=%q format=%q", item.Kind, item.Format)
+			return 0, fmt.Errorf("invalid content record kind=%q format=%q", item.Kind, item.Format)
 		}
 		if item.Format == domain.FormatComposite {
 			text, size, err := validateComposite(item.Content)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			if text != item.Text {
-				return errors.New("composite search text mismatch")
+				return 0, errors.New("composite search text mismatch")
 			}
 			byteLen, charLen = size, textRuneLen(text)
 			contentHashValue = compositeFingerprint(item.Content)
 		} else if item.Content != nil {
-			return errors.New("atomic content cannot contain a composite package")
+			return 0, errors.New("atomic content cannot contain a composite package")
 		} else if item.Format == domain.FormatImageFile {
 			if item.ByteLen <= 0 || item.CharLen != 0 {
-				return errors.New("managed image requires a positive byte length and zero character length")
+				return 0, errors.New("managed image requires a positive byte length and zero character length")
 			}
 			if err := validateManagedImageStoredPath(item.Text); err != nil {
-				return fmt.Errorf("invalid managed image path: %w", err)
+				return 0, fmt.Errorf("invalid managed image path: %w", err)
 			}
 			byteLen = item.ByteLen
 			charLen = 0
 			contentHashValue = item.ContentSHA256
 			if contentHashValue == "" {
-				return errors.New("managed image requires content_sha256")
+				return 0, errors.New("managed image requires content_sha256")
 			}
 		} else {
 			byteLen = len([]byte(item.Text))
@@ -75,34 +80,34 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 			contentHashValue = hashString(item.Text)
 		}
 		if item.ContentSHA256 != "" && item.ContentSHA256 != contentHashValue {
-			return errors.New("content_sha256 does not match content")
+			return 0, errors.New("content_sha256 does not match content")
 		}
 		if !validContentSHA256(contentHashValue) {
-			return errors.New("content_sha256 must be a lowercase SHA-256 digest")
+			return 0, errors.New("content_sha256 must be a lowercase SHA-256 digest")
 		}
 		contentHash = contentHashValue
 	case domain.HistoryRecordEvent:
 		if item.Content != nil {
-			return errors.New("event cannot contain a composite package")
+			return 0, errors.New("event cannot contain a composite package")
 		}
 		if !domain.ValidEventCode(item.EventCode) {
-			return fmt.Errorf("invalid event record code=%q", item.EventCode)
+			return 0, fmt.Errorf("invalid event record code=%q", item.EventCode)
 		}
 		if item.Kind != "" || item.Format != "" || item.Text != "" || item.ContentSHA256 != "" ||
 			item.Starred || item.Sensitive || item.CaptureAttempts < 0 {
-			return errors.New("event record has invalid content state or capture attempts")
+			return 0, errors.New("event record has invalid content state or capture attempts")
 		}
 		contentHash = nil
 		eventCode = string(item.EventCode)
 		eventFingerprint = buildEventFingerprintFromInfo(item.EventCode, item.EventFormats,
 			item.CaptureStage, item.ErrorCategory, item.SourceExeName)
 	default:
-		return fmt.Errorf("invalid record type %q", item.RecordType)
+		return 0, fmt.Errorf("invalid record type %q", item.RecordType)
 	}
 	if item.MetaJSON == "" {
 		item.MetaJSON = "{}"
 	} else if !json.Valid([]byte(item.MetaJSON)) {
-		return errors.New("meta_json must be valid JSON")
+		return 0, errors.New("meta_json must be valid JSON")
 	}
 	eventFormatsJSON := encodeClipboardFormats(item.EventFormats)
 	capturedAtMS := item.CapturedAtMS
@@ -111,7 +116,7 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 
@@ -126,24 +131,25 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		case errors.Is(err, sql.ErrNoRows):
 			err = nil
 		default:
-			return err
+			return 0, err
 		}
 	}
 
 	contentTypes, err := historyContentTypesJSON(item.Format, item.Text, item.Content)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	contentJSON, err := encodeComposite(item.Content)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO clipboard_items
+	var id int64
+	err = tx.QueryRowContext(ctx, `INSERT INTO clipboard_items
 		(created_at, record_type, kind, format, text, byte_len, char_len, content_sha256, consecutive_duplicate,
 		 meta_json, starred, sensitive, event_code, event_fingerprint, capture_sequence,
 		 capture_stage, capture_attempts, event_formats, error_category,
 		 source_exe_name, source_exe_path, source_window_title, source_attribution, content_json, content_types)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 		capturedAtMS,
 		item.RecordType,
 		item.Kind,
@@ -169,11 +175,14 @@ func (s *Store) Save(ctx context.Context, item ClipboardItem) error {
 		item.SourceAttribution,
 		contentJSON,
 		contentTypes,
-	)
+	).Scan(&id)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func validContentSHA256(value string) bool {

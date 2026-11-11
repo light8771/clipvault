@@ -118,13 +118,13 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) ([]StoredItem, i
 		// 否则搜索 "clipvault"、"png" 等关键词会误命中所有图片记录；
 		// 图片仍可通过 kind（类型）、content_sha256（哈希）与分组名检索。
 		// 注：最外层右括号由下方统一追加（别名 OR 条件也在该分组内）。
-		cond := `((text ILIKE ? ESCAPE '\' AND format <> 'CLIPVAULT_IMAGE_FILE') ` +
+		cond := `(EXISTS (SELECT 1 FROM json_each(clipboard_items.ocr_json) o WHERE COALESCE(json_extract_string(o.value, '$.edited'), json_extract_string(o.value, '$.original')) ILIKE ? ESCAPE '\') OR (text ILIKE ? ESCAPE '\' AND format <> 'CLIPVAULT_IMAGE_FILE') ` +
 			`OR kind ILIKE ? ESCAPE '\' OR COALESCE(content_sha256, '') ILIKE ? ESCAPE '\' ` +
 			`OR (format ILIKE ? ESCAPE '\' AND format NOT LIKE 'CLIPVAULT\_%' ESCAPE '\') ` +
 			`OR event_code ILIKE ? ESCAPE '\' OR (meta_json ILIKE ? ESCAPE '\' AND format <> 'CLIPVAULT_IMAGE_FILE') ` +
 			`OR EXISTS (SELECT 1 FROM item_groups ig JOIN groups g ON g.id = ig.group_id ` +
 			`WHERE ig.item_id = clipboard_items.id AND g.name ILIKE ? ESCAPE '\')`
-		args = append(args, like, like, like, like, like, like, like)
+		args = append(args, like, like, like, like, like, like, like, like)
 		for _, raw := range aliasRaw {
 			cond += ` OR source_exe_name = ?`
 			args = append(args, raw)

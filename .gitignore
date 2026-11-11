@@ -70,3 +70,6 @@ clipvault.state
 portable.flag
 __pycache__/
 *.pyc
+
+# 本地开发计划与内部验收记录
+/specs/image-ocr/
